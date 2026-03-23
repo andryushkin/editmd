@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -17,9 +17,11 @@
 		36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */; };
 		3E483A036C489B19FC7CE13B /* MarkdownHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73443608878228D727F6A239 /* MarkdownHighlighter.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
+		8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */; };
 		8F82A47B4BB230F68A0480E8 /* MarkdownEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A521B8154671E627BCFA7454 /* MarkdownEditorView.swift */; };
 		B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFAB2E84EB730567221C4320 /* AppDelegate.swift */; };
 		DB490D4FE279C4551AFF0CAA /* MarkdownHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */; };
+		E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FF3BD17201E239817B79BA /* EditMDApp.swift */; };
 		ED3F58F1C744B0A9E4947E7B /* EditorFontSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7AC06CD2122D346D468B73 /* EditorFontSettings.swift */; };
 /* End PBXBuildFile section */
 
@@ -37,6 +39,7 @@
 		437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewView.swift; sourceTree = "<group>"; };
 		55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighterTests.swift; sourceTree = "<group>"; };
 		55BF243CAFB6D753E1028AFC /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
+		56FF3BD17201E239817B79BA /* EditMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMDApp.swift; sourceTree = "<group>"; };
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
 		703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpersTests.swift; sourceTree = "<group>"; };
 		73443608878228D727F6A239 /* MarkdownHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighter.swift; sourceTree = "<group>"; };
@@ -46,6 +49,7 @@
 		B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EditMDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC7AC06CD2122D346D468B73 /* EditorFontSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFontSettings.swift; sourceTree = "<group>"; };
 		CFAB2E84EB730567221C4320 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMenuTests.swift; sourceTree = "<group>"; };
 		E850FC83B54D176ECFED7A58 /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -134,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				CFAB2E84EB730567221C4320 /* AppDelegate.swift */,
+				56FF3BD17201E239817B79BA /* EditMDApp.swift */,
 				86F9ED453EE48ACB9CABC905 /* Info.plist */,
 			);
 			path = App;
@@ -142,6 +147,7 @@
 		BB2D9D688B6394A586DDEF3F /* EditMDTests */ = {
 			isa = PBXGroup;
 			children = (
+				DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */,
 				703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */,
 				55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */,
 			);
@@ -205,7 +211,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A83F4158108B6E92D2C81AB7 = {
 						DevelopmentTeam = "";
@@ -227,6 +233,7 @@
 				2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */,
 				9A37EAF2E377AC70901CCB37 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -241,6 +248,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */,
 				29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */,
 				DB490D4FE279C4551AFF0CAA /* MarkdownHighlighterTests.swift in Sources */,
 			);
@@ -251,6 +259,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */,
+				E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */,
 				ED3F58F1C744B0A9E4947E7B /* EditorFontSettings.swift in Sources */,
 				20CAB289D9FA8A84DAF9A921 /* EditorViewController.swift in Sources */,
 				067835DEDC719DB7AB5319F4 /* EditorWindowController.swift in Sources */,
@@ -278,7 +287,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -299,7 +307,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -349,11 +356,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -367,7 +372,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -408,11 +412,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -433,7 +435,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -446,7 +447,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -469,7 +469,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;

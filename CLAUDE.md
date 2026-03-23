@@ -2,28 +2,26 @@
 
 ## Overview
 
-Минималистичный Markdown редактор для macOS. AppKit (NSDocument) + SwiftUI Preview.
+Минималистичный Markdown редактор для macOS. SwiftUI App lifecycle + AppKit (NSDocument, NSTextView).
 Два режима: Edit (NSTextView) / Preview (swift-markdown-ui).
+Меню — через SwiftUI `.commands` в `EditMDApp.swift`.
 
 ## Project Structure
 
 ```
 editmd/
-├── docs/           # Планы и документация (plan-v2.md)
-├── research/
-│   ├── MarkEdit/     # Референс: CodeMirror 6 + WKWebView архитектура
-│   └── CodeEdit/     # Референс: TextKit 2 + CodeEditSourceEditor
 └── EditMD/
     ├── project.yml   # xcodegen конфиг — ЕДИНСТВЕННЫЙ источник структуры проекта
     ├── EditMD.xcodeproj/
     └── EditMD/
-        ├── App/        AppDelegate.swift, Info.plist
+        ├── App/        EditMDApp.swift (entry point, SwiftUI commands), AppDelegate.swift, Info.plist
         ├── Document/   MarkdownDocument.swift
         ├── Editor/     EditorWindowController.swift, EditorViewController.swift, MarkdownHighlighter.swift, FormattingHelpers.swift
         └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
-        └── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
+        ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
+        └── EditMenuTests.swift             # 6 XCTest кейсов для toolbar items
 ```
 
 ## Build
@@ -97,6 +95,13 @@ struct MyProvider: ImageProvider {
 ```
 `NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
 
+### Меню через SwiftUI `.commands`
+Меню объявлено декларативно в `EditMDApp.swift` через `.commands { }`.
+Действия отправляются через responder chain: `NSApp.sendAction(selector, to: nil, from: nil)`.
+
+Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием),
+потому что `#selector(UndoManager.undo)` даёт `undo` без `:`, а AppKit ожидает `undo:`.
+
 ### SourceKit false positives
 При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
 пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
@@ -149,9 +154,11 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - ✅ **Счётчик слов/символов** — статус-строка внизу редактора, обновляется на каждый keystroke
 - ✅ **Горячие клавиши форматирования** — Cmd+B / Cmd+I, оборачивают выделение в `**` / `*`
 - ✅ **Поддержка .textbundle** — `FileWrapper`-based read/write, `TextBundleImageProvider` (AsyncImage + file:// URL), UTI `org.textbundle.package` (конформирует `com.apple.package`)
+- ✅ **Cut/Copy/Paste** — Edit-меню + тулбар-кнопки (scissors/doc.on.doc/doc.on.clipboard), target=nil → responder chain
 
-Полный план: `docs/plan-v2.md`
+### v3 — В работе
+- ✅ **SwiftUI App lifecycle + `.commands`** — `EditMDApp.swift` entry point, декларативное меню (File/Edit/Format), `@NSApplicationDelegateAdaptor` для NSDocument
+- ✅ **Полное меню** — File (New/Open/Close/Save/Save As), Edit (Undo/Redo/Cut/Copy/Paste/Select All), Format (Bigger/Smaller/Bold/Italic)
+- `EditMenuTests.swift` — 6 XCTest кейсов: EditToolbarTests
 
 ## Conventions
-
-- Планы и roadmap — сохранять в `docs/`

@@ -45,35 +45,73 @@ final class EditorWindowController: NSWindowController {
 
 extension EditorWindowController: NSToolbarDelegate {
 
-    private static let segmentIdentifier = NSToolbarItem.Identifier("editPreviewSegment")
+    static let segmentIdentifier = NSToolbarItem.Identifier("editPreviewSegment")
+    static let cutIdentifier     = NSToolbarItem.Identifier("cutItem")
+    static let copyIdentifier    = NSToolbarItem.Identifier("copyItem")
+    static let pasteIdentifier   = NSToolbarItem.Identifier("pasteItem")
 
     func toolbar(
         _ toolbar: NSToolbar,
         itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
-        guard itemIdentifier == Self.segmentIdentifier else { return nil }
+        switch itemIdentifier {
+        case Self.segmentIdentifier:
+            let segment = NSSegmentedControl(
+                labels: ["Edit", "Preview"],
+                trackingMode: .selectOne,
+                target: self,
+                action: #selector(segmentChanged(_:))
+            )
+            segment.selectedSegment = 0
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.view = segment
+            item.label = "Mode"
+            return item
 
-        let segment = NSSegmentedControl(
-            labels: ["Edit", "Preview"],
-            trackingMode: .selectOne,
-            target: self,
-            action: #selector(segmentChanged(_:))
-        )
-        segment.selectedSegment = 0
+        case Self.cutIdentifier:
+            return makeClipboardItem(identifier: itemIdentifier,
+                                     label: "Cut",
+                                     symbol: "scissors",
+                                     action: #selector(NSText.cut(_:)))
+        case Self.copyIdentifier:
+            return makeClipboardItem(identifier: itemIdentifier,
+                                     label: "Copy",
+                                     symbol: "doc.on.doc",
+                                     action: #selector(NSText.copy(_:)))
+        case Self.pasteIdentifier:
+            return makeClipboardItem(identifier: itemIdentifier,
+                                     label: "Paste",
+                                     symbol: "doc.on.clipboard",
+                                     action: #selector(NSText.paste(_:)))
+        default:
+            return nil
+        }
+    }
 
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.view = segment
-        item.label = "Mode"
+    private func makeClipboardItem(
+        identifier: NSToolbarItem.Identifier,
+        label: String,
+        symbol: String,
+        action: Selector
+    ) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = label
+        item.paletteLabel = label
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        item.action = action
+        item.target = nil
         return item
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.segmentIdentifier, .flexibleSpace]
+        [Self.cutIdentifier, Self.copyIdentifier, Self.pasteIdentifier,
+         .flexibleSpace, Self.segmentIdentifier, .flexibleSpace]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.segmentIdentifier, .flexibleSpace]
+        [Self.cutIdentifier, Self.copyIdentifier, Self.pasteIdentifier,
+         Self.segmentIdentifier, .flexibleSpace]
     }
 
     @objc private func segmentChanged(_ sender: NSSegmentedControl) {
