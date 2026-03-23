@@ -19,7 +19,7 @@ editmd/
         ├── App/        AppDelegate.swift, Info.plist
         ├── Document/   MarkdownDocument.swift
         ├── Editor/     EditorWindowController.swift, EditorViewController.swift
-        └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift
+        └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift
 ```
 
 ## Build
@@ -42,6 +42,18 @@ xcodebuild -scheme EditMD -destination "platform=macOS" build
 nonisolated(unsafe) var content: String = ""
 ```
 
+### validateMenuItem — не override
+`NSViewController` не объявляет `validateMenuItem`. Использовать:
+```swift
+extension MyViewController: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { ... }
+}
+```
+
+### NotificationCenter + @MainActor + Swift 6
+Closure в `addObserver(forName:object:queue:using:)` — `@Sendable`, конфликт с `@MainActor`.
+Решение: selector-based `addObserver(self, selector:, name:, object:)`.
+
 ### SourceKit false positives
 При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
 пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
@@ -53,7 +65,7 @@ nonisolated(unsafe) var content: String = ""
 
 ## Next Steps (v2)
 
-- Live Preview: скрытие Markdown-символов при помощи NSTextLayoutManagerDelegate
-- Cursor proximity: показывать символы в текущем абзаце
-- Настройки шрифта через UserDefaults
+- ~~Live Preview: скрытие Markdown-символов при помощи NSTextLayoutManagerDelegate~~ ✅ (cursor proximity реализован)
+- ~~Cursor proximity: показывать символы в текущем абзаце~~ ✅
+- ~~Настройки шрифта через UserDefaults~~ ✅ (EditorFontSettings, Format-меню ⌘=/⌘−)
 - Поддержка .textbundle (для изображений)
