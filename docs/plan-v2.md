@@ -6,8 +6,8 @@
 |---|---|
 | Live Preview / cursor proximity | ✅ Done |
 | Font size settings via UserDefaults | ✅ Done |
-| Word/character counter in status bar | ⬜ Todo |
-| Formatting hotkeys (Cmd+B, Cmd+I) | ⬜ Todo |
+| Word/character counter in status bar | ✅ Done |
+| Formatting hotkeys (Cmd+B, Cmd+I) | ✅ Done |
 | .textbundle support (images) | ✅ Done |
 
 ## Details
@@ -19,12 +19,11 @@ Implemented via `NSTextLayoutManagerDelegate` + `rehighlight` + `activeLine` tra
 ### ✅ Font size settings
 `EditorFontSettings` singleton backed by UserDefaults. Format menu: Bigger (⌘=) / Smaller (⌘−).
 
-### ⬜ Word/character counter
-Show word and character count in the window status bar.
+### ✅ Word/character counter
+Status label at the bottom of the editor showing "N words  M chars".
+Updates on every keystroke via `textDidChange`. Implemented in `MarkdownEditorView.swift`.
 
-### ⬜ Formatting hotkeys
+### ✅ Formatting hotkeys
 Cmd+B → wrap selection in `**...**`
 Cmd+I → wrap selection in `*...*`
-
-### ⬜ .textbundle support
-Support for `.textbundle` format to allow embedding local images in documents.
+Implemented via `toggleBold`/`toggleItalic` in `MarkdownEditorView.swift`, menu items in `AppDelegate.swift`.

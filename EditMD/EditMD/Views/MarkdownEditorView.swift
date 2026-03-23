@@ -6,6 +6,7 @@ final class MarkdownEditorViewController: NSViewController {
 
     private let document: MarkdownDocument
     private var textView: NSTextView!
+    private var statusLabel: NSTextField!
     private var isApplyingHighlight = false
 
     init(document: MarkdownDocument) {
@@ -46,8 +47,31 @@ final class MarkdownEditorViewController: NSViewController {
         textView.delegate = self
         textView.string = document.content
 
+        let label = NSTextField(labelWithString: "")
+        label.alignment = .right
+        label.textColor = .secondaryLabelColor
+        label.font = .systemFont(ofSize: 11)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        self.statusLabel = label
+
+        let container = NSView()
+        container.addSubview(scrollView)
+        container.addSubview(label)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: label.topAnchor),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            label.heightAnchor.constraint(equalToConstant: 18),
+        ])
+
         rehighlight()
-        view = scrollView
+        updateStats()
+        view = container
 
         NotificationCenter.default.addObserver(
             self,
@@ -77,6 +101,29 @@ final class MarkdownEditorViewController: NSViewController {
         EditorFontSettings.shared.fontSize -= 1
     }
 
+    // MARK: - Stats
+
+    private func updateStats() {
+        let (words, chars) = wordAndCharCount(in: textView.string)
+        statusLabel.stringValue = "\(words) words  \(chars) chars"
+    }
+
+    // MARK: - Formatting
+
+    @objc func toggleBold()   { wrapSelection(with: "**") }
+    @objc func toggleItalic() { wrapSelection(with: "*") }
+
+    private func wrapSelection(with marker: String) {
+        let range = textView.selectedRange()
+        let (_, newSelection) = applyWrap(marker: marker, to: textView.string, selection: range)
+        let selected = (textView.string as NSString).substring(with: range)
+        let wrapped = marker + selected + marker
+        guard textView.shouldChangeText(in: range, replacementString: wrapped) else { return }
+        textView.textStorage?.replaceCharacters(in: range, with: wrapped)
+        textView.didChangeText()
+        textView.setSelectedRange(newSelection)
+    }
+
     // Recomputes active line from current selection and re-applies highlighting.
     private func rehighlight() {
         guard !isApplyingHighlight, let storage = textView?.textStorage else { return }
@@ -101,6 +148,7 @@ extension MarkdownEditorViewController: NSTextViewDelegate {
         document.content = tv.string
         document.updateChangeCount(.changeDone)
         rehighlight()
+        updateStats()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -222,6 +270,7 @@ extension MarkdownEditorViewController: NSMenuItemValidation {
         switch menuItem.action {
         case #selector(makeFontBigger): return EditorFontSettings.shared.canIncrease
         case #selector(makeFontSmaller): return EditorFontSettings.shared.canDecrease
+        case #selector(toggleBold), #selector(toggleItalic): return true
         default: return true
         }
     }

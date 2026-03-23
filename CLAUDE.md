@@ -19,10 +19,11 @@ editmd/
     └── EditMD/
         ├── App/        AppDelegate.swift, Info.plist
         ├── Document/   MarkdownDocument.swift
-        ├── Editor/     EditorWindowController.swift, EditorViewController.swift, MarkdownHighlighter.swift
+        ├── Editor/     EditorWindowController.swift, EditorViewController.swift, MarkdownHighlighter.swift, FormattingHelpers.swift
         └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift
     EditMDTests/
-        └── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
+        ├── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
+        └── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
 ```
 
 ## Build
@@ -138,11 +139,15 @@ SPM переиспользует уже скачанную версию из `Pa
 ### v1 — Initial
 NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 
-### v2 — In Progress
+### v2 — ✅ Complete
+
+**Паттерн тестируемости:** бизнес-логику NSViewController выносить в pure free functions в `Editor/` (internal), тестировать через `@testable import EditMD`. Пример: `FormattingHelpers.swift`.
+
+### v2 — Детали
 - ✅ **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex` в `MarkdownHighlighter.swift`).
 - ✅ **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
-- ⬜ Счётчик слов/символов в статусбаре
-- ⬜ Горячие клавиши форматирования (Cmd+B, Cmd+I)
+- ✅ **Счётчик слов/символов** — статус-строка внизу редактора, обновляется на каждый keystroke
+- ✅ **Горячие клавиши форматирования** — Cmd+B / Cmd+I, оборачивают выделение в `**` / `*`
 - ✅ **Поддержка .textbundle** — `FileWrapper`-based read/write, `TextBundleImageProvider` (AsyncImage + file:// URL), UTI `org.textbundle.package` (конформирует `com.apple.package`)
 
 Полный план: `docs/plan-v2.md`

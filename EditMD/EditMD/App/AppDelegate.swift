@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFormatMenu()
     }
 
-    private func setupFormatMenu() {
+    @MainActor private func setupFormatMenu() {
         let formatMenu = NSMenu(title: "Format")
         let bigger = NSMenuItem(
             title: "Bigger",
@@ -24,6 +24,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         smaller.keyEquivalentModifierMask = .command
         formatMenu.addItem(bigger)
         formatMenu.addItem(smaller)
+        formatMenu.addItem(.separator())
+        let bold = NSMenuItem(
+            title: "Bold",
+            action: #selector(MarkdownEditorViewController.toggleBold),
+            keyEquivalent: "b"
+        )
+        bold.keyEquivalentModifierMask = .command
+        let italic = NSMenuItem(
+            title: "Italic",
+            action: #selector(MarkdownEditorViewController.toggleItalic),
+            keyEquivalent: "i"
+        )
+        italic.keyEquivalentModifierMask = .command
+        formatMenu.addItem(bold)
+        formatMenu.addItem(italic)
 
         let formatItem = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
         formatItem.submenu = formatMenu
