@@ -67,6 +67,30 @@ if let font = existing.withSymbolicTraits(combined) {
 }
 ```
 
+### NSDocument + package types: fileWrapper(ofType:) вызывается для ВСЕХ типов
+При добавлении пакетного формата — `fileWrapper(ofType:)` вызывается для `.md` тоже!
+Обязателен guard в начале:
+```swift
+override func fileWrapper(ofType typeName: String) throws -> FileWrapper {
+    guard typeName == "org.textbundle.package" else {
+        return try super.fileWrapper(ofType: typeName)
+    }
+    // пакетная логика
+}
+```
+
+### ImageProvider (MarkdownUI) + Swift 6: не использовать NSImage
+`@MainActor struct` не может конформить nonisolated `ImageProvider` в Swift 6 strict mode.
+Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL):
+```swift
+struct MyProvider: ImageProvider {
+    func makeImage(url: URL?) -> some View {
+        AsyncImage(url: resolvedLocalURL(url)) { ... }
+    }
+}
+```
+`NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
+
 ### SourceKit false positives
 При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
 пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
@@ -86,7 +110,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - ✅ **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
 - ⬜ Счётчик слов/символов в статусбаре
 - ⬜ Горячие клавиши форматирования (Cmd+B, Cmd+I)
-- ⬜ Поддержка .textbundle (для изображений)
+- ✅ **Поддержка .textbundle** — `FileWrapper`-based read/write, `TextBundleImageProvider` (AsyncImage + file:// URL), UTI `org.textbundle.package` (конформирует `com.apple.package`)
 
 Полный план: `docs/plan-v2.md`
 

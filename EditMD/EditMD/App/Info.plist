@@ -45,6 +45,43 @@
             <key>NSDocumentClass</key>
             <string>EditMD.MarkdownDocument</string>
         </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Text Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.textbundle.package</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>textbundle</string>
+            </array>
+            <key>NSDocumentClass</key>
+            <string>EditMD.MarkdownDocument</string>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.textbundle.package</string>
+            <key>UTTypeDescription</key>
+            <string>Text Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>textbundle</string>
+                </array>
+            </dict>
+        </dict>
     </array>
     <key>UTImportedTypeDeclarations</key>
     <array>

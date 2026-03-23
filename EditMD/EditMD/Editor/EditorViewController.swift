@@ -58,7 +58,10 @@ final class EditorViewController: NSViewController {
             editorVC.view.isHidden = false
 
         case .preview:
-            previewVC.update(text: document.content)
+            let assetsURL: URL? = document.fileURL.flatMap {
+                $0.pathExtension == "textbundle" ? $0.appendingPathComponent("assets") : nil
+            }
+            previewVC.update(text: document.content, assetsURL: assetsURL)
             editorVC.view.isHidden = true
             previewVC.view.isHidden = false
         }

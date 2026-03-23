@@ -8,7 +8,7 @@
 | Font size settings via UserDefaults | ✅ Done |
 | Word/character counter in status bar | ⬜ Todo |
 | Formatting hotkeys (Cmd+B, Cmd+I) | ⬜ Todo |
-| .textbundle support (images) | ⬜ Todo |
+| .textbundle support (images) | ✅ Done |
 
 ## Details
 
