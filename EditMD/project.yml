@@ -1,0 +1,37 @@
+name: EditMD
+options:
+  bundleIdPrefix: com.editmd
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+packages:
+  swift-markdown-ui:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: "2.0.2"
+
+targets:
+  EditMD:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - EditMD
+    resources:
+      - path: EditMD/Resources
+    dependencies:
+      - package: swift-markdown-ui
+        product: MarkdownUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
+        PRODUCT_NAME: EditMD
+        SWIFT_VERSION: "6.0"
+        INFOPLIST_FILE: EditMD/App/Info.plist
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_STRICT_CONCURRENCY: complete
