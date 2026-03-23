@@ -2,51 +2,14 @@ import SwiftUI
 
 @main
 struct EditMDApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
+    @FocusedValue(\.formatActions) var actions
 
     var body: some Scene {
-        Settings {
-            Text("EditMD Settings")
-                .frame(width: 300, height: 200)
+        DocumentGroup(newDocument: { MarkdownDocument() }) { configuration in
+            ContentView(document: configuration.document, fileURL: configuration.fileURL)
         }
         .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New") {
-                    NSDocumentController.shared.newDocument(nil)
-                }
-                .keyboardShortcut("n")
-
-                Button("Open…") {
-                    NSDocumentController.shared.beginOpenPanel { urls in
-                        guard let urls else { return }
-                        for url in urls {
-                            NSDocumentController.shared.openDocument(
-                                withContentsOf: url, display: true
-                            ) { _, _, _ in }
-                        }
-                    }
-                }
-                .keyboardShortcut("o")
-            }
-
-            CommandGroup(after: .newItem) {
-                Divider()
-                Button("Close") {
-                    NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("w")
-
-                Button("Save") {
-                    NSApp.sendAction(#selector(NSDocument.save(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("s")
-
-                Button("Save As…") {
-                    NSApp.sendAction(#selector(NSDocument.saveAs(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-            }
-
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
@@ -85,34 +48,30 @@ struct EditMDApp: App {
 
             CommandMenu("Format") {
                 Button("Bigger") {
-                    NSApp.sendAction(
-                        #selector(MarkdownEditorViewController.makeFontBigger),
-                        to: nil, from: nil)
+                    actions?.makeFontBigger()
                 }
                 .keyboardShortcut("=")
+                .disabled(!(actions?.canIncreaseFontSize ?? false))
 
                 Button("Smaller") {
-                    NSApp.sendAction(
-                        #selector(MarkdownEditorViewController.makeFontSmaller),
-                        to: nil, from: nil)
+                    actions?.makeFontSmaller()
                 }
                 .keyboardShortcut("-")
+                .disabled(!(actions?.canDecreaseFontSize ?? false))
 
                 Divider()
 
                 Button("Bold") {
-                    NSApp.sendAction(
-                        #selector(MarkdownEditorViewController.toggleBold),
-                        to: nil, from: nil)
+                    actions?.toggleBold()
                 }
                 .keyboardShortcut("b")
+                .disabled(actions == nil)
 
                 Button("Italic") {
-                    NSApp.sendAction(
-                        #selector(MarkdownEditorViewController.toggleItalic),
-                        to: nil, from: nil)
+                    actions?.toggleItalic()
                 }
                 .keyboardShortcut("i")
+                .disabled(actions == nil)
             }
         }
     }

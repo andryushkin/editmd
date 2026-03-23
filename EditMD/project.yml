@@ -33,7 +33,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
         PRODUCT_NAME: EditMD
-        SWIFT_VERSION: "6.0"
+        SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         CODE_SIGN_STYLE: Automatic
@@ -54,7 +54,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.tests
-        SWIFT_VERSION: "6.0"
+        SWIFT_VERSION: "6.2"
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES

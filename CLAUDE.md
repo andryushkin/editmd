@@ -2,9 +2,10 @@
 
 ## Overview
 
-Минималистичный Markdown редактор для macOS. SwiftUI App lifecycle + AppKit (NSDocument, NSTextView).
+Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
+NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
 Два режима: Edit (NSTextView) / Preview (swift-markdown-ui).
-Меню — через SwiftUI `.commands` в `EditMDApp.swift`.
+Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
 
 ## Project Structure
 
@@ -14,14 +15,14 @@ editmd/
     ├── project.yml   # xcodegen конфиг — ЕДИНСТВЕННЫЙ источник структуры проекта
     ├── EditMD.xcodeproj/
     └── EditMD/
-        ├── App/        EditMDApp.swift (entry point, SwiftUI commands), AppDelegate.swift, Info.plist
-        ├── Document/   MarkdownDocument.swift
-        ├── Editor/     EditorWindowController.swift, EditorViewController.swift, MarkdownHighlighter.swift, FormattingHelpers.swift
-        └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift
+        ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
+        ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
+        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift
+        └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
-        └── EditMenuTests.swift             # 6 XCTest кейсов для toolbar items
+        └── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
 ```
 
 ## Build
@@ -35,23 +36,44 @@ xcodebuild -scheme EditMD -destination "platform=macOS" -enableCodeCoverage NO t
 
 > **Note:** `-enableCodeCoverage NO` обязателен — без него linker error `___llvm_profile_runtime`.
 
+## Architecture
+
+### DocumentGroup + ReferenceFileDocument
+`EditMDApp.swift` использует `DocumentGroup(newDocument:editor:)`. Документ — `MarkdownDocument` (class, `ReferenceFileDocument`).
+DocumentGroup автоматически предоставляет File меню (New/Open/Save/Save As/Revert) — ручные File-команды не нужны.
+
+### NSTextView через NSViewRepresentable
+`MarkdownTextView.swift` — обёртка NSTextView. Coordinator содержит:
+- NSTextViewDelegate (textDidChange, textViewDidChangeSelection)
+- Подсветка синтаксиса (applyHighlighting, rehighlight)
+- Форматирование (toggleBold, toggleItalic, wrapSelection)
+- Счётчик слов/символов
+- Обработка изменения шрифта
+
+### @FocusedValue для меню Format
+Кастомные команды (Bold/Italic/Font size) передаются через `@FocusedValue(\.formatActions)`.
+Стандартные команды (Cut/Copy/Paste/Undo/Redo) — через `NSApp.sendAction` → responder chain.
+
+### Feedback loop prevention
+В `updateNSView` флаг `isInternalUpdate` предотвращает цикл:
+textDidChange → document.content = ... → SwiftUI вызывает updateNSView → НЕ перезаписываем textView.string.
+
 ## Known Issues / Gotchas
 
-### NSWindowController.document конфликт
-Нельзя объявить `var document: MarkdownDocument` в подклассе NSWindowController —
-конфликт с унаследованным `document: AnyObject?`. Используй `markdownDocument`.
-
-### NSDocument.read() + Swift 6
-`read(from:ofType:)` — nonisolated метод. Свойства, мутируемые в нём:
+### ReferenceFileDocument.init(configuration:) — nonisolated
+Protocol methods `init(configuration:)`, `snapshot()`, `fileWrapper()` — nonisolated.
+Свойства, мутируемые в них:
 ```swift
-nonisolated(unsafe) var content: String = ""
+nonisolated(unsafe) var content: String
+nonisolated(unsafe) var assetsFileWrapper: FileWrapper?
 ```
 
-### validateMenuItem — не override
-`NSViewController` не объявляет `validateMenuItem`. Использовать:
+### Snapshot + FileWrapper Sendable
+`FileWrapper` не конформит `Sendable`. Snapshot маркирован `@unchecked Sendable`:
 ```swift
-extension MyViewController: NSMenuItemValidation {
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { ... }
+struct Snapshot: @unchecked Sendable {
+    let content: String
+    let assetsFileWrapper: FileWrapper?
 }
 ```
 
@@ -71,34 +93,12 @@ if let font = existing.withSymbolicTraits(combined) {
 }
 ```
 
-### NSDocument + package types: fileWrapper(ofType:) вызывается для ВСЕХ типов
-При добавлении пакетного формата — `fileWrapper(ofType:)` вызывается для `.md` тоже!
-Обязателен guard в начале:
-```swift
-override func fileWrapper(ofType typeName: String) throws -> FileWrapper {
-    guard typeName == "org.textbundle.package" else {
-        return try super.fileWrapper(ofType: typeName)
-    }
-    // пакетная логика
-}
-```
-
 ### ImageProvider (MarkdownUI) + Swift 6: не использовать NSImage
 `@MainActor struct` не может конформить nonisolated `ImageProvider` в Swift 6 strict mode.
-Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL):
-```swift
-struct MyProvider: ImageProvider {
-    func makeImage(url: URL?) -> some View {
-        AsyncImage(url: resolvedLocalURL(url)) { ... }
-    }
-}
-```
+Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL).
 `NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
 
-### Меню через SwiftUI `.commands`
-Меню объявлено декларативно в `EditMDApp.swift` через `.commands { }`.
-Действия отправляются через responder chain: `NSApp.sendAction(selector, to: nil, from: nil)`.
-
+### Меню: Undo/Redo selectors
 Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием),
 потому что `#selector(UndoManager.undo)` даёт `undo` без `:`, а AppKit ожидает `undo:`.
 
@@ -144,21 +144,29 @@ SPM переиспользует уже скачанную версию из `Pa
 ### v1 — Initial
 NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 
-### v2 — ✅ Complete
+### v2 — Complete
 
-**Паттерн тестируемости:** бизнес-логику NSViewController выносить в pure free functions в `Editor/` (internal), тестировать через `@testable import EditMD`. Пример: `FormattingHelpers.swift`.
+**Паттерн тестируемости:** бизнес-логику выносить в pure free functions в `Editor/` (internal), тестировать через `@testable import EditMD`. Пример: `FormattingHelpers.swift`.
 
 ### v2 — Детали
-- ✅ **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex` в `MarkdownHighlighter.swift`).
-- ✅ **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
-- ✅ **Счётчик слов/символов** — статус-строка внизу редактора, обновляется на каждый keystroke
-- ✅ **Горячие клавиши форматирования** — Cmd+B / Cmd+I, оборачивают выделение в `**` / `*`
-- ✅ **Поддержка .textbundle** — `FileWrapper`-based read/write, `TextBundleImageProvider` (AsyncImage + file:// URL), UTI `org.textbundle.package` (конформирует `com.apple.package`)
-- ✅ **Cut/Copy/Paste** — Edit-меню + тулбар-кнопки (scissors/doc.on.doc/doc.on.clipboard), target=nil → responder chain
+- **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex` в `MarkdownHighlighter.swift`).
+- **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
+- **Счётчик слов/символов** — статус-строка внизу редактора, обновляется на каждый keystroke
+- **Горячие клавиши форматирования** — Cmd+B / Cmd+I, оборачивают выделение в `**` / `*`
+- **Поддержка .textbundle** — `FileWrapper`-based read/write, `TextBundleImageProvider` (AsyncImage + file:// URL), UTI `org.textbundle.package` (конформирует `com.apple.package`)
+- **Cut/Copy/Paste** — Edit-меню + тулбар-кнопки (scissors/doc.on.doc/doc.on.clipboard), target=nil → responder chain
 
-### v3 — В работе
-- ✅ **SwiftUI App lifecycle + `.commands`** — `EditMDApp.swift` entry point, декларативное меню (File/Edit/Format), `@NSApplicationDelegateAdaptor` для NSDocument
-- ✅ **Полное меню** — File (New/Open/Close/Save/Save As), Edit (Undo/Redo/Cut/Copy/Paste/Select All), Format (Bigger/Smaller/Bold/Italic)
-- `EditMenuTests.swift` — 6 XCTest кейсов: EditToolbarTests
+### v3 — Complete
+- **SwiftUI App lifecycle + `.commands`** — `EditMDApp.swift` entry point, декларативное меню (Edit/Format)
+- **Полное меню** — Edit (Undo/Redo/Cut/Copy/Paste/Select All), Format (Bigger/Smaller/Bold/Italic)
+
+### v4 — Complete (current)
+- **Миграция на чистый SwiftUI** — `DocumentGroup` + `ReferenceFileDocument` вместо NSDocument
+- **NSViewRepresentable** — `MarkdownTextView.swift` обёртка NSTextView (подсветка, форматирование, счётчик)
+- **ContentView** — SwiftUI view с Edit/Preview toggle + `.toolbar`
+- **@FocusedValue** — `FormatActions` для передачи Format-команд из Coordinator в меню
+- **Удалены AppKit контроллеры** — AppDelegate, EditorWindowController, EditorViewController, MarkdownEditorView
+- **Swift 6.2**, strict concurrency
+- **49 тестов** — 28 highlighter + 14 formatting + 7 document
 
 ## Conventions

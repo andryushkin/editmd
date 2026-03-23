@@ -42,8 +42,6 @@
                 <string>md</string>
                 <string>markdown</string>
             </array>
-            <key>NSDocumentClass</key>
-            <string>EditMD.MarkdownDocument</string>
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
@@ -58,8 +56,6 @@
             <array>
                 <string>textbundle</string>
             </array>
-            <key>NSDocumentClass</key>
-            <string>EditMD.MarkdownDocument</string>
         </dict>
     </array>
     <key>UTExportedTypeDeclarations</key>

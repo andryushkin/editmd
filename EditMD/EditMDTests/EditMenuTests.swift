@@ -1,55 +1,51 @@
 import XCTest
+import UniformTypeIdentifiers
 @testable import EditMD
 
-// MARK: - Toolbar structure (tests EditorWindowController)
+// MARK: - MarkdownDocument tests
 
 @MainActor
-final class EditToolbarTests: XCTestCase {
+final class MarkdownDocumentTests: XCTestCase {
 
-    private var wc: EditorWindowController!
-    private var toolbar: NSToolbar!
-
-    override func setUp() {
-        super.setUp()
+    func testEmptyDocumentContent() {
         let doc = MarkdownDocument()
-        wc = EditorWindowController(document: doc)
-        toolbar = wc.window?.toolbar
+        XCTAssertEqual(doc.content, "")
+        XCTAssertNil(doc.assetsFileWrapper)
     }
 
-    func testToolbarDefaultIdentifiersContainCut() {
-        let ids = toolbar?.delegate?.toolbarDefaultItemIdentifiers?(toolbar!)
-        XCTAssertTrue(ids?.contains(EditorWindowController.cutIdentifier) == true)
+    func testReadableContentTypes() {
+        let types = MarkdownDocument.readableContentTypes
+        XCTAssertTrue(types.contains(.markdown))
+        XCTAssertTrue(types.contains(.textBundle))
     }
 
-    func testToolbarDefaultIdentifiersContainCopy() {
-        let ids = toolbar?.delegate?.toolbarDefaultItemIdentifiers?(toolbar!)
-        XCTAssertTrue(ids?.contains(EditorWindowController.copyIdentifier) == true)
+    func testWritableContentTypes() {
+        let types = MarkdownDocument.writableContentTypes
+        XCTAssertTrue(types.contains(.markdown))
+        XCTAssertTrue(types.contains(.textBundle))
     }
 
-    func testToolbarDefaultIdentifiersContainPaste() {
-        let ids = toolbar?.delegate?.toolbarDefaultItemIdentifiers?(toolbar!)
-        XCTAssertTrue(ids?.contains(EditorWindowController.pasteIdentifier) == true)
+    func testSnapshotCapturesContent() throws {
+        let doc = MarkdownDocument()
+        doc.content = "Snapshot test"
+        let snapshot = try doc.snapshot(contentType: .markdown)
+        XCTAssertEqual(snapshot.content, "Snapshot test")
     }
 
-    func testCutToolbarItemAction() {
-        let item = toolbarItem(for: EditorWindowController.cutIdentifier)
-        XCTAssertEqual(item?.action, #selector(NSText.cut(_:)))
-        XCTAssertNil(item?.target)
+    func testSnapshotCapturesAssets() throws {
+        let doc = MarkdownDocument()
+        doc.content = "With assets"
+        doc.assetsFileWrapper = FileWrapper(directoryWithFileWrappers: [:])
+        let snapshot = try doc.snapshot(contentType: .textBundle)
+        XCTAssertEqual(snapshot.content, "With assets")
+        XCTAssertNotNil(snapshot.assetsFileWrapper)
     }
 
-    func testCopyToolbarItemAction() {
-        let item = toolbarItem(for: EditorWindowController.copyIdentifier)
-        XCTAssertEqual(item?.action, #selector(NSText.copy(_:)))
-        XCTAssertNil(item?.target)
+    func testUTTypeMarkdownExists() {
+        XCTAssertEqual(UTType.markdown.identifier, "net.daringfireball.markdown")
     }
 
-    func testPasteToolbarItemAction() {
-        let item = toolbarItem(for: EditorWindowController.pasteIdentifier)
-        XCTAssertEqual(item?.action, #selector(NSText.paste(_:)))
-        XCTAssertNil(item?.target)
-    }
-
-    private func toolbarItem(for identifier: NSToolbarItem.Identifier) -> NSToolbarItem? {
-        toolbar?.delegate?.toolbar?(toolbar!, itemForItemIdentifier: identifier, willBeInsertedIntoToolbar: false)
+    func testUTTypeTextBundleExists() {
+        XCTAssertEqual(UTType.textBundle.identifier, "org.textbundle.package")
     }
 }

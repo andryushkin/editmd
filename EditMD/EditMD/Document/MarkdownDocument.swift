@@ -1,4 +1,10 @@
-import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+extension UTType {
+    static let markdown = UTType("net.daringfireball.markdown")!
+    static let textBundle = UTType("org.textbundle.package")!
+}
 
 private struct TextBundleInfo: Encodable {
     var version: Int = 2
@@ -6,72 +12,74 @@ private struct TextBundleInfo: Encodable {
     var creatorIdentifier: String?
 }
 
-final class MarkdownDocument: NSDocument {
+final class MarkdownDocument: ReferenceFileDocument {
 
-    // nonisolated(unsafe) because read methods are called on a background thread by NSDocument
-    nonisolated(unsafe) var content: String = ""
-    nonisolated(unsafe) var assetsFileWrapper: FileWrapper? = nil
+    // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated
+    nonisolated(unsafe) var content: String
+    nonisolated(unsafe) var assetsFileWrapper: FileWrapper?
 
-    // MARK: - NSDocument
-
-    override class var autosavesInPlace: Bool { true }
-
-    override func makeWindowControllers() {
-        let wc = EditorWindowController(document: self)
-        addWindowController(wc)
+    struct Snapshot: @unchecked Sendable {
+        let content: String
+        let assetsFileWrapper: FileWrapper?
     }
 
-    // MARK: - Flat file (.md / .markdown)
+    static var readableContentTypes: [UTType] { [.markdown, .textBundle] }
+    static var writableContentTypes: [UTType] { [.markdown, .textBundle] }
 
-    override func read(from data: Data, ofType typeName: String) throws {
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
-        }
-        content = text
+    // MARK: - Init
+
+    init() {
+        content = ""
+        assetsFileWrapper = nil
     }
 
-    override func data(ofType typeName: String) throws -> Data {
-        guard let data = content.data(using: .utf8) else {
-            throw CocoaError(.fileWriteInapplicableStringEncoding)
+    init(configuration: ReadConfiguration) throws {
+        if configuration.contentType == .textBundle {
+            guard let wrappers = configuration.file.fileWrappers,
+                  let textWrapper = wrappers.first(where: { $0.key.hasPrefix("text.") })?.value,
+                  let data = textWrapper.regularFileContents,
+                  let text = String(data: data, encoding: .utf8)
+            else { throw CocoaError(.fileReadCorruptFile) }
+            content = text
+            assetsFileWrapper = wrappers["assets"]
+        } else {
+            guard let data = configuration.file.regularFileContents,
+                  let text = String(data: data, encoding: .utf8)
+            else { throw CocoaError(.fileReadInapplicableStringEncoding) }
+            content = text
+            assetsFileWrapper = nil
         }
-        return data
     }
 
-    // MARK: - Package (.textbundle)
+    // MARK: - Snapshot & Write
 
-    override func read(from fileWrapper: FileWrapper, ofType typeName: String) throws {
-        guard let wrappers = fileWrapper.fileWrappers,
-              let textWrapper = wrappers.first(where: { $0.key.hasPrefix("text.") })?.value,
-              let data = textWrapper.regularFileContents,
-              let text = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        content = text
-        assetsFileWrapper = wrappers["assets"]
+    func snapshot(contentType: UTType) throws -> Snapshot {
+        Snapshot(content: content, assetsFileWrapper: assetsFileWrapper)
     }
 
-    override func fileWrapper(ofType typeName: String) throws -> FileWrapper {
-        guard typeName == "org.textbundle.package" else {
-            return try super.fileWrapper(ofType: typeName)
+    func fileWrapper(snapshot: Snapshot, configuration: WriteConfiguration) throws -> FileWrapper {
+        if configuration.contentType == .textBundle {
+            let root = FileWrapper(directoryWithFileWrappers: [:])
+
+            let infoData = try JSONEncoder().encode(
+                TextBundleInfo(creatorIdentifier: Bundle.main.bundleIdentifier))
+            let infoWrapper = FileWrapper(regularFileWithContents: infoData)
+            infoWrapper.preferredFilename = "info.json"
+            root.addFileWrapper(infoWrapper)
+
+            let textData = snapshot.content.data(using: .utf8) ?? Data()
+            let textWrapper = FileWrapper(regularFileWithContents: textData)
+            textWrapper.preferredFilename = "text.md"
+            root.addFileWrapper(textWrapper)
+
+            if let assets = snapshot.assetsFileWrapper {
+                assets.preferredFilename = "assets"
+                root.addFileWrapper(assets)
+            }
+
+            return root
         }
 
-        let root = FileWrapper(directoryWithFileWrappers: [:])
-
-        let infoData = try JSONEncoder().encode(TextBundleInfo(creatorIdentifier: Bundle.main.bundleIdentifier))
-        let infoWrapper = FileWrapper(regularFileWithContents: infoData)
-        infoWrapper.preferredFilename = "info.json"
-        root.addFileWrapper(infoWrapper)
-
-        let textData = content.data(using: .utf8) ?? Data()
-        let textWrapper = FileWrapper(regularFileWithContents: textData)
-        textWrapper.preferredFilename = "text.md"
-        root.addFileWrapper(textWrapper)
-
-        if let assets = assetsFileWrapper {
-            assets.preferredFilename = "assets"
-            root.addFileWrapper(assets)
-        }
-
-        return root
+        return FileWrapper(regularFileWithContents: snapshot.content.data(using: .utf8) ?? Data())
     }
 }

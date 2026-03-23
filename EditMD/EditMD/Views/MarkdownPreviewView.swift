@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 import MarkdownUI
 
@@ -40,23 +39,5 @@ struct MarkdownPreviewView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
-    }
-}
-
-// MARK: - AppKit ViewController wrapper
-
-final class MarkdownPreviewViewController: NSViewController {
-
-    private var hostingView: NSHostingView<MarkdownPreviewView>!
-
-    override func loadView() {
-        let hosting = NSHostingView(rootView: MarkdownPreviewView(text: "", assetsURL: nil))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        self.hostingView = hosting
-        view = hosting
-    }
-
-    func update(text: String, assetsURL: URL?) {
-        hostingView.rootView = MarkdownPreviewView(text: text, assetsURL: assetsURL)
     }
 }
