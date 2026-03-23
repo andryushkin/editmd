@@ -40,3 +40,21 @@ targets:
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
+
+  EditMDTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - EditMDTests
+    dependencies:
+      - target: EditMD
+      - package: swift-cmark
+        product: cmark-gfm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.editmd.tests
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES

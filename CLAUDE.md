@@ -19,8 +19,10 @@ editmd/
     └── EditMD/
         ├── App/        AppDelegate.swift, Info.plist
         ├── Document/   MarkdownDocument.swift
-        ├── Editor/     EditorWindowController.swift, EditorViewController.swift
+        ├── Editor/     EditorWindowController.swift, EditorViewController.swift, MarkdownHighlighter.swift
         └── Views/      MarkdownEditorView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift
+    EditMDTests/
+        └── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
 ```
 
 ## Build
@@ -29,7 +31,10 @@ editmd/
 cd EditMD
 xcodegen generate   # пересоздать .xcodeproj если менялся project.yml
 xcodebuild -scheme EditMD -destination "platform=macOS" build
+xcodebuild -scheme EditMD -destination "platform=macOS" -enableCodeCoverage NO test  # запуск тестов
 ```
+
+> **Note:** `-enableCodeCoverage NO` обязателен — без него linker error `___llvm_profile_runtime`.
 
 ## Known Issues / Gotchas
 
@@ -95,14 +100,18 @@ struct MyProvider: ImageProvider {
 При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
 пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
 
+### xcodebuild test: linker error ___llvm_profile_runtime
+Unit-test bundle без host app не линкует code coverage runtime. Всегда передавать:
+`-enableCodeCoverage NO` при вызове `xcodebuild test`.
+
 ### cmark C API: позиции узлов (1-based, UTF-8 байты)
 `cmark_node_get_start_column` / `cmark_node_get_end_column` — **1-based UTF-8 byte column**.
-Конвертация в UTF-16 NSRange требует маппинга байтов (см. `LineIndex` в `MarkdownEditorView.swift`).
+Конвертация в UTF-16 NSRange требует маппинга байтов (см. `LineIndex` в `MarkdownHighlighter.swift`).
 
 Важные особенности по типам узлов:
 - `CMARK_NODE_CODE` (inline code) — позиции span **только content** (без backticks). Расширять вручную: `sc - bt` / `offsetAfter(ec) + bt`, где `bt = cmark_node_get_backtick_count(node)`.
 - `CMARK_NODE_STRONG`/`EMPH` — позиции включают маркеры (`**` / `*`); тело = весь nodeRange.
-- `CMARK_NODE_HEADING` — позиции = вся строка заголовка включая `# `.
+- `CMARK_NODE_HEADING` — позиции = вся строка заголовка включая `# `; trailing `\n` НЕ включается в `ec`.
 - `CMARK_NODE_LINK` — `cmark_node_first_child` / `cmark_node_last_child` дают диапазон текста внутри `[...]`.
 
 ### cmark: добавление как explicit SPM dep
@@ -130,7 +139,7 @@ SPM переиспользует уже скачанную версию из `Pa
 NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 
 ### v2 — In Progress
-- ✅ **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex`).
+- ✅ **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex` в `MarkdownHighlighter.swift`).
 - ✅ **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
 - ⬜ Счётчик слов/символов в статусбаре
 - ⬜ Горячие клавиши форматирования (Cmd+B, Cmd+I)
