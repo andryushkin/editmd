@@ -11,6 +11,9 @@ packages:
   swift-markdown-ui:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: "2.0.2"
+  swift-cmark:
+    url: https://github.com/swiftlang/swift-cmark
+    from: "0.7.1"
 
 targets:
   EditMD:
@@ -24,6 +27,8 @@ targets:
     dependencies:
       - package: swift-markdown-ui
         product: MarkdownUI
+      - package: swift-cmark
+        product: cmark-gfm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app

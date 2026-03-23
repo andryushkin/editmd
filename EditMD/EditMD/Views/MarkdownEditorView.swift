@@ -1,4 +1,5 @@
 import AppKit
+import cmark_gfm
 
 // MARK: - ViewController
 
@@ -110,142 +111,281 @@ extension MarkdownEditorViewController: NSTextViewDelegate {
     }
 }
 
-// MARK: - Syntax highlighting
+// MARK: - Line Index
+
+/// Maps cmark's 1-based (line, UTF-8 column) positions to UTF-16 NSRange offsets.
+private struct LineIndex {
+    /// utf8To16[byteOffset] = UTF-16 unit offset at the start of that byte.
+    private let utf8To16: [Int]
+    /// 0-indexed: entry n = UTF-8 byte start of line n+1.
+    private let lineU8: [Int]
+    /// 0-indexed: entry n = UTF-16 offset start of line n+1.
+    private let lineU16: [Int]
+
+    init(_ string: String) {
+        var u8 = [0], u16 = [0]
+        var map = [Int]()
+        var c16 = 0
+        for scalar in string.unicodeScalars {
+            let nb = scalar.utf8.count
+            for _ in 0..<nb { map.append(c16) }
+            c16 += scalar.utf16.count
+            if scalar.value == 0x0A {
+                u8.append(map.count)
+                u16.append(c16)
+            }
+        }
+        map.append(c16)  // sentinel: one past the end
+        self.utf8To16 = map
+        self.lineU8 = u8
+        self.lineU16 = u16
+    }
+
+    var lineCount: Int { lineU8.count }
+
+    /// 1-based line + 1-based UTF-8 byte column → UTF-16 unit offset.
+    func offset(_ line: Int, _ col: Int) -> Int {
+        guard line >= 1, line <= lineU8.count else { return utf8To16.count - 1 }
+        let b = lineU8[line - 1] + col - 1
+        return b < utf8To16.count ? utf8To16[b] : utf8To16.last ?? 0
+    }
+
+    /// UTF-16 offset AFTER the character at (1-based line, 1-based UTF-8 col).
+    func offsetAfter(_ line: Int, _ col: Int) -> Int {
+        guard line >= 1, line <= lineU8.count else { return utf8To16.count - 1 }
+        let b = lineU8[line - 1] + col - 1
+        guard b < utf8To16.count else { return utf8To16.last ?? 0 }
+        let v = utf8To16[b]
+        var n = b + 1
+        while n < utf8To16.count, utf8To16[n] == v { n += 1 }
+        return n < utf8To16.count ? utf8To16[n] : utf8To16.last ?? 0
+    }
+
+    /// NSRange for cmark node positions (1-based, endCol inclusive).
+    func range(_ sl: Int, _ sc: Int, _ el: Int, _ ec: Int) -> NSRange? {
+        let loc = offset(sl, sc)
+        let end = offsetAfter(el, ec)
+        guard end >= loc else { return nil }
+        return NSRange(location: loc, length: end - loc)
+    }
+
+    /// UTF-16 start offset of a line (1-based line number).
+    func lineStart(_ line: Int) -> Int {
+        guard line >= 1, line <= lineU16.count else { return utf8To16.count - 1 }
+        return lineU16[line - 1]
+    }
+}
+
+// MARK: - Highlight Span
+
+private struct Span {
+    enum Kind {
+        case headingBody(Int), headingMarker
+        case boldBody, boldMarker
+        case italicBody, italicMarker
+        case code
+        case linkText, linkSyntax
+        case quoteBody, quoteMarker
+    }
+    var range: NSRange
+    var kind: Kind
+}
+
+// MARK: - Syntax Highlighting
 
 extension MarkdownEditorViewController {
 
-    private static let headingPattern    = try! NSRegularExpression(pattern: #"^(#{1,6})\s.*$"#, options: .anchorsMatchLines)
-    private static let boldPattern       = try! NSRegularExpression(pattern: #"(\*\*|__).+?\1"#)
-    private static let italicPattern     = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
-    private static let codePattern       = try! NSRegularExpression(pattern: #"`[^`\n]+`"#)
-    private static let linkPattern       = try! NSRegularExpression(pattern: #"\[([^\]]+)\]\([^\)]*\)"#)
-    private static let blockquotePattern = try! NSRegularExpression(pattern: #"^>\s.*$"#, options: .anchorsMatchLines)
-
-    /// Applies syntax highlighting. Markers (*, **, #, >, etc.) outside `activeLine`
-    /// are painted `.clear` to implement cursor-proximity Live Preview.
+    /// Applies syntax highlighting using a cmark AST instead of regex patterns.
+    /// Markers (*, **, #, >, etc.) outside `activeLine` are painted `.clear`
+    /// to implement cursor-proximity Live Preview.
     private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, activeLine: NSRange?) {
         guard range.length > 0 else { return }
         let text = storage.string
-        let nsText = text as NSString
+        let baseSize = EditorFontSettings.shared.fontSize
+        let baseFont = NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
+        let secondary = NSColor.secondaryLabelColor
+        let tertiary  = NSColor.tertiaryLabelColor
+        let accent    = NSColor.linkColor
 
-        // Returns `normal` color when marker is on the active line, `.clear` otherwise.
-        func markerColor(for markerRange: NSRange, normal: NSColor) -> NSColor {
+        func markerColor(_ r: NSRange, normal: NSColor) -> NSColor {
             guard let activeLine else { return normal }
-            return NSIntersectionRange(markerRange, activeLine).length > 0 ? normal : .clear
+            return NSIntersectionRange(r, activeLine).length > 0 ? normal : .clear
         }
 
-        let baseSize = EditorFontSettings.shared.fontSize
+        let spans = collectSpans(text)
 
         storage.beginEditing()
 
         // Reset to base style
         storage.setAttributes([
-            .font: NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular),
+            .font: baseFont,
             .foregroundColor: NSColor.labelColor,
         ], range: range)
 
-        let secondaryColor = NSColor.secondaryLabelColor
-        let tertiaryColor  = NSColor.tertiaryLabelColor
-        let accentColor    = NSColor.linkColor
+        for s in spans {
+            // Skip spans fully outside the requested range
+            guard NSIntersectionRange(s.range, range).length > 0 || s.range.length == 0 else { continue }
 
-        // Headings — larger font, dim # markers off active line
-        Self.headingPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range else { return }
-            let line = nsText.substring(with: matchRange)
-            let level = line.prefix(while: { $0 == "#" }).count
-            let size: CGFloat = switch level {
-                case 1: baseSize + 8; case 2: baseSize + 5; case 3: baseSize + 3; default: baseSize + 1
-            }
-            storage.addAttributes([
-                .font: NSFont.systemFont(ofSize: size, weight: .bold),
-                .foregroundColor: NSColor.labelColor,
-            ], range: matchRange)
-            let markerLen = min(level + 1, matchRange.length)
-            let markerRange = NSRange(location: matchRange.location, length: markerLen)
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: markerRange, normal: tertiaryColor),
-                                 range: markerRange)
-        }
+            switch s.kind {
+            case .headingBody(let lv):
+                let sz: CGFloat = lv == 1 ? baseSize + 8
+                                : lv == 2 ? baseSize + 5
+                                : lv == 3 ? baseSize + 3
+                                :           baseSize + 1
+                storage.addAttributes([
+                    .font: NSFont.systemFont(ofSize: sz, weight: .bold),
+                    .foregroundColor: NSColor.labelColor,
+                ], range: s.range)
 
-        // Bold — hide ** markers off active line
-        Self.boldPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range else { return }
-            storage.addAttribute(.font,
-                                 value: NSFont.systemFont(ofSize: baseSize, weight: .bold),
-                                 range: matchRange)
-            guard matchRange.length >= 4 else { return }
-            let open  = NSRange(location: matchRange.location, length: 2)
-            let close = NSRange(location: matchRange.location + matchRange.length - 2, length: 2)
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: open, normal: secondaryColor),
-                                 range: open)
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: close, normal: secondaryColor),
-                                 range: close)
-        }
-
-        // Italic — hide * markers off active line
-        Self.italicPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range else { return }
-            let existing = storage.attribute(.font, at: matchRange.location, effectiveRange: nil)
-                as? NSFont ?? NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
-            let combined = existing.fontDescriptor.symbolicTraits.union(.italic)
-            if let font = existing.withSymbolicTraits(combined) {
-                storage.addAttribute(.font, value: font, range: matchRange)
-            }
-            let open  = NSRange(location: matchRange.location, length: 1)
-            let close = NSRange(location: matchRange.location + matchRange.length - 1, length: 1)
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: open, normal: secondaryColor),
-                                 range: open)
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: close, normal: secondaryColor),
-                                 range: close)
-        }
-
-        // Inline code — always fully visible (backticks are part of the content style)
-        Self.codePattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range else { return }
-            storage.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
-                .backgroundColor: NSColor.controlBackgroundColor,
-                .foregroundColor: NSColor.systemOrange,
-            ], range: matchRange)
-        }
-
-        // Links — color the whole [text](url); hide brackets/url off active line
-        Self.linkPattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range,
-                  let textGroup = match?.range(at: 1) else { return }
-            // The link text stays colored; surrounding syntax fades off active line
-            storage.addAttribute(.foregroundColor, value: accentColor, range: textGroup)
-            // Ranges that are NOT the link text: [, ](url)
-            let beforeText = NSRange(location: matchRange.location, length: textGroup.location - matchRange.location)
-            let afterText  = NSRange(location: textGroup.location + textGroup.length,
-                                     length: matchRange.location + matchRange.length - textGroup.location - textGroup.length)
-            if beforeText.length > 0 {
+            case .headingMarker:
                 storage.addAttribute(.foregroundColor,
-                                     value: markerColor(for: beforeText, normal: accentColor),
-                                     range: beforeText)
-            }
-            if afterText.length > 0 {
-                storage.addAttribute(.foregroundColor,
-                                     value: markerColor(for: afterText, normal: accentColor),
-                                     range: afterText)
-            }
-        }
+                                     value: markerColor(s.range, normal: tertiary),
+                                     range: s.range)
 
-        // Blockquotes — dim > marker off active line
-        Self.blockquotePattern.enumerateMatches(in: text, range: range) { match, _, _ in
-            guard let matchRange = match?.range else { return }
-            storage.addAttribute(.foregroundColor, value: secondaryColor, range: matchRange)
-            let markerRange = NSRange(location: matchRange.location, length: min(2, matchRange.length))
-            storage.addAttribute(.foregroundColor,
-                                 value: markerColor(for: markerRange, normal: tertiaryColor),
-                                 range: markerRange)
+            case .boldBody:
+                storage.addAttribute(.font,
+                                     value: NSFont.systemFont(ofSize: baseSize, weight: .bold),
+                                     range: s.range)
+
+            case .boldMarker:
+                storage.addAttribute(.foregroundColor,
+                                     value: markerColor(s.range, normal: secondary),
+                                     range: s.range)
+
+            case .italicBody:
+                let existing = storage.attribute(.font, at: s.range.location, effectiveRange: nil)
+                    as? NSFont ?? baseFont
+                let combined = existing.fontDescriptor.symbolicTraits.union(.italic)
+                if let font = existing.withSymbolicTraits(combined) {
+                    storage.addAttribute(.font, value: font, range: s.range)
+                }
+
+            case .italicMarker:
+                storage.addAttribute(.foregroundColor,
+                                     value: markerColor(s.range, normal: secondary),
+                                     range: s.range)
+
+            case .code:
+                storage.addAttributes([
+                    .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                    .backgroundColor: NSColor.controlBackgroundColor,
+                    .foregroundColor: NSColor.systemOrange,
+                ], range: s.range)
+
+            case .linkText:
+                storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+
+            case .linkSyntax:
+                storage.addAttribute(.foregroundColor,
+                                     value: markerColor(s.range, normal: accent),
+                                     range: s.range)
+
+            case .quoteBody:
+                storage.addAttribute(.foregroundColor, value: secondary, range: s.range)
+
+            case .quoteMarker:
+                storage.addAttribute(.foregroundColor,
+                                     value: markerColor(s.range, normal: tertiary),
+                                     range: s.range)
+            }
         }
 
         storage.endEditing()
+    }
+
+    /// Parses the markdown text with cmark and returns highlight spans.
+    private func collectSpans(_ text: String) -> [Span] {
+        guard !text.isEmpty else { return [] }
+        let lineIdx = LineIndex(text)
+        let nsText  = text as NSString
+
+        guard let doc  = cmark_parse_document(text, text.utf8.count, CMARK_OPT_DEFAULT) else { return [] }
+        defer { cmark_node_free(doc) }
+        guard let iter = cmark_iter_new(doc) else { return [] }
+        defer { cmark_iter_free(iter) }
+
+        var spans = [Span]()
+
+        while true {
+            let ev = cmark_iter_next(iter)
+            if ev == CMARK_EVENT_DONE { break }
+            if ev != CMARK_EVENT_ENTER { continue }
+            guard let node = cmark_iter_get_node(iter) else { continue }
+
+            let sl = Int(cmark_node_get_start_line(node))
+            let sc = Int(cmark_node_get_start_column(node))
+            let el = Int(cmark_node_get_end_line(node))
+            let ec = Int(cmark_node_get_end_column(node))
+            let nt = cmark_node_get_type(node)
+
+            if nt == CMARK_NODE_HEADING {
+                guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+                let lv = Int(cmark_node_get_heading_level(node))
+                spans.append(Span(range: r, kind: .headingBody(lv)))
+                // Marker = the '#' characters + one space (level + 1 chars)
+                let markerLen = min(lv + 1, r.length)
+                spans.append(Span(range: NSRange(location: r.location, length: markerLen), kind: .headingMarker))
+
+            } else if nt == CMARK_NODE_STRONG {
+                guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 4 else { continue }
+                spans.append(Span(range: r, kind: .boldBody))
+                spans.append(Span(range: NSRange(location: r.location, length: 2),             kind: .boldMarker))
+                spans.append(Span(range: NSRange(location: r.upperBound - 2, length: 2),       kind: .boldMarker))
+
+            } else if nt == CMARK_NODE_EMPH {
+                guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 2 else { continue }
+                spans.append(Span(range: r, kind: .italicBody))
+                spans.append(Span(range: NSRange(location: r.location, length: 1),             kind: .italicMarker))
+                spans.append(Span(range: NSRange(location: r.upperBound - 1, length: 1),       kind: .italicMarker))
+
+            } else if nt == CMARK_NODE_CODE {
+                // cmark positions for CMARK_NODE_CODE span only the content (no backticks).
+                // Expand the range to include opening and closing backticks.
+                let bt = Int(cmark_node_get_backtick_count(node))
+                guard sc > bt else { continue }
+                let fullLoc = lineIdx.offset(sl, sc - bt)
+                // Content end (exclusive) + bt closing backticks (ASCII = 1 UTF-16 each)
+                let fullEnd = lineIdx.offsetAfter(el, ec) + bt
+                guard fullEnd > fullLoc else { continue }
+                spans.append(Span(range: NSRange(location: fullLoc, length: fullEnd - fullLoc), kind: .code))
+
+            } else if nt == CMARK_NODE_LINK {
+                guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+                let fc = cmark_node_first_child(node)
+                let lc = cmark_node_last_child(node)
+                if let fc, let lc,
+                   let textRange = lineIdx.range(
+                       Int(cmark_node_get_start_line(fc)), Int(cmark_node_get_start_column(fc)),
+                       Int(cmark_node_get_end_line(lc)),   Int(cmark_node_get_end_column(lc))) {
+                    spans.append(Span(range: textRange, kind: .linkText))
+                    let beforeLen = textRange.location - r.location
+                    if beforeLen > 0 {
+                        spans.append(Span(range: NSRange(location: r.location, length: beforeLen), kind: .linkSyntax))
+                    }
+                    let afterLen = r.upperBound - textRange.upperBound
+                    if afterLen > 0 {
+                        spans.append(Span(range: NSRange(location: textRange.upperBound, length: afterLen), kind: .linkSyntax))
+                    }
+                } else {
+                    spans.append(Span(range: r, kind: .linkSyntax))
+                }
+
+            } else if nt == CMARK_NODE_BLOCK_QUOTE {
+                guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+                spans.append(Span(range: r, kind: .quoteBody))
+                // Emit a marker for each line in the blockquote that starts with '>'
+                for line in sl...el {
+                    let ls = lineIdx.lineStart(line)
+                    guard ls >= r.location, ls < r.upperBound, ls < nsText.length else { continue }
+                    if nsText.substring(with: NSRange(location: ls, length: 1)) == ">" {
+                        let mLen = min(2, r.upperBound - ls)
+                        spans.append(Span(range: NSRange(location: ls, length: mLen), kind: .quoteMarker))
+                    }
+                }
+            }
+        }
+
+        return spans
     }
 }
 
