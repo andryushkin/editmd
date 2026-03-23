@@ -9,6 +9,7 @@
 
 ```
 editmd/
+├── docs/           # Планы и документация (plan-v2.md)
 ├── research/
 │   ├── MarkEdit/     # Референс: CodeMirror 6 + WKWebView архитектура
 │   └── CodeEdit/     # Референс: TextKit 2 + CodeEditSourceEditor
@@ -54,6 +55,18 @@ extension MyViewController: NSMenuItemValidation {
 Closure в `addObserver(forName:object:queue:using:)` — `@Sendable`, конфликт с `@MainActor`.
 Решение: selector-based `addObserver(self, selector:, name:, object:)`.
 
+### NSTextStorage: комбинирование font traits (bold + italic)
+При применении italic к тексту, который уже может быть bold — читать существующий шрифт из storage
+и union трейты, иначе italic затрёт bold:
+```swift
+let existing = storage.attribute(.font, at: range.location, effectiveRange: nil)
+    as? NSFont ?? fallbackFont
+let combined = existing.fontDescriptor.symbolicTraits.union(.italic)
+if let font = existing.withSymbolicTraits(combined) {
+    storage.addAttribute(.font, value: font, range: range)
+}
+```
+
 ### SourceKit false positives
 При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
 пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
@@ -63,9 +76,20 @@ Closure в `addObserver(forName:object:queue:using:)` — `@Sendable`, конф�
 - `swift-markdown-ui` (gonzalezreal) v2.4.1 — SwiftUI рендерер Markdown, тема `.gitHub`
   - Транзитивные: NetworkImage, cmark-gfm
 
-## Next Steps (v2)
+## Releases
 
-- ~~Live Preview: скрытие Markdown-символов при помощи NSTextLayoutManagerDelegate~~ ✅ (cursor proximity реализован)
-- ~~Cursor proximity: показывать символы в текущем абзаце~~ ✅
-- ~~Настройки шрифта через UserDefaults~~ ✅ (EditorFontSettings, Format-меню ⌘=/⌘−)
-- Поддержка .textbundle (для изображений)
+### v1 — Initial
+NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
+
+### v2 — In Progress
+- ✅ **Live Preview / cursor proximity** — `NSTextLayoutManagerDelegate`, маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита).
+- ✅ **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
+- ⬜ Счётчик слов/символов в статусбаре
+- ⬜ Горячие клавиши форматирования (Cmd+B, Cmd+I)
+- ⬜ Поддержка .textbundle (для изображений)
+
+Полный план: `docs/plan-v2.md`
+
+## Conventions
+
+- Планы и roadmap — сохранять в `docs/`

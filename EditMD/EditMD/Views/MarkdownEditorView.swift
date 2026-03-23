@@ -123,15 +123,15 @@ extension MarkdownEditorViewController {
 
     /// Applies syntax highlighting. Markers (*, **, #, >, etc.) outside `activeLine`
     /// are painted `.clear` to implement cursor-proximity Live Preview.
-    func applyHighlighting(to storage: NSTextStorage, in range: NSRange, activeLine: NSRange?) {
+    private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, activeLine: NSRange?) {
         guard range.length > 0 else { return }
         let text = storage.string
         let nsText = text as NSString
 
         // Returns `normal` color when marker is on the active line, `.clear` otherwise.
         func markerColor(for markerRange: NSRange, normal: NSColor) -> NSColor {
-            guard let active = activeLine else { return normal }
-            return NSIntersectionRange(markerRange, active).length > 0 ? normal : .clear
+            guard let activeLine else { return normal }
+            return NSIntersectionRange(markerRange, activeLine).length > 0 ? normal : .clear
         }
 
         let baseSize = EditorFontSettings.shared.fontSize
@@ -187,9 +187,10 @@ extension MarkdownEditorViewController {
         // Italic — hide * markers off active line
         Self.italicPattern.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let matchRange = match?.range else { return }
-            let traits: NSFontDescriptor.SymbolicTraits = .italic
-            if let font = NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
-                .withSymbolicTraits(traits) {
+            let existing = storage.attribute(.font, at: matchRange.location, effectiveRange: nil)
+                as? NSFont ?? NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
+            let combined = existing.fontDescriptor.symbolicTraits.union(.italic)
+            if let font = existing.withSymbolicTraits(combined) {
                 storage.addAttribute(.font, value: font, range: matchRange)
             }
             let open  = NSRange(location: matchRange.location, length: 1)
