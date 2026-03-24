@@ -1,5 +1,6 @@
 import Foundation
 import cmark_gfm
+import cmark_gfm_extensions
 
 // MARK: - Line Index
 
@@ -70,12 +71,23 @@ struct LineIndex {
 
 struct Span {
     enum Kind {
+        // Existing
         case headingBody(Int), headingMarker
         case boldBody, boldMarker
         case italicBody, italicMarker
         case code
         case linkText, linkSyntax
         case quoteBody, quoteMarker
+        // New
+        case codeBlockBody, codeBlockFence
+        case thematicBreak
+        case listMarker
+        case imageText, imageSyntax
+        case htmlInline
+        case htmlBlock
+        case strikethroughBody, strikethroughMarker
+        case tableDelimiter
+        case tableHeader
     }
     var range: NSRange
     var kind: Kind
@@ -90,8 +102,19 @@ func collectSpans(_ text: String) -> [Span] {
     let lineIdx = LineIndex(text)
     let nsText  = text as NSString
 
-    guard let doc  = cmark_parse_document(text, text.utf8.count, CMARK_OPT_DEFAULT) else { return [] }
+    // Use parser API to support GFM extensions (strikethrough, table, tasklist, autolink).
+    cmark_gfm_core_extensions_ensure_registered()
+    guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else { return [] }
+    defer { cmark_parser_free(parser) }
+    for name in ["strikethrough", "table", "tasklist", "autolink"] {
+        if let ext = cmark_find_syntax_extension(name) {
+            cmark_parser_attach_syntax_extension(parser, ext)
+        }
+    }
+    cmark_parser_feed(parser, text, text.utf8.count)
+    guard let doc = cmark_parser_finish(parser) else { return [] }
     defer { cmark_node_free(doc) }
+
     guard let iter = cmark_iter_new(doc) else { return [] }
     defer { cmark_iter_free(iter) }
 
@@ -108,6 +131,13 @@ func collectSpans(_ text: String) -> [Span] {
         let el = Int(cmark_node_get_end_line(node))
         let ec = Int(cmark_node_get_end_column(node))
         let nt = cmark_node_get_type(node)
+
+        // Extension node types are extern variables, not accessible from Swift module.
+        // Compare by type string for extension nodes.
+        let typeStr: String? = {
+            guard let ptr = cmark_node_get_type_string(node) else { return nil }
+            return String(cString: ptr)
+        }()
 
         if nt == CMARK_NODE_HEADING {
             guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
@@ -171,6 +201,117 @@ func collectSpans(_ text: String) -> [Span] {
                 if nsText.substring(with: NSRange(location: ls, length: 1)) == ">" {
                     let mLen = min(2, r.upperBound - ls)
                     spans.append(Span(range: NSRange(location: ls, length: mLen), kind: .quoteMarker))
+                }
+            }
+
+        } else if nt == CMARK_NODE_CODE_BLOCK {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            spans.append(Span(range: r, kind: .codeBlockBody))
+
+            // Fenced code blocks have fence_info (may be empty string).
+            // Indented code blocks return nil for fence_info but also have fence_length == 0.
+            let fenceLen = Int(cmark_node_get_fence_info(node) != nil ? 1 : 0)
+            if fenceLen > 0 {
+                // Opening fence: from block start to end of first line
+                if sl < lineIdx.lineCount {
+                    let nextLineStart = lineIdx.lineStart(sl + 1)
+                    let openLen = nextLineStart - r.location
+                    if openLen > 0 {
+                        spans.append(Span(range: NSRange(location: r.location, length: openLen),
+                                          kind: .codeBlockFence))
+                    }
+                }
+                // Closing fence: last line of the block
+                if el > sl {
+                    let closeStart = lineIdx.lineStart(el)
+                    let closeLen = r.upperBound - closeStart
+                    if closeLen > 0, closeStart >= r.location {
+                        spans.append(Span(range: NSRange(location: closeStart, length: closeLen),
+                                          kind: .codeBlockFence))
+                    }
+                }
+            }
+
+        } else if nt == CMARK_NODE_THEMATIC_BREAK {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            spans.append(Span(range: r, kind: .thematicBreak))
+
+        } else if nt == CMARK_NODE_ITEM {
+            // Extract list marker (bullet or number+delimiter).
+            let markerStart = lineIdx.offset(sl, sc)
+            guard markerStart < nsText.length else { continue }
+            let parent = cmark_node_parent(node)
+            let listType = parent != nil ? cmark_node_get_list_type(parent) : CMARK_NO_LIST
+
+            var markerLen = 2  // default: "- " or "* "
+            if listType == CMARK_ORDERED_LIST {
+                // Scan: digits, then delimiter (. or )), then space
+                let maxScan = min(10, nsText.length - markerStart)
+                var i = 0
+                while i < maxScan {
+                    let ch = nsText.character(at: markerStart + i)
+                    guard ch >= 0x30, ch <= 0x39 else { break }  // '0'-'9'
+                    i += 1
+                }
+                if i < maxScan { i += 1 }  // delimiter (. or ))
+                if i < maxScan { i += 1 }  // space
+                markerLen = i
+            }
+            if markerLen > 0, markerStart + markerLen <= nsText.length {
+                spans.append(Span(range: NSRange(location: markerStart, length: markerLen),
+                                  kind: .listMarker))
+            }
+
+        } else if nt == CMARK_NODE_IMAGE {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            let fc = cmark_node_first_child(node)
+            let lc = cmark_node_last_child(node)
+            if let fc, let lc,
+               let textRange = lineIdx.range(
+                   Int(cmark_node_get_start_line(fc)), Int(cmark_node_get_start_column(fc)),
+                   Int(cmark_node_get_end_line(lc)),   Int(cmark_node_get_end_column(lc))) {
+                spans.append(Span(range: textRange, kind: .imageText))
+                let beforeLen = textRange.location - r.location
+                if beforeLen > 0 {
+                    spans.append(Span(range: NSRange(location: r.location, length: beforeLen), kind: .imageSyntax))
+                }
+                let afterLen = r.upperBound - textRange.upperBound
+                if afterLen > 0 {
+                    spans.append(Span(range: NSRange(location: textRange.upperBound, length: afterLen), kind: .imageSyntax))
+                }
+            } else {
+                spans.append(Span(range: r, kind: .imageSyntax))
+            }
+
+        } else if nt == CMARK_NODE_HTML_INLINE {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            spans.append(Span(range: r, kind: .htmlInline))
+
+        } else if nt == CMARK_NODE_HTML_BLOCK {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            spans.append(Span(range: r, kind: .htmlBlock))
+
+        } else if typeStr == "strikethrough" {
+            guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 4 else { continue }
+            spans.append(Span(range: r, kind: .strikethroughBody))
+            spans.append(Span(range: NSRange(location: r.location, length: 2),             kind: .strikethroughMarker))
+            spans.append(Span(range: NSRange(location: r.upperBound - 2, length: 2),       kind: .strikethroughMarker))
+
+        } else if typeStr == "table" {
+            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
+            // Header row: first line
+            let headerEnd = sl < lineIdx.lineCount ? lineIdx.lineStart(sl + 1) : r.upperBound
+            let headerLen = min(headerEnd - r.location, r.length)
+            if headerLen > 0 {
+                spans.append(Span(range: NSRange(location: r.location, length: headerLen),
+                                  kind: .tableHeader))
+            }
+            // Find all '|' delimiters in the table range
+            for i in r.location..<r.upperBound {
+                guard i < nsText.length else { break }
+                if nsText.character(at: i) == 0x7C {  // '|'
+                    spans.append(Span(range: NSRange(location: i, length: 1),
+                                      kind: .tableDelimiter))
                 }
             }
         }

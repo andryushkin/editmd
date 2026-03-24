@@ -29,6 +29,8 @@ targets:
         product: MarkdownUI
       - package: swift-cmark
         product: cmark-gfm
+      - package: swift-cmark
+        product: cmark-gfm-extensions
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
@@ -51,6 +53,8 @@ targets:
       - target: EditMD
       - package: swift-cmark
         product: cmark-gfm
+      - package: swift-cmark
+        product: cmark-gfm-extensions
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.tests

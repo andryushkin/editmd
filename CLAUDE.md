@@ -20,7 +20,7 @@ editmd/
         ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift
         └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
-        ├── MarkdownHighlighterTests.swift   # 28 XCTest кейсов для LineIndex + collectSpans
+        ├── MarkdownHighlighterTests.swift   # 53 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         └── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
 ```
@@ -119,6 +119,29 @@ Unit-test bundle без host app не линкует code coverage runtime. Вс
 - `CMARK_NODE_STRONG`/`EMPH` — позиции включают маркеры (`**` / `*`); тело = весь nodeRange.
 - `CMARK_NODE_HEADING` — позиции = вся строка заголовка включая `# `; trailing `\n` НЕ включается в `ec`.
 - `CMARK_NODE_LINK` — `cmark_node_first_child` / `cmark_node_last_child` дают диапазон текста внутри `[...]`.
+- `CMARK_NODE_CODE_BLOCK` — fenced: `cmark_node_get_fence_info != nil`; indented: fence_info == nil. Позиции включают fence строки.
+- `CMARK_NODE_ITEM` — позиции начинаются с маркера (`-`, `*`, `1.`). Длину маркера определяем сканированием текста.
+- `CMARK_NODE_IMAGE` — аналогичен LINK: `![` + alt text + `](url)`.
+
+### cmark GFM extensions: extern node types недоступны из Swift
+`CMARK_NODE_STRIKETHROUGH`, `CMARK_NODE_TABLE` и пр. — extern переменные из внутренних заголовков (`strikethrough.h`, `table.h`), которые НЕ экспортируются через `module.modulemap` пакета `cmark-gfm-extensions`. Сравнение через `cmark_node_get_type_string(node)`:
+```swift
+let typeStr = cmark_node_get_type_string(node).flatMap { String(cString: $0) }
+// typeStr == "strikethrough", "table", "table_row", "table_cell"
+```
+
+### cmark GFM parser API
+Для поддержки GFM-расширений (strikethrough, table, tasklist, autolink) необходимо использовать явный parser API вместо `cmark_parse_document()`:
+```swift
+import cmark_gfm_extensions
+cmark_gfm_core_extensions_ensure_registered()
+let parser = cmark_parser_new(CMARK_OPT_DEFAULT)
+for name in ["strikethrough", "table", "tasklist", "autolink"] {
+    if let ext = cmark_find_syntax_extension(name) {
+        cmark_parser_attach_syntax_extension(parser, ext)
+    }
+}
+```
 
 ### cmark: добавление как explicit SPM dep
 `swift-cmark` — транзитивная зависимость `swift-markdown-ui`. Чтобы импортировать напрямую (`import cmark_gfm`), нужно добавить в `project.yml` явно:
@@ -130,6 +153,8 @@ packages:
 # и в target dependencies:
 - package: swift-cmark
   product: cmark-gfm
+- package: swift-cmark
+  product: cmark-gfm-extensions
 ```
 SPM переиспользует уже скачанную версию из `Package.resolved` — без повторной загрузки.
 
@@ -138,6 +163,7 @@ SPM переиспользует уже скачанную версию из `Pa
 - `swift-markdown-ui` (gonzalezreal) v2.4.1 — SwiftUI рендерер Markdown, тема `.gitHub`
   - Транзитивные: NetworkImage, cmark-gfm
 - `swift-cmark` (swiftlang) v0.7.1 — cmark C библиотека, используется напрямую для AST-парсинга в редакторе
+  - Продукты: `cmark-gfm` (core), `cmark-gfm-extensions` (strikethrough, table, tasklist, autolink)
 
 ## Releases
 
@@ -160,7 +186,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **SwiftUI App lifecycle + `.commands`** — `EditMDApp.swift` entry point, декларативное меню (Edit/Format)
 - **Полное меню** — Edit (Undo/Redo/Cut/Copy/Paste/Select All), Format (Bigger/Smaller/Bold/Italic)
 
-### v4 — Complete (current)
+### v4 — Complete
 - **Миграция на чистый SwiftUI** — `DocumentGroup` + `ReferenceFileDocument` вместо NSDocument
 - **NSViewRepresentable** — `MarkdownTextView.swift` обёртка NSTextView (подсветка, форматирование, счётчик)
 - **ContentView** — SwiftUI view с Edit/Preview toggle + `.toolbar`
@@ -168,5 +194,13 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **Удалены AppKit контроллеры** — AppDelegate, EditorWindowController, EditorViewController, MarkdownEditorView
 - **Swift 6.2**, strict concurrency
 - **49 тестов** — 28 highlighter + 14 formatting + 7 document
+
+### v5 — Complete (current)
+- **Полная подсветка всех markdown-элементов** — 22 SpanKind (было 11)
+- **GFM extensions** — strikethrough (`~~text~~`), таблицы, tasklists, autolinks через `cmark-gfm-extensions`
+- **Новые элементы:** fenced/indented code blocks, thematic breaks (`---`/`***`/`___`), list markers (ordered/unordered), images (`![alt](url)`), inline/block HTML, strikethrough, table headers/delimiters
+- **Парсер** — переход с `cmark_parse_document()` на явный parser API с GFM-расширениями
+- **74 теста** — 53 highlighter + 14 formatting + 7 document
+- **test-all-elements.md** — визуальный тестовый файл со всеми элементами
 
 ## Conventions

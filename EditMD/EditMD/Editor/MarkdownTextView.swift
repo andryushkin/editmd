@@ -252,6 +252,68 @@ struct MarkdownTextView: NSViewRepresentable {
                     storage.addAttribute(.foregroundColor,
                                          value: markerColor(s.range, normal: tertiary),
                                          range: s.range)
+
+                case .codeBlockBody:
+                    storage.addAttributes([
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .backgroundColor: NSColor.controlBackgroundColor,
+                        .foregroundColor: secondary,
+                    ], range: s.range)
+
+                case .codeBlockFence:
+                    storage.addAttribute(.foregroundColor,
+                                         value: markerColor(s.range, normal: tertiary),
+                                         range: s.range)
+
+                case .thematicBreak:
+                    storage.addAttribute(.foregroundColor, value: tertiary, range: s.range)
+
+                case .listMarker:
+                    storage.addAttribute(.foregroundColor,
+                                         value: markerColor(s.range, normal: accent),
+                                         range: s.range)
+
+                case .imageText:
+                    storage.addAttribute(.foregroundColor,
+                                         value: NSColor.systemGreen, range: s.range)
+
+                case .imageSyntax:
+                    storage.addAttribute(.foregroundColor,
+                                         value: markerColor(s.range, normal: NSColor.systemGreen),
+                                         range: s.range)
+
+                case .htmlInline:
+                    storage.addAttributes([
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .foregroundColor: tertiary,
+                    ], range: s.range)
+
+                case .htmlBlock:
+                    storage.addAttributes([
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .foregroundColor: tertiary,
+                    ], range: s.range)
+
+                case .strikethroughBody:
+                    storage.addAttributes([
+                        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                        .strikethroughColor: NSColor.labelColor,
+                    ], range: s.range)
+
+                case .strikethroughMarker:
+                    storage.addAttribute(.foregroundColor,
+                                         value: markerColor(s.range, normal: secondary),
+                                         range: s.range)
+
+                case .tableDelimiter:
+                    storage.addAttribute(.foregroundColor,
+                                         value: markerColor(s.range, normal: tertiary),
+                                         range: s.range)
+
+                case .tableHeader:
+                    storage.addAttribute(.font,
+                                         value: NSFont.systemFont(ofSize: baseSize, weight: .bold),
+                                         range: s.range)
                 }
             }
 

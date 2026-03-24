@@ -313,4 +313,237 @@ final class CollectSpansTests: XCTestCase {
         XCTAssertEqual(bm[0].range, NSRange(location: 8,  length: 2))
         XCTAssertEqual(bm[1].range, NSRange(location: 14, length: 2))
     }
+
+    // MARK: - Fenced Code Blocks
+
+    func testFencedCodeBlock() {
+        let input = "```\ncode\n```"
+        let spans = collectSpans(input)
+        let bodies = spans.filter { if case .codeBlockBody = $0.kind { return true }; return false }
+        let fences = spans.filter { if case .codeBlockFence = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        // Body covers the entire block
+        XCTAssertEqual(bodies[0].range.location, 0)
+        XCTAssertTrue(bodies[0].range.length > 0)
+        // Two fences: opening and closing
+        XCTAssertEqual(fences.count, 2)
+    }
+
+    func testFencedCodeBlockWithLanguage() {
+        let input = "```swift\nlet x = 1\n```"
+        let spans = collectSpans(input)
+        let bodies = spans.filter { if case .codeBlockBody = $0.kind { return true }; return false }
+        let fences = spans.filter { if case .codeBlockFence = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(fences.count, 2)
+    }
+
+    func testIndentedCodeBlock() {
+        // Indented code block: 4 spaces, preceded by blank line
+        let input = "paragraph\n\n    code line"
+        let spans = collectSpans(input)
+        let bodies = spans.filter { if case .codeBlockBody = $0.kind { return true }; return false }
+        let fences = spans.filter { if case .codeBlockFence = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        // Indented blocks have no fences
+        XCTAssertEqual(fences.count, 0)
+    }
+
+    func testFencedCodeBlockTilde() {
+        let input = "~~~\ncode\n~~~"
+        let spans = collectSpans(input)
+        let bodies = spans.filter { if case .codeBlockBody = $0.kind { return true }; return false }
+        let fences = spans.filter { if case .codeBlockFence = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(fences.count, 2)
+    }
+
+    // MARK: - Thematic Breaks
+
+    func testThematicBreakDashes() {
+        // Need blank line or heading before, otherwise "---" becomes setext heading
+        let input = "text\n\n---"
+        let spans = collectSpans(input)
+        let breaks = spans.filter { if case .thematicBreak = $0.kind { return true }; return false }
+        XCTAssertEqual(breaks.count, 1)
+    }
+
+    func testThematicBreakAsterisks() {
+        let input = "text\n\n***"
+        let spans = collectSpans(input)
+        let breaks = spans.filter { if case .thematicBreak = $0.kind { return true }; return false }
+        XCTAssertEqual(breaks.count, 1)
+    }
+
+    func testThematicBreakUnderscores() {
+        let input = "text\n\n___"
+        let spans = collectSpans(input)
+        let breaks = spans.filter { if case .thematicBreak = $0.kind { return true }; return false }
+        XCTAssertEqual(breaks.count, 1)
+    }
+
+    // MARK: - List Items
+
+    func testUnorderedListDash() {
+        let input = "- item"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
+    }
+
+    func testUnorderedListAsterisk() {
+        // "* item" — asterisk list
+        let input = "* item"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
+    }
+
+    func testOrderedListSingle() {
+        let input = "1. item"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 3))
+    }
+
+    func testOrderedListMultiDigit() {
+        let input = "10. item"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 4))
+    }
+
+    func testNestedList() {
+        let input = "- outer\n  - inner"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 2)
+    }
+
+    // MARK: - Images
+
+    func testImage() {
+        // "![alt](url)" = 11 chars
+        let spans = collectSpans("![alt](url)")
+        let texts   = spans.filter { if case .imageText   = $0.kind { return true }; return false }
+        let syntaxes = spans.filter { if case .imageSyntax = $0.kind { return true }; return false }
+        XCTAssertEqual(texts.count, 1)
+        XCTAssertFalse(syntaxes.isEmpty)
+    }
+
+    func testImageEmptyAlt() {
+        let spans = collectSpans("![](url)")
+        let texts   = spans.filter { if case .imageText   = $0.kind { return true }; return false }
+        let syntaxes = spans.filter { if case .imageSyntax = $0.kind { return true }; return false }
+        XCTAssertTrue(texts.isEmpty)
+        XCTAssertFalse(syntaxes.isEmpty)
+    }
+
+    func testImageMidSentence() {
+        let input = "See ![pic](img.png) here"
+        let spans = collectSpans(input)
+        let texts = spans.filter { if case .imageText = $0.kind { return true }; return false }
+        XCTAssertEqual(texts.count, 1)
+        // "pic" starts at position 6 (after "See ![")
+        XCTAssertEqual(texts[0].range.location, 6)
+        XCTAssertEqual(texts[0].range.length, 3)
+    }
+
+    // MARK: - HTML
+
+    func testHtmlInline() {
+        let input = "Text <br> more"
+        let spans = collectSpans(input)
+        let html = spans.filter { if case .htmlInline = $0.kind { return true }; return false }
+        XCTAssertEqual(html.count, 1)
+    }
+
+    func testHtmlBlock() {
+        // HTML block must be preceded by blank line (or be at start of document)
+        let input = "<div>\ncontent\n</div>"
+        let spans = collectSpans(input)
+        let html = spans.filter { if case .htmlBlock = $0.kind { return true }; return false }
+        XCTAssertEqual(html.count, 1)
+    }
+
+    // MARK: - Strikethrough (GFM extension)
+
+    func testStrikethrough() {
+        let spans = collectSpans("~~text~~")
+        let bodies  = spans.filter { if case .strikethroughBody   = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .strikethroughMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range, NSRange(location: 0, length: 8))
+        let sorted = markers.sorted { $0.range.location < $1.range.location }
+        XCTAssertEqual(sorted[0].range, NSRange(location: 0, length: 2))
+        XCTAssertEqual(sorted[1].range, NSRange(location: 6, length: 2))
+    }
+
+    func testStrikethroughMidSentence() {
+        let input = "Hello ~~world~~ end"
+        let spans = collectSpans(input)
+        let bodies = spans.filter { if case .strikethroughBody = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(bodies[0].range, NSRange(location: 6, length: 9))
+    }
+
+    func testStrikethroughWithBold() {
+        let input = "**~~both~~**"
+        let spans = collectSpans(input)
+        let boldBodies   = spans.filter { if case .boldBody          = $0.kind { return true }; return false }
+        let strikeBodies = spans.filter { if case .strikethroughBody = $0.kind { return true }; return false }
+        XCTAssertEqual(boldBodies.count, 1)
+        XCTAssertEqual(strikeBodies.count, 1)
+    }
+
+    // MARK: - Tables (GFM extension)
+
+    func testSimpleTable() {
+        let input = "| a | b |\n|---|---|\n| 1 | 2 |"
+        let spans = collectSpans(input)
+        let headers    = spans.filter { if case .tableHeader    = $0.kind { return true }; return false }
+        let delimiters = spans.filter { if case .tableDelimiter = $0.kind { return true }; return false }
+        XCTAssertEqual(headers.count, 1)
+        XCTAssertTrue(delimiters.count > 0)
+    }
+
+    func testTableHeaderRow() {
+        let input = "| Name | Age |\n|------|-----|\n| Alice | 30 |"
+        let spans = collectSpans(input)
+        let headers = spans.filter { if case .tableHeader = $0.kind { return true }; return false }
+        XCTAssertEqual(headers.count, 1)
+        // Header covers first line
+        XCTAssertEqual(headers[0].range.location, 0)
+    }
+
+    func testTableDelimiters() {
+        let input = "| a | b |\n|---|---|\n| 1 | 2 |"
+        let spans = collectSpans(input)
+        let delimiters = spans.filter { if case .tableDelimiter = $0.kind { return true }; return false }
+        // Count all '|' characters in the input
+        let pipeCount = input.filter { $0 == "|" }.count
+        XCTAssertEqual(delimiters.count, pipeCount)
+    }
+
+    // MARK: - Tasklist (GFM extension — parsed as list items)
+
+    func testTasklistUnchecked() {
+        let input = "- [ ] todo"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        // Tasklist items are parsed as list items; the marker is "- "
+        XCTAssertEqual(markers.count, 1)
+    }
+
+    func testTasklistChecked() {
+        let input = "- [x] done"
+        let spans = collectSpans(input)
+        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+    }
 }
