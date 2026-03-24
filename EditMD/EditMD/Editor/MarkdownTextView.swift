@@ -419,7 +419,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     let existing = storage.attribute(.paragraphStyle, at: prevRange.location,
                                                      effectiveRange: nil) as? NSParagraphStyle
                     let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacing = max(ps.paragraphSpacing, 20)
+                    ps.paragraphSpacing = max(ps.paragraphSpacing, 16)
                     storage.addAttribute(.paragraphStyle, value: ps, range: prevRange)
                 }
                 let afterLoc = NSMaxRange(codeRange)
@@ -429,7 +429,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     let existing = storage.attribute(.paragraphStyle, at: nextRange.location,
                                                      effectiveRange: nil) as? NSParagraphStyle
                     let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, 20)
+                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, 16)
                     storage.addAttribute(.paragraphStyle, value: ps, range: nextRange)
                 }
             }
@@ -510,7 +510,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
             guard !blockRect.isNull else { btn.isHidden = true; continue }
             btn.isHidden = false
-            let paddedRect = blockRect.insetBy(dx: 0, dy: -4)
+            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
             let w = btn.frame.width + 10
             let h: CGFloat = 18
             let newFrame = NSRect(x: paddedRect.maxX - w - 6, y: paddedRect.minY + 6, width: w, height: h)
@@ -578,7 +578,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                     blockRect = blockRect.isNull ? lineRect : blockRect.union(lineRect)
                 }
                 if !blockRect.isNull && blockRect.intersects(rect) {
-                    let padded = blockRect.insetBy(dx: 0, dy: -4)
+                    let padded = blockRect.insetBy(dx: 0, dy: -8)
                     codeBackground.setFill()
                     padded.fill()
                 }

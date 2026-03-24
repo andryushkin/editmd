@@ -163,7 +163,6 @@ if let pos = cursorPos {
 - В `updateOverlays()` не удалять все кнопки — использовать пул: удалять/добавлять только разницу, `.frame` обновлять без `addSubview`
 - `setFrameSize()` override не нужен — `layout()` покрывает все изменения bounds
 - `NSLayoutManagerDelegate` обеспечивает первый корректный вызов после завершения layout
-
 ```swift
 // Пул: удалить лишние / добавить недостающие
 while codeOverlayButtons.count > codeBlockEntries.count {
@@ -345,8 +344,8 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **79 тестов** — без изменений (оптимизация только в Coordinator, тесты покрывают pure functions)
 
 ### v9 — Complete
-- **Отступы вокруг code blocks** — `paragraphSpacing = 20` на параграфе ДО блока, `paragraphSpacingBefore = 20` на параграфе ПОСЛЕ блока; применяется через post-processing loop по `codeBlockEntries` после spans loop, перед `storage.endEditing()`
-- **Фон code block** — `insetBy(dx: 0, dy: -4)` (было -8), даёт 4pt визуального выноса за текст
+- **Отступы вокруг code blocks** — `paragraphSpacing = 16` на параграфе ДО блока, `paragraphSpacingBefore = 16` на параграфе ПОСЛЕ блока; применяется через post-processing loop по `codeBlockEntries` после spans loop, перед `storage.endEditing()`
+- **Фон code block** — `insetBy(dx: 0, dy: -8)`, даёт 8pt внутреннего отступа
 - **79 тестов** — без изменений
 
 ### paragraphSpacing + tinyFont — gotcha
@@ -355,5 +354,20 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 **Симптом:** spacing применён через NSParagraphStyle, билд OK, но визуально ничего не меняется.
 
 **Решение:** применять spacing к параграфам СНАРУЖИ блока (с нормальным шрифтом) через post-processing loop по `codeBlockEntries` после spans loop (см. v9 в MarkdownTextView.swift).
+
+### Формула визуальных полей code block
+
+```
+insetBy(dx: 0, dy: -N)  →  N pt внутреннего фона сверху/снизу (от fence до края панели)
+paragraphSpacing = M    →  M pt между соседним параграфом и fence
+
+Внешний зазор (текст → край фона) = M − N   (обязательно > 0!)
+Внутренний отступ (край фона → первая строка кода) ≈ N
+Итого от текста до кода = M
+
+Текущие значения: N=8, M=16  →  внешний=8pt, внутренний=8pt, итого=16pt (~1 строка)
+```
+
+При изменении любого параметра проверять, что M > N.
 
 ## Conventions
