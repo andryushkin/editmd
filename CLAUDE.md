@@ -127,14 +127,46 @@ storage.addAttribute(.paragraphStyle, value: para, range: paraRange)  // от н
 Outer (depth=0) применяется первым → headIndent=0 с lineStart. Inner (depth=1) применяется вторым → headIndent=20 переопределяет.
 
 ### applyHighlighting: cursorPos вместо activeLine
-`applyHighlighting` принимает `cursorPos: Int?` и вычисляет блочно-осведомлённый `activeRegion` внутри функции (после `collectSpans`). Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока:
+`applyHighlighting` принимает `cursorPos: Int?` и вычисляет блочно-осведомлённый `activeRegion` внутри функции (после `collectSpans`). Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока. После добавления `codeBlockBody(language:)` проверку делать через pattern matching, не через `==`:
 ```swift
 var activeRegion: NSRange? = activeLine
 if let pos = cursorPos {
-    for span in spans where span.kind == .quoteBody || span.kind == .codeBlockBody {
-        if NSLocationInRange(pos, span.range) {
+    for span in spans {
+        let isBlock: Bool
+        if case .quoteBody = span.kind { isBlock = true }
+        else if case .codeBlockBody = span.kind { isBlock = true }
+        else { isBlock = false }
+        if isBlock && NSLocationInRange(pos, span.range) {
             activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
         }
+    }
+}
+```
+
+### NSTextView flipped координаты
+`NSTextView.isFlipped = true`. В flipped-системе y=0 вверху, растёт вниз:
+- `rect.minY` = верхний визуальный край
+- `rect.maxY` = нижний визуальный край
+Для позиционирования overlay в **верхнем** правом углу code block: `y: paddedRect.minY + offset`.
+
+### NSView overlays поверх NSTextView: не появляются при открытии документа
+`enumerateLineFragments` возвращает пустой результат до первого glyph layout. Overlay-кнопки создаются при `updateCodeBlockOverlays()`, но если она вызвана до layout — ничего не создаётся.
+Решение: 1) добавить `layoutManager.ensureLayout(for: textContainer)` в начале метода; 2) переопределить `layout()` в NSTextView-подклассе:
+```swift
+override func layout() {
+    super.layout()
+    updateCodeBlockOverlays()
+}
+```
+
+### NSButton adaptive background без CALayer
+`CALayer.backgroundColor` требует `CGColor` — не поддерживает dynamic NSColor. Для адаптивного фона кнопки (light/dark) — переопределять `draw(_:)` в NSButton subclass:
+```swift
+final class CodeCopyButton: NSButton {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(white: 0.5, alpha: 0.12).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        super.draw(dirtyRect)
     }
 }
 ```
@@ -251,5 +283,12 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **Исправлен headIndent для вложенных цитат** — `paragraphStyle` применяется от `lineStart`, а не от `quoteBody.location` (иначе NSLayoutManager игнорирует стиль для nested blockquotes)
 - **Блочно-осведомлённая активная область** — `applyHighlighting(cursorPos:)` вычисляет `activeRegion` как union всех `quoteBody`/`codeBlockBody` spans содержащих курсор; все маркеры блока видны при редактировании
 - **79 тестов** — 59 highlighter + 14 formatting + 7 document (без изменений, баги были в rendering логике)
+
+### v7 — Complete
+- **Фоновая панель code block** — `drawBackground(in:)` рисует полноширинный прямоугольник с +8pt вертикальными полями (`insetBy(dx: 0, dy: -8)`); цвет `NSColor(white: 0.5, alpha: 0.07)` — адаптируется к light/dark
+- **Метка языка + кнопка копирования** — `CodeCopyButton` (NSButton subclass) в правом верхнем углу каждого code block; клик копирует содержимое без fence-строк; `⎘` для блоков без языка
+- **`codeBlockBody(language: String)`** — SpanKind добавлен associated value; язык извлекается через `cmark_node_get_fence_info(node)` в `collectSpans`
+- **`codeBlockEntries: [(range, language)]`** в `MarkdownNSTextView` вместо `codeBlockRanges`
+- **79 тестов** — без изменений (паттерн-матчинг `if case .codeBlockBody = span.kind` работает с любым associated value)
 
 ## Conventions
