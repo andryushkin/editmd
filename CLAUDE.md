@@ -150,12 +150,41 @@ if let pos = cursorPos {
 Для позиционирования overlay в **верхнем** правом углу code block: `y: paddedRect.minY + offset`.
 
 ### NSView overlays поверх NSTextView: не появляются при открытии документа
-`enumerateLineFragments` возвращает пустой результат до первого glyph layout. Overlay-кнопки создаются при `updateCodeBlockOverlays()`, но если она вызвана до layout — ничего не создаётся.
-Решение: 1) добавить `layoutManager.ensureLayout(for: textContainer)` в начале метода; 2) переопределить `layout()` в NSTextView-подклассе:
+`enumerateLineFragments` возвращает пустой результат до первого glyph layout. `ensureLayout` + `layout()` override ненадёжны — AppKit не гарантирует, что layout manager завершён в момент этих вызовов. Единственный надёжный сигнал — `NSLayoutManagerDelegate.layoutManager(_:didCompleteLayoutFor:atEnd:)`.
+Паттерн: `overlayNeedsUpdate` флаг + делегат:
 ```swift
-override func layout() {
-    super.layout()
-    updateCodeBlockOverlays()
+var overlayNeedsUpdate = false
+
+// В applyHighlighting — выставить флаг:
+textView?.overlayNeedsUpdate = true
+
+// В viewDidMoveToWindow — установить делегат:
+override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    if window != nil { layoutManager?.delegate = self }
+}
+
+// Реализация делегата — вызывается когда layout действительно завершён:
+nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
+                              didCompleteLayoutFor textContainer: NSTextContainer?,
+                              atEnd layoutFinishedFlag: Bool) {
+    guard layoutFinishedFlag else { return }
+    MainActor.assumeIsolated {
+        guard overlayNeedsUpdate else { return }
+        overlayNeedsUpdate = false
+        updateCodeBlockOverlays()
+    }
+}
+```
+
+### NSLayoutManagerDelegate + Swift 6 @MainActor конфликт
+`NSLayoutManagerDelegate` не помечен `@MainActor`, но `NSTextView` (и его подклассы) — `@MainActor`. Конформанс вызывает ошибку "crosses into main actor-isolated code".
+Решение: `nonisolated` на методе делегата + `MainActor.assumeIsolated` внутри (AppKit гарантирует вызов на главном потоке):
+```swift
+nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
+                              didCompleteLayoutFor textContainer: NSTextContainer?,
+                              atEnd layoutFinishedFlag: Bool) {
+    MainActor.assumeIsolated { /* доступ к @MainActor свойствам */ }
 }
 ```
 
@@ -290,5 +319,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **`codeBlockBody(language: String)`** — SpanKind добавлен associated value; язык извлекается через `cmark_node_get_fence_info(node)` в `collectSpans`
 - **`codeBlockEntries: [(range, language)]`** в `MarkdownNSTextView` вместо `codeBlockRanges`
 - **79 тестов** — без изменений (паттерн-матчинг `if case .codeBlockBody = span.kind` работает с любым associated value)
+- **Fix: overlay timing** — `NSLayoutManagerDelegate.layoutManager(_:didCompleteLayoutFor:atEnd:)` + `overlayNeedsUpdate` флаг; `nonisolated` + `MainActor.assumeIsolated` для Swift 6 strict concurrency
+- **Fix: отступы кнопки** — top 2→6pt, right 12→6pt от paddedRect
 
 ## Conventions

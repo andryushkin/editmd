@@ -79,7 +79,7 @@ struct Span {
         case linkText, linkSyntax
         case quoteBody, quoteMarker
         // New
-        case codeBlockBody, codeBlockFence
+        case codeBlockBody(language: String), codeBlockFence
         case thematicBreak
         case listMarker
         case imageText, imageSyntax
@@ -207,7 +207,8 @@ func collectSpans(_ text: String) -> [Span] {
 
         } else if nt == CMARK_NODE_CODE_BLOCK {
             guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            spans.append(Span(range: r, kind: .codeBlockBody))
+            let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) } ?? ""
+            spans.append(Span(range: r, kind: .codeBlockBody(language: lang)))
 
             // Fenced code blocks have fence_info (may be empty string).
             // Indented code blocks return nil for fence_info but also have fence_length == 0.

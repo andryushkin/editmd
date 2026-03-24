@@ -111,12 +111,9 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isApplyingHighlight, let storage = textView?.textStorage else { return }
             let sel = textView?.selectedRange() ?? NSRange(location: 0, length: 0)
             let len = storage.length
-            let activeLine: NSRange? = len > 0
-                ? (storage.string as NSString).lineRange(
-                    for: NSRange(location: min(sel.location, max(len - 1, 0)), length: 0))
-                : nil
             isApplyingHighlight = true
-            applyHighlighting(to: storage, in: NSRange(location: 0, length: len), activeLine: activeLine)
+            applyHighlighting(to: storage, in: NSRange(location: 0, length: len),
+                              cursorPos: len > 0 ? sel.location : nil)
             isApplyingHighlight = false
         }
 
@@ -170,7 +167,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // MARK: - Syntax Highlighting
 
-        private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, activeLine: NSRange?) {
+        private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, cursorPos: Int?) {
             guard range.length > 0 else { return }
             let text = storage.string
             let baseSize = EditorFontSettings.shared.fontSize
@@ -180,9 +177,32 @@ struct MarkdownTextView: NSViewRepresentable {
             let accent    = NSColor.linkColor
             let tinyFont  = NSFont.systemFont(ofSize: 0.01)
 
+            let spans = collectSpans(text)
+
+            // Block-aware active region: when cursor is inside a quoteBody or codeBlockBody,
+            // expand the active region to the entire block so all markers become visible.
+            let activeLine: NSRange? = cursorPos.flatMap { pos in
+                let len = storage.length
+                guard len > 0 else { return nil }
+                return (text as NSString).lineRange(
+                    for: NSRange(location: min(pos, len - 1), length: 0))
+            }
+            var activeRegion: NSRange? = activeLine
+            if let pos = cursorPos {
+                for span in spans {
+                    switch span.kind {
+                    case .quoteBody, .codeBlockBody:
+                        if NSLocationInRange(pos, span.range) {
+                            activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
+                        }
+                    default: break
+                    }
+                }
+            }
+
             func isOnActive(_ r: NSRange) -> Bool {
-                guard let activeLine else { return true }
-                return NSIntersectionRange(r, activeLine).length > 0
+                guard let activeRegion else { return true }
+                return NSIntersectionRange(r, activeRegion).length > 0
             }
 
             func applyMarker(_ r: NSRange, normalColor: NSColor) {
@@ -196,8 +216,8 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
 
-            let spans = collectSpans(text)
             var quoteBodyRanges: [NSRange] = []
+            var codeBlockEntries: [(NSRange, String)] = []
 
             storage.beginEditing()
 
@@ -269,13 +289,13 @@ struct MarkdownTextView: NSViewRepresentable {
                 case .quoteMarker:
                     applyMarker(s.range, normalColor: tertiary)
 
-                case .codeBlockBody:
+                case .codeBlockBody(let language):
+                    codeBlockEntries.append((s.range, language))
                     let para = NSMutableParagraphStyle()
                     para.headIndent = 12
                     para.firstLineHeadIndent = 12
                     storage.addAttributes([
                         .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
-                        .backgroundColor: NSColor.controlBackgroundColor,
                         .foregroundColor: secondary,
                         .paragraphStyle: para,
                     ], range: s.range)
@@ -354,43 +374,179 @@ struct MarkdownTextView: NSViewRepresentable {
                 let para = NSMutableParagraphStyle()
                 para.headIndent = indent
                 para.firstLineHeadIndent = indent
-                storage.addAttributes([
-                    .foregroundColor: secondary,
-                    .paragraphStyle: para,
-                ], range: r)
+                // foregroundColor applies to quoteBody range only
+                storage.addAttribute(.foregroundColor, value: secondary, range: r)
+                // paragraphStyle must start at the paragraph (line) beginning so that
+                // NSLayoutManager picks it up for the whole paragraph. Nested blockquotes
+                // start at column >1, but their containing paragraph starts at column 1.
+                let lineStart = (text as NSString).lineRange(
+                    for: NSRange(location: r.location, length: 0)).location
+                let paraRange = NSRange(location: lineStart, length: NSMaxRange(r) - lineStart)
+                storage.addAttribute(.paragraphStyle, value: para, range: paraRange)
             }
 
             storage.endEditing()
             textView?.quoteEntries = quoteEntries
+            textView?.codeBlockEntries = codeBlockEntries
+            textView?.overlayNeedsUpdate = true
             textView?.needsDisplay = true
         }
     }
 }
 
-// MARK: - Custom NSTextView with blockquote left-border drawing
+// MARK: - Copy button for code blocks
 
-fileprivate final class MarkdownNSTextView: NSTextView {
+private final class CodeCopyButton: NSButton {
+    var codeRange: NSRange = .init()
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(white: 0.5, alpha: 0.12).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        super.draw(dirtyRect)
+    }
+}
+
+// MARK: - Custom NSTextView with blockquote left-border and code block panel drawing
+
+fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate {
     /// Each entry: (character range of the blockquote, nesting depth 0-based)
     var quoteEntries: [(NSRange, Int)] = []
+    /// Each entry: (full range of the fenced code block, language identifier)
+    var codeBlockEntries: [(range: NSRange, language: String)] = []
+    private var codeOverlayButtons: [CodeCopyButton] = []
+    /// Set to true after codeBlockEntries change; cleared once overlays are updated.
+    var overlayNeedsUpdate = false
+
+    func updateCodeBlockOverlays() {
+        codeOverlayButtons.forEach { $0.removeFromSuperview() }
+        codeOverlayButtons = []
+        guard let layoutManager, let textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let inset = textContainerInset
+        let fullWidth = bounds.width - inset.width * 2
+        let totalLen = (string as NSString).length
+
+        for entry in codeBlockEntries {
+            guard entry.range.location < totalLen else { continue }
+            let safe = NSRange(location: entry.range.location,
+                               length: min(entry.range.length, totalLen - entry.range.location))
+            guard safe.length > 0 else { continue }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+            var blockRect = NSRect.null
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth] fr, _, _, _, _ in
+                let lr = NSRect(x: inset.width, y: fr.minY + inset.height, width: fullWidth, height: fr.height)
+                blockRect = blockRect.isNull ? lr : blockRect.union(lr)
+            }
+            guard !blockRect.isNull else { continue }
+            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
+
+            let btn = CodeCopyButton(frame: .zero)
+            btn.codeRange = entry.range
+            btn.title = entry.language.isEmpty ? "⎘" : entry.language
+            btn.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            btn.isBordered = false
+            btn.contentTintColor = NSColor.secondaryLabelColor
+            btn.target = self
+            btn.action = #selector(copyCodeBlock(_:))
+            btn.sizeToFit()
+            let w = btn.frame.width + 10
+            let h: CGFloat = 18
+            btn.frame = NSRect(x: paddedRect.maxX - w - 6,
+                               y: paddedRect.minY + 6,
+                               width: w, height: h)
+            addSubview(btn)
+            codeOverlayButtons.append(btn)
+        }
+    }
+
+    @objc private func copyCodeBlock(_ sender: CodeCopyButton) {
+        let raw = (string as NSString).substring(with: sender.codeRange)
+        var lines = raw.components(separatedBy: "\n")
+        if lines.first?.hasPrefix("`") == true { lines.removeFirst() }
+        if lines.last?.hasPrefix("`") == true { lines.removeLast() }
+        while lines.last == "" { lines.removeLast() }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    override func layout() {
+        super.layout()
+        updateCodeBlockOverlays()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateCodeBlockOverlays()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            layoutManager?.delegate = self
+            DispatchQueue.main.async { [weak self] in
+                self?.updateCodeBlockOverlays()
+            }
+        }
+    }
+
+    nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
+                                  didCompleteLayoutFor textContainer: NSTextContainer?,
+                                  atEnd layoutFinishedFlag: Bool) {
+        guard layoutFinishedFlag else { return }
+        MainActor.assumeIsolated {
+            guard overlayNeedsUpdate else { return }
+            overlayNeedsUpdate = false
+            updateCodeBlockOverlays()
+        }
+    }
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let layoutManager, !quoteEntries.isEmpty else { return }
+        guard let layoutManager else { return }
         let inset = textContainerInset
-        let baseBarX = max(0, inset.width - 12)
-        let indentStep: CGFloat = 20
-        NSColor.separatorColor.setFill()
         let totalLen = (string as NSString).length
-        for (range, depth) in quoteEntries {
-            guard range.location < totalLen else { continue }
-            let safe = NSRange(location: range.location,
-                               length: min(range.length, totalLen - range.location))
-            guard safe.length > 0 else { continue }
-            let barX = baseBarX + CGFloat(depth) * indentStep
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX] fragRect, _, _, _, _ in
-                let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: 3, height: fragRect.height)
-                if barRect.intersects(rect) { barRect.fill() }
+
+        // Code block background panels
+        if !codeBlockEntries.isEmpty {
+            let codeBackground = NSColor(white: 0.5, alpha: 0.07)
+            let fullWidth = bounds.width - inset.width * 2
+            for entry in codeBlockEntries {
+                let range = entry.range
+                guard range.location < totalLen else { continue }
+                let safe = NSRange(location: range.location,
+                                   length: min(range.length, totalLen - range.location))
+                guard safe.length > 0 else { continue }
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+                var blockRect = NSRect.null
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth] fragRect, _, _, _, _ in
+                    let lineRect = NSRect(x: inset.width, y: fragRect.minY + inset.height,
+                                         width: fullWidth, height: fragRect.height)
+                    blockRect = blockRect.isNull ? lineRect : blockRect.union(lineRect)
+                }
+                if !blockRect.isNull && blockRect.intersects(rect) {
+                    let padded = blockRect.insetBy(dx: 0, dy: -8)
+                    codeBackground.setFill()
+                    padded.fill()
+                }
+            }
+        }
+
+        // Blockquote left-border bars
+        if !quoteEntries.isEmpty {
+            let baseBarX = max(0, inset.width - 12)
+            let indentStep: CGFloat = 20
+            NSColor.separatorColor.setFill()
+            for (range, depth) in quoteEntries {
+                guard range.location < totalLen else { continue }
+                let safe = NSRange(location: range.location,
+                                   length: min(range.length, totalLen - range.location))
+                guard safe.length > 0 else { continue }
+                let barX = baseBarX + CGFloat(depth) * indentStep
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX] fragRect, _, _, _, _ in
+                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: 3, height: fragRect.height)
+                    if barRect.intersects(rect) { barRect.fill() }
+                }
             }
         }
     }
