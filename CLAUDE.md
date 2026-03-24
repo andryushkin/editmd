@@ -20,7 +20,7 @@ editmd/
         ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift
         └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
-        ├── MarkdownHighlighterTests.swift   # 53 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы)
+        ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         └── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
 ```
@@ -97,6 +97,22 @@ if let font = existing.withSymbolicTraits(combined) {
 `@MainActor struct` не может конформить nonisolated `ImageProvider` в Swift 6 strict mode.
 Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL).
 `NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
+
+### NSTextBlock не работает при isRichText = false
+`NSTextBlock` (border, padding через `NSMutableParagraphStyle.textBlocks`) — не рендерится когда `NSTextView.isRichText = false`.
+Для рисования левых полос/фона блоков использовать подкласс NSTextView с переопределением `drawBackground(in:)`:
+```swift
+class MarkdownNSTextView: NSTextView {
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        // использовать layoutManager.enumerateLineFragments для позиций строк
+    }
+}
+```
+
+### quoteMarker в вложенных blockquote
+`cmark_node_get_start_column(node)` даёт колонку `>` для данного уровня вложенности (sc=1 для внешнего, sc=3 для вложенного после `> `).
+Для поиска маркера на каждой строке: `lineIdx.offset(line, sc)`, НЕ `lineIdx.lineStart(line)`.
 
 ### Меню: Undo/Redo selectors
 Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием),
@@ -195,12 +211,18 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **Swift 6.2**, strict concurrency
 - **49 тестов** — 28 highlighter + 14 formatting + 7 document
 
-### v5 — Complete (current)
+### v5 — Complete
 - **Полная подсветка всех markdown-элементов** — 22 SpanKind (было 11)
 - **GFM extensions** — strikethrough (`~~text~~`), таблицы, tasklists, autolinks через `cmark-gfm-extensions`
 - **Новые элементы:** fenced/indented code blocks, thematic breaks (`---`/`***`/`___`), list markers (ordered/unordered), images (`![alt](url)`), inline/block HTML, strikethrough, table headers/delimiters
 - **Парсер** — переход с `cmark_parse_document()` на явный parser API с GFM-расширениями
 - **74 теста** — 53 highlighter + 14 formatting + 7 document
 - **test-all-elements.md** — визуальный тестовый файл со всеми элементами
+
+### v6 — In progress
+- **Визуальная разметка цитат** — `MarkdownNSTextView` (подкласс NSTextView) рисует левую полосу 3pt через `drawBackground(in:)` используя `NSLayoutManager.enumerateLineFragments`
+- **Вложенные цитаты** — глубина вычисляется через containment ranges; каждый уровень добавляет 20pt к x-позиции полосы и к `headIndent` текста
+- **Исправлено обнаружение quoteMarker** — `lineIdx.offset(line, sc)` вместо `lineIdx.lineStart(line)` для корректной работы вложенных `>`
+- **80 тестов** — 59 highlighter + 14 formatting + 7 document
 
 ## Conventions
