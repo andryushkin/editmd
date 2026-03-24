@@ -114,6 +114,31 @@ class MarkdownNSTextView: NSTextView {
 `cmark_node_get_start_column(node)` даёт колонку `>` для данного уровня вложенности (sc=1 для внешнего, sc=3 для вложенного после `> `).
 Для поиска маркера на каждой строке: `lineIdx.offset(line, sc)`, НЕ `lineIdx.lineStart(line)`.
 
+### headIndent для вложенных blockquote (NSParagraphStyle — paragraph-level атрибут)
+`headIndent` / `firstLineHeadIndent` применяется к **первому символу параграфа** — NSLayoutManager игнорирует стили на последующих символах той же строки.
+Проблема: внутренний blockquote начинается на колонке 3 (после внешнего `> `), но параграф начинается на колонке 1. Применение `paragraphStyle` только к `quoteBody` range — НЕ работает для вложенных цитат.
+Решение: расширять range до начала строки перед применением `paragraphStyle`:
+```swift
+storage.addAttribute(.foregroundColor, value: secondary, range: r)  // только quoteBody
+let lineStart = (text as NSString).lineRange(for: NSRange(location: r.location, length: 0)).location
+let paraRange = NSRange(location: lineStart, length: NSMaxRange(r) - lineStart)
+storage.addAttribute(.paragraphStyle, value: para, range: paraRange)  // от начала строки
+```
+Outer (depth=0) применяется первым → headIndent=0 с lineStart. Inner (depth=1) применяется вторым → headIndent=20 переопределяет.
+
+### applyHighlighting: cursorPos вместо activeLine
+`applyHighlighting` принимает `cursorPos: Int?` и вычисляет блочно-осведомлённый `activeRegion` внутри функции (после `collectSpans`). Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока:
+```swift
+var activeRegion: NSRange? = activeLine
+if let pos = cursorPos {
+    for span in spans where span.kind == .quoteBody || span.kind == .codeBlockBody {
+        if NSLocationInRange(pos, span.range) {
+            activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
+        }
+    }
+}
+```
+
 ### Меню: Undo/Redo selectors
 Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием),
 потому что `#selector(UndoManager.undo)` даёт `undo` без `:`, а AppKit ожидает `undo:`.
@@ -219,10 +244,12 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **74 теста** — 53 highlighter + 14 formatting + 7 document
 - **test-all-elements.md** — визуальный тестовый файл со всеми элементами
 
-### v6 — In progress
+### v6 — Complete
 - **Визуальная разметка цитат** — `MarkdownNSTextView` (подкласс NSTextView) рисует левую полосу 3pt через `drawBackground(in:)` используя `NSLayoutManager.enumerateLineFragments`
 - **Вложенные цитаты** — глубина вычисляется через containment ranges; каждый уровень добавляет 20pt к x-позиции полосы и к `headIndent` текста
 - **Исправлено обнаружение quoteMarker** — `lineIdx.offset(line, sc)` вместо `lineIdx.lineStart(line)` для корректной работы вложенных `>`
-- **80 тестов** — 59 highlighter + 14 formatting + 7 document
+- **Исправлен headIndent для вложенных цитат** — `paragraphStyle` применяется от `lineStart`, а не от `quoteBody.location` (иначе NSLayoutManager игнорирует стиль для nested blockquotes)
+- **Блочно-осведомлённая активная область** — `applyHighlighting(cursorPos:)` вычисляет `activeRegion` как union всех `quoteBody`/`codeBlockBody` spans содержащих курсор; все маркеры блока видны при редактировании
+- **79 тестов** — 59 highlighter + 14 formatting + 7 document (без изменений, баги были в rendering логике)
 
 ## Conventions
