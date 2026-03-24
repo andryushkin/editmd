@@ -80,6 +80,9 @@ struct MarkdownTextView: NSViewRepresentable {
         fileprivate var textView: MarkdownNSTextView?
         var isApplyingHighlight = false
         var isInternalUpdate = false
+        private var cachedText: String = ""
+        private var cachedSpans: [Span] = []
+        private var cachedQuoteDepths: [(NSRange, Int)] = []
 
         init(parent: MarkdownTextView) {
             self.parent = parent
@@ -111,9 +114,18 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isApplyingHighlight, let storage = textView?.textStorage else { return }
             let sel = textView?.selectedRange() ?? NSRange(location: 0, length: 0)
             let len = storage.length
+            let cursorPos = len > 0 ? sel.location : nil
+            let text = storage.string
+
             isApplyingHighlight = true
+
+            if text != cachedText {
+                cachedText = text
+                cachedSpans = collectSpans(text)
+                cachedQuoteDepths = computeQuoteDepths(cachedSpans)
+            }
             applyHighlighting(to: storage, in: NSRange(location: 0, length: len),
-                              cursorPos: len > 0 ? sel.location : nil)
+                              cursorPos: cursorPos)
             isApplyingHighlight = false
         }
 
@@ -165,6 +177,25 @@ struct MarkdownTextView: NSViewRepresentable {
             publishActions()
         }
 
+        // MARK: - Quote depth (O(N) via stack)
+
+        private func computeQuoteDepths(_ spans: [Span]) -> [(NSRange, Int)] {
+            let ranges = spans.compactMap { s -> NSRange? in
+                if case .quoteBody = s.kind { return s.range }
+                return nil
+            }
+            var result: [(NSRange, Int)] = []
+            var stack: [Int] = []
+            for r in ranges {
+                while let top = stack.last, top < NSMaxRange(r) {
+                    stack.removeLast()
+                }
+                result.append((r, stack.count))
+                stack.append(NSMaxRange(r))
+            }
+            return result
+        }
+
         // MARK: - Syntax Highlighting
 
         private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, cursorPos: Int?) {
@@ -177,7 +208,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let accent    = NSColor.linkColor
             let tinyFont  = NSFont.systemFont(ofSize: 0.01)
 
-            let spans = collectSpans(text)
+            let spans = cachedSpans
 
             // Block-aware active region: when cursor is inside a quoteBody or codeBlockBody,
             // expand the active region to the entire block so all markers become visible.
@@ -216,7 +247,6 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
 
-            var quoteBodyRanges: [NSRange] = []
             var codeBlockEntries: [(NSRange, String)] = []
 
             storage.beginEditing()
@@ -284,7 +314,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     applyMarker(s.range, normalColor: accent)
 
                 case .quoteBody:
-                    quoteBodyRanges.append(s.range)
+                    break  // depth + indent applied below from cachedQuoteDepths
 
                 case .quoteMarker:
                     applyMarker(s.range, normalColor: tertiary)
@@ -358,18 +388,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
 
-            // Compute depth for each quoteBody range (how many other ranges fully contain it)
-            // and apply depth-based indent + foreground color.
+            // Apply depth-based indent + foreground color using precomputed depths.
             let indentStep: CGFloat = 20
-            var quoteEntries: [(NSRange, Int)] = []
-            for i in quoteBodyRanges.indices {
-                let r = quoteBodyRanges[i]
-                let depth = quoteBodyRanges.indices.filter { j in
-                    j != i
-                    && quoteBodyRanges[j].location <= r.location
-                    && NSMaxRange(quoteBodyRanges[j]) >= NSMaxRange(r)
-                }.count
-                quoteEntries.append((r, depth))
+            let quoteEntries = cachedQuoteDepths
+            for (r, depth) in quoteEntries {
                 let indent = CGFloat(depth) * indentStep
                 let para = NSMutableParagraphStyle()
                 para.headIndent = indent

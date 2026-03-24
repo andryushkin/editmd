@@ -98,6 +98,9 @@ if let font = existing.withSymbolicTraits(combined) {
 Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL).
 `NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
 
+### Кэширование spans: `collectSpans` — чистая функция текста
+`collectSpans` зависит только от текста, не от позиции курсора. Coordinator кэширует результат в `cachedSpans` и инвалидирует при `text != cachedText` (String `==` через pointer equality — O(1) для COW). При движении курсора spans берутся из кэша, пересчитывается только `activeRegion` и применяются атрибуты. Аналогично `cachedQuoteDepths` — глубина цитат вычисляется O(N) стеком при изменении текста.
+
 ### NSTextBlock не работает при isRichText = false
 `NSTextBlock` (border, padding через `NSMutableParagraphStyle.textBlocks`) — не рендерится когда `NSTextView.isRichText = false`.
 Для рисования левых полос/фона блоков использовать подкласс NSTextView с переопределением `drawBackground(in:)`:
@@ -335,5 +338,10 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **79 тестов** — без изменений (паттерн-матчинг `if case .codeBlockBody = span.kind` работает с любым associated value)
 - **Fix: overlay timing** — `NSLayoutManagerDelegate.layoutManager(_:didCompleteLayoutFor:atEnd:)` + `overlayNeedsUpdate` флаг; `nonisolated` + `MainActor.assumeIsolated` для Swift 6 strict concurrency
 - **Fix: отступы кнопки** — top 2→6pt, right 12→6pt от paddedRect
+
+### v8 — Complete
+- **Кэширование spans** — `collectSpans` вызывается только при изменении текста, не при движении курсора; `cachedText`/`cachedSpans`/`cachedQuoteDepths` в Coordinator
+- **O(N) quote depth** — стек `NSMaxRange` значений вместо O(N²) containment loop; использует depth-first порядок cmark (outer BLOCK_QUOTE → ENTER раньше inner)
+- **79 тестов** — без изменений (оптимизация только в Coordinator, тесты покрывают pure functions)
 
 ## Conventions
