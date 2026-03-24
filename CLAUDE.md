@@ -344,4 +344,16 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **O(N) quote depth** — стек `NSMaxRange` значений вместо O(N²) containment loop; использует depth-first порядок cmark (outer BLOCK_QUOTE → ENTER раньше inner)
 - **79 тестов** — без изменений (оптимизация только в Coordinator, тесты покрывают pure functions)
 
+### v9 — Complete
+- **Отступы вокруг code blocks** — `paragraphSpacing = 20` на параграфе ДО блока, `paragraphSpacingBefore = 20` на параграфе ПОСЛЕ блока; применяется через post-processing loop по `codeBlockEntries` после spans loop, перед `storage.endEditing()`
+- **Фон code block** — `insetBy(dx: 0, dy: -4)` (было -8), даёт 4pt визуального выноса за текст
+- **79 тестов** — без изменений
+
+### paragraphSpacing + tinyFont — gotcha
+`applyMarker` при inactive строке устанавливает `.font: NSFont.systemFont(ofSize: 0.01)` (tinyFont) на fence-строках code block. NSLayoutManager игнорирует `paragraphSpacingBefore`/`paragraphSpacing` на параграфах с near-zero-height шрифтом.
+
+**Симптом:** spacing применён через NSParagraphStyle, билд OK, но визуально ничего не меняется.
+
+**Решение:** применять spacing к параграфам СНАРУЖИ блока (с нормальным шрифтом) через post-processing loop по `codeBlockEntries` после spans loop (см. v9 в MarkdownTextView.swift).
+
 ## Conventions

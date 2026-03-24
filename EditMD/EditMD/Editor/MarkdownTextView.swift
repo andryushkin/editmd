@@ -407,6 +407,33 @@ struct MarkdownTextView: NSViewRepresentable {
                 storage.addAttribute(.paragraphStyle, value: para, range: paraRange)
             }
 
+            // Add spacing around code blocks on the adjacent paragraphs.
+            // Cannot use paragraphSpacingBefore on the fence line itself — tinyFont (0.01pt)
+            // causes NSLayoutManager to ignore spacing on near-zero-height paragraphs.
+            let nsCodeText = text as NSString
+            let nsCodeLen = nsCodeText.length
+            for (codeRange, _) in codeBlockEntries {
+                if codeRange.location > 0 {
+                    let prevRange = nsCodeText.lineRange(
+                        for: NSRange(location: codeRange.location - 1, length: 0))
+                    let existing = storage.attribute(.paragraphStyle, at: prevRange.location,
+                                                     effectiveRange: nil) as? NSParagraphStyle
+                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                    ps.paragraphSpacing = max(ps.paragraphSpacing, 20)
+                    storage.addAttribute(.paragraphStyle, value: ps, range: prevRange)
+                }
+                let afterLoc = NSMaxRange(codeRange)
+                if afterLoc < nsCodeLen {
+                    let nextRange = nsCodeText.lineRange(
+                        for: NSRange(location: afterLoc, length: 0))
+                    let existing = storage.attribute(.paragraphStyle, at: nextRange.location,
+                                                     effectiveRange: nil) as? NSParagraphStyle
+                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, 20)
+                    storage.addAttribute(.paragraphStyle, value: ps, range: nextRange)
+                }
+            }
+
             storage.endEditing()
             textView?.quoteEntries = quoteEntries
             textView?.codeBlockEntries = codeBlockEntries
@@ -483,7 +510,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
             guard !blockRect.isNull else { btn.isHidden = true; continue }
             btn.isHidden = false
-            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
+            let paddedRect = blockRect.insetBy(dx: 0, dy: -4)
             let w = btn.frame.width + 10
             let h: CGFloat = 18
             let newFrame = NSRect(x: paddedRect.maxX - w - 6, y: paddedRect.minY + 6, width: w, height: h)
@@ -551,7 +578,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                     blockRect = blockRect.isNull ? lineRect : blockRect.union(lineRect)
                 }
                 if !blockRect.isNull && blockRect.intersects(rect) {
-                    let padded = blockRect.insetBy(dx: 0, dy: -8)
+                    let padded = blockRect.insetBy(dx: 0, dy: -4)
                     codeBackground.setFill()
                     padded.fill()
                 }
