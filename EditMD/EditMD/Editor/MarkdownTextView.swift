@@ -125,20 +125,25 @@ struct MarkdownTextView: NSViewRepresentable {
         func updateStats() {
             guard let tv = textView else { return }
             let (words, chars) = wordAndCharCount(in: tv.string)
-            parent.onStatsUpdate(words, chars)
+            DispatchQueue.main.async { [parent] in
+                parent.onStatsUpdate(words, chars)
+            }
         }
 
         // MARK: - Format actions
 
         func publishActions() {
-            parent.onFormatActions(FormatActions(
+            let actions = FormatActions(
                 toggleBold: { [weak self] in self?.wrapSelection(with: "**") },
                 toggleItalic: { [weak self] in self?.wrapSelection(with: "*") },
                 makeFontBigger: { EditorFontSettings.shared.fontSize += 1 },
                 makeFontSmaller: { EditorFontSettings.shared.fontSize -= 1 },
                 canIncreaseFontSize: EditorFontSettings.shared.canIncrease,
                 canDecreaseFontSize: EditorFontSettings.shared.canDecrease
-            ))
+            )
+            DispatchQueue.main.async { [parent] in
+                parent.onFormatActions(actions)
+            }
         }
 
         private func wrapSelection(with marker: String) {
@@ -173,10 +178,22 @@ struct MarkdownTextView: NSViewRepresentable {
             let secondary = NSColor.secondaryLabelColor
             let tertiary  = NSColor.tertiaryLabelColor
             let accent    = NSColor.linkColor
+            let tinyFont  = NSFont.systemFont(ofSize: 0.01)
 
-            func markerColor(_ r: NSRange, normal: NSColor) -> NSColor {
-                guard let activeLine else { return normal }
-                return NSIntersectionRange(r, activeLine).length > 0 ? normal : .clear
+            func isOnActive(_ r: NSRange) -> Bool {
+                guard let activeLine else { return true }
+                return NSIntersectionRange(r, activeLine).length > 0
+            }
+
+            func applyMarker(_ r: NSRange, normalColor: NSColor) {
+                if isOnActive(r) {
+                    storage.addAttribute(.foregroundColor, value: normalColor, range: r)
+                } else {
+                    storage.addAttributes([
+                        .foregroundColor: NSColor.clear,
+                        .font: tinyFont,
+                    ], range: r)
+                }
             }
 
             let spans = collectSpans(text)
@@ -186,6 +203,7 @@ struct MarkdownTextView: NSViewRepresentable {
             storage.setAttributes([
                 .font: baseFont,
                 .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: NSParagraphStyle.default,
             ], range: range)
 
             for s in spans {
@@ -197,25 +215,28 @@ struct MarkdownTextView: NSViewRepresentable {
                                     : lv == 2 ? baseSize + 5
                                     : lv == 3 ? baseSize + 3
                                     :           baseSize + 1
+                    let para = NSMutableParagraphStyle()
+                    para.paragraphSpacingBefore = lv <= 2 ? 12 : 8
+                    para.paragraphSpacing = 4
                     storage.addAttributes([
                         .font: NSFont.systemFont(ofSize: sz, weight: .bold),
                         .foregroundColor: NSColor.labelColor,
+                        .paragraphStyle: para,
                     ], range: s.range)
 
                 case .headingMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: tertiary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: tertiary)
 
                 case .boldBody:
-                    storage.addAttribute(.font,
-                                         value: NSFont.systemFont(ofSize: baseSize, weight: .bold),
-                                         range: s.range)
+                    let existing = storage.attribute(.font, at: s.range.location, effectiveRange: nil)
+                        as? NSFont ?? baseFont
+                    let combined = existing.fontDescriptor.symbolicTraits.union(.bold)
+                    if let font = existing.withSymbolicTraits(combined) {
+                        storage.addAttribute(.font, value: font, range: s.range)
+                    }
 
                 case .boldMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: secondary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: secondary)
 
                 case .italicBody:
                     let existing = storage.attribute(.font, at: s.range.location, effectiveRange: nil)
@@ -226,9 +247,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
 
                 case .italicMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: secondary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: secondary)
 
                 case .code:
                     storage.addAttributes([
@@ -241,46 +260,54 @@ struct MarkdownTextView: NSViewRepresentable {
                     storage.addAttribute(.foregroundColor, value: accent, range: s.range)
 
                 case .linkSyntax:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: accent),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: accent)
 
                 case .quoteBody:
-                    storage.addAttribute(.foregroundColor, value: secondary, range: s.range)
+                    let para = NSMutableParagraphStyle()
+                    para.headIndent = 16
+                    para.firstLineHeadIndent = 16
+                    storage.addAttributes([
+                        .foregroundColor: secondary,
+                        .paragraphStyle: para,
+                    ], range: s.range)
 
                 case .quoteMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: tertiary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: tertiary)
 
                 case .codeBlockBody:
+                    let para = NSMutableParagraphStyle()
+                    para.headIndent = 12
+                    para.firstLineHeadIndent = 12
                     storage.addAttributes([
                         .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
                         .backgroundColor: NSColor.controlBackgroundColor,
                         .foregroundColor: secondary,
+                        .paragraphStyle: para,
                     ], range: s.range)
 
                 case .codeBlockFence:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: tertiary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: tertiary)
 
                 case .thematicBreak:
-                    storage.addAttribute(.foregroundColor, value: tertiary, range: s.range)
+                    if isOnActive(s.range) {
+                        storage.addAttribute(.foregroundColor, value: tertiary, range: s.range)
+                    } else {
+                        storage.addAttributes([
+                            .foregroundColor: NSColor.separatorColor,
+                            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                            .strikethroughColor: NSColor.separatorColor,
+                        ], range: s.range)
+                    }
 
                 case .listMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: accent),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: accent)
 
                 case .imageText:
                     storage.addAttribute(.foregroundColor,
                                          value: NSColor.systemGreen, range: s.range)
 
                 case .imageSyntax:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: NSColor.systemGreen),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: NSColor.systemGreen)
 
                 case .htmlInline:
                     storage.addAttributes([
@@ -301,19 +328,18 @@ struct MarkdownTextView: NSViewRepresentable {
                     ], range: s.range)
 
                 case .strikethroughMarker:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: secondary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: secondary)
 
                 case .tableDelimiter:
-                    storage.addAttribute(.foregroundColor,
-                                         value: markerColor(s.range, normal: tertiary),
-                                         range: s.range)
+                    applyMarker(s.range, normalColor: tertiary)
 
                 case .tableHeader:
-                    storage.addAttribute(.font,
-                                         value: NSFont.systemFont(ofSize: baseSize, weight: .bold),
-                                         range: s.range)
+                    let existing = storage.attribute(.font, at: s.range.location, effectiveRange: nil)
+                        as? NSFont ?? baseFont
+                    let combined = existing.fontDescriptor.symbolicTraits.union(.bold)
+                    if let font = existing.withSymbolicTraits(combined) {
+                        storage.addAttribute(.font, value: font, range: s.range)
+                    }
                 }
             }
 

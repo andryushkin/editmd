@@ -14,6 +14,8 @@
 
 Plain text paragraph with **bold text** and *italic text* and ***bold italic***.
 
+Underscore variants: __bold__ and _italic_ and ___bold italic___.
+
 This has ~~strikethrough~~ text and `inline code` too.
 
 Here is a [link](https://example.com) and an ![image](photo.png) in the same line.

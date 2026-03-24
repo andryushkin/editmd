@@ -546,4 +546,46 @@ final class CollectSpansTests: XCTestCase {
         let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
     }
+
+    // MARK: - Underscore emphasis
+
+    func testItalicUnderscore() {
+        let spans = collectSpans("_italic_")
+        let bodies = spans.filter { if case .italicBody = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .italicMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range, NSRange(location: 0, length: 8))
+    }
+
+    func testBoldUnderscore() {
+        let spans = collectSpans("__bold__")
+        let bodies = spans.filter { if case .boldBody = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .boldMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count, 1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range, NSRange(location: 0, length: 8))
+    }
+
+    // MARK: - Bold + italic combo
+
+    func testBoldItalicTripleStar() {
+        let spans = collectSpans("***text***")
+        let boldBodies = spans.filter { if case .boldBody = $0.kind { return true }; return false }
+        let italicBodies = spans.filter { if case .italicBody = $0.kind { return true }; return false }
+        let boldMarkers = spans.filter { if case .boldMarker = $0.kind { return true }; return false }
+        let italicMarkers = spans.filter { if case .italicMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(boldBodies.count, 1)
+        XCTAssertEqual(italicBodies.count, 1)
+        XCTAssertEqual(boldMarkers.count, 2)
+        XCTAssertEqual(italicMarkers.count, 2)
+    }
+
+    func testBoldItalicTripleUnderscore() {
+        let spans = collectSpans("___text___")
+        let boldBodies = spans.filter { if case .boldBody = $0.kind { return true }; return false }
+        let italicBodies = spans.filter { if case .italicBody = $0.kind { return true }; return false }
+        XCTAssertEqual(boldBodies.count, 1)
+        XCTAssertEqual(italicBodies.count, 1)
+    }
 }
