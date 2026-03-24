@@ -418,44 +418,54 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var overlayNeedsUpdate = false
 
     func updateCodeBlockOverlays() {
-        codeOverlayButtons.forEach { $0.removeFromSuperview() }
-        codeOverlayButtons = []
         guard let layoutManager, let textContainer else { return }
         layoutManager.ensureLayout(for: textContainer)
         let inset = textContainerInset
         let fullWidth = bounds.width - inset.width * 2
         let totalLen = (string as NSString).length
 
-        for entry in codeBlockEntries {
-            guard entry.range.location < totalLen else { continue }
+        // Pool: remove excess buttons
+        while codeOverlayButtons.count > codeBlockEntries.count {
+            codeOverlayButtons.popLast()?.removeFromSuperview()
+        }
+        // Pool: add missing buttons
+        while codeOverlayButtons.count < codeBlockEntries.count {
+            let btn = CodeCopyButton(frame: .zero)
+            btn.isBordered = false
+            btn.contentTintColor = NSColor.secondaryLabelColor
+            btn.target = self
+            btn.action = #selector(copyCodeBlock(_:))
+            addSubview(btn)
+            codeOverlayButtons.append(btn)
+        }
+
+        // Update frame/isHidden of existing buttons (safe from layout(), no subview churn)
+        for (index, entry) in codeBlockEntries.enumerated() {
+            let btn = codeOverlayButtons[index]
+            btn.codeRange = entry.range
+            btn.title = entry.language.isEmpty ? "⎘" : entry.language
+            btn.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            btn.sizeToFit()
+
+            guard entry.range.location < totalLen else { btn.isHidden = true; continue }
             let safe = NSRange(location: entry.range.location,
                                length: min(entry.range.length, totalLen - entry.range.location))
-            guard safe.length > 0 else { continue }
+            guard safe.length > 0 else { btn.isHidden = true; continue }
+
             let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
             var blockRect = NSRect.null
             layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth] fr, _, _, _, _ in
                 let lr = NSRect(x: inset.width, y: fr.minY + inset.height, width: fullWidth, height: fr.height)
                 blockRect = blockRect.isNull ? lr : blockRect.union(lr)
             }
-            guard !blockRect.isNull else { continue }
-            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
 
-            let btn = CodeCopyButton(frame: .zero)
-            btn.codeRange = entry.range
-            btn.title = entry.language.isEmpty ? "⎘" : entry.language
-            btn.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
-            btn.isBordered = false
-            btn.contentTintColor = NSColor.secondaryLabelColor
-            btn.target = self
-            btn.action = #selector(copyCodeBlock(_:))
-            btn.sizeToFit()
+            guard !blockRect.isNull else { btn.isHidden = true; continue }
+            btn.isHidden = false
+            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
             let w = btn.frame.width + 10
             let h: CGFloat = 18
-            btn.frame = NSRect(x: paddedRect.maxX - w - 6,
-                               y: paddedRect.minY + 6,
-                               width: w, height: h)
-            addSubview(btn)
-            codeOverlayButtons.append(btn)
+            let newFrame = NSRect(x: paddedRect.maxX - w - 6, y: paddedRect.minY + 6, width: w, height: h)
+            if btn.frame != newFrame { btn.frame = newFrame }
         }
     }
 
@@ -471,11 +481,6 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
     override func layout() {
         super.layout()
-        updateCodeBlockOverlays()
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
         updateCodeBlockOverlays()
     }
 

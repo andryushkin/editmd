@@ -150,21 +150,35 @@ if let pos = cursorPos {
 Для позиционирования overlay в **верхнем** правом углу code block: `y: paddedRect.minY + offset`.
 
 ### NSView overlays поверх NSTextView: не появляются при открытии документа
-`enumerateLineFragments` возвращает пустой результат до первого glyph layout. `ensureLayout` + `layout()` override ненадёжны — AppKit не гарантирует, что layout manager завершён в момент этих вызовов. Единственный надёжный сигнал — `NSLayoutManagerDelegate.layoutManager(_:didCompleteLayoutFor:atEnd:)`.
-Паттерн: `overlayNeedsUpdate` флаг + делегат:
+Две причины:
+
+**1. Бесконечный цикл layout:** `layout()` → `updateOverlays()` → `removeFromSuperview` + `addSubview` → AppKit помечает view dirty → новый `layout()`. AppKit прерывает цикл принудительно, до завершения рендеринга.
+
+**2. Race condition при открытии:** `bounds.width == 0` на первом вызове → кнопки получают отрицательный X.
+
+**Решение — button pooling + NSLayoutManagerDelegate:**
+- В `updateOverlays()` не удалять все кнопки — использовать пул: удалять/добавлять только разницу, `.frame` обновлять без `addSubview`
+- `setFrameSize()` override не нужен — `layout()` покрывает все изменения bounds
+- `NSLayoutManagerDelegate` обеспечивает первый корректный вызов после завершения layout
+
 ```swift
-var overlayNeedsUpdate = false
-
-// В applyHighlighting — выставить флаг:
-textView?.overlayNeedsUpdate = true
-
-// В viewDidMoveToWindow — установить делегат:
-override func viewDidMoveToWindow() {
-    super.viewDidMoveToWindow()
-    if window != nil { layoutManager?.delegate = self }
+// Пул: удалить лишние / добавить недостающие
+while codeOverlayButtons.count > codeBlockEntries.count {
+    codeOverlayButtons.popLast()?.removeFromSuperview()
+}
+while codeOverlayButtons.count < codeBlockEntries.count {
+    let btn = CodeCopyButton(frame: .zero)
+    addSubview(btn)
+    codeOverlayButtons.append(btn)
+}
+// Обновить только .frame и .isHidden — безопасно из layout()
+for (index, entry) in codeBlockEntries.enumerated() {
+    let btn = codeOverlayButtons[index]
+    // ... позиционирование ...
+    if btn.frame != newFrame { btn.frame = newFrame }
 }
 
-// Реализация делегата — вызывается когда layout действительно завершён:
+// NSLayoutManagerDelegate для initial timing:
 nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
                               didCompleteLayoutFor textContainer: NSTextContainer?,
                               atEnd layoutFinishedFlag: Bool) {
