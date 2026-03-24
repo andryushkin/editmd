@@ -18,7 +18,7 @@ struct MarkdownTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
-        let textView = NSTextView()
+        let textView = MarkdownNSTextView()
         textView.isRichText = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -77,7 +77,7 @@ struct MarkdownTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
 
         var parent: MarkdownTextView
-        var textView: NSTextView?
+        fileprivate var textView: MarkdownNSTextView?
         var isApplyingHighlight = false
         var isInternalUpdate = false
 
@@ -197,6 +197,7 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             let spans = collectSpans(text)
+            var quoteBodyRanges: [NSRange] = []
 
             storage.beginEditing()
 
@@ -263,13 +264,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     applyMarker(s.range, normalColor: accent)
 
                 case .quoteBody:
-                    let para = NSMutableParagraphStyle()
-                    para.headIndent = 16
-                    para.firstLineHeadIndent = 16
-                    storage.addAttributes([
-                        .foregroundColor: secondary,
-                        .paragraphStyle: para,
-                    ], range: s.range)
+                    quoteBodyRanges.append(s.range)
 
                 case .quoteMarker:
                     applyMarker(s.range, normalColor: tertiary)
@@ -343,7 +338,60 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
 
+            // Compute depth for each quoteBody range (how many other ranges fully contain it)
+            // and apply depth-based indent + foreground color.
+            let indentStep: CGFloat = 20
+            var quoteEntries: [(NSRange, Int)] = []
+            for i in quoteBodyRanges.indices {
+                let r = quoteBodyRanges[i]
+                let depth = quoteBodyRanges.indices.filter { j in
+                    j != i
+                    && quoteBodyRanges[j].location <= r.location
+                    && NSMaxRange(quoteBodyRanges[j]) >= NSMaxRange(r)
+                }.count
+                quoteEntries.append((r, depth))
+                let indent = CGFloat(depth) * indentStep
+                let para = NSMutableParagraphStyle()
+                para.headIndent = indent
+                para.firstLineHeadIndent = indent
+                storage.addAttributes([
+                    .foregroundColor: secondary,
+                    .paragraphStyle: para,
+                ], range: r)
+            }
+
             storage.endEditing()
+            textView?.quoteEntries = quoteEntries
+            textView?.needsDisplay = true
+        }
+    }
+}
+
+// MARK: - Custom NSTextView with blockquote left-border drawing
+
+fileprivate final class MarkdownNSTextView: NSTextView {
+    /// Each entry: (character range of the blockquote, nesting depth 0-based)
+    var quoteEntries: [(NSRange, Int)] = []
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let layoutManager, !quoteEntries.isEmpty else { return }
+        let inset = textContainerInset
+        let baseBarX = max(0, inset.width - 12)
+        let indentStep: CGFloat = 20
+        NSColor.separatorColor.setFill()
+        let totalLen = (string as NSString).length
+        for (range, depth) in quoteEntries {
+            guard range.location < totalLen else { continue }
+            let safe = NSRange(location: range.location,
+                               length: min(range.length, totalLen - range.location))
+            guard safe.length > 0 else { continue }
+            let barX = baseBarX + CGFloat(depth) * indentStep
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX] fragRect, _, _, _, _ in
+                let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: 3, height: fragRect.height)
+                if barRect.intersects(rect) { barRect.fill() }
+            }
         }
     }
 }

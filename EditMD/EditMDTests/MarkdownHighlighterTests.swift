@@ -291,6 +291,21 @@ final class CollectSpansTests: XCTestCase {
         XCTAssertEqual(sorted[1].range, NSRange(location: 8, length: 2))
     }
 
+    func testNestedBlockquote() {
+        // "> > nested" = 10 ASCII chars
+        // outer block_quote: sc=1 → marker at (0, 2) = "> "
+        // inner block_quote: sc=3 → marker at (2, 2) = "> "
+        let input = "> > nested"
+        let spans = collectSpans(input)
+        let bodies  = spans.filter { if case .quoteBody   = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .quoteMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  2)  // outer + inner
+        XCTAssertEqual(markers.count, 2)  // outer "> " + inner "> "
+        let sortedM = markers.sorted { $0.range.location < $1.range.location }
+        XCTAssertEqual(sortedM[0].range, NSRange(location: 0, length: 2))  // outer "> "
+        XCTAssertEqual(sortedM[1].range, NSRange(location: 2, length: 2))  // inner "> "
+    }
+
     // MARK: Multi-element document
 
     func testMultiLineDocument() {

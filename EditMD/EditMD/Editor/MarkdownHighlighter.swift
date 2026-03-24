@@ -194,13 +194,14 @@ func collectSpans(_ text: String) -> [Span] {
         } else if nt == CMARK_NODE_BLOCK_QUOTE {
             guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
             spans.append(Span(range: r, kind: .quoteBody))
-            // Emit a marker for each line in the blockquote that starts with '>'
+            // Emit a marker for the '>' at column sc on each line of this blockquote.
+            // Using offset(line, sc) correctly handles nested quotes where sc > 1.
             for line in sl...el {
-                let ls = lineIdx.lineStart(line)
-                guard ls >= r.location, ls < r.upperBound, ls < nsText.length else { continue }
-                if nsText.substring(with: NSRange(location: ls, length: 1)) == ">" {
-                    let mLen = min(2, r.upperBound - ls)
-                    spans.append(Span(range: NSRange(location: ls, length: mLen), kind: .quoteMarker))
+                let markerLoc = lineIdx.offset(line, sc)
+                guard markerLoc < r.upperBound, markerLoc < nsText.length else { continue }
+                if nsText.substring(with: NSRange(location: markerLoc, length: 1)) == ">" {
+                    let mLen = min(2, r.upperBound - markerLoc)
+                    spans.append(Span(range: NSRange(location: markerLoc, length: mLen), kind: .quoteMarker))
                 }
             }
 
