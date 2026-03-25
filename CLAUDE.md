@@ -4,7 +4,7 @@
 
 Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
 NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
-Два режима: Edit (NSTextView) / Preview (swift-markdown-ui).
+Только режим Edit (NSTextView). Кнопка ☀/🌙 в тулбаре управляет `.preferredColorScheme`.
 Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
 
 ## Project Structure
@@ -18,7 +18,7 @@ editmd/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
         ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift
-        └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
+        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
@@ -279,10 +279,10 @@ SPM переиспользует уже скачанную версию из `Pa
 
 ## SPM Dependencies
 
-- `swift-markdown-ui` (gonzalezreal) v2.4.1 — SwiftUI рендерер Markdown, тема `.gitHub`
-  - Транзитивные: NetworkImage, cmark-gfm
 - `swift-cmark` (swiftlang) v0.7.1 — cmark C библиотека, используется напрямую для AST-парсинга в редакторе
   - Продукты: `cmark-gfm` (core), `cmark-gfm-extensions` (strikethrough, table, tasklist, autolink)
+
+> `swift-markdown-ui` удалён в v12 — Preview режим убран из приложения.
 
 ## Releases
 
@@ -383,6 +383,12 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 - **listMarker всегда видим** — убран `applyMarker` для `.listMarker`; маркеры (`-`, `*`, `1.`, task list `- `) всегда показываются в `accent` цвете
 - **tableDelimiter всегда видим** — убран `applyMarker` для `.tableDelimiter`; `|` всегда показывается в `tertiary` цвете
 - **59 тестов** — 3 inline code теста обновлены (expect codeMarker×2 + code body; было: code×1 на весь диапазон)
+
+### v12 — Complete
+- **Удалён Preview режим** — `EditorMode` enum, mode state, segmented picker, `MarkdownPreviewView.swift`
+- **Кнопка light/dark** — `isDark: Bool` state в ContentView; `.preferredColorScheme(isDark ? .dark : .light)` на VStack; иконки `sun.max` / `moon`
+- **Удалена зависимость `swift-markdown-ui`** — из `project.yml` (packages + dependencies); xcodeproj пересоздан через `xcodegen`
+- **79 тестов** — без изменений
 
 ### codeMarker vs code span — разделение
 

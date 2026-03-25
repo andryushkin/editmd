@@ -1,40 +1,33 @@
 import SwiftUI
 
-enum EditorMode {
-    case edit, preview
-}
-
 struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
 
-    @State private var mode: EditorMode = .edit
+    @State private var isDark: Bool = false
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
 
     var body: some View {
         VStack(spacing: 0) {
-            if mode == .edit {
-                MarkdownTextView(
-                    document: document,
-                    onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                    onFormatActions: { actions in formatActions = actions }
-                )
+            MarkdownTextView(
+                document: document,
+                onStatsUpdate: { w, c in wordCount = w; charCount = c },
+                onFormatActions: { actions in formatActions = actions }
+            )
 
-                HStack {
-                    Spacer()
-                    Text("\(wordCount) words  \(charCount) chars")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            } else {
-                MarkdownPreviewView(text: document.content, assetsURL: assetsURL)
+            HStack {
+                Spacer()
+                Text("\(wordCount) words  \(charCount) chars")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
+        .preferredColorScheme(isDark ? .dark : .light)
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -54,18 +47,13 @@ struct ContentView: View {
                 }
             }
             ToolbarItem {
-                Picker("Mode", selection: $mode) {
-                    Text("Edit").tag(EditorMode.edit)
-                    Text("Preview").tag(EditorMode.preview)
+                Button {
+                    isDark.toggle()
+                } label: {
+                    Image(systemName: isDark ? "moon" : "sun.max")
                 }
-                .pickerStyle(.segmented)
             }
         }
         .focusedSceneValue(\.formatActions, formatActions)
-    }
-
-    private var assetsURL: URL? {
-        guard let url = fileURL, url.pathExtension == "textbundle" else { return nil }
-        return url.appendingPathComponent("assets")
     }
 }
