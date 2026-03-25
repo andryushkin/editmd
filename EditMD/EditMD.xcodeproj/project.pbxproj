@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00C5A7CF1EEDAF4F103444B5 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2E58C782547B2F7B0A9CCE90 /* MarkdownUI */; };
+		0D9CBEED29BD9DB77F8AC60A /* EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */; };
 		0F96C47C1A1CCA1210F1BD5E /* MarkdownPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */; };
 		16A09F6624873FD33471F396 /* cmark-gfm in Frameworks */ = {isa = PBXBuildFile; productRef = 2584E567742016C6072F5105 /* cmark-gfm */; };
 		29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */; };
@@ -38,6 +39,7 @@
 
 /* Begin PBXFileReference section */
 		0B067C609B41D3BBD819F0CF /* MarkdownTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextView.swift; sourceTree = "<group>"; };
+		0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
 		299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedValues.swift; sourceTree = "<group>"; };
 		437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewView.swift; sourceTree = "<group>"; };
 		55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighterTests.swift; sourceTree = "<group>"; };
@@ -92,6 +94,7 @@
 		45FF45112BA24B394DC47DE6 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
+				0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */,
 				699B6916CC8820D33D30549E /* FormattingHelpers.swift */,
 				73443608878228D727F6A239 /* MarkdownHighlighter.swift */,
 				0B067C609B41D3BBD819F0CF /* MarkdownTextView.swift */,
@@ -264,6 +267,7 @@
 				75ED2C4FF8872DD52EDB4BD2 /* ContentView.swift in Sources */,
 				E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */,
 				ED3F58F1C744B0A9E4947E7B /* EditorFontSettings.swift in Sources */,
+				0D9CBEED29BD9DB77F8AC60A /* EditorTheme.swift in Sources */,
 				9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */,
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */,

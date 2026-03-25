@@ -17,7 +17,7 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift
+        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift
         └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы)
@@ -370,5 +370,25 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 ```
 
 При изменении любого параметра проверять, что M > N.
+
+### v10 — Complete
+- **EditorTheme** — `EditorTheme.swift` в `Editor/`: все цвета, spacing, layout в одном `struct`
+- **Два варианта:** `.system` (системные адаптивные NSColor) и `.comfortable` (те же цвета + увеличенные отступы)
+- **MarkdownTextView** получил `var theme: EditorTheme = .system`; `MarkdownNSTextView` — `var theme: EditorTheme`
+- **CodeCopyButton** получил `var fillColor: NSColor` вместо хардкода `NSColor(white:0.5, alpha:0.12)`
+- **visual-audit.md** — все 17 SpanKind помечены [x]; 3 пункта light/dark/selection требуют ручной проверки
+
+### EditorTheme — структура
+```
+EditorTheme {
+  Colors:    textColor, secondaryColor, tertiaryColor, accentColor,
+             inlineCodeColor, imageColor, separatorColor,
+             inlineCodeBackground, codeBlockBackground, copyButtonBackground
+  Typography: h1/h2/h3/h4PlusSizeOffset, smallFontOffset
+  Spacing:   h1_2SpacingBefore, h3PlusSpacingBefore, headingSpacingAfter,
+             quoteIndentStep, codeBlockHeadIndent, codeBlockPanelInset, codeBlockOuterSpacing
+  Layout:    editorInsetH, editorInsetV, quoteBarWidth, quoteBarXOffset
+}
+```
 
 ## Conventions

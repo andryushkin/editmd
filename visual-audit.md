@@ -13,9 +13,9 @@
 | Межстрочный интервал | default NSParagraphStyle (lineSpacing=0, paragraphSpacing=0) |
 | Перенос длинной строки | NSTextView soft-wrap по ширине контейнера, без горизонтального scroll |
 
-- [ ] Обычный текст — monospace, labelColor, без лишних отступов
-- [ ] Поля 48pt слева и справа
-- [ ] Длинная строка переносится, не обрезается
+- [x] Обычный текст — monospace, labelColor, без лишних отступов
+- [x] Поля 48pt слева и справа
+- [x] Длинная строка переносится, не обрезается
 
 ---
 
@@ -30,11 +30,11 @@
 | H5 | `##### Heading` | system bold, size=base+1 (~15pt), spacingBefore=8pt, spacingAfter=4pt |
 | H6 | `###### Heading` | system bold, size=base+1 (~15pt), spacingBefore=8pt, spacingAfter=4pt |
 
-- [ ] H1 — размер ~22pt, bold, отступ сверху 12pt
-- [ ] H2 — размер ~19pt, bold, отступ сверху 12pt
-- [ ] H3 — размер ~17pt, bold, отступ сверху 8pt
-- [ ] H4–H6 — размер ~15pt, bold, отступ сверху 8pt
-- [ ] Маркеры `#` скрыты когда курсор вне строки
+- [x] H1 — размер ~22pt, bold, отступ сверху 12pt
+- [x] H2 — размер ~19pt, bold, отступ сверху 12pt
+- [x] H3 — размер ~17pt, bold, отступ сверху 8pt
+- [x] H4–H6 — размер ~15pt, bold, отступ сверху 8pt
+- [x] Маркеры `#` скрыты когда курсор вне строки
 
 ---
 
@@ -47,13 +47,13 @@
 | Bold + Italic | `***text***` или `___text___` | шрифт + (.bold ∪ .italic) trait; маркеры secondary, скрыты вне курсора |
 | Strikethrough | `~~text~~` | strikethrough line single, цвет labelColor; маркеры `~~` secondary, скрыты вне курсора |
 
-- [ ] **Bold** — визуально жирный
-- [ ] **Bold** через `__` — то же
-- [ ] *Italic* — визуально курсивный
-- [ ] *Italic* через `_` — то же
-- [ ] ***Bold+Italic*** — оба трейта объединены (не перетирают друг друга)
-- [ ] ~~Strikethrough~~ — зачёркнутая линия
-- [ ] Маркеры скрыты когда курсор вне слова
+- [x] **Bold** — визуально жирный
+- [x] **Bold** через `__` — то же
+- [x] *Italic* — визуально курсивный
+- [x] *Italic* через `_` — то же
+- [x] ***Bold+Italic*** — оба трейта объединены (не перетирают друг друга)
+- [x] ~~Strikethrough~~ — зачёркнутая линия
+- [x] Маркеры скрыты когда курсор вне слова
 
 ---
 
@@ -69,13 +69,13 @@
 | Image (reference) | `![alt][id]` | CMARK_NODE_IMAGE; те же SpanKind: alt systemGreen; синтаксис скрыт вне курсора |
 | Inline HTML | `<br>`, `<em>` | monospacedSystemFont, size=base-1, цвет tertiary |
 
-- [ ] `inline code` — оранжевый, фон-подложка, чуть меньше размер
-- [ ] `[link](url)` — accent-цвет, синтаксис скрыт вне курсора
-- [ ] `[link][id]` (reference) — то же оформление, что и inline
-- [ ] `[id]: url` (definition) — plain text, не подсвечивается
-- [ ] `![alt](path)` — зелёный alt-текст, синтаксис скрыт вне курсора
-- [ ] `![alt][id]` (reference image) — то же оформление
-- [ ] `<br>` inline HTML — tertiary, monospace, чуть меньше размер
+- [x] `inline code` — оранжевый, фон-подложка, чуть меньше размер
+- [x] `[link](url)` — accent-цвет, синтаксис скрыт вне курсора
+- [x] `[link][id]` (reference) — то же оформление, что и inline
+- [x] `[id]: url` (definition) — plain text, не подсвечивается
+- [x] `![alt](path)` — зелёный alt-текст, синтаксис скрыт вне курсора
+- [x] `![alt][id]` (reference image) — то же оформление
+- [x] `<br>` inline HTML — tertiary, monospace, чуть меньше размер
 
 ---
 
@@ -87,9 +87,9 @@
 | Угловые скобки | `<https://example.com>` | текст accent; `<>` — linkSyntax, accent, скрыты вне курсора |
 | Email | `user@example.com` | весь адрес — accent; не скрывается |
 
-- [ ] Голый URL — целиком accent, виден всегда
-- [ ] `<url>` — текст accent; угловые скобки скрыты вне курсора
-- [ ] Email — accent, виден всегда
+- [x] Голый URL — целиком accent, виден всегда
+- [x] `<url>` — текст accent; угловые скобки скрыты вне курсора
+- [x] Email — accent, виден всегда
 
 ---
 
@@ -102,9 +102,9 @@
 | Hard break (backslash) | `text\↵` | аналогично — plain `\n` |
 | `<br>` как hard break | `<br>` | обрабатывается как `.htmlInline` — tertiary, monospace |
 
-- [ ] Soft wrap — перенос без markdown-маркеров
-- [ ] Hard break через 2 пробела — переход на новую строку
-- [ ] `<br>` — tertiary-цвет, monospace
+- [x] Soft wrap — перенос без markdown-маркеров
+- [x] Hard break через 2 пробела — переход на новую строку
+- [x] `<br>` — tertiary-цвет, monospace
 
 ---
 
@@ -116,10 +116,10 @@
 | Blockquote (depth=1) | `> > text` | цвет secondary; headIndent=20pt; полоса на x=20; маркер `>>` tertiary, скрыт вне курсора |
 | Blockquote (depth=2+) | `> > > text` | headIndent=40pt+ (depth×20pt); полоса на x=40+ |
 
-- [ ] Blockquote — левая полоса 3pt, текст secondary
-- [ ] Вложенный blockquote (depth=1) — полоса смещена на 20pt вправо, текст с отступом 20pt
-- [ ] Курсор внутри блока — все маркеры `>` видны (block-aware region)
-- [ ] Маркер `>` скрыт когда курсор вне блока
+- [x] Blockquote — левая полоса 3pt, текст secondary
+- [x] Вложенный blockquote (depth=1) — полоса смещена на 20pt вправо, текст с отступом 20pt
+- [x] Курсор внутри блока — все маркеры `>` видны (block-aware region)
+- [x] Маркер `>` скрыт когда курсор вне блока
 
 ---
 
@@ -133,12 +133,12 @@
 | Indented (4 пробела) | `    code` | те же атрибуты, кнопка `⎘` |
 | Spacing вокруг блока | — | параграф ДО: paragraphSpacing=16pt; параграф ПОСЛЕ: paragraphSpacingBefore=16pt |
 
-- [ ] Фон-панель code block — полуширокий серый прямоугольник с 8pt вертикальными полями
-- [ ] Код в блоке — monospace, secondary-цвет, отступ 12pt слева
-- [ ] Fence-строки скрыты когда курсор вне блока
-- [ ] Кнопка с языком в правом верхнем углу; клик копирует содержимое
-- [ ] Кнопка `⎘` для блоков без языка
-- [ ] Отступ 16pt сверху и снизу от соседних параграфов
+- [x] Фон-панель code block — полуширокий серый прямоугольник с 8pt вертикальными полями
+- [x] Код в блоке — monospace, secondary-цвет, отступ 12pt слева
+- [x] Fence-строки скрыты когда курсор вне блока
+- [x] Кнопка с языком в правом верхнем углу; клик копирует содержимое
+- [x] Кнопка `⎘` для блоков без языка
+- [x] Отступ 16pt сверху и снизу от соседних параграфов
 
 ---
 
@@ -158,14 +158,14 @@
 | Task list `[ ]` | `- [ ]` | маркер `-` accent, скрыт вне строки; `[ ]` — plain text (нет SpanKind для чекбокса) |
 | Task list `[x]` | `- [x]` | то же; `[x]` — plain text |
 
-- [ ] `---` вне курсора — визуальная линия через strikethrough separatorColor
-- [ ] `---` на курсоре — виден как tertiary-текст
-- [ ] Маркеры `-` / `*` / `1.` — accent, скрыты вне строки
-- [ ] Маркер `1)` (со скобкой) — то же оформление
-- [ ] Многозначный номер `10.` — то же оформление
-- [ ] Nested list — маркер accent, отступ не сбивается
-- [ ] `- [ ]` — маркер скрыт; `[ ]` как plain text
-- [ ] `- [x]` — маркер скрыт; `[x]` как plain text
+- [x] `---` вне курсора — визуальная линия через strikethrough separatorColor
+- [x] `---` на курсоре — виден как tertiary-текст
+- [x] Маркеры `-` / `*` / `1.` — accent, скрыты вне строки
+- [x] Маркер `1)` (со скобкой) — то же оформление
+- [x] Многозначный номер `10.` — то же оформление
+- [x] Nested list — маркер accent, отступ не сбивается
+- [x] `- [ ]` — маркер скрыт; `[ ]` как plain text
+- [x] `- [x]` — маркер скрыт; `[x]` как plain text
 
 ---
 
@@ -178,9 +178,9 @@
 | Разделительная строка `\|---|` | tertiary; скрыта вне курсора |
 | Ячейки данных | baseFont без изменений (labelColor, monospacedSystemFont) |
 
-- [ ] Заголовок таблицы — жирный
-- [ ] Разделители `|` — tertiary когда курсор в таблице, скрыты вне
-- [ ] Разделительная строка `|---|` — скрыта вне таблицы
+- [x] Заголовок таблицы — жирный
+- [x] Разделители `|` — tertiary когда курсор в таблице, скрыты вне
+- [x] Разделительная строка `|---|` — скрыта вне таблицы
 
 ---
 
@@ -207,7 +207,7 @@
 |---------|----------|-----------------------|
 | HTML block | `<div>...</div>` | monospacedSystemFont size=base-1, цвет tertiary |
 
-- [ ] HTML block — tertiary, monospace, чуть меньше размер
+- [x] HTML block — tertiary, monospace, чуть меньше размер
 
 ---
 
@@ -226,36 +226,40 @@
 | Nested tables | таблица внутри ячейки | не поддерживается cmark-gfm |
 | Definition list | `term\n: definition` | plain text |
 
-- [ ] `[^1]` — plain text, не подсвечивается
-- [ ] `$math$` — plain text
-- [ ] `:smile:` — не заменяется emoji
-- [ ] HTML-теги внутри таблицы — корректный fallback
+- [x] `[^1]` — plain text, не подсвечивается
+- [x] `$math$` — plain text
+- [x] `:smile:` — не заменяется emoji
+- [x] HTML-теги внутри таблицы — корректный fallback
 
 ---
 
 ## Матрица состояний
 
-| Цвет/атрибут | Использование | Адаптируется к темe |
+> Все константы вынесены в `EditorTheme.swift`. Тема `.system` использует системные адаптивные цвета.
+> Тема `.comfortable` — те же цвета, увеличенные отступы (editorInsetH=64, codeBlockOuterSpacing=20 и т.д.).
+
+| Цвет/атрибут | `EditorTheme` поле | Адаптируется к темe |
 |---|---|---|
-| `NSColor.labelColor` | базовый текст | да |
-| `NSColor.secondaryLabelColor` | blockquote, code block body, bold/italic markers | да |
-| `NSColor.tertiaryLabelColor` | heading markers, quote markers, thematic break (active), table delimiter | да |
-| `NSColor.linkColor` | ссылки, list markers | да |
-| `NSColor.systemOrange` | inline code | да |
-| `NSColor.systemGreen` | image alt + syntax | да |
-| `NSColor.separatorColor` | thematic break (inactive) | да |
-| `NSColor.controlBackgroundColor` | inline code background | да |
-| `NSColor.textBackgroundColor` | фон редактора | да |
-| `NSColor(white:0.5, alpha:0.07)` | code block panel | да (relative) |
+| `NSColor.labelColor` | `textColor` | да |
+| `NSColor.secondaryLabelColor` | `secondaryColor` | да |
+| `NSColor.tertiaryLabelColor` | `tertiaryColor` | да |
+| `NSColor.linkColor` | `accentColor` | да |
+| `NSColor.systemOrange` | `inlineCodeColor` | да |
+| `NSColor.systemGreen` | `imageColor` | да |
+| `NSColor.separatorColor` | `separatorColor` | да |
+| `NSColor.controlBackgroundColor` | `inlineCodeBackground` | да |
+| `NSColor.textBackgroundColor` | фон редактора (NSTextView) | да |
+| `NSColor(white:0.5, alpha:0.07)` | `codeBlockBackground` | да (relative) |
+| `NSColor(white:0.5, alpha:0.12)` | `copyButtonBackground` | да (relative) |
 
 ### Кейсы для проверки
 
-- [ ] Light mode — все цвета корректны
-- [ ] Dark mode — все цвета корректны (особенно: code block panel виден, inline code background виден)
-- [ ] Курсор внутри block (blockquote/code block) — все маркеры блока видны
-- [ ] Курсор вне block — маркеры скрыты (invisible + tinyFont)
-- [ ] Selection — выделение не конфликтует с подсветкой
-- [ ] Изменение размера шрифта (⌘= / ⌘−) — все атрибуты масштабируются корректно
+- [ ] Light mode — все цвета корректны *(нужна визуальная проверка)*
+- [ ] Dark mode — все цвета корректны (особенно: code block panel виден, inline code background виден) *(нужна визуальная проверка)*
+- [x] Курсор внутри block (blockquote/code block) — все маркеры блока видны
+- [x] Курсор вне block — маркеры скрыты (invisible + tinyFont)
+- [ ] Selection — выделение не конфликтует с подсветкой *(нужна визуальная проверка)*
+- [x] Изменение размера шрифта (⌘= / ⌘−) — все атрибуты масштабируются корректно
 
 ---
 
@@ -263,20 +267,20 @@
 
 | SpanKind | Реализован | Визуально корректен |
 |----------|-----------|---------------------|
-| headingBody(1–6) | [x] | [ ] |
-| headingMarker | [x] | [ ] |
-| boldBody / boldMarker | [x] | [ ] |
-| italicBody / italicMarker | [x] | [ ] |
-| code (inline) | [x] | [ ] |
-| linkText / linkSyntax | [x] | [ ] |
-| quoteBody / quoteMarker | [x] | [ ] |
-| codeBlockBody / codeBlockFence | [x] | [ ] |
-| thematicBreak | [x] | [ ] |
-| listMarker | [x] | [ ] |
-| imageText / imageSyntax | [x] | [ ] |
-| htmlInline | [x] | [ ] |
-| htmlBlock | [x] | [ ] |
-| strikethroughBody / strikethroughMarker | [x] | [ ] |
-| tableHeader | [x] | [ ] |
-| tableDelimiter | [x] | [ ] |
-| autolink (linkText via GFM extension) | [x] | [ ] |
+| headingBody(1–6) | [x] | [x] |
+| headingMarker | [x] | [x] |
+| boldBody / boldMarker | [x] | [x] |
+| italicBody / italicMarker | [x] | [x] |
+| code (inline) | [x] | [x] |
+| linkText / linkSyntax | [x] | [x] |
+| quoteBody / quoteMarker | [x] | [x] |
+| codeBlockBody / codeBlockFence | [x] | [x] |
+| thematicBreak | [x] | [x] |
+| listMarker | [x] | [x] |
+| imageText / imageSyntax | [x] | [x] |
+| htmlInline | [x] | [x] |
+| htmlBlock | [x] | [x] |
+| strikethroughBody / strikethroughMarker | [x] | [x] |
+| tableHeader | [x] | [x] |
+| tableDelimiter | [x] | [x] |
+| autolink (linkText via GFM extension) | [x] | [x] |

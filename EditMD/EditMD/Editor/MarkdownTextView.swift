@@ -4,6 +4,7 @@ import SwiftUI
 struct MarkdownTextView: NSViewRepresentable {
 
     let document: MarkdownDocument
+    var theme: EditorTheme = .system
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
 
@@ -35,13 +36,14 @@ struct MarkdownTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = NSSize(width: 48, height: 24)
+        textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
 
         scrollView.documentView = textView
         textView.delegate = context.coordinator
 
         let coordinator = context.coordinator
         coordinator.textView = textView
+        textView.theme = theme
         textView.string = document.content
 
         coordinator.rehighlight()
@@ -201,11 +203,12 @@ struct MarkdownTextView: NSViewRepresentable {
         private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, cursorPos: Int?) {
             guard range.length > 0 else { return }
             let text = storage.string
+            let theme    = parent.theme
             let baseSize = EditorFontSettings.shared.fontSize
             let baseFont = NSFont.monospacedSystemFont(ofSize: baseSize, weight: .regular)
-            let secondary = NSColor.secondaryLabelColor
-            let tertiary  = NSColor.tertiaryLabelColor
-            let accent    = NSColor.linkColor
+            let secondary = theme.secondaryColor
+            let tertiary  = theme.tertiaryColor
+            let accent    = theme.accentColor
             let tinyFont  = NSFont.systemFont(ofSize: 0.01)
 
             let spans = cachedSpans
@@ -262,13 +265,14 @@ struct MarkdownTextView: NSViewRepresentable {
 
                 switch s.kind {
                 case .headingBody(let lv):
-                    let sz: CGFloat = lv == 1 ? baseSize + 8
-                                    : lv == 2 ? baseSize + 5
-                                    : lv == 3 ? baseSize + 3
-                                    :           baseSize + 1
+                    let offset: CGFloat = lv == 1 ? theme.h1SizeOffset
+                                        : lv == 2 ? theme.h2SizeOffset
+                                        : lv == 3 ? theme.h3SizeOffset
+                                        :           theme.h4PlusSizeOffset
+                    let sz = baseSize + offset
                     let para = NSMutableParagraphStyle()
-                    para.paragraphSpacingBefore = lv <= 2 ? 12 : 8
-                    para.paragraphSpacing = 4
+                    para.paragraphSpacingBefore = lv <= 2 ? theme.h1_2SpacingBefore : theme.h3PlusSpacingBefore
+                    para.paragraphSpacing = theme.headingSpacingAfter
                     storage.addAttributes([
                         .font: NSFont.systemFont(ofSize: sz, weight: .bold),
                         .foregroundColor: NSColor.labelColor,
@@ -302,9 +306,9 @@ struct MarkdownTextView: NSViewRepresentable {
 
                 case .code:
                     storage.addAttributes([
-                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
-                        .backgroundColor: NSColor.controlBackgroundColor,
-                        .foregroundColor: NSColor.systemOrange,
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize + theme.smallFontOffset, weight: .regular),
+                        .backgroundColor: theme.inlineCodeBackground,
+                        .foregroundColor: theme.inlineCodeColor,
                     ], range: s.range)
 
                 case .linkText:
@@ -322,10 +326,10 @@ struct MarkdownTextView: NSViewRepresentable {
                 case .codeBlockBody(let language):
                     codeBlockEntries.append((s.range, language))
                     let para = NSMutableParagraphStyle()
-                    para.headIndent = 12
-                    para.firstLineHeadIndent = 12
+                    para.headIndent = theme.codeBlockHeadIndent
+                    para.firstLineHeadIndent = theme.codeBlockHeadIndent
                     storage.addAttributes([
-                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize + theme.smallFontOffset, weight: .regular),
                         .foregroundColor: secondary,
                         .paragraphStyle: para,
                     ], range: s.range)
@@ -338,9 +342,9 @@ struct MarkdownTextView: NSViewRepresentable {
                         storage.addAttribute(.foregroundColor, value: tertiary, range: s.range)
                     } else {
                         storage.addAttributes([
-                            .foregroundColor: NSColor.separatorColor,
+                            .foregroundColor: theme.separatorColor,
                             .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                            .strikethroughColor: NSColor.separatorColor,
+                            .strikethroughColor: theme.separatorColor,
                         ], range: s.range)
                     }
 
@@ -349,20 +353,20 @@ struct MarkdownTextView: NSViewRepresentable {
 
                 case .imageText:
                     storage.addAttribute(.foregroundColor,
-                                         value: NSColor.systemGreen, range: s.range)
+                                         value: theme.imageColor, range: s.range)
 
                 case .imageSyntax:
-                    applyMarker(s.range, normalColor: NSColor.systemGreen)
+                    applyMarker(s.range, normalColor: theme.imageColor)
 
                 case .htmlInline:
                     storage.addAttributes([
-                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize + theme.smallFontOffset, weight: .regular),
                         .foregroundColor: tertiary,
                     ], range: s.range)
 
                 case .htmlBlock:
                     storage.addAttributes([
-                        .font: NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular),
+                        .font: NSFont.monospacedSystemFont(ofSize: baseSize + theme.smallFontOffset, weight: .regular),
                         .foregroundColor: tertiary,
                     ], range: s.range)
 
@@ -389,10 +393,9 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             // Apply depth-based indent + foreground color using precomputed depths.
-            let indentStep: CGFloat = 20
             let quoteEntries = cachedQuoteDepths
             for (r, depth) in quoteEntries {
-                let indent = CGFloat(depth) * indentStep
+                let indent = CGFloat(depth) * theme.quoteIndentStep
                 let para = NSMutableParagraphStyle()
                 para.headIndent = indent
                 para.firstLineHeadIndent = indent
@@ -419,7 +422,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     let existing = storage.attribute(.paragraphStyle, at: prevRange.location,
                                                      effectiveRange: nil) as? NSParagraphStyle
                     let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacing = max(ps.paragraphSpacing, 16)
+                    ps.paragraphSpacing = max(ps.paragraphSpacing, theme.codeBlockOuterSpacing)
                     storage.addAttribute(.paragraphStyle, value: ps, range: prevRange)
                 }
                 let afterLoc = NSMaxRange(codeRange)
@@ -429,7 +432,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     let existing = storage.attribute(.paragraphStyle, at: nextRange.location,
                                                      effectiveRange: nil) as? NSParagraphStyle
                     let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, 16)
+                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.codeBlockOuterSpacing)
                     storage.addAttribute(.paragraphStyle, value: ps, range: nextRange)
                 }
             }
@@ -447,9 +450,10 @@ struct MarkdownTextView: NSViewRepresentable {
 
 private final class CodeCopyButton: NSButton {
     var codeRange: NSRange = .init()
+    var fillColor: NSColor = NSColor(white: 0.5, alpha: 0.12)
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(white: 0.5, alpha: 0.12).setFill()
+        fillColor.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
         super.draw(dirtyRect)
     }
@@ -458,6 +462,7 @@ private final class CodeCopyButton: NSButton {
 // MARK: - Custom NSTextView with blockquote left-border and code block panel drawing
 
 fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate {
+    var theme: EditorTheme = .system
     /// Each entry: (character range of the blockquote, nesting depth 0-based)
     var quoteEntries: [(NSRange, Int)] = []
     /// Each entry: (full range of the fenced code block, language identifier)
@@ -481,7 +486,8 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
         while codeOverlayButtons.count < codeBlockEntries.count {
             let btn = CodeCopyButton(frame: .zero)
             btn.isBordered = false
-            btn.contentTintColor = NSColor.secondaryLabelColor
+            btn.fillColor = theme.copyButtonBackground
+            btn.contentTintColor = theme.secondaryColor
             btn.target = self
             btn.action = #selector(copyCodeBlock(_:))
             addSubview(btn)
@@ -510,7 +516,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
             guard !blockRect.isNull else { btn.isHidden = true; continue }
             btn.isHidden = false
-            let paddedRect = blockRect.insetBy(dx: 0, dy: -8)
+            let paddedRect = blockRect.insetBy(dx: 0, dy: -theme.codeBlockPanelInset)
             let w = btn.frame.width + 10
             let h: CGFloat = 18
             let newFrame = NSRect(x: paddedRect.maxX - w - 6, y: paddedRect.minY + 6, width: w, height: h)
@@ -562,7 +568,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
         // Code block background panels
         if !codeBlockEntries.isEmpty {
-            let codeBackground = NSColor(white: 0.5, alpha: 0.07)
+            let codeBackground = theme.codeBlockBackground
             let fullWidth = bounds.width - inset.width * 2
             for entry in codeBlockEntries {
                 let range = entry.range
@@ -578,7 +584,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                     blockRect = blockRect.isNull ? lineRect : blockRect.union(lineRect)
                 }
                 if !blockRect.isNull && blockRect.intersects(rect) {
-                    let padded = blockRect.insetBy(dx: 0, dy: -8)
+                    let padded = blockRect.insetBy(dx: 0, dy: -theme.codeBlockPanelInset)
                     codeBackground.setFill()
                     padded.fill()
                 }
@@ -587,18 +593,18 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
         // Blockquote left-border bars
         if !quoteEntries.isEmpty {
-            let baseBarX = max(0, inset.width - 12)
-            let indentStep: CGFloat = 20
-            NSColor.separatorColor.setFill()
+            let baseBarX = max(0, inset.width - theme.quoteBarXOffset)
+            theme.separatorColor.setFill()
             for (range, depth) in quoteEntries {
                 guard range.location < totalLen else { continue }
                 let safe = NSRange(location: range.location,
                                    length: min(range.length, totalLen - range.location))
                 guard safe.length > 0 else { continue }
-                let barX = baseBarX + CGFloat(depth) * indentStep
+                let barX = baseBarX + CGFloat(depth) * theme.quoteIndentStep
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
-                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX] fragRect, _, _, _, _ in
-                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: 3, height: fragRect.height)
+                let barWidth = theme.quoteBarWidth
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX, barWidth] fragRect, _, _, _, _ in
+                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: barWidth, height: fragRect.height)
                     if barRect.intersects(rect) { barRect.fill() }
                 }
             }
