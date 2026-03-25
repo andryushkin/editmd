@@ -425,4 +425,16 @@ EditorTheme {
 }
 ```
 
+### Таблицы: два подхода попробованы и отброшены (откат на v12)
+
+**Подход 1 — Overlay с per-cell NSTextView editing (v13–v14):**
+TableOverlayView + CellTextView per ячейке + TableOverlayDelegate (CRUD строк/столбцов). Проблемы: stale NSRange после rehighlight, сложный deferred commit, overlay timing при открытии. Reverted.
+
+**Подход 2 — Toggle по позиции курсора:**
+Cursor вне таблицы → read-only overlay (hitTest → nil), текст скрыт; cursor внутри → plain markdown. Проблема: cmark-gfm расширяет диапазон `tableBody` на следующий параграф без blank line → логика "cursor inside/outside" ломается. Reverted.
+
+**Корень проблемы:** `NSTextTable` не работает при `isRichText = false`. Overlay-подходы упираются в NSRange-десинхронизацию после rehighlight.
+
+**Следующая попытка:** рассматривать только варианты без overlay — либо `isRichText = true` + NSTextTable, либо plain text с минимальной подсветкой.
+
 ## Conventions
