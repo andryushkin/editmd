@@ -20,7 +20,7 @@ editmd/
         ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift
         └── Views/      ContentView.swift, MarkdownPreviewView.swift, EditorFontSettings.swift, FocusedValues.swift
     EditMDTests/
-        ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы)
+        ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         └── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
@@ -377,6 +377,34 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 - **MarkdownTextView** получил `var theme: EditorTheme = .system`; `MarkdownNSTextView` — `var theme: EditorTheme`
 - **CodeCopyButton** получил `var fillColor: NSColor` вместо хардкода `NSColor(white:0.5, alpha:0.12)`
 - **visual-audit.md** — все 17 SpanKind помечены [x]; 3 пункта light/dark/selection требуют ручной проверки
+
+### v11 — Complete
+- **codeMarker SpanKind** — inline code split на `codeMarker` (backtick-символы) + `code` (тело); `codeMarker` скрывается на неактивных строках через `applyMarker`, тело всегда показывается с orange + background
+- **listMarker всегда видим** — убран `applyMarker` для `.listMarker`; маркеры (`-`, `*`, `1.`, task list `- `) всегда показываются в `accent` цвете
+- **tableDelimiter всегда видим** — убран `applyMarker` для `.tableDelimiter`; `|` всегда показывается в `tertiary` цвете
+- **59 тестов** — 3 inline code теста обновлены (expect codeMarker×2 + code body; было: code×1 на весь диапазон)
+
+### codeMarker vs code span — разделение
+
+`CMARK_NODE_CODE` emits три span'а:
+```swift
+let openRange  = NSRange(location: fullLoc, length: bt)          // codeMarker
+let bodyRange  = NSRange(location: fullLoc + bt, length: ...)    // code
+let closeRange = NSRange(location: bodyEnd, length: bt)          // codeMarker
+```
+`code` span (тело) получает: monospaced font + `inlineCodeBackground` + `inlineCodeColor`.
+`codeMarker` (backtick-и) получает: `applyMarker(secondary)` — скрывается когда курсор не на строке.
+
+### listMarker и tableDelimiter — NOT hidden
+
+Элементы которые должны быть ВСЕГДА видимы (не вызывают `applyMarker`):
+- `.listMarker` — accent color
+- `.tableDelimiter` — tertiary color
+- `.tableHeader`, `.thematicBreak`, все body spans
+
+Элементы которые СКРЫВАЮТСЯ на неактивных строках через `applyMarker`:
+- headingMarker, boldMarker, italicMarker, codeMarker, quoteMarker
+- codeBlockFence, linkSyntax, imageSyntax, strikethroughMarker
 
 ### EditorTheme — структура
 ```

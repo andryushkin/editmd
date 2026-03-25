@@ -76,6 +76,7 @@ struct Span {
         case boldBody, boldMarker
         case italicBody, italicMarker
         case code
+        case codeMarker
         case linkText, linkSyntax
         case quoteBody, quoteMarker
         // New
@@ -166,9 +167,16 @@ func collectSpans(_ text: String) -> [Span] {
             guard sc > bt else { continue }
             let fullLoc = lineIdx.offset(sl, sc - bt)
             // Content end (exclusive) + bt closing backticks (ASCII = 1 UTF-16 each)
-            let fullEnd = lineIdx.offsetAfter(el, ec) + bt
+            let bodyEnd = lineIdx.offsetAfter(el, ec)
+            let fullEnd = bodyEnd + bt
             guard fullEnd > fullLoc else { continue }
-            spans.append(Span(range: NSRange(location: fullLoc, length: fullEnd - fullLoc), kind: .code))
+            // Emit separate spans: codeMarker for backticks, code for body content.
+            let openRange = NSRange(location: fullLoc, length: bt)
+            let bodyRange = NSRange(location: fullLoc + bt, length: bodyEnd - (fullLoc + bt))
+            let closeRange = NSRange(location: bodyEnd, length: bt)
+            if openRange.length > 0 { spans.append(Span(range: openRange, kind: .codeMarker)) }
+            if bodyRange.length > 0 { spans.append(Span(range: bodyRange, kind: .code)) }
+            if closeRange.length > 0 { spans.append(Span(range: closeRange, kind: .codeMarker)) }
 
         } else if nt == CMARK_NODE_LINK {
             guard let r = lineIdx.range(sl, sc, el, ec) else { continue }

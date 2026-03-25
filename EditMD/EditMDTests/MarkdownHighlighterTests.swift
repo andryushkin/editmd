@@ -217,28 +217,40 @@ final class CollectSpansTests: XCTestCase {
 
     func testInlineCodeSingleBacktick() {
         // "`code`" = 6 ASCII chars, bt=1
-        // cmark content sc=2..ec=5; fullLoc=0, fullEnd=6
+        // codeMarker: [0,1) open + [5,1) close; code body: [1,4)
         let spans = collectSpans("`code`")
-        let codes = spans.filter { if case .code = $0.kind { return true }; return false }
-        XCTAssertEqual(codes.count, 1)
-        XCTAssertEqual(codes[0].range, NSRange(location: 0, length: 6))
+        let bodies  = spans.filter { if case .code       = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .codeMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range,  NSRange(location: 1, length: 4))
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 1))
+        XCTAssertEqual(markers[1].range, NSRange(location: 5, length: 1))
     }
 
     func testInlineCodeDoubleBacktick() {
         // "``code``" = 8 ASCII chars, bt=2
-        // cmark content sc=3..ec=6; fullLoc=0, fullEnd=8
+        // codeMarker: [0,2) open + [6,2) close; code body: [2,4)
         let spans = collectSpans("``code``")
-        let codes = spans.filter { if case .code = $0.kind { return true }; return false }
-        XCTAssertEqual(codes.count, 1)
-        XCTAssertEqual(codes[0].range, NSRange(location: 0, length: 8))
+        let bodies  = spans.filter { if case .code       = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .codeMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range,  NSRange(location: 2, length: 4))
+        XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
+        XCTAssertEqual(markers[1].range, NSRange(location: 6, length: 2))
     }
 
     func testInlineCodeMidSentence() {
-        // "Use `foo` here": code "`foo`" starts at offset 4, length 5
+        // "Use `foo` here": backtick at offset 4, body "foo" at offset 5 length 3
         let spans = collectSpans("Use `foo` here")
-        let codes = spans.filter { if case .code = $0.kind { return true }; return false }
-        XCTAssertEqual(codes.count, 1)
-        XCTAssertEqual(codes[0].range, NSRange(location: 4, length: 5))
+        let bodies  = spans.filter { if case .code       = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .codeMarker = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  1)
+        XCTAssertEqual(markers.count, 2)
+        XCTAssertEqual(bodies[0].range,  NSRange(location: 5, length: 3))
+        XCTAssertEqual(markers[0].range, NSRange(location: 4, length: 1))
+        XCTAssertEqual(markers[1].range, NSRange(location: 8, length: 1))
     }
 
     // MARK: Link

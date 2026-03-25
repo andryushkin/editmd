@@ -311,6 +311,9 @@ struct MarkdownTextView: NSViewRepresentable {
                         .foregroundColor: theme.inlineCodeColor,
                     ], range: s.range)
 
+                case .codeMarker:
+                    applyMarker(s.range, normalColor: secondary)
+
                 case .linkText:
                     storage.addAttribute(.foregroundColor, value: accent, range: s.range)
 
@@ -349,7 +352,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
 
                 case .listMarker:
-                    applyMarker(s.range, normalColor: accent)
+                    storage.addAttribute(.foregroundColor, value: accent, range: s.range)
 
                 case .imageText:
                     storage.addAttribute(.foregroundColor,
@@ -380,7 +383,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     applyMarker(s.range, normalColor: secondary)
 
                 case .tableDelimiter:
-                    applyMarker(s.range, normalColor: tertiary)
+                    storage.addAttribute(.foregroundColor, value: tertiary, range: s.range)
 
                 case .tableHeader:
                     let existing = storage.attribute(.font, at: s.range.location, effectiveRange: nil)
