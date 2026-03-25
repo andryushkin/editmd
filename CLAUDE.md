@@ -279,10 +279,12 @@ SPM переиспользует уже скачанную версию из `Pa
 
 ## SPM Dependencies
 
-- `swift-cmark` (swiftlang) v0.7.1 — cmark C библиотека, используется напрямую для AST-парсинга в редакторе
-  - Продукты: `cmark-gfm` (core), `cmark-gfm-extensions` (strikethrough, table, tasklist, autolink)
+- `swift-markdown` (Apple) v0.7.3 — официальная Swift-обёртка cmark-gfm, используется в `MarkdownHighlighter.swift` через `MarkupWalker`
+  - Продукт: `Markdown` (GFM extensions включены автоматически: table, strikethrough, tasklist)
+  - `swift-cmark` подтягивается как транзитивная зависимость — импортировать напрямую не нужно
 
 > `swift-markdown-ui` удалён в v12 — Preview режим убран из приложения.
+> `swift-cmark` (прямая зависимость) удалена в v13 — заменена на `swift-markdown` MarkupWalker.
 
 ## Releases
 
@@ -392,11 +394,12 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 
 ### codeMarker vs code span — разделение
 
-`CMARK_NODE_CODE` emits три span'а:
+`visitInlineCode` (SpanCollector) emits три span'а:
 ```swift
-let openRange  = NSRange(location: fullLoc, length: bt)          // codeMarker
-let bodyRange  = NSRange(location: fullLoc + bt, length: ...)    // code
-let closeRange = NSRange(location: bodyEnd, length: bt)          // codeMarker
+// bt = (r.length - inlineCode.code.utf16.count) / 2
+let openRange  = NSRange(location: r.location, length: bt)             // codeMarker
+let bodyRange  = NSRange(location: r.location + bt, length: bodyLen)   // code
+let closeRange = NSRange(location: NSMaxRange(r) - bt, length: bt)     // codeMarker
 ```
 `code` span (тело) получает: monospaced font + `inlineCodeBackground` + `inlineCodeColor`.
 `codeMarker` (backtick-и) получает: `applyMarker(secondary)` — скрывается когда курсор не на строке.
@@ -424,6 +427,32 @@ EditorTheme {
   Layout:    editorInsetH, editorInsetV, quoteBarWidth, quoteBarXOffset
 }
 ```
+
+### v13 — Complete
+- **Миграция `collectSpans` на swift-markdown MarkupWalker** — заменён весь C API cmark-gfm на `import Markdown` + `SpanCollector: MarkupWalker`
+- **Удалена прямая зависимость `swift-cmark`** — из `project.yml`; `swift-markdown` v0.7.3 подтягивает её транзитивно
+- **`Document(parsing:)`** автоматически включает GFM: table, strikethrough, tasklist — без ParseOptions
+- **79 тестов** — без изменений (контракт `collectSpans()` не менялся)
+
+### swift-markdown: ключевые gotchas
+
+**SourceRange — exclusive upperBound:** swift-markdown добавляет `+1` к cmark's endColumn. Для конвертации в NSRange — `lineIdx.offset()` для обоих bounds (НЕ `offsetAfter` для upperBound):
+```swift
+let loc = lineIdx.offset(src.lowerBound.line, src.lowerBound.column)
+let end = lineIdx.offset(src.upperBound.line, src.upperBound.column)  // upper уже exclusive
+```
+
+**InlineCode.range включает backtick-и:** swift-markdown сам корректирует `startColumn - bt / endColumn + bt`. Формула:
+```swift
+let bt = (r.length - inlineCode.code.utf16.count) / 2
+```
+
+**isFenced: language=nil для обоих — indented и fenced-без-языка.** Различать по символу в тексте:
+```swift
+let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or ~
+```
+
+**MarkupWalker: descendInto явный.** В переопределённых методах нужно вызывать `descendInto(node)` — иначе children не посещаются. `defaultVisit` (для не-переопределённых методов) вызывает descendInto автоматически.
 
 ### Таблицы: два подхода попробованы и отброшены (откат на v12)
 

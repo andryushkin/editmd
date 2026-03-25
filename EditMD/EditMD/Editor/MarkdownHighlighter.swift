@@ -1,10 +1,9 @@
 import Foundation
-import cmark_gfm
-import cmark_gfm_extensions
+import Markdown
 
 // MARK: - Line Index
 
-/// Maps cmark's 1-based (line, UTF-8 column) positions to UTF-16 NSRange offsets.
+/// Maps swift-markdown's 1-based (line, UTF-8 column) positions to UTF-16 NSRange offsets.
 struct LineIndex {
     /// utf8To16[byteOffset] = UTF-16 unit offset at the start of that byte.
     private let utf8To16: [Int]
@@ -94,238 +93,273 @@ struct Span {
     var kind: Kind
 }
 
+// MARK: - SpanCollector
+
+/// MarkupWalker that traverses the swift-markdown AST and collects highlight spans.
+private struct SpanCollector: MarkupWalker {
+    let nsText: NSString
+    let lineIdx: LineIndex
+    var spans: [Span] = []
+
+    init(text: String, lineIdx: LineIndex) {
+        self.nsText = text as NSString
+        self.lineIdx = lineIdx
+    }
+
+    // MARK: Helpers
+
+    /// Convert swift-markdown's exclusive SourceRange to NSRange.
+    /// swift-markdown: lowerBound inclusive, upperBound exclusive (endColumn = cmark_ec + 1).
+    private func nsRange(for srcRange: SourceRange) -> NSRange? {
+        let loc = lineIdx.offset(srcRange.lowerBound.line, srcRange.lowerBound.column)
+        let end = lineIdx.offset(srcRange.upperBound.line, srcRange.upperBound.column)
+        guard end >= loc else { return nil }
+        return NSRange(location: loc, length: end - loc)
+    }
+
+    // MARK: Block elements
+
+    mutating func visitHeading(_ heading: Heading) {
+        guard let r = heading.range.flatMap({ nsRange(for: $0) }) else {
+            descendInto(heading); return
+        }
+        let lv = heading.level
+        spans.append(Span(range: r, kind: .headingBody(lv)))
+        let markerLen = min(lv + 1, r.length)
+        spans.append(Span(range: NSRange(location: r.location, length: markerLen), kind: .headingMarker))
+        descendInto(heading)
+    }
+
+    mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
+        guard let srcRange = blockQuote.range, let r = nsRange(for: srcRange) else {
+            descendInto(blockQuote); return
+        }
+        spans.append(Span(range: r, kind: .quoteBody))
+        let sc = srcRange.lowerBound.column
+        let sl = srcRange.lowerBound.line
+        let el = srcRange.upperBound.line
+        for line in sl...el {
+            let markerLoc = lineIdx.offset(line, sc)
+            guard markerLoc < NSMaxRange(r), markerLoc < nsText.length else { continue }
+            if nsText.substring(with: NSRange(location: markerLoc, length: 1)) == ">" {
+                let mLen = min(2, NSMaxRange(r) - markerLoc)
+                spans.append(Span(range: NSRange(location: markerLoc, length: mLen), kind: .quoteMarker))
+            }
+        }
+        descendInto(blockQuote)
+    }
+
+    mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
+        guard let srcRange = codeBlock.range, let r = nsRange(for: srcRange) else { return }
+        let lang = codeBlock.language ?? ""
+        spans.append(Span(range: r, kind: .codeBlockBody(language: lang)))
+        // Detect fenced block by looking at the first character (` or ~).
+        // swift-markdown maps both indented and fenced-no-lang to language=nil,
+        // so we check the source text instead.
+        let isFenced = r.location < nsText.length && {
+            let ch = nsText.character(at: r.location)
+            return ch == 0x60 || ch == 0x7E  // ` or ~
+        }()
+        if isFenced {
+            let sl = srcRange.lowerBound.line
+            let el = srcRange.upperBound.line
+            // Opening fence: from block start to end of first line
+            if sl < lineIdx.lineCount {
+                let nextLineStart = lineIdx.lineStart(sl + 1)
+                let openLen = nextLineStart - r.location
+                if openLen > 0 {
+                    spans.append(Span(range: NSRange(location: r.location, length: openLen),
+                                      kind: .codeBlockFence))
+                }
+            }
+            // Closing fence: last line of the block
+            if el > sl {
+                let closeStart = lineIdx.lineStart(el)
+                let closeLen = NSMaxRange(r) - closeStart
+                if closeLen > 0, closeStart >= r.location {
+                    spans.append(Span(range: NSRange(location: closeStart, length: closeLen),
+                                      kind: .codeBlockFence))
+                }
+            }
+        }
+    }
+
+    mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
+        guard let r = thematicBreak.range.flatMap({ nsRange(for: $0) }) else { return }
+        spans.append(Span(range: r, kind: .thematicBreak))
+    }
+
+    mutating func visitListItem(_ listItem: ListItem) {
+        guard let srcRange = listItem.range else { descendInto(listItem); return }
+        let sl = srcRange.lowerBound.line
+        let sc = srcRange.lowerBound.column
+        let markerStart = lineIdx.offset(sl, sc)
+        guard markerStart < nsText.length else { descendInto(listItem); return }
+
+        let isOrdered = listItem.parent is OrderedList
+        var markerLen = 2  // default: "- " or "* "
+        if isOrdered {
+            // Scan: digits, then delimiter (. or )), then space
+            let maxScan = min(10, nsText.length - markerStart)
+            var i = 0
+            while i < maxScan {
+                let ch = nsText.character(at: markerStart + i)
+                guard ch >= 0x30, ch <= 0x39 else { break }  // '0'-'9'
+                i += 1
+            }
+            if i < maxScan { i += 1 }  // delimiter (. or ))
+            if i < maxScan { i += 1 }  // space
+            markerLen = i
+        }
+        if markerLen > 0, markerStart + markerLen <= nsText.length {
+            spans.append(Span(range: NSRange(location: markerStart, length: markerLen),
+                              kind: .listMarker))
+        }
+        descendInto(listItem)
+    }
+
+    mutating func visitHTMLBlock(_ html: HTMLBlock) {
+        guard let r = html.range.flatMap({ nsRange(for: $0) }) else { return }
+        spans.append(Span(range: r, kind: .htmlBlock))
+    }
+
+    mutating func visitTable(_ table: Table) {
+        guard let srcRange = table.range, let r = nsRange(for: srcRange) else {
+            descendInto(table); return
+        }
+        // Header row: first line of the table
+        let sl = srcRange.lowerBound.line
+        let headerEnd = sl < lineIdx.lineCount ? lineIdx.lineStart(sl + 1) : NSMaxRange(r)
+        let headerLen = min(headerEnd - r.location, r.length)
+        if headerLen > 0 {
+            spans.append(Span(range: NSRange(location: r.location, length: headerLen),
+                              kind: .tableHeader))
+        }
+        // All '|' delimiters in the table range
+        for i in r.location..<NSMaxRange(r) {
+            guard i < nsText.length else { break }
+            if nsText.character(at: i) == 0x7C {  // '|'
+                spans.append(Span(range: NSRange(location: i, length: 1), kind: .tableDelimiter))
+            }
+        }
+        // Descend to allow Strong/Emphasis/InlineCode inside cells to be highlighted
+        descendInto(table)
+    }
+
+    // MARK: Inline elements
+
+    mutating func visitStrong(_ strong: Strong) {
+        guard let r = strong.range.flatMap({ nsRange(for: $0) }), r.length >= 4 else {
+            descendInto(strong); return
+        }
+        spans.append(Span(range: r, kind: .boldBody))
+        spans.append(Span(range: NSRange(location: r.location, length: 2), kind: .boldMarker))
+        spans.append(Span(range: NSRange(location: NSMaxRange(r) - 2, length: 2), kind: .boldMarker))
+        descendInto(strong)
+    }
+
+    mutating func visitEmphasis(_ emphasis: Emphasis) {
+        guard let r = emphasis.range.flatMap({ nsRange(for: $0) }), r.length >= 2 else {
+            descendInto(emphasis); return
+        }
+        spans.append(Span(range: r, kind: .italicBody))
+        spans.append(Span(range: NSRange(location: r.location, length: 1), kind: .italicMarker))
+        spans.append(Span(range: NSRange(location: NSMaxRange(r) - 1, length: 1), kind: .italicMarker))
+        descendInto(emphasis)
+    }
+
+    mutating func visitInlineCode(_ inlineCode: InlineCode) {
+        // swift-markdown adjusts InlineCode.range to include backticks:
+        //   start.column = cmark_sc - bt, end.column = cmark_ec + 1 + bt
+        // So range covers the full `...` span. code gives only the content.
+        guard let r = inlineCode.range.flatMap({ nsRange(for: $0) }) else { return }
+        let bt = (r.length - inlineCode.code.utf16.count) / 2
+        guard bt > 0 else { return }
+        let bodyLen = r.length - 2 * bt
+        let openRange  = NSRange(location: r.location, length: bt)
+        let bodyRange  = NSRange(location: r.location + bt, length: bodyLen)
+        let closeRange = NSRange(location: NSMaxRange(r) - bt, length: bt)
+        if openRange.length > 0  { spans.append(Span(range: openRange,  kind: .codeMarker)) }
+        if bodyRange.length >= 0 { spans.append(Span(range: bodyRange,  kind: .code)) }
+        if closeRange.length > 0 { spans.append(Span(range: closeRange, kind: .codeMarker)) }
+    }
+
+    mutating func visitLink(_ link: Link) {
+        guard let fullSrc = link.range, let r = nsRange(for: fullSrc) else {
+            descendInto(link); return
+        }
+        let childrenArr = Array(link.children)
+        if let firstChild = childrenArr.first, let lastChild = childrenArr.last,
+           let firstSrc = firstChild.range, let lastSrc = lastChild.range,
+           let textRange = nsRange(for: firstSrc.lowerBound..<lastSrc.upperBound) {
+            spans.append(Span(range: textRange, kind: .linkText))
+            let beforeLen = textRange.location - r.location
+            if beforeLen > 0 {
+                spans.append(Span(range: NSRange(location: r.location, length: beforeLen),
+                                  kind: .linkSyntax))
+            }
+            let afterLen = NSMaxRange(r) - NSMaxRange(textRange)
+            if afterLen > 0 {
+                spans.append(Span(range: NSRange(location: NSMaxRange(textRange), length: afterLen),
+                                  kind: .linkSyntax))
+            }
+        } else {
+            spans.append(Span(range: r, kind: .linkSyntax))
+        }
+        descendInto(link)
+    }
+
+    mutating func visitImage(_ image: Image) {
+        guard let fullSrc = image.range, let r = nsRange(for: fullSrc) else {
+            descendInto(image); return
+        }
+        let childrenArr = Array(image.children)
+        if let firstChild = childrenArr.first, let lastChild = childrenArr.last,
+           let firstSrc = firstChild.range, let lastSrc = lastChild.range,
+           let textRange = nsRange(for: firstSrc.lowerBound..<lastSrc.upperBound) {
+            spans.append(Span(range: textRange, kind: .imageText))
+            let beforeLen = textRange.location - r.location
+            if beforeLen > 0 {
+                spans.append(Span(range: NSRange(location: r.location, length: beforeLen),
+                                  kind: .imageSyntax))
+            }
+            let afterLen = NSMaxRange(r) - NSMaxRange(textRange)
+            if afterLen > 0 {
+                spans.append(Span(range: NSRange(location: NSMaxRange(textRange), length: afterLen),
+                                  kind: .imageSyntax))
+            }
+        } else {
+            spans.append(Span(range: r, kind: .imageSyntax))
+        }
+        descendInto(image)
+    }
+
+    mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
+        guard let r = inlineHTML.range.flatMap({ nsRange(for: $0) }) else { return }
+        spans.append(Span(range: r, kind: .htmlInline))
+    }
+
+    mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
+        guard let r = strikethrough.range.flatMap({ nsRange(for: $0) }), r.length >= 4 else {
+            descendInto(strikethrough); return
+        }
+        spans.append(Span(range: r, kind: .strikethroughBody))
+        spans.append(Span(range: NSRange(location: r.location, length: 2), kind: .strikethroughMarker))
+        spans.append(Span(range: NSRange(location: NSMaxRange(r) - 2, length: 2), kind: .strikethroughMarker))
+        descendInto(strikethrough)
+    }
+}
+
 // MARK: - collectSpans
 
-/// Parses the markdown text with cmark and returns highlight spans.
+/// Parses the markdown text with swift-markdown and returns highlight spans.
 /// Pure function — no dependency on any view or controller.
 func collectSpans(_ text: String) -> [Span] {
     guard !text.isEmpty else { return [] }
     let lineIdx = LineIndex(text)
-    let nsText  = text as NSString
-
-    // Use parser API to support GFM extensions (strikethrough, table, tasklist, autolink).
-    cmark_gfm_core_extensions_ensure_registered()
-    guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else { return [] }
-    defer { cmark_parser_free(parser) }
-    for name in ["strikethrough", "table", "tasklist", "autolink"] {
-        if let ext = cmark_find_syntax_extension(name) {
-            cmark_parser_attach_syntax_extension(parser, ext)
-        }
-    }
-    cmark_parser_feed(parser, text, text.utf8.count)
-    guard let doc = cmark_parser_finish(parser) else { return [] }
-    defer { cmark_node_free(doc) }
-
-    guard let iter = cmark_iter_new(doc) else { return [] }
-    defer { cmark_iter_free(iter) }
-
-    var spans = [Span]()
-
-    while true {
-        let ev = cmark_iter_next(iter)
-        if ev == CMARK_EVENT_DONE { break }
-        if ev != CMARK_EVENT_ENTER { continue }
-        guard let node = cmark_iter_get_node(iter) else { continue }
-
-        let sl = Int(cmark_node_get_start_line(node))
-        let sc = Int(cmark_node_get_start_column(node))
-        let el = Int(cmark_node_get_end_line(node))
-        let ec = Int(cmark_node_get_end_column(node))
-        let nt = cmark_node_get_type(node)
-
-        // Extension node types are extern variables, not accessible from Swift module.
-        // Compare by type string for extension nodes.
-        let typeStr: String? = {
-            guard let ptr = cmark_node_get_type_string(node) else { return nil }
-            return String(cString: ptr)
-        }()
-
-        if nt == CMARK_NODE_HEADING {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            let lv = Int(cmark_node_get_heading_level(node))
-            spans.append(Span(range: r, kind: .headingBody(lv)))
-            // Marker = the '#' characters + one space (level + 1 chars)
-            let markerLen = min(lv + 1, r.length)
-            spans.append(Span(range: NSRange(location: r.location, length: markerLen), kind: .headingMarker))
-
-        } else if nt == CMARK_NODE_STRONG {
-            guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 4 else { continue }
-            spans.append(Span(range: r, kind: .boldBody))
-            spans.append(Span(range: NSRange(location: r.location, length: 2),             kind: .boldMarker))
-            spans.append(Span(range: NSRange(location: r.upperBound - 2, length: 2),       kind: .boldMarker))
-
-        } else if nt == CMARK_NODE_EMPH {
-            guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 2 else { continue }
-            spans.append(Span(range: r, kind: .italicBody))
-            spans.append(Span(range: NSRange(location: r.location, length: 1),             kind: .italicMarker))
-            spans.append(Span(range: NSRange(location: r.upperBound - 1, length: 1),       kind: .italicMarker))
-
-        } else if nt == CMARK_NODE_CODE {
-            // cmark positions for CMARK_NODE_CODE span only the content (no backticks).
-            // Expand the range to include opening and closing backticks.
-            let bt = Int(cmark_node_get_backtick_count(node))
-            guard sc > bt else { continue }
-            let fullLoc = lineIdx.offset(sl, sc - bt)
-            // Content end (exclusive) + bt closing backticks (ASCII = 1 UTF-16 each)
-            let bodyEnd = lineIdx.offsetAfter(el, ec)
-            let fullEnd = bodyEnd + bt
-            guard fullEnd > fullLoc else { continue }
-            // Emit separate spans: codeMarker for backticks, code for body content.
-            let openRange = NSRange(location: fullLoc, length: bt)
-            let bodyRange = NSRange(location: fullLoc + bt, length: bodyEnd - (fullLoc + bt))
-            let closeRange = NSRange(location: bodyEnd, length: bt)
-            if openRange.length > 0 { spans.append(Span(range: openRange, kind: .codeMarker)) }
-            if bodyRange.length > 0 { spans.append(Span(range: bodyRange, kind: .code)) }
-            if closeRange.length > 0 { spans.append(Span(range: closeRange, kind: .codeMarker)) }
-
-        } else if nt == CMARK_NODE_LINK {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            let fc = cmark_node_first_child(node)
-            let lc = cmark_node_last_child(node)
-            if let fc, let lc,
-               let textRange = lineIdx.range(
-                   Int(cmark_node_get_start_line(fc)), Int(cmark_node_get_start_column(fc)),
-                   Int(cmark_node_get_end_line(lc)),   Int(cmark_node_get_end_column(lc))) {
-                spans.append(Span(range: textRange, kind: .linkText))
-                let beforeLen = textRange.location - r.location
-                if beforeLen > 0 {
-                    spans.append(Span(range: NSRange(location: r.location, length: beforeLen), kind: .linkSyntax))
-                }
-                let afterLen = r.upperBound - textRange.upperBound
-                if afterLen > 0 {
-                    spans.append(Span(range: NSRange(location: textRange.upperBound, length: afterLen), kind: .linkSyntax))
-                }
-            } else {
-                spans.append(Span(range: r, kind: .linkSyntax))
-            }
-
-        } else if nt == CMARK_NODE_BLOCK_QUOTE {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            spans.append(Span(range: r, kind: .quoteBody))
-            // Emit a marker for the '>' at column sc on each line of this blockquote.
-            // Using offset(line, sc) correctly handles nested quotes where sc > 1.
-            for line in sl...el {
-                let markerLoc = lineIdx.offset(line, sc)
-                guard markerLoc < r.upperBound, markerLoc < nsText.length else { continue }
-                if nsText.substring(with: NSRange(location: markerLoc, length: 1)) == ">" {
-                    let mLen = min(2, r.upperBound - markerLoc)
-                    spans.append(Span(range: NSRange(location: markerLoc, length: mLen), kind: .quoteMarker))
-                }
-            }
-
-        } else if nt == CMARK_NODE_CODE_BLOCK {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            let lang = cmark_node_get_fence_info(node).flatMap { String(cString: $0) } ?? ""
-            spans.append(Span(range: r, kind: .codeBlockBody(language: lang)))
-
-            // Fenced code blocks have fence_info (may be empty string).
-            // Indented code blocks return nil for fence_info but also have fence_length == 0.
-            let fenceLen = Int(cmark_node_get_fence_info(node) != nil ? 1 : 0)
-            if fenceLen > 0 {
-                // Opening fence: from block start to end of first line
-                if sl < lineIdx.lineCount {
-                    let nextLineStart = lineIdx.lineStart(sl + 1)
-                    let openLen = nextLineStart - r.location
-                    if openLen > 0 {
-                        spans.append(Span(range: NSRange(location: r.location, length: openLen),
-                                          kind: .codeBlockFence))
-                    }
-                }
-                // Closing fence: last line of the block
-                if el > sl {
-                    let closeStart = lineIdx.lineStart(el)
-                    let closeLen = r.upperBound - closeStart
-                    if closeLen > 0, closeStart >= r.location {
-                        spans.append(Span(range: NSRange(location: closeStart, length: closeLen),
-                                          kind: .codeBlockFence))
-                    }
-                }
-            }
-
-        } else if nt == CMARK_NODE_THEMATIC_BREAK {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            spans.append(Span(range: r, kind: .thematicBreak))
-
-        } else if nt == CMARK_NODE_ITEM {
-            // Extract list marker (bullet or number+delimiter).
-            let markerStart = lineIdx.offset(sl, sc)
-            guard markerStart < nsText.length else { continue }
-            let parent = cmark_node_parent(node)
-            let listType = parent != nil ? cmark_node_get_list_type(parent) : CMARK_NO_LIST
-
-            var markerLen = 2  // default: "- " or "* "
-            if listType == CMARK_ORDERED_LIST {
-                // Scan: digits, then delimiter (. or )), then space
-                let maxScan = min(10, nsText.length - markerStart)
-                var i = 0
-                while i < maxScan {
-                    let ch = nsText.character(at: markerStart + i)
-                    guard ch >= 0x30, ch <= 0x39 else { break }  // '0'-'9'
-                    i += 1
-                }
-                if i < maxScan { i += 1 }  // delimiter (. or ))
-                if i < maxScan { i += 1 }  // space
-                markerLen = i
-            }
-            if markerLen > 0, markerStart + markerLen <= nsText.length {
-                spans.append(Span(range: NSRange(location: markerStart, length: markerLen),
-                                  kind: .listMarker))
-            }
-
-        } else if nt == CMARK_NODE_IMAGE {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            let fc = cmark_node_first_child(node)
-            let lc = cmark_node_last_child(node)
-            if let fc, let lc,
-               let textRange = lineIdx.range(
-                   Int(cmark_node_get_start_line(fc)), Int(cmark_node_get_start_column(fc)),
-                   Int(cmark_node_get_end_line(lc)),   Int(cmark_node_get_end_column(lc))) {
-                spans.append(Span(range: textRange, kind: .imageText))
-                let beforeLen = textRange.location - r.location
-                if beforeLen > 0 {
-                    spans.append(Span(range: NSRange(location: r.location, length: beforeLen), kind: .imageSyntax))
-                }
-                let afterLen = r.upperBound - textRange.upperBound
-                if afterLen > 0 {
-                    spans.append(Span(range: NSRange(location: textRange.upperBound, length: afterLen), kind: .imageSyntax))
-                }
-            } else {
-                spans.append(Span(range: r, kind: .imageSyntax))
-            }
-
-        } else if nt == CMARK_NODE_HTML_INLINE {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            spans.append(Span(range: r, kind: .htmlInline))
-
-        } else if nt == CMARK_NODE_HTML_BLOCK {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            spans.append(Span(range: r, kind: .htmlBlock))
-
-        } else if typeStr == "strikethrough" {
-            guard let r = lineIdx.range(sl, sc, el, ec), r.length >= 4 else { continue }
-            spans.append(Span(range: r, kind: .strikethroughBody))
-            spans.append(Span(range: NSRange(location: r.location, length: 2),             kind: .strikethroughMarker))
-            spans.append(Span(range: NSRange(location: r.upperBound - 2, length: 2),       kind: .strikethroughMarker))
-
-        } else if typeStr == "table" {
-            guard let r = lineIdx.range(sl, sc, el, ec) else { continue }
-            // Header row: first line
-            let headerEnd = sl < lineIdx.lineCount ? lineIdx.lineStart(sl + 1) : r.upperBound
-            let headerLen = min(headerEnd - r.location, r.length)
-            if headerLen > 0 {
-                spans.append(Span(range: NSRange(location: r.location, length: headerLen),
-                                  kind: .tableHeader))
-            }
-            // Find all '|' delimiters in the table range
-            for i in r.location..<r.upperBound {
-                guard i < nsText.length else { break }
-                if nsText.character(at: i) == 0x7C {  // '|'
-                    spans.append(Span(range: NSRange(location: i, length: 1),
-                                      kind: .tableDelimiter))
-                }
-            }
-        }
-    }
-
-    return spans
+    // Document(parsing:) auto-enables GFM extensions: table, strikethrough, tasklist.
+    let document = Document(parsing: text)
+    var collector = SpanCollector(text: text, lineIdx: lineIdx)
+    collector.visit(document)
+    return collector.spans
 }

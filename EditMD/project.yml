@@ -8,9 +8,9 @@ options:
   generateEmptyDirectories: true
 
 packages:
-  swift-cmark:
-    url: https://github.com/swiftlang/swift-cmark
-    from: "0.7.1"
+  swift-markdown:
+    url: https://github.com/apple/swift-markdown
+    from: "0.7.3"
 
 targets:
   EditMD:
@@ -22,10 +22,8 @@ targets:
     resources:
       - path: EditMD/Resources
     dependencies:
-      - package: swift-cmark
-        product: cmark-gfm
-      - package: swift-cmark
-        product: cmark-gfm-extensions
+      - package: swift-markdown
+        product: Markdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
@@ -46,10 +44,8 @@ targets:
       - EditMDTests
     dependencies:
       - target: EditMD
-      - package: swift-cmark
-        product: cmark-gfm
-      - package: swift-cmark
-        product: cmark-gfm-extensions
+      - package: swift-markdown
+        product: Markdown
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.tests

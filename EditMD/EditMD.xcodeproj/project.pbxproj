@@ -7,11 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		00C5A7CF1EEDAF4F103444B5 /* cmark-gfm in Frameworks */ = {isa = PBXBuildFile; productRef = 2584E567742016C6072F5105 /* cmark-gfm */; };
+		00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = C751A146F893A369A160F144 /* Markdown */; };
 		0D9CBEED29BD9DB77F8AC60A /* EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */; };
-		16A09F6624873FD33471F396 /* cmark-gfm-extensions in Frameworks */ = {isa = PBXBuildFile; productRef = BC0DA4AFEEA57394D0CC9B5E /* cmark-gfm-extensions */; };
 		29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */; };
-		2B3D81A455822ED02A0164B2 /* cmark-gfm in Frameworks */ = {isa = PBXBuildFile; productRef = 37584F991FE78DDB4041CF66 /* cmark-gfm */; };
+		2B3D81A455822ED02A0164B2 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 2DE5E72B6D910282961D4DE5 /* Markdown */; };
 		36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */; };
 		3E483A036C489B19FC7CE13B /* MarkdownHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73443608878228D727F6A239 /* MarkdownHighlighter.swift */; };
 		50705B111883CA8B9D1B1F24 /* MarkdownTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B067C609B41D3BBD819F0CF /* MarkdownTextView.swift */; };
@@ -22,7 +21,6 @@
 		DB490D4FE279C4551AFF0CAA /* MarkdownHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */; };
 		E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FF3BD17201E239817B79BA /* EditMDApp.swift */; };
 		ED3F58F1C744B0A9E4947E7B /* EditorFontSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7AC06CD2122D346D468B73 /* EditorFontSettings.swift */; };
-		F3C7F817EFCAE6DBC7EE3008 /* cmark-gfm-extensions in Frameworks */ = {isa = PBXBuildFile; productRef = 357040E81898A6F087EB0F9F /* cmark-gfm-extensions */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,8 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				00C5A7CF1EEDAF4F103444B5 /* cmark-gfm in Frameworks */,
-				16A09F6624873FD33471F396 /* cmark-gfm-extensions in Frameworks */,
+				00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -67,8 +64,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B3D81A455822ED02A0164B2 /* cmark-gfm in Frameworks */,
-				F3C7F817EFCAE6DBC7EE3008 /* cmark-gfm-extensions in Frameworks */,
+				2B3D81A455822ED02A0164B2 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -176,8 +172,7 @@
 			);
 			name = EditMD;
 			packageProductDependencies = (
-				2584E567742016C6072F5105 /* cmark-gfm */,
-				BC0DA4AFEEA57394D0CC9B5E /* cmark-gfm-extensions */,
+				C751A146F893A369A160F144 /* Markdown */,
 			);
 			productName = EditMD;
 			productReference = 82D8BF400E9D538C51E10B8F /* EditMD.app */;
@@ -197,8 +192,7 @@
 			);
 			name = EditMDTests;
 			packageProductDependencies = (
-				37584F991FE78DDB4041CF66 /* cmark-gfm */,
-				357040E81898A6F087EB0F9F /* cmark-gfm-extensions */,
+				2DE5E72B6D910282961D4DE5 /* Markdown */,
 			);
 			productName = EditMDTests;
 			productReference = B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */;
@@ -230,7 +224,7 @@
 			mainGroup = 61FDC8302754468698E412CF;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */,
+				D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
@@ -516,36 +510,26 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */ = {
+		D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/swiftlang/swift-cmark";
+			repositoryURL = "https://github.com/apple/swift-markdown";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.7.1;
+				minimumVersion = 0.7.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		2584E567742016C6072F5105 /* cmark-gfm */ = {
+		2DE5E72B6D910282961D4DE5 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */;
-			productName = "cmark-gfm";
+			package = D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
-		357040E81898A6F087EB0F9F /* cmark-gfm-extensions */ = {
+		C751A146F893A369A160F144 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */;
-			productName = "cmark-gfm-extensions";
-		};
-		37584F991FE78DDB4041CF66 /* cmark-gfm */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */;
-			productName = "cmark-gfm";
-		};
-		BC0DA4AFEEA57394D0CC9B5E /* cmark-gfm-extensions */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2CA90A4FA1E03753EEC778B7 /* XCRemoteSwiftPackageReference "swift-cmark" */;
-			productName = "cmark-gfm-extensions";
+			package = D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
