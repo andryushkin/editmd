@@ -233,7 +233,7 @@ struct MarkdownTextView: NSViewRepresentable {
             if let pos = cursorPos {
                 for span in spans {
                     switch span.kind {
-                    case .quoteBody, .codeBlockBody:
+                    case .quoteBody, .codeBlockBody, .listBlock:
                         if NSLocationInRange(pos, span.range) {
                             activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
                         }
@@ -260,6 +260,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
             var codeBlockEntries: [(NSRange, String)] = []
             var headingDividerRanges: [NSRange] = []
+            var bulletEntries: [(range: NSRange, depth: Int)] = []
             let tableRowBgVisible = theme.tableRowBackground.cgColor.alpha > 0
 
             storage.beginEditing()
@@ -336,6 +337,9 @@ struct MarkdownTextView: NSViewRepresentable {
                 case .quoteBody:
                     break  // depth + indent applied below from cachedQuoteDepths
 
+                case .listBlock:
+                    break  // used only for activeRegion expansion; no direct styling
+
                 case .quoteMarker:
                     applyMarker(s.range, normalColor: tertiary)
 
@@ -364,8 +368,20 @@ struct MarkdownTextView: NSViewRepresentable {
                         ], range: s.range)
                     }
 
-                case .listMarker:
-                    storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+                case .listMarker(let ordered, let depth):
+                    if ordered {
+                        // Ordered markers (1., 2.) stay visible — the number is meaningful
+                        storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+                    } else {
+                        // Unordered: hide on inactive lines (preserving layout width), show on active
+                        bulletEntries.append((range: s.range, depth: depth))
+                        if isOnActive(s.range) {
+                            storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+                        } else {
+                            // NSColor.clear keeps layout width but makes char invisible
+                            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: s.range)
+                        }
+                    }
 
                 case .imageText:
                     storage.addAttribute(.foregroundColor,
@@ -406,16 +422,22 @@ struct MarkdownTextView: NSViewRepresentable {
                         storage.addAttribute(.font, value: font, range: s.range)
                     }
 
-                case .listItemBody:
-                    guard theme.listItemSpacing > 0 else { break }
-                    let existing = storage.attribute(.paragraphStyle, at: s.range.location,
+                case .listItemBody(let textStartCol):
+                    let nsText = text as NSString
+                    let firstLineRange = nsText.lineRange(
+                        for: NSRange(location: s.range.location, length: 0))
+                    let charWidth = baseFont.maximumAdvancement.width
+                    let headIndent = CGFloat(textStartCol - 1) * charWidth
+                    let existing = storage.attribute(.paragraphStyle, at: firstLineRange.location,
                                                      effectiveRange: nil) as? NSParagraphStyle
-                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.listItemSpacing)
-                    let lineStart = (text as NSString).lineRange(
-                        for: NSRange(location: s.range.location, length: 0)).location
-                    let paraRange = NSRange(location: lineStart, length: NSMaxRange(s.range) - lineStart)
-                    storage.addAttribute(.paragraphStyle, value: ps, range: paraRange)
+                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+                        ?? NSMutableParagraphStyle()
+                    ps.firstLineHeadIndent = 0
+                    ps.headIndent = headIndent
+                    if theme.listItemSpacing > 0 {
+                        ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.listItemSpacing)
+                    }
+                    storage.addAttribute(.paragraphStyle, value: ps, range: firstLineRange)
 
                 case .tableRow:
                     if tableRowBgVisible {
@@ -500,6 +522,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textView?.quoteEntries = quoteEntries
             textView?.codeBlockEntries = codeBlockEntries
             textView?.headingDividerRanges = headingDividerRanges
+            textView?.bulletEntries = bulletEntries
             textView?.overlayNeedsUpdate = true
             textView?.needsDisplay = true
         }
@@ -529,6 +552,8 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var codeBlockEntries: [(range: NSRange, language: String)] = []
     /// Ranges of H1 and H2 headings, for drawing bottom divider lines.
     var headingDividerRanges: [NSRange] = []
+    /// Unordered list marker ranges with nesting depth; bullets drawn in drawBackground.
+    var bulletEntries: [(range: NSRange, depth: Int)] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
@@ -688,6 +713,41 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                 }
                 theme.separatorColor.setFill()
                 for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
+            }
+        }
+
+        // Unordered list bullets (drawn behind the invisible "- "/"* " source chars)
+        if !bulletEntries.isEmpty {
+            let bulletSymbols = ["•", "◦", "▪"]
+            let bulletFont = self.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+
+            for (range, depth) in bulletEntries {
+                guard range.location < totalLen else { continue }
+
+                // Draw bullet only when source char is invisible (foreground = clear).
+                // applyHighlighting sets clear on inactive lines and accent on active ones.
+                let markerColor = textStorage?.attribute(.foregroundColor, at: range.location,
+                                                         effectiveRange: nil) as? NSColor
+                guard markerColor?.cgColor.alpha == 0 else { continue }
+
+                let charRange = NSRange(location: range.location, length: 1)
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange,
+                                                          actualCharacterRange: nil)
+                guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
+
+                let fragRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
+                                                              effectiveRange: nil)
+                let glyphLoc = layoutManager.location(forGlyphAt: glyphRange.location)
+
+                let x = inset.width + fragRect.minX + glyphLoc.x
+                let y = inset.height + fragRect.minY
+                guard NSRect(x: x, y: y, width: bulletFont.maximumAdvancement.width * 2,
+                             height: fragRect.height).intersects(rect) else { continue }
+
+                let symbol = bulletSymbols[depth % bulletSymbols.count]
+                (symbol as NSString).draw(
+                    at: NSPoint(x: x, y: y),
+                    withAttributes: [.font: bulletFont, .foregroundColor: theme.accentColor])
             }
         }
 

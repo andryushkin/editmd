@@ -485,6 +485,12 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **`ghAlpha(light:dark:)` хелпер** — для полупрозрачных adaptive-цветов (white/black с alpha); `listItemBody` упрощён (depth убран как unused)
 - **Blockquote drawBackground** — один проход `enumerateLineFragments` вместо двух (bg union + bar rects за один цикл)
 
+### v15 — Complete
+- **Hanging indent для списков** — `listItemBody(textStartCol: Int)` хранит 1-based колонку начала текста; `headIndent = (textStartCol-1) * charWidth`, `firstLineHeadIndent = 0`; применяется к первому параграфу пункта
+- **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
+- **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
+- **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
 ### NSColor dynamic provider — правильный паттерн
 `NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:
 ```swift
@@ -533,10 +539,63 @@ if cbStart + 4 <= nsText.length {
 }
 ```
 
-### List item indentation — НЕ применять headIndent
-В source-edit редакторе вложенные списки уже содержат literal пробелы в исходнике (`  - subitem`).
-Добавление `NSParagraphStyle.headIndent` приводит к **двойному отступу**.
-Для списков использовать только `paragraphSpacingBefore` — без изменения indent.
+### List item hanging indent — firstLineHeadIndent = 0 + headIndent
+Вложенные списки содержат literal пробелы в исходнике (`  - subitem`). Применять **только**:
+- `firstLineHeadIndent = 0` — первая строка позиционируется литеральными символами
+- `headIndent = CGFloat(textStartCol - 1) * charWidth` — wrapped строки выравниваются по тексту
+
+`charWidth = baseFont.maximumAdvancement.width` — точно для monospace (редактор использует `NSFont.monospacedSystemFont`).
+Применять только к **первому параграфу** пункта (`lineRange(for:)`), иначе continuation-параграфы (blank line + indent) тоже получают неверный indent.
+
+Прежнее правило "не применять headIndent" было связано с установкой `firstLineHeadIndent = headIndent = N` — это создавало двойной отступ (стиль + literal пробелы). Паттерн `firstLineHeadIndent = 0` + `headIndent = N` не создаёт двойного отступа.
+
+`textStartCol` передаётся в `listItemBody(textStartCol: Int)` — 1-based column где начинается текст после маркера (`sc + markerLen` в `visitListItem`).
+
+### Скрытие маркеров в списках — NSColor.clear, не tinyFont
+Для unordered маркеров (`- `, `* `) на неактивных строках использовать **только** `.foregroundColor = NSColor.clear`.
+`tinyFont` (0.01pt) уменьшает ширину символа → текст после маркера смещается влево → hanging indent ломается.
+`NSColor.clear` делает символ прозрачным но сохраняет layout width — glyph занимает то же место.
+
+### drawBackground bullet drawing — glyphRange vs glyphIndexForCharacter
+Для получения позиции конкретного символа в drawBackground использовать `glyphRange(forCharacterRange:actualCharacterRange:)`, а не `glyphIndexForCharacter(at:)`:
+```swift
+let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
+let fragRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+let glyphLoc  = layoutManager.location(forGlyphAt: glyphRange.location)
+```
+`glyphIndexForCharacter` возвращает NSNotFound когда layout ещё не сгенерирован для этого символа. `glyphRange(forCharacterRange:)` форсирует генерацию glyphs — надёжен в drawBackground.
+
+Определять нужно ли рисовать буллит через alpha цвета маркера в storage — не через проверку cursor position:
+```swift
+let markerColor = textStorage?.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
+guard markerColor?.cgColor.alpha == 0 else { continue }  // рисуем только когда маркер прозрачен
+```
+Это автоматически корректно: `applyHighlighting` ставит `NSColor.clear` на неактивных строках и `accentColor` на активных.
+
+### listBlock span — activeRegion для всего блока списка
+Для корректного отображения маркеров всего блока (все `- ` видимы пока курсор в любом пункте списка) нужен span на весь `UnorderedList` / `OrderedList`:
+```swift
+// SpanKind:
+case listBlock  // full UnorderedList/OrderedList range
+
+// SpanCollector:
+mutating func visitUnorderedList(_ list: UnorderedList) {
+    if let r = list.range.flatMap({ nsRange(for: $0) }) {
+        spans.append(Span(range: r, kind: .listBlock))
+    }
+    descendInto(list)
+}
+// аналогично visitOrderedList
+```
+Добавить `.listBlock` в activeRegion expansion рядом с `.quoteBody`/`.codeBlockBody`:
+```swift
+case .quoteBody, .codeBlockBody, .listBlock:
+    if NSLocationInRange(pos, span.range) {
+        activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
+    }
+```
+`case .listBlock: break` в основном switch (нет прямого styling).
 
 ### drawBackground: fullWidth объявлять на верхнем уровне
 Если несколько секций drawBackground используют `fullWidth = bounds.width - inset.width * 2`, объявлять одну переменную вверху функции, не повторять в каждой секции — иначе closure capture lists дублируются и код читается хуже.

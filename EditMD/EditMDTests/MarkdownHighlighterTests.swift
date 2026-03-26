@@ -414,7 +414,7 @@ final class CollectSpansTests: XCTestCase {
     func testUnorderedListDash() {
         let input = "- item"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
     }
@@ -423,7 +423,7 @@ final class CollectSpansTests: XCTestCase {
         // "* item" — asterisk list
         let input = "* item"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
     }
@@ -431,7 +431,7 @@ final class CollectSpansTests: XCTestCase {
     func testOrderedListSingle() {
         let input = "1. item"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 3))
     }
@@ -439,7 +439,7 @@ final class CollectSpansTests: XCTestCase {
     func testOrderedListMultiDigit() {
         let input = "10. item"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 4))
     }
@@ -447,7 +447,7 @@ final class CollectSpansTests: XCTestCase {
     func testNestedList() {
         let input = "- outer\n  - inner"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 2)
     }
 
@@ -562,7 +562,7 @@ final class CollectSpansTests: XCTestCase {
     func testTasklistUnchecked() {
         let input = "- [ ] todo"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         // Tasklist items are parsed as list items; the marker is "- "
         XCTAssertEqual(markers.count, 1)
     }
@@ -570,7 +570,7 @@ final class CollectSpansTests: XCTestCase {
     func testTasklistChecked() {
         let input = "- [x] done"
         let spans = collectSpans(input)
-        let markers = spans.filter { if case .listMarker = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
         XCTAssertEqual(markers.count, 1)
     }
 

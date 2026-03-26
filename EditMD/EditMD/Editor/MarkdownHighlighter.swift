@@ -81,14 +81,15 @@ struct Span {
         // New
         case codeBlockBody(language: String), codeBlockFence
         case thematicBreak
-        case listMarker
+        case listBlock                                // full UnorderedList/OrderedList range
+        case listMarker(ordered: Bool, depth: Int)   // depth: nesting level (0 = top)
         case imageText, imageSyntax
         case htmlInline
         case htmlBlock
         case strikethroughBody, strikethroughMarker
         case tableDelimiter
         case tableHeader
-        case listItemBody               // full item range, for paragraph spacing
+        case listItemBody(textStartCol: Int)  // full item range; 1-based col where text begins (after spaces + marker)
         case tableRow                    // alternating body rows, for background
         case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
     }
@@ -214,14 +215,23 @@ private struct SpanCollector: MarkupWalker {
             if i < maxScan { i += 1 }  // space
             markerLen = i
         }
+
+        // Nesting depth: count ancestor ListItem nodes
+        var depth = 0
+        var ancestor: Markup? = listItem.parent?.parent  // skip immediate containing list
+        while let n = ancestor {
+            if n is ListItem { depth += 1 }
+            ancestor = n.parent
+        }
+
         if markerLen > 0, markerStart + markerLen <= nsText.length {
             spans.append(Span(range: NSRange(location: markerStart, length: markerLen),
-                              kind: .listMarker))
+                              kind: .listMarker(ordered: isOrdered, depth: depth)))
         }
 
         // Full item range for paragraph spacing
         if let fullRange = nsRange(for: srcRange) {
-            spans.append(Span(range: fullRange, kind: .listItemBody))
+            spans.append(Span(range: fullRange, kind: .listItemBody(textStartCol: sc + markerLen)))
         }
 
         // Task list: detect "[ ] " or "[x] " immediately after the list marker
@@ -237,6 +247,20 @@ private struct SpanCollector: MarkupWalker {
         }
 
         descendInto(listItem)
+    }
+
+    mutating func visitUnorderedList(_ list: UnorderedList) {
+        if let r = list.range.flatMap({ nsRange(for: $0) }) {
+            spans.append(Span(range: r, kind: .listBlock))
+        }
+        descendInto(list)
+    }
+
+    mutating func visitOrderedList(_ list: OrderedList) {
+        if let r = list.range.flatMap({ nsRange(for: $0) }) {
+            spans.append(Span(range: r, kind: .listBlock))
+        }
+        descendInto(list)
     }
 
     mutating func visitHTMLBlock(_ html: HTMLBlock) {

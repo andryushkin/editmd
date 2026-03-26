@@ -21,7 +21,7 @@ This has ~~strikethrough~~ text and `inline code` too.
 Here is a [link](https://example.com) and an ![image](photo.png) in the same line.
 
 > This is a blockquote.
-> It can span multiple lines.
+> > It can span multiple lines.
 
 > Nested content inside a blockquote with **bold** and *italic*.
 
