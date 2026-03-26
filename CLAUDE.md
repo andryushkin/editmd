@@ -491,6 +491,24 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
 
+### v16 — Complete
+- **Надёжная отрисовка буллитов** — заменён `lineFragmentRect + location(forGlyphAt:)` на `boundingRect(forGlyphRange:in:)` (TextKit 2 fix); радиус `0.22 * lineHeight` вместо `0.18 * min(height, charW)`; убрана проверка `intersects(rect)`
+- **Графические чекбоксы** — task list markers (`[ ]`/`[x]`) скрываются через `NSColor.clear` на неактивных строках; в `drawBackground` рисуются rounded-corner квадраты (14pt, `xRadius: 3.5`); done → `accentColor` fill + белая галочка; todo → `secondaryColor` stroke
+- **Подавление буллита для task list** — в `.listMarker` case проверяем символ `[` (0x5B) после маркера: `bulletEntries.append(..., shouldDraw: !active && !isTaskList)`
+- **`taskListEntries`** — новый массив в Coordinator и MarkdownNSTextView; передаётся через `textView?.taskListEntries = taskListEntries`
+- **79 тестов** — без изменений (изменения только в rendering логике)
+
+### task list checkboxes — паттерн подавления буллита
+Task list items (`- [ ]`, `- [x]`) имеют и `.listMarker`, и `.taskListMarker` span. Чтобы не рисовать буллит поверх чекбокса:
+```swift
+// В .listMarker case:
+let afterMarker = NSMaxRange(s.range)
+let isTaskList = afterMarker < (text as NSString).length
+    && (text as NSString).character(at: afterMarker) == 0x5B  // '['
+bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active && !isTaskList))
+```
+Символ `[` следует сразу за `- ` (нет пробела между маркером и `[`).
+
 ### NSColor dynamic provider — правильный паттерн
 `NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:
 ```swift
@@ -556,22 +574,21 @@ if cbStart + 4 <= nsText.length {
 `tinyFont` (0.01pt) уменьшает ширину символа → текст после маркера смещается влево → hanging indent ломается.
 `NSColor.clear` делает символ прозрачным но сохраняет layout width — glyph занимает то же место.
 
-### drawBackground bullet drawing — glyphRange vs glyphIndexForCharacter
-Для получения позиции конкретного символа в drawBackground использовать `glyphRange(forCharacterRange:actualCharacterRange:)`, а не `glyphIndexForCharacter(at:)`:
+### drawBackground: boundingRect vs lineFragmentRect + location (TextKit 2)
+В TextKit 2 compatibility mode `location(forGlyphAt:)` ненадёжен — возвращает 0 или некорректные значения для символов, layout которых ещё не завершён. Использовать `boundingRect(forGlyphRange:in:)`:
 ```swift
+guard let textContainer = self.textContainer else { return }
 let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
 guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
-let fragRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
-let glyphLoc  = layoutManager.location(forGlyphAt: glyphRange.location)
+let symbolRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+guard symbolRect.width > 0, symbolRect.height > 0 else { continue }
+// Координаты в view: добавить textContainerInset
+let cx = inset.width + symbolRect.midX
+let cy = inset.height + symbolRect.midY
 ```
-`glyphIndexForCharacter` возвращает NSNotFound когда layout ещё не сгенерирован для этого символа. `glyphRange(forCharacterRange:)` форсирует генерацию glyphs — надёжен в drawBackground.
+`boundingRect` форсирует генерацию глифов и возвращает точный rect. Убирать проверку `intersects(rect)` — macOS сама отсекает невидимые регионы, ручная проверка с вычисленными координатами часто отсекает лишнее.
 
-Определять нужно ли рисовать буллит через alpha цвета маркера в storage — не через проверку cursor position:
-```swift
-let markerColor = textStorage?.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
-guard markerColor?.cgColor.alpha == 0 else { continue }  // рисуем только когда маркер прозрачен
-```
-Это автоматически корректно: `applyHighlighting` ставит `NSColor.clear` на неактивных строках и `accentColor` на активных.
+Нужно ли рисовать символ — хранить в `shouldDraw: Bool` поле самого entry-tuple (устанавливать в `applyHighlighting`). Проверка alpha из storage (`markerColor?.cgColor.alpha == 0`) — устаревший паттерн, заменён на `shouldDraw`.
 
 ### listBlock span — activeRegion для всего блока списка
 Для корректного отображения маркеров всего блока (все `- ` видимы пока курсор в любом пункте списка) нужен span на весь `UnorderedList` / `OrderedList`:
