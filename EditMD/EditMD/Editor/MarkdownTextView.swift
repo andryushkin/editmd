@@ -261,6 +261,7 @@ struct MarkdownTextView: NSViewRepresentable {
             var codeBlockEntries: [(NSRange, String)] = []
             var headingDividerRanges: [NSRange] = []
             var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
+            var taskListEntries: [(range: NSRange, done: Bool, shouldDraw: Bool)] = []
             let tableRowBgVisible = theme.tableRowBackground.cgColor.alpha > 0
 
             storage.beginEditing()
@@ -375,7 +376,11 @@ struct MarkdownTextView: NSViewRepresentable {
                     } else {
                         // Unordered: hide on inactive lines (preserving layout width), show on active
                         let active = isOnActive(s.range)
-                        bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active))
+                        // Don't draw a visual bullet for task list items — checkbox is drawn instead
+                        let afterMarker = NSMaxRange(s.range)
+                        let isTaskList = afterMarker < (text as NSString).length
+                            && (text as NSString).character(at: afterMarker) == 0x5B  // '['
+                        bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active && !isTaskList))
                         if active {
                             storage.addAttribute(.foregroundColor, value: accent, range: s.range)
                         } else {
@@ -447,8 +452,16 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
 
                 case .taskListMarker(let done):
-                    let markerColor = done ? theme.accentColor : theme.secondaryColor
-                    storage.addAttribute(.foregroundColor, value: markerColor, range: s.range)
+                    let active = isOnActive(s.range)
+                    taskListEntries.append((range: s.range, done: done, shouldDraw: !active))
+                    if active {
+                        // Show raw markdown when cursor is on this line
+                        let markerColor = done ? theme.accentColor : theme.secondaryColor
+                        storage.addAttribute(.foregroundColor, value: markerColor, range: s.range)
+                    } else {
+                        // Hide marker text — graphical checkbox drawn in drawBackground
+                        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: s.range)
+                    }
                     if done {
                         // Strikethrough on the body text following "[x] "
                         let bodyStart = NSMaxRange(s.range) + 1  // skip the space after [x]
@@ -524,6 +537,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textView?.codeBlockEntries = codeBlockEntries
             textView?.headingDividerRanges = headingDividerRanges
             textView?.bulletEntries = bulletEntries
+            textView?.taskListEntries = taskListEntries
             textView?.overlayNeedsUpdate = true
             textView?.needsDisplay = true
         }
@@ -555,6 +569,8 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var headingDividerRanges: [NSRange] = []
     /// Unordered list marker ranges with nesting depth; bullets drawn in drawBackground.
     var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
+    /// Task list marker ranges; graphical checkboxes drawn in drawBackground.
+    var taskListEntries: [(range: NSRange, done: Bool, shouldDraw: Bool)] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
@@ -752,6 +768,54 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                 default:  // ▪ small square
                     let s = r * 0.85
                     NSBezierPath(rect: NSRect(x: cx - s, y: cy - s, width: s * 2, height: s * 2)).fill()
+                }
+            }
+        }
+
+        // Task list checkboxes — drawn as rounded squares with optional checkmark
+        if !taskListEntries.isEmpty {
+            guard let textContainer = self.textContainer else { return }
+
+            for (range, done, shouldDraw) in taskListEntries {
+                guard shouldDraw, range.location < totalLen else { continue }
+                let safe = NSRange(location: range.location,
+                                   length: min(range.length, totalLen - range.location))
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: safe,
+                                                          actualCharacterRange: nil)
+                guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
+
+                let markerRect = layoutManager.boundingRect(forGlyphRange: glyphRange,
+                                                            in: textContainer)
+                guard markerRect.width > 0, markerRect.height > 0 else { continue }
+
+                let boxSize: CGFloat = 14.0
+                let boxRect = NSRect(
+                    x: inset.width + markerRect.minX + 2,
+                    y: inset.height + markerRect.midY - boxSize / 2,
+                    width: boxSize,
+                    height: boxSize
+                )
+                let path = NSBezierPath(roundedRect: boxRect, xRadius: 3.5, yRadius: 3.5)
+                path.lineWidth = 1.5
+
+                if done {
+                    // Filled box with white checkmark
+                    theme.accentColor.setFill()
+                    path.fill()
+
+                    let check = NSBezierPath()
+                    check.move(to: NSPoint(x: boxRect.minX + 3.5, y: boxRect.minY + boxSize * 0.45))
+                    check.line(to: NSPoint(x: boxRect.minX + boxSize * 0.45, y: boxRect.minY + boxSize * 0.75))
+                    check.line(to: NSPoint(x: boxRect.maxX - 3.5, y: boxRect.minY + boxSize * 0.25))
+                    check.lineWidth = 2.0
+                    check.lineCapStyle = .round
+                    check.lineJoinStyle = .round
+                    NSColor.white.setStroke()
+                    check.stroke()
+                } else {
+                    // Empty box outline
+                    theme.secondaryColor.setStroke()
+                    path.stroke()
                 }
             }
         }
