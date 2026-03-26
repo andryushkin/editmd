@@ -463,7 +463,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **H1/H2 dividers** — горизонтальная линия 1pt под H1/H2; `headingDividerRanges: [NSRange]` в Coordinator → MarkdownNSTextView → `drawBackground(in:)`
 - **Rounded code blocks** — `codeBlockCornerRadius: CGFloat` в EditorTheme; `NSBezierPath(roundedRect:xRadius:yRadius:).fill()` в drawBackground
 - **Blockquote background** — `quoteBackground: NSColor` в EditorTheme; заливка bgRect перед левой полосой в drawBackground
-- **3 новых SpanKind** — `listItemBody(depth:)` (paragraph spacing), `tableRow` (alternating row background), `taskListMarker(done:)` (task list coloring)
+- **3 новых SpanKind** — `listItemBody` (paragraph spacing), `tableRow` (alternating row background), `taskListMarker(done:)` (task list coloring)
 - **Alternating table rows** — `visitTable` эмитит `.tableRow` для нечётных строк тела; `tableRowBackground` через `.backgroundColor` NSTextStorage атрибут
 - **Task list styling** — text-scan для `"[ ] "` / `"[x] "` после маркера; done-items получают strikethrough + secondaryColor на body
 - **79 тестов** — без изменений (новые spans аддитивны, тесты фильтруют по SpanKind)
@@ -484,6 +484,21 @@ NSColor(name: nil) { appearance in
 }
 ```
 Если проверять только `.darkAqua` — тема не сработает в accessibility High Contrast режимах.
+
+Для **полупрозрачных** adaptive-цветов (white/black с alpha) используется `ghAlpha(light:dark:)` хелпер в `EditorTheme` — шаблон аналогичный `gh()`, но принимает `CGFloat` alpha вместо hex:
+```swift
+private static func ghAlpha(light: CGFloat, dark: CGFloat) -> NSColor {
+    NSColor(name: nil) { appearance in
+        switch appearance.name {
+        case .darkAqua, .vibrantDark, ...darkAqua variants...:
+            return NSColor(white: 1.0, alpha: dark)
+        default:
+            return NSColor(white: 0.0, alpha: light)
+        }
+    }
+}
+// Использование: quoteBackground: ghAlpha(light: 0.025, dark: 0.03)
+```
 
 ### visitTable — объявлять `el` явно
 `el` (последняя строка таблицы) не объявляется автоматически в `visitTable`. Обязательно добавить перед использованием:
@@ -509,6 +524,19 @@ if cbStart + 4 <= nsText.length {
 
 ### drawBackground: fullWidth объявлять на верхнем уровне
 Если несколько секций drawBackground используют `fullWidth = bounds.width - inset.width * 2`, объявлять одну переменную вверху функции, не повторять в каждой секции — иначе closure capture lists дублируются и код читается хуже.
+
+### drawBackground: один проход enumerateLineFragments для bg + bar
+Blockquote-секция рисует фон (bgRect) и левые полосы (barRects). Делать это за **один** вызов `enumerateLineFragments`, собирая bgRect union и массив barRects, затем рисовать в порядке: bg → bars:
+```swift
+var bgRect = NSRect.null; var barRects: [NSRect] = []
+layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { ... in
+    bgRect = ...; barRects.append(...)
+}
+if hasQuoteBg && !bgRect.isNull { theme.quoteBackground.setFill(); bgRect.fill() }
+theme.separatorColor.setFill()
+for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
+```
+Два отдельных вызова `enumerateLineFragments` на одном range — расточительно.
 
 ### Таблицы: два подхода попробованы и отброшены (откат на v12)
 
