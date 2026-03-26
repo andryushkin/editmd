@@ -5,6 +5,8 @@ import AppKit
 /// can be created by constructing an `EditorTheme` with alternate values.
 struct EditorTheme {
 
+    var name: String
+
     // MARK: - Colors
 
     /// Base body text.
@@ -88,6 +90,7 @@ extension EditorTheme {
     /// Default theme using system-adaptive NSColor values.
     /// All colours adapt automatically to Light / Dark appearance.
     static let system = EditorTheme(
+        name:                "system",
         textColor:           .labelColor,
         secondaryColor:      .secondaryLabelColor,
         tertiaryColor:       .tertiaryLabelColor,
@@ -123,6 +126,7 @@ extension EditorTheme {
 
     /// Comfortable theme — same colours, more generous whitespace.
     static let comfortable = EditorTheme(
+        name:                  "comfortable",
         textColor:             .labelColor,
         secondaryColor:        .secondaryLabelColor,
         tertiaryColor:         .tertiaryLabelColor,
@@ -195,6 +199,7 @@ extension EditorTheme {
 
     /// GitHub-flavored theme with concrete hex colors adapted from swift-markdown-ui's GitHub theme.
     static let github = EditorTheme(
+        name:                 "github",
         textColor:            gh(0x060606, 0xfbfbfc),
         secondaryColor:       gh(0x6b6e7b, 0x9294a0),
         tertiaryColor:        gh(0x6b6e7b, 0x6d707d),

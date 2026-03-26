@@ -65,6 +65,14 @@ struct MarkdownTextView: NSViewRepresentable {
         coordinator.parent = self
 
         guard let textView = coordinator.textView else { return }
+
+        if textView.theme.name != theme.name {
+            textView.theme = theme
+            textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
+            coordinator.rehighlight()
+            return
+        }
+
         // Only update text if changed externally (not from typing)
         if !coordinator.isInternalUpdate, textView.string != document.content {
             textView.string = document.content

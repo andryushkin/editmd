@@ -59,6 +59,20 @@ DocumentGroup автоматически предоставляет File мен�
 В `updateNSView` флаг `isInternalUpdate` предотвращает цикл:
 textDidChange → document.content = ... → SwiftUI вызывает updateNSView → НЕ перезаписываем textView.string.
 
+### updateNSView: смена темы требует явной обработки
+`coordinator.parent = self` обновляет `parent.theme`, но **не** обновляет `textView.theme` и не вызывает `rehighlight()`.
+Без явной проверки переключение тем визуально не работает.
+Паттерн: сравнивать по `theme.name` (т.к. `NSColor` не `Equatable`), затем обновлять textView и rehighlight:
+```swift
+if textView.theme.name != theme.name {
+    textView.theme = theme
+    textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
+    coordinator.rehighlight()
+    return
+}
+```
+`EditorTheme` содержит поле `var name: String` — идентификатор темы ("system", "comfortable", "github").
+
 ## Known Issues / Gotchas
 
 ### ReferenceFileDocument.init(configuration:) — nonisolated
