@@ -88,7 +88,7 @@ struct Span {
         case strikethroughBody, strikethroughMarker
         case tableDelimiter
         case tableHeader
-        case listItemBody(depth: Int)   // full item range, for paragraph spacing
+        case listItemBody               // full item range, for paragraph spacing
         case tableRow                    // alternating body rows, for background
         case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
     }
@@ -219,17 +219,9 @@ private struct SpanCollector: MarkupWalker {
                               kind: .listMarker))
         }
 
-        // Nesting depth: count ListItem ancestors
-        var depth = 0
-        var nodeParent: Markup? = listItem.parent
-        while let n = nodeParent {
-            if n is ListItem { depth += 1 }
-            nodeParent = n.parent
-        }
-
         // Full item range for paragraph spacing
         if let fullRange = nsRange(for: srcRange) {
-            spans.append(Span(range: fullRange, kind: .listItemBody(depth: depth)))
+            spans.append(Span(range: fullRange, kind: .listItemBody))
         }
 
         // Task list: detect "[ ] " or "[x] " immediately after the list marker
@@ -277,7 +269,6 @@ private struct SpanCollector: MarkupWalker {
         let bodyCount = max(0, el - sl - 1)  // number of body rows
         for rowIdx in 0..<bodyCount {
             let rowLine = sl + 2 + rowIdx
-            guard rowLine <= el else { break }
             let rowStart = max(r.location, lineIdx.lineStart(rowLine))
             let rowEnd   = min(NSMaxRange(r), rowLine < lineIdx.lineCount
                                ? lineIdx.lineStart(rowLine + 1)

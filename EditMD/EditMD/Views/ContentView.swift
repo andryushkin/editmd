@@ -6,6 +6,7 @@ struct ContentView: View {
     let fileURL: URL?
 
     @State private var isDark: Bool = false
+    @State private var theme: EditorTheme = .github
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -14,7 +15,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             MarkdownTextView(
                 document: document,
-                theme: .github,
+                theme: theme,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
                 onFormatActions: { actions in formatActions = actions }
             )
@@ -45,6 +46,15 @@ struct ContentView: View {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
                 } label: {
                     Image(systemName: "doc.on.clipboard")
+                }
+            }
+            ToolbarItem {
+                Menu {
+                    Button("System")      { theme = .system }
+                    Button("Comfortable") { theme = .comfortable }
+                    Button("GitHub")      { theme = .github }
+                } label: {
+                    Image(systemName: "paintpalette")
                 }
             }
             ToolbarItem {

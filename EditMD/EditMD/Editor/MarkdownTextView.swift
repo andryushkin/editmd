@@ -252,6 +252,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
             var codeBlockEntries: [(NSRange, String)] = []
             var headingDividerRanges: [NSRange] = []
+            let tableRowBgVisible = theme.tableRowBackground.cgColor.alpha > 0
 
             storage.beginEditing()
 
@@ -409,7 +410,7 @@ struct MarkdownTextView: NSViewRepresentable {
                     storage.addAttribute(.paragraphStyle, value: ps, range: paraRange)
 
                 case .tableRow:
-                    if theme.tableRowBackground.cgColor.alpha > 0 {
+                    if tableRowBgVisible {
                         storage.addAttribute(.backgroundColor,
                                              value: theme.tableRowBackground, range: s.range)
                     }
@@ -661,29 +662,24 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                 guard safe.length > 0 else { continue }
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
 
-                // Subtle background fill
-                if hasQuoteBg {
-                    var bgRect = NSRect.null
-                    layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth] fragRect, _, _, _, _ in
-                        let lr = NSRect(x: inset.width, y: fragRect.minY + inset.height,
-                                        width: fullWidth, height: fragRect.height)
-                        bgRect = bgRect.isNull ? lr : bgRect.union(lr)
-                    }
-                    if !bgRect.isNull && bgRect.intersects(rect) {
-                        theme.quoteBackground.setFill()
-                        bgRect.fill()
-                    }
-                }
-
-                // Left border bar
+                // Single pass: collect bg union rect and per-line bar rects
                 let barX = baseBarX + CGFloat(depth) * theme.quoteIndentStep
                 let barWidth = theme.quoteBarWidth
-                theme.separatorColor.setFill()
-                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX, barWidth] fragRect, _, _, _, _ in
-                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height,
-                                        width: barWidth, height: fragRect.height)
-                    if barRect.intersects(rect) { barRect.fill() }
+                var bgRect = NSRect.null
+                var barRects: [NSRect] = []
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth, barX, barWidth] fragRect, _, _, _, _ in
+                    let lineY = fragRect.minY + inset.height
+                    let lr = NSRect(x: inset.width, y: lineY, width: fullWidth, height: fragRect.height)
+                    bgRect = bgRect.isNull ? lr : bgRect.union(lr)
+                    barRects.append(NSRect(x: barX, y: lineY, width: barWidth, height: fragRect.height))
                 }
+                // Background first (bars drawn on top)
+                if hasQuoteBg && !bgRect.isNull && bgRect.intersects(rect) {
+                    theme.quoteBackground.setFill()
+                    bgRect.fill()
+                }
+                theme.separatorColor.setFill()
+                for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
             }
         }
 

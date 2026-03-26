@@ -4,7 +4,7 @@
 
 Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
 NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
-Только режим Edit (NSTextView). Кнопка ☀/🌙 в тулбаре управляет `.preferredColorScheme`.
+Только режим Edit (NSTextView). Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
 Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
 
 ## Project Structure
@@ -467,7 +467,9 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Alternating table rows** — `visitTable` эмитит `.tableRow` для нечётных строк тела; `tableRowBackground` через `.backgroundColor` NSTextStorage атрибут
 - **Task list styling** — text-scan для `"[ ] "` / `"[x] "` после маркера; done-items получают strikethrough + secondaryColor на body
 - **79 тестов** — без изменений (новые spans аддитивны, тесты фильтруют по SpanKind)
-- **ContentView** — `theme: .github` подключён
+- **ContentView** — `theme: .github` подключён; `@State var theme: EditorTheme` + `Menu` в тулбаре для переключения System/Comfortable/GitHub
+- **`ghAlpha(light:dark:)` хелпер** — для полупрозрачных adaptive-цветов (white/black с alpha); `listItemBody` упрощён (depth убран как unused)
+- **Blockquote drawBackground** — один проход `enumerateLineFragments` вместо двух (bg union + bar rects за один цикл)
 
 ### NSColor dynamic provider — правильный паттерн
 `NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:

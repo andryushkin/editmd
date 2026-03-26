@@ -159,6 +159,19 @@ extension EditorTheme {
     // MARK: - GitHub theme
 
     /// Creates a dynamic NSColor that uses lightHex in Aqua and darkHex in Dark Aqua.
+    private static func ghAlpha(light: CGFloat, dark: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            switch appearance.name {
+            case .darkAqua, .vibrantDark,
+                 .accessibilityHighContrastDarkAqua,
+                 .accessibilityHighContrastVibrantDark:
+                return NSColor(white: 1.0, alpha: dark)
+            default:
+                return NSColor(white: 0.0, alpha: light)
+            }
+        }
+    }
+
     private static func gh(_ lightHex: UInt32, _ darkHex: UInt32) -> NSColor {
         NSColor(name: nil) { appearance in
             func rgb(_ hex: UInt32) -> NSColor {
@@ -193,27 +206,9 @@ extension EditorTheme {
         codeBlockBackground:  gh(0xf6f8fa, 0x161b22),
         copyButtonBackground: NSColor(white: 0.5, alpha: 0.12),
         headingDividerColor:  gh(0xd0d0d3, 0x333438),
-        quoteBackground: NSColor(name: nil) { appearance in
-            switch appearance.name {
-            case .darkAqua, .vibrantDark,
-                 .accessibilityHighContrastDarkAqua,
-                 .accessibilityHighContrastVibrantDark:
-                return NSColor(white: 1.0, alpha: 0.03)
-            default:
-                return NSColor(white: 0.0, alpha: 0.025)
-            }
-        },
+        quoteBackground:      ghAlpha(light: 0.025, dark: 0.03),
         codeBlockCornerRadius: 6,
-        tableRowBackground: NSColor(name: nil) { appearance in
-            switch appearance.name {
-            case .darkAqua, .vibrantDark,
-                 .accessibilityHighContrastDarkAqua,
-                 .accessibilityHighContrastVibrantDark:
-                return NSColor(white: 1.0, alpha: 0.04)
-            default:
-                return NSColor(white: 0.0, alpha: 0.03)
-            }
-        },
+        tableRowBackground:   ghAlpha(light: 0.03, dark: 0.04),
         listItemSpacing:       2,
         h1SizeOffset:          8,
         h2SizeOffset:          5,
