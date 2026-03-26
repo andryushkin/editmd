@@ -14,6 +14,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             MarkdownTextView(
                 document: document,
+                theme: .github,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
                 onFormatActions: { actions in formatActions = actions }
             )

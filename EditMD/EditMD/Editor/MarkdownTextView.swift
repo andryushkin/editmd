@@ -251,6 +251,7 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             var codeBlockEntries: [(NSRange, String)] = []
+            var headingDividerRanges: [NSRange] = []
 
             storage.beginEditing()
 
@@ -274,10 +275,13 @@ struct MarkdownTextView: NSViewRepresentable {
                     para.paragraphSpacingBefore = lv <= 2 ? theme.h1_2SpacingBefore : theme.h3PlusSpacingBefore
                     para.paragraphSpacing = theme.headingSpacingAfter
                     storage.addAttributes([
-                        .font: NSFont.systemFont(ofSize: sz, weight: .bold),
+                        .font: NSFont.systemFont(ofSize: sz, weight: .semibold),
                         .foregroundColor: NSColor.labelColor,
                         .paragraphStyle: para,
                     ], range: s.range)
+                    if lv <= 2 {
+                        headingDividerRanges.append(s.range)
+                    }
 
                 case .headingMarker:
                     applyMarker(s.range, normalColor: tertiary)
@@ -392,6 +396,49 @@ struct MarkdownTextView: NSViewRepresentable {
                     if let font = existing.withSymbolicTraits(combined) {
                         storage.addAttribute(.font, value: font, range: s.range)
                     }
+
+                case .listItemBody:
+                    guard theme.listItemSpacing > 0 else { break }
+                    let existing = storage.attribute(.paragraphStyle, at: s.range.location,
+                                                     effectiveRange: nil) as? NSParagraphStyle
+                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.listItemSpacing)
+                    let lineStart = (text as NSString).lineRange(
+                        for: NSRange(location: s.range.location, length: 0)).location
+                    let paraRange = NSRange(location: lineStart, length: NSMaxRange(s.range) - lineStart)
+                    storage.addAttribute(.paragraphStyle, value: ps, range: paraRange)
+
+                case .tableRow:
+                    if theme.tableRowBackground.cgColor.alpha > 0 {
+                        storage.addAttribute(.backgroundColor,
+                                             value: theme.tableRowBackground, range: s.range)
+                    }
+
+                case .taskListMarker(let done):
+                    let markerColor = done ? theme.accentColor : theme.secondaryColor
+                    storage.addAttribute(.foregroundColor, value: markerColor, range: s.range)
+                    if done {
+                        // Strikethrough on the body text following "[x] "
+                        let bodyStart = NSMaxRange(s.range) + 1  // skip the space after [x]
+                        let lineRange = (text as NSString).lineRange(
+                            for: NSRange(location: s.range.location, length: 0))
+                        let lineEnd = lineRange.location + lineRange.length
+                        if bodyStart < lineEnd {
+                            let nsText = text as NSString
+                            var bodyEnd = lineEnd
+                            if bodyEnd > 0 && nsText.character(at: bodyEnd - 1) == 0x0A {
+                                bodyEnd -= 1
+                            }
+                            let bodyLen = max(0, bodyEnd - bodyStart)
+                            if bodyLen > 0 {
+                                storage.addAttributes([
+                                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                                    .strikethroughColor: theme.secondaryColor,
+                                    .foregroundColor:    theme.secondaryColor,
+                                ], range: NSRange(location: bodyStart, length: bodyLen))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -443,6 +490,7 @@ struct MarkdownTextView: NSViewRepresentable {
             storage.endEditing()
             textView?.quoteEntries = quoteEntries
             textView?.codeBlockEntries = codeBlockEntries
+            textView?.headingDividerRanges = headingDividerRanges
             textView?.overlayNeedsUpdate = true
             textView?.needsDisplay = true
         }
@@ -470,6 +518,8 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var quoteEntries: [(NSRange, Int)] = []
     /// Each entry: (full range of the fenced code block, language identifier)
     var codeBlockEntries: [(range: NSRange, language: String)] = []
+    /// Ranges of H1 and H2 headings, for drawing bottom divider lines.
+    var headingDividerRanges: [NSRange] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
@@ -568,11 +618,12 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
         guard let layoutManager else { return }
         let inset = textContainerInset
         let totalLen = (string as NSString).length
+        let fullWidth = bounds.width - inset.width * 2
 
         // Code block background panels
         if !codeBlockEntries.isEmpty {
             let codeBackground = theme.codeBlockBackground
-            let fullWidth = bounds.width - inset.width * 2
+            let cornerRadius = theme.codeBlockCornerRadius
             for entry in codeBlockEntries {
                 let range = entry.range
                 guard range.location < totalLen else { continue }
@@ -589,27 +640,70 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
                 if !blockRect.isNull && blockRect.intersects(rect) {
                     let padded = blockRect.insetBy(dx: 0, dy: -theme.codeBlockPanelInset)
                     codeBackground.setFill()
-                    padded.fill()
+                    if cornerRadius > 0 {
+                        NSBezierPath(roundedRect: padded, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+                    } else {
+                        padded.fill()
+                    }
                 }
             }
         }
 
-        // Blockquote left-border bars
+        // Blockquote: optional background fill + left-border bars
         if !quoteEntries.isEmpty {
             let baseBarX = max(0, inset.width - theme.quoteBarXOffset)
-            theme.separatorColor.setFill()
+            let hasQuoteBg = theme.quoteBackground.cgColor.alpha > 0
+
             for (range, depth) in quoteEntries {
                 guard range.location < totalLen else { continue }
                 let safe = NSRange(location: range.location,
                                    length: min(range.length, totalLen - range.location))
                 guard safe.length > 0 else { continue }
-                let barX = baseBarX + CGFloat(depth) * theme.quoteIndentStep
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+
+                // Subtle background fill
+                if hasQuoteBg {
+                    var bgRect = NSRect.null
+                    layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, fullWidth] fragRect, _, _, _, _ in
+                        let lr = NSRect(x: inset.width, y: fragRect.minY + inset.height,
+                                        width: fullWidth, height: fragRect.height)
+                        bgRect = bgRect.isNull ? lr : bgRect.union(lr)
+                    }
+                    if !bgRect.isNull && bgRect.intersects(rect) {
+                        theme.quoteBackground.setFill()
+                        bgRect.fill()
+                    }
+                }
+
+                // Left border bar
+                let barX = baseBarX + CGFloat(depth) * theme.quoteIndentStep
                 let barWidth = theme.quoteBarWidth
+                theme.separatorColor.setFill()
                 layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset, barX, barWidth] fragRect, _, _, _, _ in
-                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height, width: barWidth, height: fragRect.height)
+                    let barRect = NSRect(x: barX, y: fragRect.minY + inset.height,
+                                        width: barWidth, height: fragRect.height)
                     if barRect.intersects(rect) { barRect.fill() }
                 }
+            }
+        }
+
+        // H1/H2 heading divider lines
+        if !headingDividerRanges.isEmpty && theme.headingDividerColor.cgColor.alpha > 0 {
+            theme.headingDividerColor.setFill()
+            for range in headingDividerRanges {
+                guard range.location < totalLen else { continue }
+                let safe = NSRange(location: range.location,
+                                   length: min(range.length, totalLen - range.location))
+                guard safe.length > 0 else { continue }
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+                var lastBottom: CGFloat = 0
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [inset] fragRect, _, _, _, _ in
+                    lastBottom = fragRect.maxY + inset.height
+                }
+                guard lastBottom > 0 else { continue }
+                let lineRect = NSRect(x: inset.width, y: lastBottom - 1,
+                                     width: fullWidth, height: 1)
+                if lineRect.intersects(rect) { lineRect.fill() }
             }
         }
     }

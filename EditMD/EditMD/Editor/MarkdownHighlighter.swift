@@ -88,6 +88,9 @@ struct Span {
         case strikethroughBody, strikethroughMarker
         case tableDelimiter
         case tableHeader
+        case listItemBody(depth: Int)   // full item range, for paragraph spacing
+        case tableRow                    // alternating body rows, for background
+        case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
     }
     var range: NSRange
     var kind: Kind
@@ -215,6 +218,32 @@ private struct SpanCollector: MarkupWalker {
             spans.append(Span(range: NSRange(location: markerStart, length: markerLen),
                               kind: .listMarker))
         }
+
+        // Nesting depth: count ListItem ancestors
+        var depth = 0
+        var nodeParent: Markup? = listItem.parent
+        while let n = nodeParent {
+            if n is ListItem { depth += 1 }
+            nodeParent = n.parent
+        }
+
+        // Full item range for paragraph spacing
+        if let fullRange = nsRange(for: srcRange) {
+            spans.append(Span(range: fullRange, kind: .listItemBody(depth: depth)))
+        }
+
+        // Task list: detect "[ ] " or "[x] " immediately after the list marker
+        let cbStart = markerStart + markerLen
+        if cbStart + 4 <= nsText.length {
+            let sub = nsText.substring(with: NSRange(location: cbStart, length: 4))
+            let low = sub.lowercased()
+            if low == "[ ] " || low == "[x] " {
+                let isDone = (low != "[ ] ")
+                spans.append(Span(range: NSRange(location: cbStart, length: 3),
+                                  kind: .taskListMarker(done: isDone)))
+            }
+        }
+
         descendInto(listItem)
     }
 
@@ -229,6 +258,7 @@ private struct SpanCollector: MarkupWalker {
         }
         // Header row: first line of the table
         let sl = srcRange.lowerBound.line
+        let el = srcRange.upperBound.line
         let headerEnd = sl < lineIdx.lineCount ? lineIdx.lineStart(sl + 1) : NSMaxRange(r)
         let headerLen = min(headerEnd - r.location, r.length)
         if headerLen > 0 {
@@ -242,6 +272,24 @@ private struct SpanCollector: MarkupWalker {
                 spans.append(Span(range: NSRange(location: i, length: 1), kind: .tableDelimiter))
             }
         }
+        // Alternating body row backgrounds (every other row starting from index 1)
+        // Table structure: line sl = header, sl+1 = delimiter (|---|), sl+2+ = body rows
+        let bodyCount = max(0, el - sl - 1)  // number of body rows
+        for rowIdx in 0..<bodyCount {
+            let rowLine = sl + 2 + rowIdx
+            guard rowLine <= el else { break }
+            let rowStart = max(r.location, lineIdx.lineStart(rowLine))
+            let rowEnd   = min(NSMaxRange(r), rowLine < lineIdx.lineCount
+                               ? lineIdx.lineStart(rowLine + 1)
+                               : NSMaxRange(r))
+            let rowLen = rowEnd - rowStart
+            guard rowLen > 0 else { continue }
+            if rowIdx % 2 == 1 {
+                spans.append(Span(range: NSRange(location: rowStart, length: rowLen),
+                                  kind: .tableRow))
+            }
+        }
+
         // Descend to allow Strong/Emphasis/InlineCode inside cells to be highlighted
         descendInto(table)
     }
