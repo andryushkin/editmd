@@ -260,7 +260,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
             var codeBlockEntries: [(NSRange, String)] = []
             var headingDividerRanges: [NSRange] = []
-            var bulletEntries: [(range: NSRange, depth: Int)] = []
+            var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
             let tableRowBgVisible = theme.tableRowBackground.cgColor.alpha > 0
 
             storage.beginEditing()
@@ -374,8 +374,9 @@ struct MarkdownTextView: NSViewRepresentable {
                         storage.addAttribute(.foregroundColor, value: accent, range: s.range)
                     } else {
                         // Unordered: hide on inactive lines (preserving layout width), show on active
-                        bulletEntries.append((range: s.range, depth: depth))
-                        if isOnActive(s.range) {
+                        let active = isOnActive(s.range)
+                        bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active))
+                        if active {
                             storage.addAttribute(.foregroundColor, value: accent, range: s.range)
                         } else {
                             // NSColor.clear keeps layout width but makes char invisible
@@ -553,7 +554,7 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     /// Ranges of H1 and H2 headings, for drawing bottom divider lines.
     var headingDividerRanges: [NSRange] = []
     /// Unordered list marker ranges with nesting depth; bullets drawn in drawBackground.
-    var bulletEntries: [(range: NSRange, depth: Int)] = []
+    var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
@@ -716,38 +717,42 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
             }
         }
 
-        // Unordered list bullets (drawn behind the invisible "- "/"* " source chars)
+        // Unordered list bullets — drawn as shapes (NSBezierPath).
+        // Uses boundingRect(forGlyphRange:in:) which forces glyph generation and returns
+        // the exact character rect — more reliable than lineFragmentRect + location(forGlyphAt:)
+        // in TextKit 2 compatibility mode.
         if !bulletEntries.isEmpty {
-            let bulletSymbols = ["•", "◦", "▪"]
-            let bulletFont = self.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            guard let textContainer = self.textContainer else { return }
 
-            for (range, depth) in bulletEntries {
-                guard range.location < totalLen else { continue }
-
-                // Draw bullet only when source char is invisible (foreground = clear).
-                // applyHighlighting sets clear on inactive lines and accent on active ones.
-                let markerColor = textStorage?.attribute(.foregroundColor, at: range.location,
-                                                         effectiveRange: nil) as? NSColor
-                guard markerColor?.cgColor.alpha == 0 else { continue }
+            for (range, depth, shouldDraw) in bulletEntries {
+                guard shouldDraw, range.location < totalLen else { continue }
 
                 let charRange = NSRange(location: range.location, length: 1)
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange,
                                                           actualCharacterRange: nil)
                 guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
 
-                let fragRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
-                                                              effectiveRange: nil)
-                let glyphLoc = layoutManager.location(forGlyphAt: glyphRange.location)
+                let bulletRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                guard bulletRect.width > 0, bulletRect.height > 0 else { continue }
 
-                let x = inset.width + fragRect.minX + glyphLoc.x
-                let y = inset.height + fragRect.minY
-                guard NSRect(x: x, y: y, width: bulletFont.maximumAdvancement.width * 2,
-                             height: fragRect.height).intersects(rect) else { continue }
+                let cx = inset.width + bulletRect.midX
+                let cy = inset.height + bulletRect.midY
+                let r  = bulletRect.height * 0.22   // 22% of line height — visible at any font size
+                let drawRect = NSRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
 
-                let symbol = bulletSymbols[depth % bulletSymbols.count]
-                (symbol as NSString).draw(
-                    at: NSPoint(x: x, y: y),
-                    withAttributes: [.font: bulletFont, .foregroundColor: theme.accentColor])
+                theme.accentColor.setFill()
+                theme.accentColor.setStroke()
+                switch depth % 3 {
+                case 0:   // • filled circle
+                    NSBezierPath(ovalIn: drawRect).fill()
+                case 1:   // ◦ hollow circle
+                    let path = NSBezierPath(ovalIn: drawRect)
+                    path.lineWidth = max(1.5, r * 0.4)
+                    path.stroke()
+                default:  // ▪ small square
+                    let s = r * 0.85
+                    NSBezierPath(rect: NSRect(x: cx - s, y: cy - s, width: s * 2, height: s * 2)).fill()
+                }
             }
         }
 
