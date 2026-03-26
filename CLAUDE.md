@@ -420,10 +420,13 @@ let closeRange = NSRange(location: NSMaxRange(r) - bt, length: bt)     // codeMa
 EditorTheme {
   Colors:    textColor, secondaryColor, tertiaryColor, accentColor,
              inlineCodeColor, imageColor, separatorColor,
-             inlineCodeBackground, codeBlockBackground, copyButtonBackground
+             inlineCodeBackground, codeBlockBackground, copyButtonBackground,
+             headingDividerColor, quoteBackground, tableRowBackground
   Typography: h1/h2/h3/h4PlusSizeOffset, smallFontOffset
   Spacing:   h1_2SpacingBefore, h3PlusSpacingBefore, headingSpacingAfter,
-             quoteIndentStep, codeBlockHeadIndent, codeBlockPanelInset, codeBlockOuterSpacing
+             quoteIndentStep, codeBlockHeadIndent, codeBlockPanelInset, codeBlockOuterSpacing,
+             listItemSpacing
+  Rendering: codeBlockCornerRadius
   Layout:    editorInsetH, editorInsetV, quoteBarWidth, quoteBarXOffset
 }
 ```
@@ -453,6 +456,59 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 ```
 
 **MarkupWalker: descendInto явный.** В переопределённых методах нужно вызывать `descendInto(node)` — иначе children не посещаются. `defaultVisit` (для не-переопределённых методов) вызывает descendInto автоматически.
+
+### v14 — Complete
+- **`.github` тема** — `NSColor(name:dynamicProvider:)` с адаптивными hex-цветами из MarkdownUI GitHub-темы; хелпер `gh(lightHex, darkHex)` в `EditorTheme` extension
+- **Heading weight** — `.bold` → `.semibold` для всех заголовков
+- **H1/H2 dividers** — горизонтальная линия 1pt под H1/H2; `headingDividerRanges: [NSRange]` в Coordinator → MarkdownNSTextView → `drawBackground(in:)`
+- **Rounded code blocks** — `codeBlockCornerRadius: CGFloat` в EditorTheme; `NSBezierPath(roundedRect:xRadius:yRadius:).fill()` в drawBackground
+- **Blockquote background** — `quoteBackground: NSColor` в EditorTheme; заливка bgRect перед левой полосой в drawBackground
+- **3 новых SpanKind** — `listItemBody(depth:)` (paragraph spacing), `tableRow` (alternating row background), `taskListMarker(done:)` (task list coloring)
+- **Alternating table rows** — `visitTable` эмитит `.tableRow` для нечётных строк тела; `tableRowBackground` через `.backgroundColor` NSTextStorage атрибут
+- **Task list styling** — text-scan для `"[ ] "` / `"[x] "` после маркера; done-items получают strikethrough + secondaryColor на body
+- **79 тестов** — без изменений (новые spans аддитивны, тесты фильтруют по SpanKind)
+- **ContentView** — `theme: .github` подключён
+
+### NSColor dynamic provider — правильный паттерн
+`NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:
+```swift
+NSColor(name: nil) { appearance in
+    switch appearance.name {
+    case .darkAqua, .vibrantDark,
+         .accessibilityHighContrastDarkAqua,
+         .accessibilityHighContrastVibrantDark:
+        return darkColor
+    default:
+        return lightColor
+    }
+}
+```
+Если проверять только `.darkAqua` — тема не сработает в accessibility High Contrast режимах.
+
+### visitTable — объявлять `el` явно
+`el` (последняя строка таблицы) не объявляется автоматически в `visitTable`. Обязательно добавить перед использованием:
+```swift
+let sl = srcRange.lowerBound.line
+let el = srcRange.upperBound.line  // ← без этого "cannot find 'el' in scope"
+```
+
+### Task list: swift-markdown НЕ имеет `ListItem.checkbox`
+`ListItem.checkbox` — отсутствует в swift-markdown v0.7.3. Task list items — обычные `ListItem`, checkbox состояние нужно определять сканированием текста после маркера:
+```swift
+let cbStart = markerStart + markerLen
+if cbStart + 4 <= nsText.length {
+    let sub = nsText.substring(with: NSRange(location: cbStart, length: 4)).lowercased()
+    if sub == "[ ] " || sub == "[x] " { ... }
+}
+```
+
+### List item indentation — НЕ применять headIndent
+В source-edit редакторе вложенные списки уже содержат literal пробелы в исходнике (`  - subitem`).
+Добавление `NSParagraphStyle.headIndent` приводит к **двойному отступу**.
+Для списков использовать только `paragraphSpacingBefore` — без изменения indent.
+
+### drawBackground: fullWidth объявлять на верхнем уровне
+Если несколько секций drawBackground используют `fullWidth = bounds.width - inset.width * 2`, объявлять одну переменную вверху функции, не повторять в каждой секции — иначе closure capture lists дублируются и код читается хуже.
 
 ### Таблицы: два подхода попробованы и отброшены (откат на v12)
 
