@@ -40,6 +40,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
         textView.delegate = context.coordinator
+        // Track character edits (range + delta) for incremental re-highlighting.
+        textView.textStorage?.delegate = context.coordinator
 
         let coordinator = context.coordinator
         coordinator.textView = textView
@@ -69,7 +71,7 @@ struct MarkdownTextView: NSViewRepresentable {
         if textView.theme.name != theme.name {
             textView.theme = theme
             textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
-            coordinator.rehighlight()
+            coordinator.rehighlight(.full)
             return
         }
 
@@ -84,7 +86,7 @@ struct MarkdownTextView: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
 
         var parent: MarkdownTextView
         fileprivate var textView: MarkdownNSTextView?
@@ -93,6 +95,13 @@ struct MarkdownTextView: NSViewRepresentable {
         private var cachedText: String = ""
         private var cachedSpans: [Span] = []
         private var cachedQuoteDepths: [(NSRange, Int)] = []
+        /// Active region used by the last applyHighlighting pass; selection
+        /// changes that keep it identical skip restyling entirely.
+        private var lastActiveRegion: NSRange?
+        /// Character edit accumulated since the last rehighlight
+        /// (range in new-text coordinates). Set by the NSTextStorageDelegate.
+        private var pendingEdit: (range: NSRange, delta: Int)?
+        private var hasHighlightedOnce = false
 
         init(parent: MarkdownTextView) {
             self.parent = parent
@@ -118,25 +127,147 @@ struct MarkdownTextView: NSViewRepresentable {
             rehighlight()
         }
 
+        // MARK: - NSTextStorageDelegate
+
+        nonisolated func textStorage(_ textStorage: NSTextStorage,
+                                     didProcessEditing editedMask: NSTextStorageEditActions,
+                                     range editedRange: NSRange,
+                                     changeInLength delta: Int) {
+            // Attribute-only passes (our own highlighting) are not text edits.
+            guard editedMask.contains(.editedCharacters) else { return }
+            MainActor.assumeIsolated {
+                // Coalescing multiple edits into one union range is conservative
+                // but correct — the dirty region only grows.
+                if let existing = pendingEdit {
+                    pendingEdit = (NSUnionRange(existing.range, editedRange),
+                                   existing.delta + delta)
+                } else {
+                    pendingEdit = (editedRange, delta)
+                }
+            }
+        }
+
         // MARK: - Highlighting
 
-        func rehighlight() {
+        enum RehighlightMode { case auto, full }
+
+        func rehighlight(_ mode: RehighlightMode = .auto) {
             guard !isApplyingHighlight, let storage = textView?.textStorage else { return }
             let sel = textView?.selectedRange() ?? NSRange(location: 0, length: 0)
             let len = storage.length
             let cursorPos = len > 0 ? sel.location : nil
-            let text = storage.string
+            let fullRange = NSRange(location: 0, length: len)
 
             isApplyingHighlight = true
+            defer { isApplyingHighlight = false }
 
-            if text != cachedText {
+            let edit = pendingEdit
+            pendingEdit = nil
+
+            if let edit, hasHighlightedOnce, mode == .auto {
+                // Text changed: reparse, restyle only the affected region.
+                let oldSpans = cachedSpans
+                let oldActiveRegion = lastActiveRegion
+                let text = storage.string
                 cachedText = text
                 cachedSpans = collectSpans(text)
                 cachedQuoteDepths = computeQuoteDepths(cachedSpans)
+
+                let nsText = text as NSString
+                let newRegion = computeActiveRegion(cursorPos: cursorPos, in: nsText)
+                var dirty = spanDiffDirtyRange(oldSpans: oldSpans, newSpans: cachedSpans,
+                                               editedRange: edit.range, delta: edit.delta,
+                                               newTextLength: len)
+                // Marker visibility flips where active-region membership changed.
+                let mappedOld = oldActiveRegion.map {
+                    mapRange($0, editStart: edit.range.location, delta: edit.delta, textLength: len)
+                }
+                if mappedOld != newRegion {
+                    if let mappedOld { dirty = NSUnionRange(dirty, mappedOld) }
+                    if let newRegion { dirty = NSUnionRange(dirty, newRegion) }
+                }
+                dirty = expandToAdjacentParagraphs(dirty, in: nsText)
+                applyHighlighting(to: storage, in: dirty, activeRegion: newRegion)
+            } else if !hasHighlightedOnce || mode == .full || edit != nil {
+                // First run, theme/font change, or edit forced full: full restyle.
+                let text = storage.string
+                if text != cachedText {
+                    cachedText = text
+                    cachedSpans = collectSpans(text)
+                    cachedQuoteDepths = computeQuoteDepths(cachedSpans)
+                }
+                hasHighlightedOnce = true
+                let newRegion = computeActiveRegion(cursorPos: cursorPos, in: text as NSString)
+                applyHighlighting(to: storage, in: fullRange, activeRegion: newRegion)
+            } else {
+                // Selection moved, text unchanged: restyle old + new active regions only.
+                if storage.length != (cachedText as NSString).length {
+                    // Safety net: a text change slipped past the storage delegate.
+                    cachedText = storage.string
+                    cachedSpans = collectSpans(cachedText)
+                    cachedQuoteDepths = computeQuoteDepths(cachedSpans)
+                    let newRegion = computeActiveRegion(cursorPos: cursorPos,
+                                                        in: cachedText as NSString)
+                    applyHighlighting(to: storage, in: fullRange, activeRegion: newRegion)
+                    return
+                }
+                let newRegion = computeActiveRegion(cursorPos: cursorPos,
+                                                    in: cachedText as NSString)
+                guard newRegion != lastActiveRegion else { return }
+                var dirty: NSRange? = newRegion
+                if let last = lastActiveRegion {
+                    dirty = dirty.map { NSUnionRange($0, last) } ?? last
+                }
+                guard let dirty, dirty.length > 0 else {
+                    lastActiveRegion = newRegion
+                    return
+                }
+                applyHighlighting(to: storage, in: dirty, activeRegion: newRegion)
             }
-            applyHighlighting(to: storage, in: NSRange(location: 0, length: len),
-                              cursorPos: cursorPos)
-            isApplyingHighlight = false
+        }
+
+        /// Line range of the cursor, expanded to any containing quote / code /
+        /// list block (all markers of the block stay visible while editing it).
+        private func computeActiveRegion(cursorPos: Int?, in text: NSString) -> NSRange? {
+            guard let pos = cursorPos, text.length > 0 else { return nil }
+            var region = text.lineRange(
+                for: NSRange(location: min(pos, text.length - 1), length: 0))
+            for span in cachedSpans {
+                switch span.kind {
+                case .quoteBody, .codeBlockBody, .listBlock:
+                    if NSLocationInRange(pos, span.range) {
+                        region = NSUnionRange(region, span.range)
+                    }
+                default: break
+                }
+            }
+            return region
+        }
+
+        /// Shifts a pre-edit range into post-edit coordinates.
+        private func mapRange(_ r: NSRange, editStart: Int, delta: Int, textLength: Int) -> NSRange {
+            let loc = r.location <= editStart ? r.location : r.location + delta
+            let end = NSMaxRange(r) <= editStart ? NSMaxRange(r) : NSMaxRange(r) + delta
+            let cLoc = min(max(0, loc), textLength)
+            let cEnd = min(max(cLoc, end), textLength)
+            return NSRange(location: cLoc, length: cEnd - cLoc)
+        }
+
+        /// Expands the dirty range to whole lines plus one line on each side —
+        /// adjacent paragraphs carry code-block/list spacing that the reset may
+        /// wipe or that a structure change may orphan.
+        private func expandToAdjacentParagraphs(_ range: NSRange, in text: NSString) -> NSRange {
+            guard text.length > 0 else { return NSRange(location: 0, length: 0) }
+            let loc = min(range.location, text.length)
+            let len = min(range.length, text.length - loc)
+            var r = text.lineRange(for: NSRange(location: loc, length: len))
+            if r.location > 0 {
+                r = NSUnionRange(r, text.lineRange(for: NSRange(location: r.location - 1, length: 0)))
+            }
+            if NSMaxRange(r) < text.length {
+                r = NSUnionRange(r, text.lineRange(for: NSRange(location: NSMaxRange(r), length: 0)))
+            }
+            return r
         }
 
         // MARK: - Stats
@@ -183,7 +314,7 @@ struct MarkdownTextView: NSViewRepresentable {
             guard let textView else { return }
             let size = EditorFontSettings.shared.fontSize
             textView.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-            rehighlight()
+            rehighlight(.full)
             publishActions()
         }
 
@@ -208,8 +339,25 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // MARK: - Syntax Highlighting
 
-        private func applyHighlighting(to storage: NSTextStorage, in range: NSRange, cursorPos: Int?) {
-            guard range.length > 0 else { return }
+        /// Applies text attributes inside `range` (the dirty region) and rebuilds
+        /// the overlay entry arrays from the full span list. `activeRegion` must
+        /// be precomputed via `computeActiveRegion`.
+        private func applyHighlighting(to storage: NSTextStorage, in range: NSRange,
+                                       activeRegion: NSRange?) {
+            lastActiveRegion = activeRegion
+            guard range.length > 0 else {
+                if storage.length == 0 {
+                    textView?.quoteEntries = []
+                    textView?.codeBlockEntries = []
+                    textView?.headingDividerRanges = []
+                    textView?.bulletEntries = []
+                    textView?.taskListEntries = []
+                    textView?.linkEntries = []
+                    textView?.overlayNeedsUpdate = true
+                    textView?.needsDisplay = true
+                }
+                return
+            }
             let text = storage.string
             let theme    = parent.theme
             let baseSize = EditorFontSettings.shared.fontSize
@@ -220,27 +368,6 @@ struct MarkdownTextView: NSViewRepresentable {
             let tinyFont  = NSFont.systemFont(ofSize: 0.01)
 
             let spans = cachedSpans
-
-            // Block-aware active region: when cursor is inside a quoteBody or codeBlockBody,
-            // expand the active region to the entire block so all markers become visible.
-            let activeLine: NSRange? = cursorPos.flatMap { pos in
-                let len = storage.length
-                guard len > 0 else { return nil }
-                return (text as NSString).lineRange(
-                    for: NSRange(location: min(pos, len - 1), length: 0))
-            }
-            var activeRegion: NSRange? = activeLine
-            if let pos = cursorPos {
-                for span in spans {
-                    switch span.kind {
-                    case .quoteBody, .codeBlockBody, .listBlock:
-                        if NSLocationInRange(pos, span.range) {
-                            activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
-                        }
-                    default: break
-                    }
-                }
-            }
 
             func isOnActive(_ r: NSRange) -> Bool {
                 guard let activeRegion else { return true }
@@ -262,7 +389,43 @@ struct MarkdownTextView: NSViewRepresentable {
             var headingDividerRanges: [NSRange] = []
             var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
             var taskListEntries: [(range: NSRange, done: Bool, shouldDraw: Bool)] = []
+            var linkEntries: [(range: NSRange, url: URL)] = []
+            // Checkbox start locations ("[ ]"/"[x]") — suppress the visual bullet
+            // for task items using span data instead of re-scanning the text.
+            var taskMarkerLocs = Set<Int>()
+            for s in spans {
+                if case .taskListMarker = s.kind { taskMarkerLocs.insert(s.range.location) }
+            }
             let tableRowBgVisible = theme.tableRowBackground.cgColor.alpha > 0
+
+            // Overlay entries are rebuilt from the FULL span list on every pass —
+            // their shouldDraw flags depend on the new active region and the view
+            // arrays are replaced wholesale. Storage attribute writes below are
+            // restricted to `range` (the dirty region).
+            for s in spans {
+                switch s.kind {
+                case .headingBody(let lv):
+                    if lv <= 2 { headingDividerRanges.append(s.range) }
+                case .codeBlockBody(let language):
+                    codeBlockEntries.append((s.range, language))
+                case .listMarker(let ordered, let depth):
+                    if !ordered {
+                        let active = isOnActive(s.range)
+                        let isTaskList = taskMarkerLocs.contains(NSMaxRange(s.range))
+                        bulletEntries.append((range: s.range, depth: depth,
+                                              shouldDraw: !active && !isTaskList))
+                    }
+                case .taskListMarker(let done):
+                    taskListEntries.append((range: s.range, done: done,
+                                            shouldDraw: !isOnActive(s.range)))
+                case .linkText(let destination):
+                    if let destination, !destination.isEmpty,
+                       let url = URL(string: destination), url.scheme != nil {
+                        linkEntries.append((range: s.range, url: url))
+                    }
+                default: break
+                }
+            }
 
             storage.beginEditing()
 
@@ -290,9 +453,6 @@ struct MarkdownTextView: NSViewRepresentable {
                         .foregroundColor: NSColor.labelColor,
                         .paragraphStyle: para,
                     ], range: s.range)
-                    if lv <= 2 {
-                        headingDividerRanges.append(s.range)
-                    }
 
                 case .headingMarker:
                     applyMarker(s.range, normalColor: tertiary)
@@ -329,8 +489,12 @@ struct MarkdownTextView: NSViewRepresentable {
                 case .codeMarker:
                     applyMarker(s.range, normalColor: secondary)
 
-                case .linkText:
+                case .linkText(let destination):
                     storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+                    if let destination, !destination.isEmpty,
+                       URL(string: destination)?.scheme != nil {
+                        storage.addAttribute(.toolTip, value: destination, range: s.range)
+                    }
 
                 case .linkSyntax:
                     applyMarker(s.range, normalColor: accent)
@@ -344,8 +508,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 case .quoteMarker:
                     applyMarker(s.range, normalColor: tertiary)
 
-                case .codeBlockBody(let language):
-                    codeBlockEntries.append((s.range, language))
+                case .codeBlockBody:
                     let para = NSMutableParagraphStyle()
                     para.headIndent = theme.codeBlockHeadIndent
                     para.firstLineHeadIndent = theme.codeBlockHeadIndent
@@ -369,24 +532,16 @@ struct MarkdownTextView: NSViewRepresentable {
                         ], range: s.range)
                     }
 
-                case .listMarker(let ordered, let depth):
+                case .listMarker(let ordered, _):
                     if ordered {
                         // Ordered markers (1., 2.) stay visible — the number is meaningful
                         storage.addAttribute(.foregroundColor, value: accent, range: s.range)
+                    } else if isOnActive(s.range) {
+                        storage.addAttribute(.foregroundColor, value: accent, range: s.range)
                     } else {
-                        // Unordered: hide on inactive lines (preserving layout width), show on active
-                        let active = isOnActive(s.range)
-                        // Don't draw a visual bullet for task list items — checkbox is drawn instead
-                        let afterMarker = NSMaxRange(s.range)
-                        let isTaskList = afterMarker < (text as NSString).length
-                            && (text as NSString).character(at: afterMarker) == 0x5B  // '['
-                        bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active && !isTaskList))
-                        if active {
-                            storage.addAttribute(.foregroundColor, value: accent, range: s.range)
-                        } else {
-                            // NSColor.clear keeps layout width but makes char invisible
-                            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: s.range)
-                        }
+                        // NSColor.clear keeps layout width but makes char invisible;
+                        // the visual bullet is drawn in drawBackground instead
+                        storage.addAttribute(.foregroundColor, value: NSColor.clear, range: s.range)
                     }
 
                 case .imageText:
@@ -453,7 +608,6 @@ struct MarkdownTextView: NSViewRepresentable {
 
                 case .taskListMarker(let done):
                     let active = isOnActive(s.range)
-                    taskListEntries.append((range: s.range, done: done, shouldDraw: !active))
                     if active {
                         // Show raw markdown when cursor is on this line
                         let markerColor = done ? theme.accentColor : theme.secondaryColor
@@ -490,18 +644,19 @@ struct MarkdownTextView: NSViewRepresentable {
             // Apply depth-based indent + foreground color using precomputed depths.
             let quoteEntries = cachedQuoteDepths
             for (r, depth) in quoteEntries {
-                let indent = CGFloat(depth) * theme.quoteIndentStep
-                let para = NSMutableParagraphStyle()
-                para.headIndent = indent
-                para.firstLineHeadIndent = indent
-                // foregroundColor applies to quoteBody range only
-                storage.addAttribute(.foregroundColor, value: secondary, range: r)
                 // paragraphStyle must start at the paragraph (line) beginning so that
                 // NSLayoutManager picks it up for the whole paragraph. Nested blockquotes
                 // start at column >1, but their containing paragraph starts at column 1.
                 let lineStart = (text as NSString).lineRange(
                     for: NSRange(location: r.location, length: 0)).location
                 let paraRange = NSRange(location: lineStart, length: NSMaxRange(r) - lineStart)
+                guard NSIntersectionRange(paraRange, range).length > 0 else { continue }
+                let indent = CGFloat(depth) * theme.quoteIndentStep
+                let para = NSMutableParagraphStyle()
+                para.headIndent = indent
+                para.firstLineHeadIndent = indent
+                // foregroundColor applies to quoteBody range only
+                storage.addAttribute(.foregroundColor, value: secondary, range: r)
                 storage.addAttribute(.paragraphStyle, value: para, range: paraRange)
             }
 
@@ -514,21 +669,25 @@ struct MarkdownTextView: NSViewRepresentable {
                 if codeRange.location > 0 {
                     let prevRange = nsCodeText.lineRange(
                         for: NSRange(location: codeRange.location - 1, length: 0))
-                    let existing = storage.attribute(.paragraphStyle, at: prevRange.location,
-                                                     effectiveRange: nil) as? NSParagraphStyle
-                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacing = max(ps.paragraphSpacing, theme.codeBlockOuterSpacing)
-                    storage.addAttribute(.paragraphStyle, value: ps, range: prevRange)
+                    if NSIntersectionRange(prevRange, range).length > 0 {
+                        let existing = storage.attribute(.paragraphStyle, at: prevRange.location,
+                                                         effectiveRange: nil) as? NSParagraphStyle
+                        let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                        ps.paragraphSpacing = max(ps.paragraphSpacing, theme.codeBlockOuterSpacing)
+                        storage.addAttribute(.paragraphStyle, value: ps, range: prevRange)
+                    }
                 }
                 let afterLoc = NSMaxRange(codeRange)
                 if afterLoc < nsCodeLen {
                     let nextRange = nsCodeText.lineRange(
                         for: NSRange(location: afterLoc, length: 0))
-                    let existing = storage.attribute(.paragraphStyle, at: nextRange.location,
-                                                     effectiveRange: nil) as? NSParagraphStyle
-                    let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-                    ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.codeBlockOuterSpacing)
-                    storage.addAttribute(.paragraphStyle, value: ps, range: nextRange)
+                    if NSIntersectionRange(nextRange, range).length > 0 {
+                        let existing = storage.attribute(.paragraphStyle, at: nextRange.location,
+                                                         effectiveRange: nil) as? NSParagraphStyle
+                        let ps = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                        ps.paragraphSpacingBefore = max(ps.paragraphSpacingBefore, theme.codeBlockOuterSpacing)
+                        storage.addAttribute(.paragraphStyle, value: ps, range: nextRange)
+                    }
                 }
             }
 
@@ -538,6 +697,7 @@ struct MarkdownTextView: NSViewRepresentable {
             textView?.headingDividerRanges = headingDividerRanges
             textView?.bulletEntries = bulletEntries
             textView?.taskListEntries = taskListEntries
+            textView?.linkEntries = linkEntries
             textView?.overlayNeedsUpdate = true
             textView?.needsDisplay = true
         }
@@ -571,16 +731,25 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var bulletEntries: [(range: NSRange, depth: Int, shouldDraw: Bool)] = []
     /// Task list marker ranges; graphical checkboxes drawn in drawBackground.
     var taskListEntries: [(range: NSRange, done: Bool, shouldDraw: Bool)] = []
+    /// Link text ranges with resolved destination URLs; opened via Cmd+click.
+    var linkEntries: [(range: NSRange, url: URL)] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
 
     func updateCodeBlockOverlays() {
-        guard let layoutManager, let textContainer else { return }
-        layoutManager.ensureLayout(for: textContainer)
+        guard let layoutManager else { return }
         let inset = textContainerInset
         let fullWidth = bounds.width - inset.width * 2
         let totalLen = (string as NSString).length
+
+        // Force layout only up to the last code block (TextKit 1 lays out
+        // sequentially) instead of the entire document; documents without
+        // code blocks skip forced layout entirely.
+        if let lastEnd = codeBlockEntries.map({ NSMaxRange($0.range) }).max() {
+            layoutManager.ensureLayout(
+                forCharacterRange: NSRange(location: 0, length: min(lastEnd, totalLen)))
+        }
 
         // Pool: remove excess buttons
         while codeOverlayButtons.count > codeBlockEntries.count {
@@ -636,6 +805,83 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
         while lines.last == "" { lines.removeLast() }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    // MARK: - Mouse interaction (checkbox toggle, Cmd+click links)
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+
+        // Plain click on a drawn checkbox toggles [ ] <-> [x]
+        if let entry = taskListEntry(at: point) {
+            toggleCheckbox(entry)
+            return
+        }
+
+        // Cmd+click on a link opens its destination
+        if event.modifierFlags.contains(.command), let url = linkURL(at: point) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        super.mouseDown(with: event)
+    }
+
+    /// Character index under the view-coordinate point, or nil when the point
+    /// falls outside any glyph (e.g. trailing whitespace / empty area).
+    private func characterIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+        guard glyphRect.contains(containerPoint) else { return nil }
+        return layoutManager.characterIndexForGlyph(at: glyphIndex)
+    }
+
+    private func linkURL(at point: NSPoint) -> URL? {
+        guard let idx = characterIndex(at: point) else { return nil }
+        return linkEntries.first { NSLocationInRange(idx, $0.range) }?.url
+    }
+
+    private func taskListEntry(at point: NSPoint) -> (range: NSRange, done: Bool)? {
+        for entry in taskListEntries where entry.shouldDraw {
+            if let box = checkboxRect(for: entry.range),
+               box.insetBy(dx: -2, dy: -2).contains(point) {
+                return (entry.range, entry.done)
+            }
+        }
+        return nil
+    }
+
+    private func toggleCheckbox(_ entry: (range: NSRange, done: Bool)) {
+        // entry.range covers "[ ]"/"[x]" — replace the state char between the brackets
+        let stateRange = NSRange(location: entry.range.location + 1, length: 1)
+        let replacement = entry.done ? " " : "x"
+        guard shouldChangeText(in: stateRange, replacementString: replacement) else { return }
+        textStorage?.replaceCharacters(in: stateRange, with: replacement)
+        didChangeText()
+    }
+
+    /// View-coordinate rect of the drawn checkbox for a "[ ]"/"[x]" marker range.
+    /// Shared by drawBackground and mouseDown hit-testing.
+    private func checkboxRect(for range: NSRange) -> NSRect? {
+        guard let layoutManager, let textContainer else { return nil }
+        let totalLen = (string as NSString).length
+        guard range.location < totalLen else { return nil }
+        let safe = NSRange(location: range.location,
+                           length: min(range.length, totalLen - range.location))
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+        guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { return nil }
+        let markerRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        guard markerRect.width > 0, markerRect.height > 0 else { return nil }
+        let boxSize: CGFloat = 14.0
+        return NSRect(x: textContainerInset.width + markerRect.minX + 2,
+                      y: textContainerInset.height + markerRect.midY - boxSize / 2,
+                      width: boxSize, height: boxSize)
     }
 
     override func layout() {
@@ -774,27 +1020,9 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
 
         // Task list checkboxes — drawn as rounded squares with optional checkmark
         if !taskListEntries.isEmpty {
-            guard let textContainer = self.textContainer else { return }
-
             for (range, done, shouldDraw) in taskListEntries {
-                guard shouldDraw, range.location < totalLen else { continue }
-                let safe = NSRange(location: range.location,
-                                   length: min(range.length, totalLen - range.location))
-                let glyphRange = layoutManager.glyphRange(forCharacterRange: safe,
-                                                          actualCharacterRange: nil)
-                guard glyphRange.location != NSNotFound, glyphRange.length > 0 else { continue }
-
-                let markerRect = layoutManager.boundingRect(forGlyphRange: glyphRange,
-                                                            in: textContainer)
-                guard markerRect.width > 0, markerRect.height > 0 else { continue }
-
-                let boxSize: CGFloat = 14.0
-                let boxRect = NSRect(
-                    x: inset.width + markerRect.minX + 2,
-                    y: inset.height + markerRect.midY - boxSize / 2,
-                    width: boxSize,
-                    height: boxSize
-                )
+                guard shouldDraw, let boxRect = checkboxRect(for: range) else { continue }
+                let boxSize = boxRect.height
                 let path = NSBezierPath(roundedRect: boxRect, xRadius: 3.5, yRadius: 3.5)
                 path.lineWidth = 1.5
 

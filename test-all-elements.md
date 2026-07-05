@@ -57,9 +57,9 @@ Tilde fenced code block.
 
 10. Multi-digit ordered item
 
-- [ ] Unchecked task
+- [x] Unchecked task
 - [x] Checked task
-- [ ] Another unchecked task
+- [x] Another unchecked task
 
 | Name    | Age | City     |
 |---------|-----|----------|
@@ -78,5 +78,14 @@ HTML block content
 Mixed: **bold with `code` inside** and *italic with [link](url) inside*.
 
 ![Alt text for image](path/to/image.png)
+
+Setext Heading 1
+================
+
+Setext Heading 2
+----------------
+
+- [Link first](https://example.com) list item keeps its bullet
+- [x] Checked task example
 
 End of test document.

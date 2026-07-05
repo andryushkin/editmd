@@ -69,14 +69,14 @@ struct LineIndex {
 // MARK: - Highlight Span
 
 struct Span {
-    enum Kind {
+    enum Kind: Equatable {
         // Existing
         case headingBody(Int), headingMarker
         case boldBody, boldMarker
         case italicBody, italicMarker
         case code
         case codeMarker
-        case linkText, linkSyntax
+        case linkText(destination: String?), linkSyntax
         case quoteBody, quoteMarker
         // New
         case codeBlockBody(language: String), codeBlockFence
@@ -124,13 +124,25 @@ private struct SpanCollector: MarkupWalker {
     // MARK: Block elements
 
     mutating func visitHeading(_ heading: Heading) {
-        guard let r = heading.range.flatMap({ nsRange(for: $0) }) else {
+        guard let src = heading.range, let r = nsRange(for: src) else {
             descendInto(heading); return
         }
         let lv = heading.level
         spans.append(Span(range: r, kind: .headingBody(lv)))
-        let markerLen = min(lv + 1, r.length)
-        spans.append(Span(range: NSRange(location: r.location, length: markerLen), kind: .headingMarker))
+        let isATX = r.location < nsText.length && nsText.character(at: r.location) == 0x23  // '#'
+        if isATX {
+            let markerLen = min(lv + 1, r.length)
+            spans.append(Span(range: NSRange(location: r.location, length: markerLen), kind: .headingMarker))
+        } else if src.upperBound.line > src.lowerBound.line {
+            // Setext heading: the marker is the ===/--- underline (last line of the range),
+            // not a prefix of the title text.
+            let underlineStart = lineIdx.lineStart(src.upperBound.line)
+            if underlineStart > r.location, underlineStart < NSMaxRange(r) {
+                spans.append(Span(range: NSRange(location: underlineStart,
+                                                 length: NSMaxRange(r) - underlineStart),
+                                  kind: .headingMarker))
+            }
+        }
         descendInto(heading)
     }
 
@@ -234,15 +246,13 @@ private struct SpanCollector: MarkupWalker {
             spans.append(Span(range: fullRange, kind: .listItemBody(textStartCol: sc + markerLen)))
         }
 
-        // Task list: detect "[ ] " or "[x] " immediately after the list marker
-        let cbStart = markerStart + markerLen
-        if cbStart + 4 <= nsText.length {
-            let sub = nsText.substring(with: NSRange(location: cbStart, length: 4))
-            let low = sub.lowercased()
-            if low == "[ ] " || low == "[x] " {
-                let isDone = (low != "[ ] ")
+        // Task list: swift-markdown parses "[ ]"/"[x]" into ListItem.checkbox.
+        // The checkbox occupies 3 chars starting right after the list marker.
+        if let checkbox = listItem.checkbox {
+            let cbStart = markerStart + markerLen
+            if cbStart + 3 <= nsText.length, nsText.character(at: cbStart) == 0x5B {  // '['
                 spans.append(Span(range: NSRange(location: cbStart, length: 3),
-                                  kind: .taskListMarker(done: isDone)))
+                                  kind: .taskListMarker(done: checkbox == .checked)))
             }
         }
 
@@ -355,7 +365,7 @@ private struct SpanCollector: MarkupWalker {
         if let firstChild = childrenArr.first, let lastChild = childrenArr.last,
            let firstSrc = firstChild.range, let lastSrc = lastChild.range,
            let textRange = nsRange(for: firstSrc.lowerBound..<lastSrc.upperBound) {
-            spans.append(Span(range: textRange, kind: .linkText))
+            spans.append(Span(range: textRange, kind: .linkText(destination: link.destination)))
             let beforeLen = textRange.location - r.location
             if beforeLen > 0 {
                 spans.append(Span(range: NSRange(location: r.location, length: beforeLen),
@@ -425,4 +435,62 @@ func collectSpans(_ text: String) -> [Span] {
     var collector = SpanCollector(text: text, lineIdx: lineIdx)
     collector.visit(document)
     return collector.spans
+}
+
+// MARK: - Incremental dirty range
+
+/// Given the span lists before and after a single text edit, returns the
+/// character range (in new-text coordinates) whose styling may have changed.
+/// Pure function.
+///
+/// Spans equal in the unchanged prefix — or equal-modulo-`delta` in the suffix —
+/// keep correct attributes automatically: NSTextStorage moves attributes together
+/// with the characters they decorate. Everything else, plus the edited range
+/// itself, must be re-styled.
+///
+/// `.listBlock` spans are style-free containers (used only for active-region
+/// expansion); they are skipped both in matching and in the dirty union so a
+/// one-character edit inside a long list stays local to the edited item.
+func spanDiffDirtyRange(oldSpans: [Span], newSpans: [Span],
+                        editedRange: NSRange, delta: Int,
+                        newTextLength: Int) -> NSRange {
+    // Unchanged prefix.
+    var p = 0
+    while p < oldSpans.count, p < newSpans.count {
+        let o = oldSpans[p], n = newSpans[p]
+        if o.range == n.range, o.kind == n.kind { p += 1; continue }
+        // A list block that merely grew/shrank around the edit is style-free;
+        // let the diff descend into its children.
+        if case .listBlock = o.kind, case .listBlock = n.kind,
+           o.range.location == n.range.location { p += 1; continue }
+        break
+    }
+    // Suffix shifted as a whole by `delta`.
+    var oldEnd = oldSpans.count, newEnd = newSpans.count
+    while oldEnd > p, newEnd > p,
+          oldSpans[oldEnd - 1].range.location + delta == newSpans[newEnd - 1].range.location,
+          oldSpans[oldEnd - 1].range.length == newSpans[newEnd - 1].range.length,
+          oldSpans[oldEnd - 1].kind == newSpans[newEnd - 1].kind {
+        oldEnd -= 1
+        newEnd -= 1
+    }
+
+    var dirty = editedRange
+    for i in p..<newEnd {
+        if case .listBlock = newSpans[i].kind { continue }
+        dirty = NSUnionRange(dirty, newSpans[i].range)
+    }
+    // Map differing old spans into new coordinates (shift past the edit point).
+    let editStart = editedRange.location
+    for i in p..<oldEnd {
+        if case .listBlock = oldSpans[i].kind { continue }
+        let r = oldSpans[i].range
+        let loc = r.location <= editStart ? r.location : r.location + delta
+        let end = NSMaxRange(r) <= editStart ? NSMaxRange(r) : NSMaxRange(r) + delta
+        let cLoc = min(max(0, loc), newTextLength)
+        let cEnd = min(max(cLoc, end), newTextLength)
+        dirty = NSUnionRange(dirty, NSRange(location: cLoc, length: cEnd - cLoc))
+    }
+    let cLoc = min(dirty.location, newTextLength)
+    return NSRange(location: cLoc, length: min(dirty.length, newTextLength - cLoc))
 }

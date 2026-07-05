@@ -154,6 +154,29 @@ final class CollectSpansTests: XCTestCase {
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
     }
 
+    func testSetextH1MarkerIsUnderline() {
+        // "Title\n=====" — heading range covers both lines;
+        // the marker must be the underline, not a prefix of the title text
+        let spans = collectSpans("Title\n=====")
+        let bodies  = spans.filter { if case .headingBody(1) = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .headingMarker  = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  1)
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(bodies[0].range,  NSRange(location: 0, length: 11))
+        XCTAssertEqual(markers[0].range, NSRange(location: 6, length: 5))
+    }
+
+    func testSetextH2MarkerIsUnderline() {
+        // "Title\n---" — dash underline makes an H2 setext heading
+        let spans = collectSpans("Title\n---")
+        let bodies  = spans.filter { if case .headingBody(2) = $0.kind { return true }; return false }
+        let markers = spans.filter { if case .headingMarker  = $0.kind { return true }; return false }
+        XCTAssertEqual(bodies.count,  1)
+        XCTAssertEqual(markers.count, 1)
+        XCTAssertEqual(bodies[0].range,  NSRange(location: 0, length: 9))
+        XCTAssertEqual(markers[0].range, NSRange(location: 6, length: 3))
+    }
+
     // MARK: Bold
 
     func testBold() {
@@ -276,6 +299,15 @@ final class CollectSpansTests: XCTestCase {
         let syntaxes = spans.filter { if case .linkSyntax = $0.kind { return true }; return false }
         XCTAssertTrue(texts.isEmpty)
         XCTAssertFalse(syntaxes.isEmpty)
+    }
+
+    func testLinkDestinationCaptured() {
+        let spans = collectSpans("[text](https://example.com)")
+        let dests = spans.compactMap { s -> String? in
+            if case .linkText(let d) = s.kind { return d }
+            return nil
+        }
+        XCTAssertEqual(dests, ["https://example.com"])
     }
 
     // MARK: Blockquote
@@ -574,6 +606,30 @@ final class CollectSpansTests: XCTestCase {
         XCTAssertEqual(markers.count, 1)
     }
 
+    func testTasklistMarkerSpans() {
+        // "[ ]"/"[x]" spans come from ListItem.checkbox (swift-markdown API)
+        let spans = collectSpans("- [ ] todo\n- [x] done")
+        let boxes = spans.compactMap { s -> (NSRange, Bool)? in
+            if case .taskListMarker(let done) = s.kind { return (s.range, done) }
+            return nil
+        }
+        XCTAssertEqual(boxes.count, 2)
+        XCTAssertEqual(boxes[0].0, NSRange(location: 2, length: 3))
+        XCTAssertFalse(boxes[0].1)
+        XCTAssertEqual(boxes[1].0, NSRange(location: 13, length: 3))
+        XCTAssertTrue(boxes[1].1)
+    }
+
+    func testLinkFirstListItemIsNotTasklist() {
+        // "- [Link](url)" must NOT produce a taskListMarker —
+        // regression guard for bullet suppression in the view layer
+        let spans = collectSpans("- [Link](https://example.com) item")
+        let boxes = spans.filter { if case .taskListMarker = $0.kind { return true }; return false }
+        XCTAssertTrue(boxes.isEmpty)
+        let markers = spans.filter { if case .listMarker(_, _) = $0.kind { return true }; return false }
+        XCTAssertEqual(markers.count, 1)
+    }
+
     // MARK: - Underscore emphasis
 
     func testItalicUnderscore() {
@@ -614,5 +670,65 @@ final class CollectSpansTests: XCTestCase {
         let italicBodies = spans.filter { if case .italicBody = $0.kind { return true }; return false }
         XCTAssertEqual(boldBodies.count, 1)
         XCTAssertEqual(italicBodies.count, 1)
+    }
+}
+
+// MARK: - spanDiffDirtyRange Tests (incremental restyle)
+
+final class SpanDiffDirtyRangeTests: XCTestCase {
+
+    func testPlainAppendDirtyIsEditedRange() {
+        // No spans on either side — only the edited chars need restyling
+        let old = collectSpans("Hello world")
+        let new = collectSpans("Hello worlds")
+        let dirty = spanDiffDirtyRange(oldSpans: old, newSpans: new,
+                                       editedRange: NSRange(location: 11, length: 1),
+                                       delta: 1, newTextLength: 12)
+        XCTAssertEqual(dirty, NSRange(location: 11, length: 1))
+    }
+
+    func testInsertHeadingPrefixCoversHeading() {
+        // "Hello" → "# Hello": new heading spans appear, dirty covers them
+        let old = collectSpans("Hello")
+        let new = collectSpans("# Hello")
+        let dirty = spanDiffDirtyRange(oldSpans: old, newSpans: new,
+                                       editedRange: NSRange(location: 0, length: 2),
+                                       delta: 2, newTextLength: 7)
+        XCTAssertEqual(dirty, NSRange(location: 0, length: 7))
+    }
+
+    func testPrependBeforeBoldShiftsSuffixOnly() {
+        // Bold spans shift by +1 as a whole — attributes move with the text,
+        // so only the inserted char is dirty
+        let old = collectSpans("p\n\n**bold**")
+        let new = collectSpans("xp\n\n**bold**")
+        let dirty = spanDiffDirtyRange(oldSpans: old, newSpans: new,
+                                       editedRange: NSRange(location: 0, length: 1),
+                                       delta: 1, newTextLength: 12)
+        XCTAssertEqual(dirty, NSRange(location: 0, length: 1))
+    }
+
+    func testBoldToItalicCoversOldAndNewSpans() {
+        // Deleting one "*" turns bold into italic — dirty covers the union of
+        // the old (mapped) and new emphasis spans
+        let old = collectSpans("**b** tail")
+        let new = collectSpans("*b* tail")
+        let dirty = spanDiffDirtyRange(oldSpans: old, newSpans: new,
+                                       editedRange: NSRange(location: 0, length: 0),
+                                       delta: -1, newTextLength: 8)
+        XCTAssertEqual(dirty, NSRange(location: 0, length: 4))
+    }
+
+    func testEditInsideListStaysWithinEditedItem() {
+        // ".listBlock" is style-free and must not widen the dirty range:
+        // typing inside item b leaves items a and c clean
+        let old = collectSpans("- a\n- b\n- c")
+        let new = collectSpans("- a\n- bx\n- c")
+        let dirty = spanDiffDirtyRange(oldSpans: old, newSpans: new,
+                                       editedRange: NSRange(location: 7, length: 1),
+                                       delta: 1, newTextLength: 12)
+        XCTAssertFalse(NSLocationInRange(0, dirty), "item a must stay clean")
+        XCTAssertTrue(NSLocationInRange(7, dirty), "edited char must be dirty")
+        XCTAssertLessThanOrEqual(NSMaxRange(dirty), 9, "item c must stay clean")
     }
 }

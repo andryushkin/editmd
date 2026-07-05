@@ -144,8 +144,8 @@ storage.addAttribute(.paragraphStyle, value: para, range: paraRange)  // от н
 ```
 Outer (depth=0) применяется первым → headIndent=0 с lineStart. Inner (depth=1) применяется вторым → headIndent=20 переопределяет.
 
-### applyHighlighting: cursorPos вместо activeLine
-`applyHighlighting` принимает `cursorPos: Int?` и вычисляет блочно-осведомлённый `activeRegion` внутри функции (после `collectSpans`). Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока. После добавления `codeBlockBody(language:)` проверку делать через pattern matching, не через `==`:
+### applyHighlighting: activeRegion (v17: вычисляется в Coordinator.computeActiveRegion)
+`applyHighlighting(to:in:activeRegion:)` принимает готовый `activeRegion`; его считает `Coordinator.computeActiveRegion(cursorPos:in:)` — строка курсора, расширенная блоками. Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока. После добавления `codeBlockBody(language:)` проверку делать через pattern matching, не через `==`:
 ```swift
 var activeRegion: NSRange? = activeLine
 if let pos = cursorPos {
@@ -491,6 +491,24 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
 
+### v17 — Complete
+- **Кликабельные ссылки** — `linkText(destination: String?)`; `linkEntries` в MarkdownNSTextView; Cmd+click открывает URL через NSWorkspace; tooltip с адресом (`.toolTip` атрибут); обычный клик ставит курсор
+- **Setext-заголовки** — `visitHeading` различает ATX (первый символ `#`) и setext; для setext маркер = underline-строка (`===`/`---`), а не префикс текста заголовка
+- **Task list через `ListItem.checkbox`** — замена text-scan на API; фикс `- [x]` на EOF
+- **Клик по чекбоксу** — `mouseDown` hit-test по `checkboxRect(for:)` (общий хелпер отрисовки и hit-теста); toggle `[ ]`↔`[x]` через `shouldChangeText`/`didChangeText` (undo работает, курсор не двигается)
+- **Фикс буллита `- [Link](url)`** — подавление буллита по `taskListMarker`-спанам, не по символу `[`
+- **Инкрементальная переразметка** — `spanDiffDirtyRange` (pure, MarkdownHighlighter.swift): диф старых/новых spans, префикс и сдвинутый суффикс пропускаются; `.listBlock` исключён из диффа (правка в списке красит только пункт). Три пути в `rehighlight`: edit (diff dirty) / full (первый запуск, тема, шрифт) / selection (только old∪new activeRegion, ранний выход при равенстве)
+- **`NSTextStorageDelegate.didProcessEditing`** — точный editedRange+delta в `pendingEdit`; фильтр `.editedCharacters` (атрибутные проходы не считаются правкой); убрано O(N)-сравнение строк на движение курсора
+- **`ensureLayout(forCharacterRange:)`** — только до конца последнего code-блока вместо всего документа; без code-блоков layout не форсируется
+- **89 тестов** — +5 (setext ×2, link destination, taskListMarker spans, `- [Link]` не tasklist) +5 `SpanDiffDirtyRangeTests`
+
+### v17 — ключевые инварианты инкрементальной покраски
+- **Overlay entries всегда пересобираются из ПОЛНОГО списка spans** (entry-пасс перед beginEditing), атрибуты пишутся только в dirty range — массивы на textView заменяются целиком
+- **Маркеры видимости**: dirty обязан включать old∪new activeRegion, если они различаются (mapRange сдвигает старый регион на delta правки)
+- **dirty расширяется на ±1 строку** (`expandToAdjacentParagraphs`) — соседние параграфы несут code-block spacing
+- **Quote/spacing циклы гейтятся** по пересечению с dirty (`paraRange`/`prevRange`/`nextRange`)
+- **Страховка**: в selection-пути при несовпадении длины текста с кэшем — полный reparse
+
 ### v16 — Complete
 - **Надёжная отрисовка буллитов** — заменён `lineFragmentRect + location(forGlyphAt:)` на `boundingRect(forGlyphRange:in:)` (TextKit 2 fix); радиус `0.22 * lineHeight` вместо `0.18 * min(height, charW)`; убрана проверка `intersects(rect)`
 - **Графические чекбоксы** — task list markers (`[ ]`/`[x]`) скрываются через `NSColor.clear` на неактивных строках; в `drawBackground` рисуются rounded-corner квадраты (14pt, `xRadius: 3.5`); done → `accentColor` fill + белая галочка; todo → `secondaryColor` stroke
@@ -499,15 +517,14 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **79 тестов** — без изменений (изменения только в rendering логике)
 
 ### task list checkboxes — паттерн подавления буллита
-Task list items (`- [ ]`, `- [x]`) имеют и `.listMarker`, и `.taskListMarker` span. Чтобы не рисовать буллит поверх чекбокса:
+Task list items (`- [ ]`, `- [x]`) имеют и `.listMarker`, и `.taskListMarker` span. Чтобы не рисовать буллит поверх чекбокса — проверка по реальным `taskListMarker`-спанам (v17), НЕ по одному символу `[`:
 ```swift
-// В .listMarker case:
-let afterMarker = NSMaxRange(s.range)
-let isTaskList = afterMarker < (text as NSString).length
-    && (text as NSString).character(at: afterMarker) == 0x5B  // '['
-bulletEntries.append((range: s.range, depth: depth, shouldDraw: !active && !isTaskList))
+var taskMarkerLocs = Set<Int>()
+for s in spans { if case .taskListMarker = s.kind { taskMarkerLocs.insert(s.range.location) } }
+// в entry-пассе:
+let isTaskList = taskMarkerLocs.contains(NSMaxRange(s.range))
 ```
-Символ `[` следует сразу за `- ` (нет пробела между маркером и `[`).
+Проверка одного символа `[` ошибочно подавляла буллит у пунктов вида `- [Link](url)`.
 
 ### NSColor dynamic provider — правильный паттерн
 `NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:
@@ -547,13 +564,15 @@ let sl = srcRange.lowerBound.line
 let el = srcRange.upperBound.line  // ← без этого "cannot find 'el' in scope"
 ```
 
-### Task list: swift-markdown НЕ имеет `ListItem.checkbox`
-`ListItem.checkbox` — отсутствует в swift-markdown v0.7.3. Task list items — обычные `ListItem`, checkbox состояние нужно определять сканированием текста после маркера:
+### Task list: `ListItem.checkbox` ЕСТЬ в swift-markdown v0.7.3
+Ранее здесь ошибочно значилось, что API отсутствует. `ListItem.checkbox: Checkbox?` (`.checked`/`.unchecked`) существует и используется с v17 — авторитетнее text-scan:
 ```swift
-let cbStart = markerStart + markerLen
-if cbStart + 4 <= nsText.length {
-    let sub = nsText.substring(with: NSRange(location: cbStart, length: 4)).lowercased()
-    if sub == "[ ] " || sub == "[x] " { ... }
+if let checkbox = listItem.checkbox {
+    let cbStart = markerStart + markerLen
+    if cbStart + 3 <= nsText.length, nsText.character(at: cbStart) == 0x5B {  // '['
+        spans.append(Span(range: NSRange(location: cbStart, length: 3),
+                          kind: .taskListMarker(done: checkbox == .checked)))
+    }
 }
 ```
 
