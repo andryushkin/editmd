@@ -5,6 +5,8 @@ struct EditMDApp: App {
 
     @FocusedValue(\.formatActions) var actions
     @FocusedValue(\.editorMode) var editorMode
+    @FocusedValue(\.sidebarVisible) var sidebarVisible
+    @FocusedValue(\.splitPreview) var splitPreview
 
     var body: some Scene {
         DocumentGroup(newDocument: { MarkdownDocument() }) { configuration in
@@ -55,6 +57,21 @@ struct EditMDApp: App {
                     .keyboardShortcut(mode.keyboardShortcutKey)
                     .disabled(editorMode == nil)
                 }
+
+                Divider()
+
+                Button("Toggle Sidebar") {
+                    sidebarVisible?.wrappedValue.toggle()
+                }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                .disabled(sidebarVisible == nil)
+
+                Button(splitPreview?.wrappedValue == true
+                    ? "Hide Preview Pane" : "Show Preview Pane") {
+                    splitPreview?.wrappedValue.toggle()
+                }
+                .keyboardShortcut("p", modifiers: [.option, .command])
+                .disabled(splitPreview == nil)
 
                 Divider()
             }

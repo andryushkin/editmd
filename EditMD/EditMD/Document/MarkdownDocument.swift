@@ -14,8 +14,16 @@ private struct TextBundleInfo: Encodable {
 
 final class MarkdownDocument: ReferenceFileDocument {
 
-    // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated
-    nonisolated(unsafe) var content: String
+    // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated.
+    // didSet publishes the change so SwiftUI-only readers (the outline sidebar,
+    // the split's live preview, the Preview status bar) refresh on every edit —
+    // editors write from the main thread, and init assignments skip didSet.
+    nonisolated(unsafe) var content: String {
+        didSet {
+            guard content != oldValue else { return }
+            objectWillChange.send()
+        }
+    }
     nonisolated(unsafe) var assetsFileWrapper: FileWrapper?
 
     struct Snapshot: @unchecked Sendable {

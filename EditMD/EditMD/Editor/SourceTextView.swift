@@ -89,6 +89,16 @@ struct SourceTextView: NSViewRepresentable {
             name: .editorFontSizeDidChange,
             object: nil
         )
+        // Outline-sidebar jumps, object-scoped to this window's store (a nil
+        // object would subscribe to every window's jumps).
+        if let store = positionStore {
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.jumpToStoredOffset),
+                name: .editMDJumpToOffset,
+                object: store
+            )
+        }
 
         return scrollView
     }
@@ -140,6 +150,18 @@ struct SourceTextView: NSViewRepresentable {
             if let textView {
                 parent.positionStore?.markdownOffset = textView.selectedRange().location
             }
+        }
+
+        /// Outline-sidebar jump: markdown offsets are native here — place the
+        /// cursor at the store's offset and reveal it (the same dance as the
+        /// mode-switch restore in makeNSView).
+        @objc func jumpToStoredOffset() {
+            guard let textView, let store = parent.positionStore else { return }
+            let offset = min(store.markdownOffset, (textView.string as NSString).length)
+            textView.setSelectedRange(NSRange(location: offset, length: 0))
+            textView.scrollRangeToVisible(textView.selectedRange())
+            textView.centerSelectionInVisibleArea(nil)
+            textView.window?.makeFirstResponder(textView)
         }
 
         // MARK: Lint

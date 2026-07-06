@@ -11,6 +11,7 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 
 Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
 Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
+**Сайдбар-оглавление** (⌃⌘S, кастомный HStack-сплит + перетаскиваемый divider) — заголовки документа, клик = переход. **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами).
 
 ## Roadmap трёх режимов (принят 2026-07-06)
 
@@ -20,6 +21,7 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 - **v21 ✅** — Visual = настоящий WYSIWYG: `VisualTextView.swift` (isRichText, семантика ввода, декорации, острова read-only)
 - **v22 ✅** — таблицы NSTextTable (редактируемые ячейки, Tab/Enter-навигация), картинки NSTextAttachment, курсор/скролл сохраняются между режимами (EditorPositionStore)
 - **v23 ✅** — чистка (гибрид v17 удалён, Source = SourceTextView) + ⌘K ссылки в Visual + visual-audit.md переписан. **Roadmap трёх режимов завершён.**
+- **v24 ✅** — сайдбар-оглавление + сплит редактор/превью + тулбар в стиле agterm (паттерны из github.com/umputun/agterm)
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок.
 
@@ -35,14 +37,15 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
-        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift (WKWebView)
+        ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), MarkdownOutline.swift (outline для сайдбара), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
+        └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар), OutlineSidebar.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift (+ jump-нотификация), MarkdownPreviewView.swift (WKWebView, live-режим для сплита)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         ├── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
         ├── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
         ├── MarkdownLintTests.swift         # 30 XCTest кейсов для lint() — все 14 правил + анти-FP гарды + применение fix'ов
+        ├── MarkdownOutlineTests.swift      # 9 XCTest кейсов для markdownOutline (уровни, plainText, UTF-16 оффсеты, fence/setext/blockquote)
         └── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
@@ -511,6 +514,23 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v24 — Complete (сайдбар + сплит + agterm-тулбар)
+- **Сайдбар-оглавление** — `MarkdownOutline.swift` (pure `markdownOutline(text) -> [OutlineItem]`: level/plainText-title/UTF-16 offset через MarkupWalker + LineIndex) + `OutlineSidebar.swift` (SwiftUI, дебаунс-парсинг через `.task(id: content)` 200мс, hover-wash, отступ по level). Клик → `EditorPositionStore.requestJump(toMarkdownOffset:)`
+- **Jump-механика** — `.editMDJumpToOffset` нотификация, **object-scoped к positionStore** (один на окно — прыжок не пересекает окна; паттерн agterm). Коордиаторы: Source — setSelectedRange напрямую; Visual — `restoreCursor()` (маппинг через paragraphRanges); Preview — пропорциональный скролл JS
+- **Кастомный сплит вместо NavigationSplitView** (паттерн agterm): `HStack(spacing:0)` + divider = Rectangle 1px + невидимая hit-полоса 12px; drag по **абсолютному X** (`DragGesture(coordinateSpace:)`), не translation (feeds back → мерцание); `.zIndex(1)` на divider — иначе правая колонка перекрывает половину hit-зоны; `.animation(value:)` на контейнере — все триггеры анимируются одинаково
+- **Сплит редактор+превью** (⌥⌘P) — GeometryReader + HStack: editorPane `frame(width: geo.width * splitFraction)` + divider (fraction = x/width, clamp 0.25...0.75) + MarkdownPreviewView. **editorPane всегда первый ребёнок HStack** (сплит только добавляет siblings) — structural identity сохраняется, NSTextView не пересоздаётся при toggle
+- **Preview live-режим** — дебаунс 250мс через `renderTask: Task` (отмена при каждом updateNSView); при живом reload скролл сохраняется попиксельно: `evaluateJavaScript("window.scrollY")` до `loadHTMLString`, restore в didFinish; пропорциональный скролл — только первый рендер
+- **`MarkdownDocument.content` didSet → objectWillChange.send()** — сайдбар/live-превью/Preview-статусбар обновляются на каждую правку (init присваивания didSet не триггерят; guard `content != oldValue`)
+- **Тулбар в стиле agterm** — плоские `Label` + `.help("… (⌘N)")`; режимы = 3 кнопки с multi-state SF Symbols (`activeSystemImage` — filled при активном + accent tint); split-кнопка `rectangle.split.2x1`/`.fill`; sidebar toggle `sidebar.left`
+- **View-меню** — Toggle Sidebar ⌃⌘S, Show/Hide Preview Pane ⌥⌘P через новые FocusedValues (`sidebarVisible`, `splitPreview`); `splitBinding` setter при включении сплита из Preview-режима переключает в Visual
+- **Персист** — @AppStorage: sidebarVisible/sidebarWidth (150...400), splitPreview/splitFraction
+- **220 тестов** — +9 `MarkdownOutlineTests` (plainText сохраняет backticks инлайн-кода — это ожидаемо)
+
+### v24 — gotchas
+- **WKNavigationDelegate `decidePolicyFor` с closure-сигнатурой БОЛЬШЕ НЕ матчится** в macOS 26 SDK (completion стал `@MainActor @Sendable`) — компилятор даёт только warning «nearly matches», метод молча не вызывается, клики по ссылкам уходят в сам WKWebView. Использовать **async-вариант**: `func webView(_:decidePolicyFor:) async -> WKNavigationActionPolicy`
+- **`evaluateJavaScript` completion в macOS 26 SDK — @MainActor** — можно писать в @MainActor-состояние координатора без обвязки
+- **Jump-нотификация регистрируется только при `positionStore != nil`** — `object: nil` подписал бы координатор на прыжки ВСЕХ окон
 
 ### v23 — Complete (чистка + ⌘K)
 - **Гибрид v17 удалён** — `MarkdownTextView.swift` (1180 строк) заменён на `SourceTextView.swift` (~330): plain-редактор + линт + позиция курсора. Умерли: applyHighlighting, activeRegion, инкрементальная переразметка, overlay-кнопки кода, drawBackground-декорации, `spanDiffDirtyRange` (+5 его тестов)

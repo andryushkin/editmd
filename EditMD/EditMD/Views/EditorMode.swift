@@ -24,12 +24,32 @@ enum EditorMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Filled glyph variant shown while the mode is active (the agterm-style
+    /// multi-state symbol). Source has no fill variant — the accent tint
+    /// alone marks it active.
+    var activeSystemImage: String {
+        switch self {
+        case .source:  return "chevron.left.forwardslash.chevron.right"
+        case .visual:  return "doc.richtext.fill"
+        case .preview: return "eye.fill"
+        }
+    }
+
     /// ⌘1 / ⌘2 / ⌘3 in the View menu.
     var keyboardShortcutKey: KeyEquivalent {
         switch self {
         case .source:  return "1"
         case .visual:  return "2"
         case .preview: return "3"
+        }
+    }
+
+    /// Shortcut shown in toolbar tooltips, e.g. "Source (⌘1)".
+    var shortcutHint: String {
+        switch self {
+        case .source:  return "⌘1"
+        case .visual:  return "⌘2"
+        case .preview: return "⌘3"
         }
     }
 }

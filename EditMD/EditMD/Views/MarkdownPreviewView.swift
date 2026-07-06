@@ -1,9 +1,14 @@
 import SwiftUI
 import WebKit
 
-/// Read-only rendered preview (mode 3). Local images are inlined as data:
+/// Read-only rendered preview: full-window in Preview mode, or the right
+/// pane of the editor+preview split. Local images are inlined as data:
 /// URIs — WKWebView does not grant file:// subresource access to HTML loaded
 /// via loadHTMLString, and unsaved documents have no base directory anyway.
+///
+/// Live updates (the split types into document.content on every keystroke)
+/// are debounced 250 ms and keep the scroll pixel-stable across the reload;
+/// only the FIRST render scrolls to the cross-mode proportional position.
 struct MarkdownPreviewView: NSViewRepresentable {
 
     let document: MarkdownDocument
@@ -16,22 +21,40 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let webView = WKWebView()
         webView.navigationDelegate = context.coordinator
         webView.underPageBackgroundColor = .textBackgroundColor
+        context.coordinator.webView = webView
+        context.coordinator.positionStore = positionStore
+        // Outline-sidebar jumps, object-scoped to this window's store.
+        if let store = positionStore {
+            NotificationCenter.default.addObserver(
+                context.coordinator,
+                selector: #selector(Coordinator.jumpToStoredOffset),
+                name: .editMDJumpToOffset,
+                object: store
+            )
+        }
         render(in: webView, coordinator: context.coordinator)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        render(in: webView, coordinator: context.coordinator)
+        let coordinator = context.coordinator
+        guard coordinator.lastRenderedContent != document.content else { return }
+        // Debounce: every updateNSView during typing cancels the pending
+        // render, so the reload fires ~250 ms after the last keystroke.
+        coordinator.renderTask?.cancel()
+        let parent = self
+        coordinator.renderTask = Task { [weak coordinator] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let coordinator,
+                  let webView = coordinator.webView else { return }
+            parent.render(in: webView, coordinator: coordinator)
+        }
     }
 
     private func render(in webView: WKWebView, coordinator: Coordinator) {
         let content = document.content
         guard coordinator.lastRenderedContent != content else { return }
         coordinator.lastRenderedContent = content
-        if let store = positionStore {
-            let total = max(1, (content as NSString).length)
-            coordinator.pendingScrollFraction = Double(min(store.markdownOffset, total)) / Double(total)
-        }
 
         let baseDir = assetBaseDir
         let html = previewHTMLPage(
@@ -39,7 +62,25 @@ struct MarkdownPreviewView: NSViewRepresentable {
             fontSize: EditorFontSettings.shared.fontSize,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }
         )
-        webView.loadHTMLString(html, baseURL: nil)
+
+        if coordinator.hasRenderedOnce {
+            // Live re-render: capture the current scroll first, restore it in
+            // didFinish — loadHTMLString would otherwise snap back to the top
+            // on every debounced reload while typing in the split.
+            webView.evaluateJavaScript("window.scrollY") { scrollY, _ in
+                coordinator.pendingScrollY = (scrollY as? NSNumber)?.doubleValue
+                webView.loadHTMLString(html, baseURL: nil)
+            }
+        } else {
+            coordinator.hasRenderedOnce = true
+            // First render: land at the cross-mode cursor's proportional spot.
+            if let store = positionStore {
+                let total = max(1, (content as NSString).length)
+                coordinator.pendingScrollFraction =
+                    Double(min(store.markdownOffset, total)) / Double(total)
+            }
+            webView.loadHTMLString(html, baseURL: nil)
+        }
     }
 
     /// Directory that relative image paths resolve against: the .textbundle
@@ -77,31 +118,63 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
+        weak var webView: WKWebView?
+        var positionStore: EditorPositionStore?
         var lastRenderedContent: String?
-        /// Proportional scroll target from the shared position store.
+        var renderTask: Task<Void, Never>?
+        var hasRenderedOnce = false
+        /// Proportional scroll target from the shared position store (first
+        /// render only).
         var pendingScrollFraction: Double?
+        /// Pixel scroll captured before a live reload, restored in didFinish.
+        var pendingScrollY: Double?
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard let fraction = pendingScrollFraction, fraction > 0.001 else { return }
-            pendingScrollFraction = nil
-            let js = "window.scrollTo(0, Math.max(0, "
-                + "document.documentElement.scrollHeight * \(fraction) - window.innerHeight * 0.4));"
-            webView.evaluateJavaScript(js)
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
 
+        /// Outline-sidebar jump: scroll to the offset's proportional position
+        /// (the preview has no markdown offsets — same mapping as the
+        /// cross-mode restore).
+        @objc func jumpToStoredOffset() {
+            guard let webView, let store = positionStore,
+                  let content = lastRenderedContent else { return }
+            let total = max(1, (content as NSString).length)
+            let fraction = Double(min(store.markdownOffset, total)) / Double(total)
+            webView.evaluateJavaScript(Self.scrollJS(fraction: fraction))
+        }
+
+        private static func scrollJS(fraction: Double) -> String {
+            "window.scrollTo(0, Math.max(0, "
+                + "document.documentElement.scrollHeight * \(fraction) - window.innerHeight * 0.4));"
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            if let y = pendingScrollY {
+                pendingScrollY = nil
+                webView.evaluateJavaScript("window.scrollTo(0, \(y));")
+                return
+            }
+            guard let fraction = pendingScrollFraction, fraction > 0.001 else { return }
+            pendingScrollFraction = nil
+            webView.evaluateJavaScript(Self.scrollJS(fraction: fraction))
+        }
+
+        // The async form: the closure-based signature no longer matches the
+        // macOS 26 SDK's @MainActor @Sendable completion type ("nearly
+        // matches" warning → the method is silently never called and link
+        // clicks navigate the preview itself).
         func webView(_ webView: WKWebView,
-                     decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             // Clicked links open in the default browser; the preview itself
             // only ever displays the generated page.
             if navigationAction.navigationType == .linkActivated {
                 if let url = navigationAction.request.url {
                     NSWorkspace.shared.open(url)
                 }
-                decisionHandler(.cancel)
-                return
+                return .cancel
             }
-            decisionHandler(.allow)
+            return .allow
         }
     }
 }

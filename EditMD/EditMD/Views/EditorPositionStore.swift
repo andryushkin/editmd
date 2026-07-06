@@ -8,4 +8,21 @@ import Foundation
 @MainActor
 final class EditorPositionStore {
     var markdownOffset: Int = 0
+
+    /// Outline-sidebar navigation: store the target offset, then poke the
+    /// live editor(s). Mutating this class doesn't invalidate SwiftUI (by
+    /// design), so the poke is a notification the editor coordinators
+    /// observe OBJECT-SCOPED to this store — one store per window, so a
+    /// jump never crosses windows (the agterm object-scoping pattern).
+    func requestJump(toMarkdownOffset offset: Int) {
+        markdownOffset = offset
+        NotificationCenter.default.post(name: .editMDJumpToOffset, object: self)
+    }
+}
+
+extension Notification.Name {
+    /// Posted by `EditorPositionStore.requestJump`; object = the store whose
+    /// `markdownOffset` holds the target. Observed by the Source/Visual/
+    /// Preview coordinators of the same window.
+    static let editMDJumpToOffset = Notification.Name("editmd.jumpToOffset")
 }

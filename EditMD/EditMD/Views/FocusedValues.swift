@@ -21,6 +21,14 @@ struct EditorModeKey: FocusedValueKey {
     typealias Value = Binding<EditorMode>
 }
 
+struct SidebarVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+struct SplitPreviewKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var formatActions: FormatActions? {
         get { self[FormatActionsKey.self] }
@@ -30,5 +38,20 @@ extension FocusedValues {
     var editorMode: Binding<EditorMode>? {
         get { self[EditorModeKey.self] }
         set { self[EditorModeKey.self] = newValue }
+    }
+
+    /// Outline sidebar show/hide — the View menu (⌃⌘S) and the toolbar
+    /// button share this binding.
+    var sidebarVisible: Binding<Bool>? {
+        get { self[SidebarVisibleKey.self] }
+        set { self[SidebarVisibleKey.self] = newValue }
+    }
+
+    /// Editor+preview split — the View menu (⌥⌘P) and the toolbar button
+    /// share this binding (ContentView hands in `splitBinding`, whose setter
+    /// also leaves Preview mode when the split turns on).
+    var splitPreview: Binding<Bool>? {
+        get { self[SplitPreviewKey.self] }
+        set { self[SplitPreviewKey.self] = newValue }
     }
 }

@@ -153,6 +153,15 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.fontSizeDidChange),
             name: .editorFontSizeDidChange,
             object: nil)
+        // Outline-sidebar jumps, object-scoped to this window's store (a nil
+        // object would subscribe to every window's jumps).
+        if let store = positionStore {
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.jumpToStoredOffset),
+                name: .editMDJumpToOffset,
+                object: store)
+        }
         return scrollView
     }
 
@@ -252,6 +261,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             let prefixLength = markdownPrefixLength(for: blockValue)
             store.markdownOffset = min(mdRange.location + prefixLength + (location - start),
                                        NSMaxRange(mdRange))
+        }
+
+        /// Outline-sidebar jump: `restoreCursor` maps the store's markdown
+        /// offset through the paragraph map, so the cursor lands correctly
+        /// even though Visual's display text differs from the source.
+        @objc func jumpToStoredOffset() {
+            restoreCursor()
         }
 
         private func restoreCursor() {
