@@ -530,6 +530,8 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **215 тестов** — +7 table round-trip, +1 карта параграфов, +5 nextTableCellPosition
 
 ### v22 — gotchas
+- **`textView.string = …` / `setAttributedString` сбрасывают выделение и СИНХРОННО дёргают `textViewDidChangeSelection`** — если колбек пишет в разделяемое состояние (EditorPositionStore), он затирает его ДО восстановления. Паттерн: прочитать сохранённую позицию в локальную ДО установки текста (+ делегат после), в Visual — флаг `isLoadingDocument` вокруг перезагрузки
+- **Маппинг курсора компенсирует markdown-префикс** — `markdownPrefixLength(for:)` (internal в AttributedToMarkdown.swift): display-колонка + длина `"# "`/`"- [x] "`/`"> "` = markdown-колонка
 - **NSTextTable требует один shared инстанс на таблицу** — NSTextTableBlock'и разных NSTextTable не соединяются в грид
 - **Хедер таблицы жирный — derived** (в applyDerivedInlineDecorations по row==0), НЕ через .mdInline — иначе сериализатор писал бы `| **a** |`
 - **Пайпы в ячейках** — escapeInline с escapePipes=true для tableCell; hard break в ячейке → пробел (ячейки однострочные)
