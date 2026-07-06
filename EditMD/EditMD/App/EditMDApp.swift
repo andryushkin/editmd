@@ -85,6 +85,12 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("i")
                 .disabled(actions == nil)
+
+                Button("Checklist") {
+                    actions?.toggleChecklist?()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(actions?.toggleChecklist == nil)
             }
         }
     }

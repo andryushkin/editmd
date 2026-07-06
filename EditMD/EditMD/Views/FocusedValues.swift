@@ -7,6 +7,8 @@ struct FormatActions {
     var makeFontSmaller: () -> Void
     var canIncreaseFontSize: Bool
     var canDecreaseFontSize: Bool
+    /// Visual mode only: toggles task-list state of the selected paragraphs.
+    var toggleChecklist: (() -> Void)? = nil
 }
 
 struct FormatActionsKey: FocusedValueKey {

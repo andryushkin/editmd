@@ -35,7 +35,7 @@ struct ContentView: View {
                     onLintUpdate: { summary in lintSummary = summary }
                 )
             case .visual:
-                MarkdownTextView(
+                VisualMarkdownView(
                     document: document,
                     theme: theme,
                     onStatsUpdate: { w, c in wordCount = w; charCount = c },

@@ -16,8 +16,8 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 
 - **v18 ✅** — каркас режимов + plain Source + Preview (WKWebView)
 - **v19 ✅** — линтер в Source (14 правил, temporary attributes, quick-fix в контекстном меню, счётчик в статус-строке)
-- **v20 ✅** — WYSIWYG-фундамент: рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown`, round-trip ворота зелёные (UI не тронут — Visual остаётся гибридом v17 до v21)
-- **v21** — Visual editing: семантика ввода (Enter в списках, Tab-вложенность, typing attributes), чекбоксы (кнопка/⌘⇧L, автоввод `[]`+space, Enter продолжает task-список), блочные декорации из drawBackground
+- **v20 ✅** — WYSIWYG-фундамент: рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown`, round-trip ворота зелёные
+- **v21 ✅** — Visual = настоящий WYSIWYG: `VisualTextView.swift` (isRichText, семантика ввода, декорации, острова read-only); гибрид v17 из Visual-режима удалён
 - **v22** — таблицы через NSTextTable (разблокирован isRichText=true) + изображения NSTextAttachment
 - **v23** — синхронизация режимов, полировка, чистка гибридного кода
 
@@ -509,6 +509,27 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v21 — Complete (Visual = WYSIWYG)
+- **`VisualTextView.swift`** — `VisualMarkdownView` (NSViewRepresentable) + `VisualNSTextView` (isRichText=true) + Coordinator; ContentView case .visual переключён с гибрида v17 на него
+- **Поток данных** — render при входе/внешнем изменении; каждый textDidChange: autoformat → applyPresentation → **синхронная** сериализация в `document.content` (+trailing `\n`) → сейв и смена режима всегда видят актуальный markdown; `lastSerialized` отличает внешние правки от своих
+- **Семантика ввода** (чистые тестируемые хелперы `autoformatKind`/`continuationKind`/`indentedKind`):
+  - Enter: в списке продолжает пункт (ordered +1, task → unchecked); на пустом пункте — выход из структуры; в конце заголовка — обычный параграф; `` ```lang `` + Enter → пустой code block
+  - Tab/Shift+Tab — вложенность пункта 0..5; Backspace в начале пункта — outdent → paragraph
+  - Автоформат после пробела: `- `, `* `, `+ `, `[] `, `[x] `, `#×n `, `N. `
+  - ⌘B/⌘I — toggle `.mdInline` + шрифт (по runs); ⌘⇧L Checklist (FormatActions.toggleChecklist, optional — nil в Source/старом редакторе)
+- **applyPresentation** — производные визуалы за один проход: paragraphStyle (indent по depth/quote, spacing), перенумерация ordered в группе, strikethrough = mdInline.strike ∪ done-task, цвета ссылок/кода; собирает entry-массивы для drawBackground (буллиты, номера, чекбоксы, quote bars, code panels, hr, H1/H2 dividers)
+- **Маркеры рисуются, не печатаются** — `markerRect(forParagraph:)` в марджине слева от `firstLineHeadIndent`; клик по чекбоксу → `toggleTaskDone` (restamp атрибута, undo работает)
+- **Острова read-only** — `shouldChangeTextIn` запрещает частичные правки `.raw`-параграфов (удалить целиком — можно)
+- **Paste = plain text** — `paste()` → `pasteAsPlainText` (внешний rich-контент ломал бы модель)
+- **203 теста** — +17 `VisualEditingTests`
+
+### v21 — gotchas
+- **Restamp паттерн** — смена MDBlock-атрибута параграфа через `shouldChangeText(in:replacementString: nil)` → addAttribute → `didChangeText()`: undo регистрируется; для пустого параграфа штамп кладётся на его `\n`
+- **typingAttributes наследуют кастомные атрибуты** — от символа перед курсором; ссылки надо явно вычищать в `textViewDidChangeSelection`, иначе набор после ссылки продолжает её
+- **`isMutating` флаг** — гейтит textDidChange во время своих мутаций (autoformat/restamp/presentation), иначе рекурсия
+- **Перенумерация ordered в applyPresentation** — attribute-only вне undo: derived-состояние, пересчитывается каждый проход; сериализация читает номера ПОСЛЕ presentation (порядок в textDidChange важен)
+- **Гибрид v17 (`MarkdownTextView`) остаётся** только как Source-редактор (plainMode); его highlighting-код станет мёртвым после чистки v23
 
 ### v20 — Complete (модель WYSIWYG, без UI)
 - **`MarkdownToAttributed.swift`** — `renderMarkdownToAttributed(md, style:)`: markdown → NSAttributedString **без маркеров**; семантика в кастомных атрибутах: `.mdBlock` (MDBlock: kind + quoteDepth + quoteGroup + group + listIndent, проштампован на весь параграф включая `\n`), `.mdInline` (битмаска bold/italic/strike/code/rawHTML), `.mdLink`, `.mdImage`; шрифты **пропорциональные** (решение зафиксировано), код — моно
