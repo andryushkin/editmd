@@ -15,7 +15,7 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 ## Roadmap трёх режимов (принят 2026-07-06)
 
 - **v18 ✅** — каркас режимов + plain Source + Preview (WKWebView)
-- **v19** — линтер в Source: `MarkdownLint.swift` (pure `lint(text) -> [LintDiagnostic]`), правила: невалидные чекбоксы (`- [+]` → fix `[x]`), незакрытые маркеры, битые ссылки, `#без пробела`, незакрытый fence, кривые таблицы; отображение через `NSLayoutManager.addTemporaryAttribute` (не пачкает storage/undo), quick-fix в контекстном меню, счётчик `⚠ N` в статус-строке
+- **v19 ✅** — линтер в Source (14 правил, temporary attributes, quick-fix в контекстном меню, счётчик в статус-строке)
 - **v20** — Visual WYSIWYG фундамент: `isRichText = true`, рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown` с round-trip тестами-воротами (`serialize(render(md)) == normalize(md)`); непредставимые конструкции — read-only острова
 - **v21** — Visual editing: семантика ввода (Enter в списках, Tab-вложенность, typing attributes), чекбоксы (кнопка/⌘⇧L, автоввод `[]`+space, Enter продолжает task-список), блочные декорации из drawBackground
 - **v22** — таблицы через NSTextTable (разблокирован isRichText=true) + изображения NSTextAttachment
@@ -33,13 +33,14 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор)
+        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift (линтер Source-режима)
         └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, MarkdownPreviewView.swift (WKWebView)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         ├── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
-        └── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
+        ├── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
+        └── MarkdownLintTests.swift         # 30 XCTest кейсов для lint() — все 14 правил + анти-FP гарды + применение fix'ов
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 
@@ -507,6 +508,23 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v19 — Complete
+- **`MarkdownLint.swift`** — pure `lint(text) -> [LintDiagnostic]`; принцип: сравнение сырого текста с тем, что распарсилось (spans/AST) — «похоже на разметку, но не распарсилось» = диагностика
+- **14 правил**: invalidCheckbox (`- [+]` → error, fixes `[x]`/`[ ]`), emptyCheckbox (`[]`), uppercaseCheckbox (`[X]` → warning, fix `x`), checkboxMissingSpace (`[x]done`), listMarkerMissingSpace (`-[ ]`), unpairedBold/Strikethrough/Backtick, emptyLinkDestination (`[t]()`), unresolvedReference (`[a][нет]`), unclosedLink (`[a](url` → fix `)`), headingMissingSpace (`#Заголовок`), unclosedCodeFence (fix закрыть), tableCellCountMismatch
+- **Отображение** — `NSLayoutManager.addTemporaryAttribute` (underline dot: красный error / оранжевый warning + toolTip): не трогает NSTextStorage → документ и undo чистые
+- **Quick-fix** — `menu(for:)` override в MarkdownNSTextView: заголовок-сообщение (action nil → авто-disabled) + пункты fix'ов; применение через shouldChangeText/didChangeText (undo работает)
+- **Статус-бар** — `LintSummary` (errorCount/warningCount/jumpToNext) через callback `onLintUpdate`; бейдж `✕ N ⚠ M` кликабелен → прыжок к следующей диагностике
+- **Дебаунс** — `Task` + `Task.sleep` 300 мс в Coordinator (Task из @MainActor контекста наследует актор — без Sendable-обвязки, в отличие от DispatchWorkItem)
+- **131 тест** — +30 `MarkdownLintTests`
+
+### v19 — gotchas (анти-FP гарды линтера)
+- **Чекбокс-правила матчат только `[c]` с содержимым ≤1 символа** — `- [Link](url)`, `- [^1]`, `- [ab]` не флагаются по построению регекса
+- **`isCovered` (не только excluded) для чекбокс-правил** — `- [x](url)` это ссылка (linkSyntax покрывает `[`), `*[x]* note` это курсив (italicMarker)
+- **unclosedLink проверяет покрытие только `[text]`-части** — GFM extended autolink срабатывает на голый URL после `(` и его linkText-спан маскировал бы матч целиком
+- **Unpaired-маркеры**: парные `**`/`~~`/`` ` `` становятся marker-спанами → сканируются только occurrences вне marker/excluded ranges; экранированные `\*\*` не матчатся т.к. в raw-тексте между звёздочками стоит backslash
+- **Fence внутри blockquote не проверяется на закрытие** — каждая строка несёт `> `-префикс, детект closing-строки давал бы FP
+- **codeBlockFence-спаны для незакрытого fence НЕ надёжны** — SpanCollector эмитит closing-спан для последней строки блока даже когда она не fence (при `el > sl`); линт сканирует текст сам
 
 ### v18 — Complete
 - **Три режима** — `EditorMode` (source/visual/preview), segmented picker в тулбаре, ⌘1/⌘2/⌘3 через `CommandGroup(before: .toolbar)` + `@FocusedValue(\.editorMode)` (Binding); режим хранится в `@AppStorage("editorMode")`

@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+/// Lint state published to the status bar (Source mode).
+struct LintSummary {
+    var errorCount: Int
+    var warningCount: Int
+    var jumpToNext: () -> Void
+}
+
 struct MarkdownTextView: NSViewRepresentable {
 
     let document: MarkdownDocument
@@ -9,6 +16,8 @@ struct MarkdownTextView: NSViewRepresentable {
     var plainMode: Bool = false
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
+    /// Source mode only: diagnostics count for the status bar.
+    var onLintUpdate: ((LintSummary) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -53,6 +62,7 @@ struct MarkdownTextView: NSViewRepresentable {
         coordinator.rehighlight()
         coordinator.updateStats()
         coordinator.publishActions()
+        coordinator.scheduleLint(delaySeconds: 0)
 
         NotificationCenter.default.addObserver(
             coordinator,
@@ -122,6 +132,7 @@ struct MarkdownTextView: NSViewRepresentable {
             isInternalUpdate = false
             rehighlight()
             updateStats()
+            scheduleLint()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -312,6 +323,73 @@ struct MarkdownTextView: NSViewRepresentable {
             textView.textStorage?.replaceCharacters(in: range, with: wrapped)
             textView.didChangeText()
             textView.setSelectedRange(newSelection)
+        }
+
+        // MARK: - Lint (Source mode)
+
+        private var lintTask: Task<Void, Never>?
+        private var lintDiagnostics: [LintDiagnostic] = []
+
+        func scheduleLint(delaySeconds: Double = 0.3) {
+            guard parent.plainMode else { return }
+            lintTask?.cancel()
+            lintTask = Task { [weak self] in
+                if delaySeconds > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+                guard !Task.isCancelled else { return }
+                self?.runLint()
+            }
+        }
+
+        private func runLint() {
+            guard parent.plainMode, let textView else { return }
+            let diags = lint(textView.string)
+            lintDiagnostics = diags
+            textView.lintDiagnostics = diags
+            applyLintUnderlines(diags)
+            let errors = diags.filter { $0.severity == .error }.count
+            let summary = LintSummary(
+                errorCount: errors,
+                warningCount: diags.count - errors,
+                jumpToNext: { [weak self] in self?.jumpToNextDiagnostic() }
+            )
+            DispatchQueue.main.async { [parent] in
+                parent.onLintUpdate?(summary)
+            }
+        }
+
+        /// Temporary attributes live in the layout manager only — they never
+        /// touch NSTextStorage, so the document and undo stack stay clean.
+        private func applyLintUnderlines(_ diags: [LintDiagnostic]) {
+            guard let textView, let lm = textView.layoutManager else { return }
+            let len = (textView.string as NSString).length
+            let full = NSRange(location: 0, length: len)
+            lm.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
+            lm.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
+            lm.removeTemporaryAttribute(.toolTip, forCharacterRange: full)
+            for d in diags {
+                guard d.range.location < len else { continue }
+                let r = NSRange(location: d.range.location,
+                                length: min(d.range.length, len - d.range.location))
+                guard r.length > 0 else { continue }
+                let color: NSColor = d.severity == .error ? .systemRed : .systemOrange
+                lm.addTemporaryAttribute(
+                    .underlineStyle,
+                    value: NSUnderlineStyle([.single, .patternDot]).rawValue,
+                    forCharacterRange: r)
+                lm.addTemporaryAttribute(.underlineColor, value: color, forCharacterRange: r)
+                lm.addTemporaryAttribute(.toolTip, value: d.message, forCharacterRange: r)
+            }
+        }
+
+        private func jumpToNextDiagnostic() {
+            guard let textView, !lintDiagnostics.isEmpty else { return }
+            let cursor = textView.selectedRange().location
+            let next = lintDiagnostics.first { $0.range.location > cursor } ?? lintDiagnostics[0]
+            textView.setSelectedRange(next.range)
+            textView.scrollRangeToVisible(next.range)
+            textView.window?.makeFirstResponder(textView)
         }
 
         // MARK: - Font size
@@ -739,6 +817,9 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
     var taskListEntries: [(range: NSRange, done: Bool, shouldDraw: Bool)] = []
     /// Link text ranges with resolved destination URLs; opened via Cmd+click.
     var linkEntries: [(range: NSRange, url: URL)] = []
+    /// Source-mode lint results; quick-fixes offered in the context menu.
+    var lintDiagnostics: [LintDiagnostic] = []
+    private var menuFixes: [LintFix] = []
     private var codeOverlayButtons: [CodeCopyButton] = []
     /// Set to true after codeBlockEntries change; cleared once overlays are updated.
     var overlayNeedsUpdate = false
@@ -888,6 +969,48 @@ fileprivate final class MarkdownNSTextView: NSTextView, NSLayoutManagerDelegate 
         return NSRect(x: textContainerInset.width + markerRect.minX + 2,
                       y: textContainerInset.height + markerRect.midY - boxSize / 2,
                       width: boxSize, height: boxSize)
+    }
+
+    // MARK: - Lint quick-fixes in the context menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard let menu, !lintDiagnostics.isEmpty else { return menu }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let idx = characterIndex(at: point) else { return menu }
+        let hits = lintDiagnostics.filter { NSLocationInRange(idx, $0.range) }
+        guard !hits.isEmpty else { return menu }
+
+        menuFixes = []
+        var insertAt = 0
+        for diagnostic in hits {
+            // action == nil → the item auto-disables; serves as a header.
+            let header = NSMenuItem(title: diagnostic.message, action: nil, keyEquivalent: "")
+            menu.insertItem(header, at: insertAt)
+            insertAt += 1
+            for fix in diagnostic.fixes {
+                let item = NSMenuItem(title: fix.title,
+                                      action: #selector(applyLintFix(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.tag = menuFixes.count
+                item.indentationLevel = 1
+                menuFixes.append(fix)
+                menu.insertItem(item, at: insertAt)
+                insertAt += 1
+            }
+        }
+        menu.insertItem(.separator(), at: insertAt)
+        return menu
+    }
+
+    @objc private func applyLintFix(_ sender: NSMenuItem) {
+        guard sender.tag >= 0, sender.tag < menuFixes.count else { return }
+        let fix = menuFixes[sender.tag]
+        guard NSMaxRange(fix.range) <= (string as NSString).length else { return }
+        guard shouldChangeText(in: fix.range, replacementString: fix.replacement) else { return }
+        textStorage?.replaceCharacters(in: fix.range, with: fix.replacement)
+        didChangeText()
     }
 
     override func layout() {

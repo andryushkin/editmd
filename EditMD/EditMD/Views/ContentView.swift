@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
+    @State private var lintSummary: LintSummary?
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .visual }
 
@@ -30,7 +31,8 @@ struct ContentView: View {
                     theme: theme,
                     plainMode: true,
                     onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                    onFormatActions: { actions in formatActions = actions }
+                    onFormatActions: { actions in formatActions = actions },
+                    onLintUpdate: { summary in lintSummary = summary }
                 )
             case .visual:
                 MarkdownTextView(
@@ -101,6 +103,24 @@ struct ContentView: View {
             ? wordAndCharCount(in: document.content)
             : (wordCount, charCount)
         return HStack {
+            if mode == .source, let summary = lintSummary,
+               summary.errorCount + summary.warningCount > 0 {
+                Button {
+                    summary.jumpToNext()
+                } label: {
+                    HStack(spacing: 8) {
+                        if summary.errorCount > 0 {
+                            Text("✕ \(summary.errorCount)").foregroundStyle(.red)
+                        }
+                        if summary.warningCount > 0 {
+                            Text("⚠ \(summary.warningCount)").foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.plain)
+                .help("Jump to the next issue")
+            }
             Spacer()
             Text("\(words) words  \(chars) chars")
                 .font(.system(size: 11))
