@@ -70,12 +70,52 @@ final class RoundTripTests: XCTestCase {
 
     func testHardBreak() { assertStable("line one\\\nline two") }
 
-    func testTableIsIslandVerbatim() {
-        assertStable("| a | b |\n|---|---|\n| 1 | 2 |")
+    func testTableStable() {
+        assertStable("| a | b |\n| --- | --- |\n| 1 | 2 |")
+    }
+
+    func testTableAlignmentsStable() {
+        assertStable("| l | c | r |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |")
+    }
+
+    func testTableNormalizesDelimiters() {
+        XCTAssertEqual(roundTrip("| a | b |\n|---|---|\n| 1 | 2 |"),
+                       "| a | b |\n| --- | --- |\n| 1 | 2 |")
+        assertRoundTrip("| a | b |\n|---|---|\n| 1 | 2 |")
+    }
+
+    func testTableWithStyledCells() {
+        assertStable("| **b** | `c` |\n| --- | --- |\n| [l](https://e.com) | x |")
+    }
+
+    func testTableCellPipeEscaped() {
+        assertRoundTrip("| a \\| b | c |\n| --- | --- |\n| 1 | 2 |")
+    }
+
+    func testTableMissingCellsFilledEmpty() {
+        assertRoundTrip("| a | b |\n| --- | --- |\n| 1 |")
+    }
+
+    func testTableCellAttribute() {
+        let attr = renderMarkdownToAttributed("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        let block = attr.attribute(.mdBlock, at: 0, effectiveRange: nil) as? MDBlock
+        XCTAssertEqual(block?.kind, .tableCell(row: 0, column: 0, columns: 2, alignment: 0))
     }
 
     func testHTMLBlockIsIslandVerbatim() {
         assertStable("<div>\nhello\n</div>")
+    }
+
+    // MARK: - Serialization map (cursor continuity)
+
+    func testParagraphRangesMapCoversAllParagraphs() {
+        let attr = renderMarkdownToAttributed("# T\n\nbody\n\n- a\n- b")
+        let detailed = serializeAttributedToMarkdownDetailed(attr)
+        // display paragraphs: heading, body, item a, item b
+        XCTAssertEqual(detailed.paragraphRanges.count, 4)
+        let md = detailed.markdown as NSString
+        XCTAssertEqual(md.substring(with: detailed.paragraphRanges[0]), "# T")
+        XCTAssertEqual(md.substring(with: detailed.paragraphRanges[2]), "- a")
     }
 
     func testMixedDocument() {

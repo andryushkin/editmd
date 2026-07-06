@@ -17,9 +17,9 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 - **v18 ✅** — каркас режимов + plain Source + Preview (WKWebView)
 - **v19 ✅** — линтер в Source (14 правил, temporary attributes, quick-fix в контекстном меню, счётчик в статус-строке)
 - **v20 ✅** — WYSIWYG-фундамент: рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown`, round-trip ворота зелёные
-- **v21 ✅** — Visual = настоящий WYSIWYG: `VisualTextView.swift` (isRichText, семантика ввода, декорации, острова read-only); гибрид v17 из Visual-режима удалён
-- **v22** — таблицы через NSTextTable (разблокирован isRichText=true) + изображения NSTextAttachment
-- **v23** — синхронизация режимов, полировка, чистка гибридного кода
+- **v21 ✅** — Visual = настоящий WYSIWYG: `VisualTextView.swift` (isRichText, семантика ввода, декорации, острова read-only)
+- **v22 ✅** — таблицы NSTextTable (редактируемые ячейки, Tab/Enter-навигация), картинки NSTextAttachment, курсор/скролл сохраняются между режимами (EditorPositionStore)
+- **v23** — полировка, чистка гибридного кода (highlighting-часть MarkdownTextView мертва после v21)
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
@@ -509,6 +509,20 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v22 — Complete (таблицы + картинки + курсор между режимами)
+- **Таблицы — третья попытка, успешная** — `isRichText=true` разблокировал `NSTextTable`: `MDBlock.Kind.tableCell(row:column:columns:alignment:)`, ячейки одной таблицы делят `group`; render → параграф на ячейку; presentation вешает `NSTextTableBlock` (ОДИН shared NSTextTable на группу — иначе layout разваливается); сериализатор собирает grid и эмитит GFM (нормальная форма `| --- |`, alignment `:--`/`:-:`/`--:` сохраняются)
+- **Редактирование ячеек** — текст ячейки редактируется свободно; целостность через shouldChangeTextIn: правка либо внутри текста одной ячейки (без `\n`), либо покрывает ВСЮ таблицу (удаление целиком); Tab/Shift+Tab — по ячейкам (`nextTableCellPosition`, pure); Tab с последней ячейки и Enter на последней строке добавляют строку; Enter на пустой последней строке — удаляет её и выходит под таблицу; Backspace в начале ячейки — прыжок в конец предыдущей (никогда не сливает); программные перестройки (append/delete row) — под флагом `isProgrammaticTableEdit` (обходит guard)
+- **Картинки** — `attachImages` в presentation: U+FFFC + `.mdImage` → `NSTextAttachment` (кэш по src — переиспользование объекта, иначе layout-чурн на каждый keystroke); baseDir = папка .md / корень .textbundle; ширина капится 420pt; нет файла/remote → SF Symbol «photo»-плейсхолдер; сериализация не меняется (.mdImage — источник истины)
+- **Курсор/скролл между режимами** — `EditorPositionStore` (класс в @State — мутации не дёргают SwiftUI): канонсостояние = UTF-16 offset в markdown; Source — напрямую; Visual — через `serializeAttributedToMarkdownDetailed(...).paragraphRanges` (карта display-параграф → md-диапазон, обновляется при каждой сериализации); Preview — пропорциональный скролл через JS в didFinish; восстановление: setSelectedRange + centerSelectionInVisibleArea + makeFirstResponder (async — окна ещё нет в makeNSView)
+- **Фикс островов** — raw извлекается от начала строки (`lineStart`), чтобы многострочные острова не теряли префиксы промежуточных строк
+- **215 тестов** — +7 table round-trip, +1 карта параграфов, +5 nextTableCellPosition
+
+### v22 — gotchas
+- **NSTextTable требует один shared инстанс на таблицу** — NSTextTableBlock'и разных NSTextTable не соединяются в грид
+- **Хедер таблицы жирный — derived** (в applyDerivedInlineDecorations по row==0), НЕ через .mdInline — иначе сериализатор писал бы `| **a** |`
+- **Пайпы в ячейках** — escapeInline с escapePipes=true для tableCell; hard break в ячейке → пробел (ячейки однострочные)
+- **Вложенные таблицы (в цитатах/списках) остаются островами** — NSTextTable + indent-контексты не смешиваем
 
 ### v21 — Complete (Visual = WYSIWYG)
 - **`VisualTextView.swift`** — `VisualMarkdownView` (NSViewRepresentable) + `VisualNSTextView` (isRichText=true) + Coordinator; ContentView case .visual переключён с гибрида v17 на него

@@ -14,6 +14,8 @@ struct MarkdownTextView: NSViewRepresentable {
     var theme: EditorTheme = .system
     /// Source mode: raw markdown, no highlighting and no drawn decorations.
     var plainMode: Bool = false
+    /// Cursor continuity across modes (markdown offsets are native here).
+    var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
     /// Source mode only: diagnostics count for the status bar.
@@ -63,6 +65,17 @@ struct MarkdownTextView: NSViewRepresentable {
         coordinator.updateStats()
         coordinator.publishActions()
         coordinator.scheduleLint(delaySeconds: 0)
+
+        if let store = positionStore {
+            let offset = min(store.markdownOffset, (textView.string as NSString).length)
+            textView.setSelectedRange(NSRange(location: offset, length: 0))
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.scrollRangeToVisible(textView.selectedRange())
+                textView.centerSelectionInVisibleArea(nil)
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
 
         NotificationCenter.default.addObserver(
             coordinator,
@@ -136,6 +149,9 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
+            if let textView {
+                parent.positionStore?.markdownOffset = textView.selectedRange().location
+            }
             guard !isApplyingHighlight else { return }
             rehighlight()
         }

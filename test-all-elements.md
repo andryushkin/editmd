@@ -14,13 +14,14 @@
 
 Plain text paragraph with **bold text** and *italic text* and ***bold italic***.
 
-Underscore variants: __bold__ and _italic_ and ___bold italic___.
+Underscore variants: **bold** and *italic* and ***bold italic***.
 
 This has ~~strikethrough~~ text and `inline code` too.
 
 Here is a [link](https://example.com) and an ![image](photo.png) in the same line.
 
 > This is a blockquote.
+>
 > > It can span multiple lines.
 
 > Nested content inside a blockquote with **bold** and *italic*.
@@ -35,31 +36,34 @@ Plain fenced code block without language.
 Multiple lines here.
 ```
 
-~~~
+```
 Tilde fenced code block.
-~~~
+```
 
-    Indented code block (4 spaces).
-    Second line of indented code.
+```
+Indented code block (4 spaces).
+Second line of indented code.
+```
 
 - Unordered item 1
 - Unordered item 2
-  - Nested item A
-  - Nested item B
+    - Nested item A
+    - Nested item B
 - Unordered item 3
 
-* Asterisk list item
-* Another asterisk item
+<!-- -->
+
+- Asterisk list item
+- Another asterisk item
 
 1. Ordered item one
 2. Ordered item two
 3. Ordered item three
+4. Multi-digit ordered item
 
-10. Multi-digit ordered item
-
-- [x] Unchecked task
-- [x] Checked task
-- [x] Another unchecked task
+- [ ] Unchecked task
+- [ ] Checked task
+- [ ] Another unchecked task
 
 | Name    | Age | City     |
 |---------|-----|----------|
@@ -73,17 +77,15 @@ Text with <br> inline HTML tag.
 HTML block content
 </div>
 
-***
+---
 
 Mixed: **bold with `code` inside** and *italic with [link](url) inside*.
 
 ![Alt text for image](path/to/image.png)
 
-Setext Heading 1
-================
+# Setext Heading 1
 
-Setext Heading 2
-----------------
+## Setext Heading 2
 
 - [Link first](https://example.com) list item keeps its bullet
 - [x] Checked task example

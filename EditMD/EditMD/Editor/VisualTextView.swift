@@ -72,6 +72,20 @@ func continuationKind(after kind: MDBlock.Kind) -> MDBlock.Kind? {
     }
 }
 
+/// Tab navigation order inside a table; nil = past the edge (forward: caller
+/// appends a row; backward: stay put).
+func nextTableCellPosition(row: Int, column: Int, columns: Int, rows: Int,
+                           forward: Bool) -> (row: Int, column: Int)? {
+    if forward {
+        if column + 1 < columns { return (row, column + 1) }
+        if row + 1 < rows { return (row + 1, 0) }
+        return nil
+    }
+    if column > 0 { return (row, column - 1) }
+    if row > 0 { return (row - 1, columns - 1) }
+    return nil
+}
+
 /// Kind after Tab / Shift+Tab on a list item; nil when not applicable.
 func indentedKind(_ kind: MDBlock.Kind, by delta: Int) -> MDBlock.Kind? {
     func clamp(_ d: Int) -> Int? {
@@ -96,6 +110,8 @@ struct VisualMarkdownView: NSViewRepresentable {
 
     let document: MarkdownDocument
     var theme: EditorTheme = .system
+    var fileURL: URL? = nil
+    var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
 
@@ -166,6 +182,14 @@ struct VisualMarkdownView: NSViewRepresentable {
         var isInternalUpdate = false
         var lastSerialized = ""
         private var isMutating = false
+        /// Row append / row delete restructure tables legally — bypass the
+        /// cell-integrity guard in shouldChangeTextIn.
+        private var isProgrammaticTableEdit = false
+        /// Display-paragraph → markdown-range map from the last serialization.
+        private var lastParagraphRanges: [NSRange] = []
+        /// One NSTextAttachment per image source — reused across presentation
+        /// passes so layout doesn't churn on every keystroke.
+        private var imageAttachments: [String: NSTextAttachment] = [:]
 
         var visualStyle: VisualStyle {
             VisualStyle(baseSize: EditorFontSettings.shared.fontSize + 1)
@@ -184,9 +208,71 @@ struct VisualMarkdownView: NSViewRepresentable {
             let rendered = renderMarkdownToAttributed(parent.document.content, style: visualStyle)
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
+            lastParagraphRanges = serializeAttributedToMarkdownDetailed(storage).paragraphRanges
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
+            restoreCursor()
+        }
+
+        // MARK: Cursor continuity across modes
+
+        /// (display paragraph index, its start offset) for a text location.
+        private func paragraphIndex(at location: Int, in nsText: NSString) -> (index: Int, start: Int) {
+            var index = 0, start = 0
+            var i = 0
+            let limit = min(location, nsText.length)
+            while i < limit {
+                if nsText.character(at: i) == 0x0A {
+                    index += 1
+                    start = i + 1
+                }
+                i += 1
+            }
+            return (index, start)
+        }
+
+        func storeCursor() {
+            guard let store = parent.positionStore, let textView,
+                  !lastParagraphRanges.isEmpty else { return }
+            let nsText = textView.string as NSString
+            let location = textView.selectedRange().location
+            let (index, start) = paragraphIndex(at: location, in: nsText)
+            guard index < lastParagraphRanges.count else { return }
+            let mdRange = lastParagraphRanges[index]
+            store.markdownOffset = mdRange.location + min(location - start, mdRange.length)
+        }
+
+        private func restoreCursor() {
+            guard let store = parent.positionStore, let textView,
+                  !lastParagraphRanges.isEmpty else { return }
+            let target = store.markdownOffset
+            var index = 0
+            var within = 0
+            for (i, range) in lastParagraphRanges.enumerated() where range.location <= target {
+                index = i
+                within = target - range.location
+            }
+            // Paragraph start in the display text.
+            let nsText = textView.string as NSString
+            var start = 0, seen = 0, end = nsText.length
+            var i = 0
+            while i < nsText.length {
+                if nsText.character(at: i) == 0x0A {
+                    if seen == index { end = i; break }
+                    seen += 1
+                    start = i + 1
+                }
+                i += 1
+            }
+            let cursor = min(start + within, end)
+            textView.setSelectedRange(NSRange(location: cursor, length: 0))
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.scrollRangeToVisible(textView.selectedRange())
+                textView.centerSelectionInVisibleArea(nil)
+                textView.window?.makeFirstResponder(textView)
+            }
         }
 
         private func defaultTypingAttributes() -> [NSAttributedString.Key: Any] {
@@ -217,25 +303,56 @@ struct VisualMarkdownView: NSViewRepresentable {
                 attrs[.mdImage] = nil
                 textView.typingAttributes = attrs
             }
+            storeCursor()
         }
 
         func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange,
                       replacementString: String?) -> Bool {
-            guard let storage = view.textStorage else { return true }
-            // Islands are read-only unless the change swallows them whole.
+            guard !isProgrammaticTableEdit, let storage = view.textStorage else { return true }
             let nsText = storage.string as NSString
+            guard nsText.length > 0 else { return true }
             var allowed = true
             let probe = affectedRange.length == 0
                 ? NSRange(location: min(affectedRange.location, max(0, nsText.length - 1)), length: min(1, nsText.length))
                 : affectedRange
-            guard nsText.length > 0 else { return true }
             storage.enumerateAttribute(.mdBlock, in: probe) { value, range, stop in
-                guard let block = value as? MDBlock, case .raw = block.kind else { return }
-                let paragraph = nsText.paragraphRange(for: range)
-                if affectedRange.location > paragraph.location
-                    || NSMaxRange(affectedRange) < NSMaxRange(paragraph) {
+                guard let block = value as? MDBlock else { return }
+                switch block.kind {
+                // Islands are read-only unless the change swallows them whole.
+                case .raw:
+                    let paragraph = nsText.paragraphRange(for: range)
+                    if affectedRange.location > paragraph.location
+                        || NSMaxRange(affectedRange) < NSMaxRange(paragraph) {
+                        allowed = false
+                        stop.pointee = true
+                    }
+                // Table cells: edits stay inside one cell's text (its trailing
+                // \n is structure), or replace the entire table.
+                case .tableCell:
+                    let paragraph = nsText.paragraphRange(for: range)
+                    var cellTextEnd = NSMaxRange(paragraph)
+                    if cellTextEnd > paragraph.location,
+                       nsText.character(at: cellTextEnd - 1) == 0x0A {
+                        cellTextEnd -= 1
+                    }
+                    let insideCell = affectedRange.location >= paragraph.location
+                        && NSMaxRange(affectedRange) <= cellTextEnd
+                    if insideCell {
+                        if replacementString?.contains("\n") == true {
+                            allowed = false
+                            stop.pointee = true
+                        }
+                        return
+                    }
+                    let whole = self.tableRange(group: block.group, in: storage)
+                    if affectedRange.location <= whole.location
+                        && NSMaxRange(affectedRange) >= NSMaxRange(whole) {
+                        return
+                    }
                     allowed = false
                     stop.pointee = true
+                default:
+                    break
                 }
             }
             return allowed
@@ -246,9 +363,9 @@ struct VisualMarkdownView: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 return handleNewline()
             case #selector(NSResponder.insertTab(_:)):
-                return changeIndent(by: 1)
+                return handleTableTab(forward: true) || changeIndent(by: 1)
             case #selector(NSResponder.insertBacktab(_:)):
-                return changeIndent(by: -1)
+                return handleTableTab(forward: false) || changeIndent(by: -1)
             case #selector(NSResponder.deleteBackward(_:)):
                 return handleDeleteBackward()
             default:
@@ -304,6 +421,123 @@ struct VisualMarkdownView: NSViewRepresentable {
             updateStats()
         }
 
+        // MARK: Tables
+
+        /// All cell paragraphs of a table, in document order.
+        private func tableCells(group: Int, in storage: NSTextStorage)
+            -> [(row: Int, column: Int, columns: Int, alignment: Int, range: NSRange)] {
+            let nsText = storage.string as NSString
+            var cells: [(Int, Int, Int, Int, NSRange)] = []
+            var location = 0
+            while location < nsText.length {
+                let paragraph = nsText.paragraphRange(for: NSRange(location: location, length: 0))
+                let blockValue = block(at: paragraph, in: storage)
+                if case .tableCell(let row, let column, let columns, let alignment) = blockValue.kind,
+                   blockValue.group == group {
+                    cells.append((row, column, columns, alignment, paragraph))
+                }
+                if NSMaxRange(paragraph) == location { break }
+                location = NSMaxRange(paragraph)
+            }
+            return cells
+        }
+
+        private func tableRange(group: Int, in storage: NSTextStorage) -> NSRange {
+            let cells = tableCells(group: group, in: storage)
+            guard let first = cells.first, let last = cells.last else {
+                return NSRange(location: 0, length: 0)
+            }
+            return NSRange(location: first.range.location,
+                           length: NSMaxRange(last.range) - first.range.location)
+        }
+
+        /// Places the cursor at the end of a cell's text.
+        private func moveCursor(toCell target: (row: Int, column: Int), group: Int) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let cells = tableCells(group: group, in: storage)
+            guard let cell = cells.first(where: { $0.row == target.row && $0.column == target.column })
+            else { return }
+            let nsText = storage.string as NSString
+            var end = NSMaxRange(cell.range)
+            if end > cell.range.location, nsText.character(at: end - 1) == 0x0A { end -= 1 }
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+            textView.scrollRangeToVisible(textView.selectedRange())
+        }
+
+        /// Appends an empty row; returns the new row index.
+        @discardableResult
+        private func appendTableRow(group: Int) -> Int? {
+            guard let textView, let storage = textView.textStorage else { return nil }
+            let cells = tableCells(group: group, in: storage)
+            guard let last = cells.last else { return nil }
+            let columns = last.columns
+            let newRow = (cells.map(\.row).max() ?? 0) + 1
+            var alignmentByColumn: [Int: Int] = [:]
+            for cell in cells { alignmentByColumn[cell.column] = cell.alignment }
+
+            let insertion = NSMutableAttributedString()
+            for column in 0..<columns {
+                var cellBlock = MDBlock(kind: .tableCell(row: newRow, column: column,
+                                                         columns: columns,
+                                                         alignment: alignmentByColumn[column] ?? 0))
+                cellBlock.group = group
+                insertion.append(NSAttributedString(string: "\n", attributes: [
+                    .font: visualStyle.font(for: [], blockKind: cellBlock.kind),
+                    .foregroundColor: NSColor.labelColor,
+                    .mdBlock: cellBlock,
+                ]))
+            }
+            let location = NSMaxRange(last.range)
+            let insertRange = NSRange(location: location, length: 0)
+            isProgrammaticTableEdit = true
+            defer { isProgrammaticTableEdit = false }
+            guard textView.shouldChangeText(in: insertRange,
+                                            replacementString: insertion.string) else { return nil }
+            isMutating = true
+            storage.replaceCharacters(in: insertRange, with: insertion)
+            isMutating = false
+            textView.didChangeText()
+            afterMutation()
+            return newRow
+        }
+
+        /// Deletes a table row (used by "Enter on empty last row exits table").
+        private func deleteTableRow(_ row: Int, group: Int) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let rowCells = tableCells(group: group, in: storage).filter { $0.row == row }
+            guard let first = rowCells.first, let last = rowCells.last else { return }
+            let range = NSRange(location: first.range.location,
+                                length: NSMaxRange(last.range) - first.range.location)
+            isProgrammaticTableEdit = true
+            defer { isProgrammaticTableEdit = false }
+            guard textView.shouldChangeText(in: range, replacementString: "") else { return }
+            isMutating = true
+            storage.replaceCharacters(in: range, with: "")
+            isMutating = false
+            textView.didChangeText()
+            afterMutation()
+        }
+
+        private func handleTableTab(forward: Bool) -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            let nsText = storage.string as NSString
+            let paragraph = paragraphRange(at: textView.selectedRange().location, in: nsText)
+            let current = block(at: paragraph, in: storage)
+            guard case .tableCell(let row, let column, let columns, _) = current.kind else {
+                return false
+            }
+            let rows = (tableCells(group: current.group, in: storage).map(\.row).max() ?? 0) + 1
+            if let next = nextTableCellPosition(row: row, column: column, columns: columns,
+                                                rows: rows, forward: forward) {
+                moveCursor(toCell: next, group: current.group)
+            } else if forward {
+                if let newRow = appendTableRow(group: current.group) {
+                    moveCursor(toCell: (newRow, 0), group: current.group)
+                }
+            }
+            return true
+        }
+
         // MARK: Enter
 
         private func handleNewline() -> Bool {
@@ -312,6 +546,32 @@ struct VisualMarkdownView: NSViewRepresentable {
             let selection = textView.selectedRange()
             let paragraph = paragraphRange(at: selection.location, in: nsText)
             let current = block(at: paragraph, in: storage)
+
+            // Table: Enter moves down a column; on an all-empty last row it
+            // removes that row and exits below the table.
+            if case .tableCell(let row, let column, _, _) = current.kind {
+                let cells = tableCells(group: current.group, in: storage)
+                let rows = (cells.map(\.row).max() ?? 0) + 1
+                let lastRowCells = cells.filter { $0.row == rows - 1 }
+                let lastRowEmpty = lastRowCells.allSatisfy {
+                    var text = nsText.substring(with: $0.range)
+                    if text.hasSuffix("\n") { text.removeLast() }
+                    return text.isEmpty
+                }
+                if row == rows - 1 {
+                    if lastRowEmpty && rows > 2 {
+                        // Exit: drop the empty row, add a paragraph after the table.
+                        deleteTableRow(row, group: current.group)
+                        let tableEnd = NSMaxRange(tableRange(group: current.group, in: storage))
+                        insertParagraph(at: tableEnd)
+                    } else if let newRow = appendTableRow(group: current.group) {
+                        moveCursor(toCell: (newRow, column), group: current.group)
+                    }
+                } else {
+                    moveCursor(toCell: (row + 1, column), group: current.group)
+                }
+                return true
+            }
 
             var paragraphText = nsText.substring(with: paragraph)
             if paragraphText.hasSuffix("\n") { paragraphText.removeLast() }
@@ -388,6 +648,21 @@ struct VisualMarkdownView: NSViewRepresentable {
             return true  // Enter inside an island: ignored
         }
 
+        /// Inserts an empty plain paragraph at `location` and puts the cursor there.
+        private func insertParagraph(at location: Int) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let insertRange = NSRange(location: min(location, storage.length), length: 0)
+            guard textView.shouldChangeText(in: insertRange, replacementString: "\n") else { return }
+            isMutating = true
+            storage.replaceCharacters(in: insertRange, with: NSAttributedString(
+                string: "\n", attributes: defaultTypingAttributes()))
+            isMutating = false
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: insertRange.location, length: 0))
+            textView.typingAttributes = defaultTypingAttributes()
+            afterMutation()
+        }
+
         // MARK: Tab / Backspace
 
         private func changeIndent(by delta: Int) -> Bool {
@@ -411,6 +686,15 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard selection.location == paragraph.location else { return false }
             let current = block(at: paragraph, in: storage)
             switch current.kind {
+            case .tableCell(let row, let column, let columns, _):
+                // Never merge cells: hop to the end of the previous cell.
+                let rows = (tableCells(group: current.group, in: storage).map(\.row).max() ?? 0) + 1
+                if let previous = nextTableCellPosition(row: row, column: column,
+                                                        columns: columns, rows: rows,
+                                                        forward: false) {
+                    moveCursor(toCell: previous, group: current.group)
+                }
+                return true
             case .bulletItem, .orderedItem, .taskItem:
                 // Backspace at item start: outdent, then flatten to paragraph.
                 if let outdented = indentedKind(current.kind, by: -1) {
@@ -601,6 +885,10 @@ struct VisualMarkdownView: NSViewRepresentable {
 
             var orderedCounters: [String: Int] = [:]
             var lastListGroupDepth: (group: Int, depth: Int)? = nil
+            // One shared NSTextTable per table group — cells of one table must
+            // reference the same instance or layout falls apart.
+            var textTables: [Int: NSTextTable] = [:]
+            let theme = textView.theme
 
             isMutating = true
             storage.beginEditing()
@@ -667,6 +955,31 @@ struct VisualMarkdownView: NSViewRepresentable {
                     codeGroups[blockValue.group] = existing.map { NSUnionRange($0, paragraph) } ?? paragraph
                 case .thematicBreak:
                     ruleRanges.append(paragraph)
+                case .tableCell(let row, let column, let columns, let alignment):
+                    let table: NSTextTable
+                    if let existing = textTables[blockValue.group] {
+                        table = existing
+                    } else {
+                        table = NSTextTable()
+                        table.numberOfColumns = columns
+                        table.setContentWidth(100, type: .percentageValueType)
+                        textTables[blockValue.group] = table
+                    }
+                    let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1,
+                                                startingColumn: column, columnSpan: 1)
+                    cell.setBorderColor(theme.separatorColor)
+                    cell.setWidth(0.5, type: .absoluteValueType, for: .border)
+                    cell.setWidth(6, type: .absoluteValueType, for: .padding)
+                    if row == 0 {
+                        cell.backgroundColor = NSColor(white: 0.5, alpha: 0.08)
+                    }
+                    style.textBlocks = [cell]
+                    style.paragraphSpacing = 0
+                    switch alignment {
+                    case 2: style.alignment = .center
+                    case 3: style.alignment = .right
+                    default: break
+                    }
                 case .raw:
                     markerIndent = 10
                 case .paragraph:
@@ -687,6 +1000,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                     applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
                 }
             }
+            attachImages(storage)
             storage.endEditing()
             isMutating = false
 
@@ -715,8 +1029,17 @@ struct VisualMarkdownView: NSViewRepresentable {
                                                    paragraph: NSRange, block: MDBlock) {
             var isDone = false
             if case .taskItem(_, true) = block.kind { isDone = true }
+            var isHeaderCell = false
+            if case .tableCell(0, _, _, _) = block.kind { isHeaderCell = true }
             storage.enumerateAttributes(in: paragraph) { attrs, range, _ in
                 let styles = MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0)
+                if isHeaderCell {
+                    // Header row is bold — derived, not stored in .mdInline.
+                    storage.addAttribute(.font,
+                                         value: self.visualStyle.font(for: styles.union(.bold),
+                                                                      blockKind: block.kind),
+                                         range: range)
+                }
                 let strike = styles.contains(.strike) || isDone
                 if strike {
                     storage.addAttribute(.strikethroughStyle,
@@ -751,16 +1074,66 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
         }
 
+        // MARK: Images
+
+        /// Attaches NSTextAttachments to image placeholders (U+FFFC + .mdImage).
+        private func attachImages(_ storage: NSTextStorage) {
+            let full = NSRange(location: 0, length: storage.length)
+            guard full.length > 0 else { return }
+            storage.enumerateAttribute(.mdImage, in: full) { value, range, _ in
+                guard let info = value as? [String: String] else { return }
+                if storage.attribute(.attachment, at: range.location, effectiveRange: nil) != nil {
+                    return
+                }
+                storage.addAttribute(.attachment,
+                                     value: attachment(forSource: info["src"] ?? ""),
+                                     range: range)
+            }
+        }
+
+        private func attachment(forSource src: String) -> NSTextAttachment {
+            if let cached = imageAttachments[src] { return cached }
+            let result = NSTextAttachment()
+            if let url = resolveImageURL(src), let image = NSImage(contentsOf: url),
+               image.size.width > 0 {
+                result.image = image
+                let maxWidth: CGFloat = 420
+                let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
+                result.bounds = CGRect(x: 0, y: 0,
+                                       width: image.size.width * scale,
+                                       height: image.size.height * scale)
+            } else {
+                // Missing/remote file: visible placeholder instead of nothing.
+                result.image = NSImage(systemSymbolName: "photo",
+                                       accessibilityDescription: src)
+                result.bounds = CGRect(x: 0, y: -3, width: 18, height: 15)
+            }
+            imageAttachments[src] = result
+            return result
+        }
+
+        private func resolveImageURL(_ src: String) -> URL? {
+            guard URL(string: src)?.scheme == nil, let fileURL = parent.fileURL else { return nil }
+            let baseDir = fileURL.pathExtension == "textbundle"
+                ? fileURL
+                : fileURL.deletingLastPathComponent()
+            let path = src.removingPercentEncoding ?? src
+            return baseDir.appendingPathComponent(path).standardizedFileURL
+        }
+
         // MARK: Sync
 
         private func syncToDocument() {
             guard let storage = textView?.textStorage else { return }
-            var serialized = serializeAttributedToMarkdown(storage)
+            let detailed = serializeAttributedToMarkdownDetailed(storage)
+            lastParagraphRanges = detailed.paragraphRanges
+            var serialized = detailed.markdown
             if !serialized.isEmpty { serialized += "\n" }
             lastSerialized = serialized
             isInternalUpdate = true
             parent.document.content = serialized
             isInternalUpdate = false
+            storeCursor()
         }
 
         func updateStats() {
@@ -772,11 +1145,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         @objc func fontSizeDidChange() {
-            guard let textView else { return }
-            let cursor = textView.selectedRange()
-            loadDocument()
-            textView.setSelectedRange(NSRange(location: min(cursor.location, textView.string.utf16.count),
-                                              length: 0))
+            imageAttachments.removeAll()
+            loadDocument()  // restoreCursor keeps the place via the position store
             publishActions()
         }
     }

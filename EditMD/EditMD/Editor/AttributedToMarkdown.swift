@@ -5,9 +5,22 @@ import AppKit
 // presentation and never consulted. Counterpart to MarkdownToAttributed.swift;
 // `serialize(render(x))` is the document's normal form.
 
+/// Serialization result plus a display-paragraph → markdown-range map, used
+/// to carry the cursor across mode switches.
+struct MarkdownSerialization {
+    let markdown: String
+    /// For each display paragraph (index = paragraph order in the attributed
+    /// string) the UTF-16 range of its emitted piece in `markdown`.
+    let paragraphRanges: [NSRange]
+}
+
 func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
+    serializeAttributedToMarkdownDetailed(attr).markdown
+}
+
+func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> MarkdownSerialization {
     let nsText = attr.string as NSString
-    guard nsText.length > 0 else { return "" }
+    guard nsText.length > 0 else { return MarkdownSerialization(markdown: "", paragraphRanges: []) }
 
     // Split into display paragraphs; each carries MDBlock (stamped through \n).
     var paragraphs: [(range: NSRange, block: MDBlock)] = []
@@ -25,8 +38,8 @@ func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
         location = end + 1
     }
 
-    // Emit pieces, grouping code-block paragraphs into single fenced pieces.
-    var pieces: [(text: String, block: MDBlock)] = []
+    // Emit pieces; code-block and table paragraphs group into single pieces.
+    var pieces: [(text: String, block: MDBlock, paraIndexes: Range<Int>)] = []
     var i = 0
     while i < paragraphs.count {
         let (range, block) = paragraphs[i]
@@ -44,27 +57,84 @@ func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
             var text = prefix + "```" + language
             for line in lines { text += "\n" + prefix + line }
             text += "\n" + prefix + "```"
-            pieces.append((text, block))
+            pieces.append((text, block, i..<j))
+            i = j
+        case .tableCell:
+            var cells: [(row: Int, column: Int, text: String, alignment: Int)] = []
+            var columns = 1
+            var j = i
+            while j < paragraphs.count,
+                  case .tableCell(let row, let column, let cols, let alignment)
+                    = paragraphs[j].block.kind,
+                  paragraphs[j].block.group == block.group {
+                columns = cols
+                let text = serializeInlines(attr, in: paragraphs[j].range,
+                                            block: paragraphs[j].block)
+                cells.append((row, column, text, alignment))
+                j += 1
+            }
+            pieces.append((tableMarkdown(cells: cells, columns: columns), block, i..<j))
             i = j
         case .raw(let raw):
-            pieces.append((raw, block))
+            pieces.append((raw, block, i..<(i + 1)))
             i += 1
         case .thematicBreak:
-            pieces.append((linePrefix(block) + "---", block))
+            pieces.append((linePrefix(block) + "---", block, i..<(i + 1)))
             i += 1
         default:
             let prefix = linePrefix(block) + kindPrefix(block.kind)
             let inline = serializeInlines(attr, in: range, block: block)
-            pieces.append((prefix + escapeLeading(inline, kind: block.kind), block))
+            pieces.append((prefix + escapeLeading(inline, kind: block.kind), block, i..<(i + 1)))
             i += 1
         }
     }
 
-    guard var result = pieces.first.map({ $0.text }) else { return "" }
-    for k in 1..<pieces.count {
-        result += separator(pieces[k - 1].block, pieces[k].block) + pieces[k].text
+    guard !pieces.isEmpty else { return MarkdownSerialization(markdown: "", paragraphRanges: []) }
+    var result = ""
+    var ranges = [NSRange](repeating: NSRange(location: 0, length: 0), count: paragraphs.count)
+    for (index, piece) in pieces.enumerated() {
+        if index > 0 {
+            result += separator(pieces[index - 1].block, piece.block)
+        }
+        let pieceRange = NSRange(location: (result as NSString).length,
+                                 length: (piece.text as NSString).length)
+        for paragraphIndex in piece.paraIndexes {
+            ranges[paragraphIndex] = pieceRange
+        }
+        result += piece.text
     }
-    return result
+    return MarkdownSerialization(markdown: result, paragraphRanges: ranges)
+}
+
+/// GFM table from collected cells. Missing cells render empty.
+private func tableMarkdown(cells: [(row: Int, column: Int, text: String, alignment: Int)],
+                           columns: Int) -> String {
+    var grid: [Int: [Int: String]] = [:]
+    var alignments = [Int](repeating: 0, count: columns)
+    var rowCount = 1
+    for cell in cells {
+        grid[cell.row, default: [:]][cell.column] = cell.text
+        if cell.column < columns { alignments[cell.column] = cell.alignment }
+        rowCount = max(rowCount, cell.row + 1)
+    }
+    func line(_ values: [String]) -> String {
+        "| " + values.joined(separator: " | ") + " |"
+    }
+    func delimiter(_ alignment: Int) -> String {
+        switch alignment {
+        case 1: return ":--"
+        case 2: return ":-:"
+        case 3: return "--:"
+        default: return "---"
+        }
+    }
+    var lines: [String] = []
+    lines.append(line((0..<columns).map { grid[0]?[$0] ?? "" }))
+    lines.append(line((0..<columns).map { delimiter(alignments[$0]) }))
+    for row in 1..<rowCount {
+        lines.append(line((0..<columns).map { grid[row]?[$0] ?? "" }))
+    }
+    return lines.joined(separator: "\n")
 }
 
 // MARK: - Prefixes & separators
@@ -76,7 +146,7 @@ private func linePrefix(_ block: MDBlock) -> String {
 
 private func kindPrefix(_ kind: MDBlock.Kind) -> String {
     switch kind {
-    case .paragraph, .codeBlock, .thematicBreak, .raw:
+    case .paragraph, .codeBlock, .thematicBreak, .raw, .tableCell:
         return ""
     case .heading(let level):
         return String(repeating: "#", count: level) + " "
@@ -207,6 +277,9 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
     }
 
     let continuationPrefix = linePrefix(block)
+    // Inside table cells a literal "|" would split the cell.
+    var escapePipes = false
+    if case .tableCell = block.kind { escapePipes = true }
     var result = ""
     var stack: [OpenMarker] = []
 
@@ -247,7 +320,8 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
         } else if run.styles.contains(.rawHTML) {
             result += run.text
         } else {
-            result += escapeInline(run.text, continuationPrefix: continuationPrefix)
+            result += escapeInline(run.text, continuationPrefix: continuationPrefix,
+                                   escapePipes: escapePipes)
         }
     }
     for marker in stack.reversed() { result += marker.closer }
@@ -304,13 +378,18 @@ private func codeSpan(_ text: String) -> String {
 
 /// Escapes markdown-significant characters in plain text. U+2028 (hard break)
 /// becomes the backslash form, re-applying the quote/indent prefix.
-private func escapeInline(_ text: String, continuationPrefix: String) -> String {
+private func escapeInline(_ text: String, continuationPrefix: String,
+                          escapePipes: Bool = false) -> String {
     var out = ""
     for ch in text {
         switch ch {
         case "\\", "`", "*", "_", "[", "]", "<", "~":
             out.append("\\")
             out.append(ch)
+        case "|" where escapePipes:
+            out += "\\|"
+        case Character(mdHardBreak) where escapePipes:
+            out.append(" ")  // table cells are single-line
         case Character(mdHardBreak):
             out += "\\\n" + continuationPrefix
         default:

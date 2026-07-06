@@ -39,6 +39,10 @@ struct MDBlock: Equatable {
         /// Extra paragraph of a multi-paragraph list item; indent = content column.
         case listContinuation(indent: Int)
         case thematicBreak
+        /// One table cell; alignment: 0 none / 1 left / 2 center / 3 right
+        /// (column-level, stored on every cell of the column). Cells of one
+        /// table share `group`.
+        case tableCell(row: Int, column: Int, columns: Int, alignment: Int)
         /// Read-only island: serialized verbatim from the stored source text.
         case raw(String)
     }
@@ -174,8 +178,44 @@ private final class VisualRenderer {
             renderList(items: Array(list.listItems), ordered: true,
                        start: Int(list.startIndex), depth: currentListDepth(ctx),
                        group: nil, ctx: ctx)
+        case let table as Markdown.Table where ctx.quoteDepth == 0 && ctx.listIndent == 0:
+            // Top-level tables are editable; nested ones stay islands.
+            renderTable(table, ctx: ctx)
         default:
             renderIsland(block, ctx: ctx)
+        }
+    }
+
+    private func renderTable(_ table: Markdown.Table, ctx: Ctx) {
+        let group = nextGroup()
+        let alignments = table.columnAlignments
+        let columns = max(1, alignments.count)
+
+        func alignmentCode(_ column: Int) -> Int {
+            guard column < alignments.count, let alignment = alignments[column] else { return 0 }
+            switch alignment {
+            case .left: return 1
+            case .center: return 2
+            case .right: return 3
+            }
+        }
+
+        func renderCell(_ cell: Markdown.Table.Cell, row: Int, column: Int) {
+            let kind = MDBlock.Kind.tableCell(row: row, column: column,
+                                              columns: columns,
+                                              alignment: alignmentCode(column))
+            appendParagraph(makeBlock(kind, ctx, group: group)) { b in
+                self.renderInlines(cell.children, block: b, styles: [], link: nil)
+            }
+        }
+
+        for (column, cell) in table.head.cells.enumerated() where column < columns {
+            renderCell(cell, row: 0, column: column)
+        }
+        for (rowIndex, row) in table.body.rows.enumerated() {
+            for (column, cell) in row.cells.enumerated() where column < columns {
+                renderCell(cell, row: rowIndex + 1, column: column)
+            }
         }
     }
 
@@ -281,7 +321,9 @@ private final class VisualRenderer {
         if let html = block as? HTMLBlock {
             raw = html.rawHTML.trimmingCharacters(in: CharacterSet.newlines)
         } else if let srcRange = block.range {
-            let loc = lineIdx.offset(srcRange.lowerBound.line, srcRange.lowerBound.column)
+            // Slice from the line start so multi-line islands keep the quote/
+            // indent prefixes of their intermediate lines consistent.
+            let loc = lineIdx.lineStart(srcRange.lowerBound.line)
             let end = lineIdx.offset(srcRange.upperBound.line, srcRange.upperBound.column)
             if end > loc {
                 raw = nsSource.substring(with: NSRange(location: loc, length: end - loc))

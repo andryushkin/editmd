@@ -8,6 +8,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
     let document: MarkdownDocument
     let fileURL: URL?
+    var positionStore: EditorPositionStore? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -27,6 +28,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let content = document.content
         guard coordinator.lastRenderedContent != content else { return }
         coordinator.lastRenderedContent = content
+        if let store = positionStore {
+            let total = max(1, (content as NSString).length)
+            coordinator.pendingScrollFraction = Double(min(store.markdownOffset, total)) / Double(total)
+        }
 
         let baseDir = assetBaseDir
         let html = previewHTMLPage(
@@ -73,6 +78,16 @@ struct MarkdownPreviewView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         var lastRenderedContent: String?
+        /// Proportional scroll target from the shared position store.
+        var pendingScrollFraction: Double?
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let fraction = pendingScrollFraction, fraction > 0.001 else { return }
+            pendingScrollFraction = nil
+            let js = "window.scrollTo(0, Math.max(0, "
+                + "document.documentElement.scrollHeight * \(fraction) - window.innerHeight * 0.4));"
+            webView.evaluateJavaScript(js)
+        }
 
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,

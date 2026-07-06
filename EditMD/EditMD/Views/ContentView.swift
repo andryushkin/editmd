@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
+    @State private var positionStore = EditorPositionStore()
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .visual }
 
@@ -30,6 +31,7 @@ struct ContentView: View {
                     document: document,
                     theme: theme,
                     plainMode: true,
+                    positionStore: positionStore,
                     onStatsUpdate: { w, c in wordCount = w; charCount = c },
                     onFormatActions: { actions in formatActions = actions },
                     onLintUpdate: { summary in lintSummary = summary }
@@ -38,11 +40,14 @@ struct ContentView: View {
                 VisualMarkdownView(
                     document: document,
                     theme: theme,
+                    fileURL: fileURL,
+                    positionStore: positionStore,
                     onStatsUpdate: { w, c in wordCount = w; charCount = c },
                     onFormatActions: { actions in formatActions = actions }
                 )
             case .preview:
-                MarkdownPreviewView(document: document, fileURL: fileURL)
+                MarkdownPreviewView(document: document, fileURL: fileURL,
+                                    positionStore: positionStore)
             }
 
             statusBar

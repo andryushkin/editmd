@@ -94,4 +94,31 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertNil(indentedKind(.paragraph, by: 1))
         XCTAssertNil(indentedKind(.heading(1), by: 1))
     }
+
+    // MARK: - Table Tab navigation
+
+    func testTabMovesToNextColumn() {
+        XCTAssertEqual(nextTableCellPosition(row: 0, column: 0, columns: 3, rows: 2,
+                                             forward: true)?.column, 1)
+    }
+
+    func testTabWrapsToNextRow() {
+        let next = nextTableCellPosition(row: 0, column: 2, columns: 3, rows: 2, forward: true)
+        XCTAssertEqual(next?.row, 1)
+        XCTAssertEqual(next?.column, 0)
+    }
+
+    func testTabPastLastCellReturnsNil() {
+        XCTAssertNil(nextTableCellPosition(row: 1, column: 2, columns: 3, rows: 2, forward: true))
+    }
+
+    func testShiftTabWrapsToPreviousRowLastColumn() {
+        let previous = nextTableCellPosition(row: 1, column: 0, columns: 3, rows: 2, forward: false)
+        XCTAssertEqual(previous?.row, 0)
+        XCTAssertEqual(previous?.column, 2)
+    }
+
+    func testShiftTabBeforeFirstCellReturnsNil() {
+        XCTAssertNil(nextTableCellPosition(row: 0, column: 0, columns: 3, rows: 2, forward: false))
+    }
 }
