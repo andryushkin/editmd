@@ -4,10 +4,10 @@
 
 Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
 NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
-**Три режима** (v18, переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню):
-- **Source** — сырой markdown без подсветки и декораций (`plainMode` в MarkdownTextView)
-- **Visual** — сейчас гибрид v17 (live preview, маркеры на активной строке); целевое состояние — WYSIWYG (см. Roadmap)
-- **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS)
+**Три режима** (переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню, курсор/скролл сохраняются между режимами):
+- **Source** — сырой markdown, моноширинный, без подсветки; линтер (14 правил, quick-fix) — `SourceTextView.swift`
+- **Visual** — WYSIWYG на attributed-модели: маркеров в тексте нет, семантика в кастомных атрибутах, пропорциональный шрифт, таблицы NSTextTable, картинки, синхронная сериализация в markdown — `VisualTextView.swift`
+- **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS) — `MarkdownPreviewView.swift`
 
 Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
 Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
@@ -19,7 +19,9 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 - **v20 ✅** — WYSIWYG-фундамент: рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown`, round-trip ворота зелёные
 - **v21 ✅** — Visual = настоящий WYSIWYG: `VisualTextView.swift` (isRichText, семантика ввода, декорации, острова read-only)
 - **v22 ✅** — таблицы NSTextTable (редактируемые ячейки, Tab/Enter-навигация), картинки NSTextAttachment, курсор/скролл сохраняются между режимами (EditorPositionStore)
-- **v23** — полировка, чистка гибридного кода (highlighting-часть MarkdownTextView мертва после v21)
+- **v23 ✅** — чистка (гибрид v17 удалён, Source = SourceTextView) + ⌘K ссылки в Visual + visual-audit.md переписан. **Roadmap трёх режимов завершён.**
+
+**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок.
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
@@ -33,10 +35,10 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift (линтер Source-режима), MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель v20)
-        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, MarkdownPreviewView.swift (WKWebView)
+        ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
+        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift (WKWebView)
     EditMDTests/
-        ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
+        ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         ├── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
         ├── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
@@ -509,6 +511,15 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v23 — Complete (чистка + ⌘K)
+- **Гибрид v17 удалён** — `MarkdownTextView.swift` (1180 строк) заменён на `SourceTextView.swift` (~330): plain-редактор + линт + позиция курсора. Умерли: applyHighlighting, activeRegion, инкрементальная переразметка, overlay-кнопки кода, drawBackground-декорации, `spanDiffDirtyRange` (+5 его тестов)
+- **`MarkdownHighlighter.swift` живёт** — `collectSpans` + `LineIndex` нужны линтеру (v19) и рендереру островов (v20); все 53 span-теста остаются
+- **⌘K в Visual** — Add/Edit/Remove Link: NSAlert с полем URL; существующая ссылка под курсором расширяется через `longestEffectiveRange(.mdLink)`; пустое выделение без ссылки — вставка URL как линк-текста; `FormatActions.editLink` (optional, nil в Source)
+- **visual-audit.md переписан** — чеклист трёх режимов вместо матрицы SpanKind v10
+- **210 тестов** (215 − 5 SpanDiffDirtyRange)
+
+> **Историческая заметка:** разделы ниже про MarkdownTextView / MarkdownNSTextView / applyHighlighting / activeRegion / applyMarker / overlay-кнопки (v2–v17 gotchas) описывают КОД, УДАЛЁННЫЙ в v23. Они сохранены как знание о граблях NSTextView/TextKit — многие паттерны (boundingRect, button pooling, NSLayoutManagerDelegate, shouldChangeText-restamp) переиспользованы в VisualTextView.
 
 ### v22 — Complete (таблицы + картинки + курсор между режимами)
 - **Таблицы — третья попытка, успешная** — `isRichText=true` разблокировал `NSTextTable`: `MDBlock.Kind.tableCell(row:column:columns:alignment:)`, ячейки одной таблицы делят `group`; render → параграф на ячейку; presentation вешает `NSTextTableBlock` (ОДИН shared NSTextTable на группу — иначе layout разваливается); сериализатор собирает grid и эмитит GFM (нормальная форма `| --- |`, alignment `:--`/`:-:`/`--:` сохраняются)

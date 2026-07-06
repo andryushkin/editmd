@@ -769,7 +769,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                 makeFontSmaller: { EditorFontSettings.shared.fontSize -= 1 },
                 canIncreaseFontSize: EditorFontSettings.shared.canIncrease,
                 canDecreaseFontSize: EditorFontSettings.shared.canDecrease,
-                toggleChecklist: { [weak self] in self?.toggleChecklist() }
+                toggleChecklist: { [weak self] in self?.toggleChecklist() },
+                editLink: { [weak self] in self?.editLink() }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -859,6 +860,74 @@ struct VisualMarkdownView: NSViewRepresentable {
                     }
                 }
                 restamp(paragraph, to: target, in: textView)
+            }
+        }
+
+        /// ⌘K: add a link on the selection, or edit/remove the link under the
+        /// cursor. Empty selection with no existing link inserts the URL text.
+        func editLink() {
+            guard let textView, let storage = textView.textStorage else { return }
+            var selection = textView.selectedRange()
+            var existingURL = ""
+
+            // Expand to the full run of an existing link under the cursor.
+            if storage.length > 0 {
+                let probe = min(selection.location, storage.length - 1)
+                var effective = NSRange(location: 0, length: 0)
+                if let dest = storage.attribute(.mdLink, at: probe,
+                                                longestEffectiveRange: &effective,
+                                                in: NSRange(location: 0, length: storage.length)) as? String {
+                    existingURL = dest
+                    selection = effective
+                }
+            }
+
+            let alert = NSAlert()
+            alert.messageText = existingURL.isEmpty ? "Add Link" : "Edit Link"
+            alert.informativeText = "URL:"
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+            field.stringValue = existingURL
+            field.placeholderString = "https://"
+            alert.accessoryView = field
+            alert.window.initialFirstResponder = field
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            if !existingURL.isEmpty { alert.addButton(withTitle: "Remove Link") }
+
+            let response = alert.runModal()
+            let url = field.stringValue.trimmingCharacters(in: .whitespaces)
+
+            switch response {
+            case .alertFirstButtonReturn where !url.isEmpty:
+                if selection.length == 0 {
+                    // Nothing selected: insert the URL itself as linked text.
+                    guard textView.shouldChangeText(in: selection, replacementString: url) else { return }
+                    isMutating = true
+                    var attrs = textView.typingAttributes
+                    attrs[.mdLink] = url
+                    storage.replaceCharacters(in: selection,
+                                              with: NSAttributedString(string: url, attributes: attrs))
+                    isMutating = false
+                    textView.didChangeText()
+                    textView.setSelectedRange(
+                        NSRange(location: selection.location + (url as NSString).length, length: 0))
+                } else {
+                    guard textView.shouldChangeText(in: selection, replacementString: nil) else { return }
+                    isMutating = true
+                    storage.addAttribute(.mdLink, value: url, range: selection)
+                    isMutating = false
+                    textView.didChangeText()
+                }
+                afterMutation()
+            case .alertThirdButtonReturn:
+                guard textView.shouldChangeText(in: selection, replacementString: nil) else { return }
+                isMutating = true
+                storage.removeAttribute(.mdLink, range: selection)
+                isMutating = false
+                textView.didChangeText()
+                afterMutation()
+            default:
+                break
             }
         }
 

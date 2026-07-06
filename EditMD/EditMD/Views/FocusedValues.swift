@@ -9,6 +9,8 @@ struct FormatActions {
     var canDecreaseFontSize: Bool
     /// Visual mode only: toggles task-list state of the selected paragraphs.
     var toggleChecklist: (() -> Void)? = nil
+    /// Visual mode only: add/edit/remove a link on the selection (⌘K).
+    var editLink: (() -> Void)? = nil
 }
 
 struct FormatActionsKey: FocusedValueKey {

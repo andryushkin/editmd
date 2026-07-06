@@ -27,10 +27,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             switch mode {
             case .source:
-                MarkdownTextView(
+                SourceTextView(
                     document: document,
                     theme: theme,
-                    plainMode: true,
                     positionStore: positionStore,
                     onStatsUpdate: { w, c in wordCount = w; charCount = c },
                     onFormatActions: { actions in formatActions = actions },

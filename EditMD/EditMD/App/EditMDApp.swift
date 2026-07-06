@@ -91,6 +91,12 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
                 .disabled(actions?.toggleChecklist == nil)
+
+                Button("Add Link…") {
+                    actions?.editLink?()
+                }
+                .keyboardShortcut("k")
+                .disabled(actions?.editLink == nil)
             }
         }
     }
