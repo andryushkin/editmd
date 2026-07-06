@@ -16,7 +16,7 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 
 - **v18 ✅** — каркас режимов + plain Source + Preview (WKWebView)
 - **v19 ✅** — линтер в Source (14 правил, temporary attributes, quick-fix в контекстном меню, счётчик в статус-строке)
-- **v20** — Visual WYSIWYG фундамент: `isRichText = true`, рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown` с round-trip тестами-воротами (`serialize(render(md)) == normalize(md)`); непредставимые конструкции — read-only острова
+- **v20 ✅** — WYSIWYG-фундамент: рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown`, round-trip ворота зелёные (UI не тронут — Visual остаётся гибридом v17 до v21)
 - **v21** — Visual editing: семантика ввода (Enter в списках, Tab-вложенность, typing attributes), чекбоксы (кнопка/⌘⇧L, автоввод `[]`+space, Enter продолжает task-список), блочные декорации из drawBackground
 - **v22** — таблицы через NSTextTable (разблокирован isRichText=true) + изображения NSTextAttachment
 - **v23** — синхронизация режимов, полировка, чистка гибридного кода
@@ -33,14 +33,15 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift (линтер Source-режима)
+        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift (линтер Source-режима), MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель v20)
         └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, MarkdownPreviewView.swift (WKWebView)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
         ├── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
         ├── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
-        └── MarkdownLintTests.swift         # 30 XCTest кейсов для lint() — все 14 правил + анти-FP гарды + применение fix'ов
+        ├── MarkdownLintTests.swift         # 30 XCTest кейсов для lint() — все 14 правил + анти-FP гарды + применение fix'ов
+        └── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 
@@ -508,6 +509,22 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v20 — Complete (модель WYSIWYG, без UI)
+- **`MarkdownToAttributed.swift`** — `renderMarkdownToAttributed(md, style:)`: markdown → NSAttributedString **без маркеров**; семантика в кастомных атрибутах: `.mdBlock` (MDBlock: kind + quoteDepth + quoteGroup + group + listIndent, проштампован на весь параграф включая `\n`), `.mdInline` (битмаска bold/italic/strike/code/rawHTML), `.mdLink`, `.mdImage`; шрифты **пропорциональные** (решение зафиксировано), код — моно
+- **`AttributedToMarkdown.swift`** — `serializeAttributedToMarkdown(attr)`: читает ТОЛЬКО семантические атрибуты (шрифты/цвета — производные, никогда не источник истины); стек-алгоритм открытия/закрытия inline-маркеров с reopen (корректно `**a [b](u) c**`)
+- **Острова** — Table и HTMLBlock → `.raw(текст)`: отображаются моноширинно (переводы строк → U+2028), сериализуются дословно
+- **Нормальная форма** (HTML-инвариантна): setext→ATX, reference-ссылки→inline, loose→tight списки, indented→fenced code, `_`→`*`, `+/*`→`-`, soft break→пробел, hard break→`\`-форма, вложенность списков = 4 пробела, `1)`→`1.`
+- **Соседние списки одного семейства** — разделитель `<!-- -->` (приём Prettier): blank line их не разделяет после нормализации маркеров; `group` в MDBlock идентифицирует всё ДЕРЕВО списка (вложенные наследуют group родителя)
+- **Ворота качества** — `RoundTripTests` (55): stable-фикстуры `f(x)==x`, идемпотентность `f(f(x))==f(x)`, семантика через HTML-отпечаток `markdownHTMLBody` (нормализация: collapse whitespace + strip комментариев)
+- **186 тестов** — +55 RoundTripTests (включая корпус `test-all-elements.md` через `#filePath`)
+
+### v20 — gotchas
+- **MDBlock (Swift struct) как значение атрибута** — боксится в `_SwiftValue`; чтение `as? MDBlock` работает; на равенство рантайм полагается только внутри параграфа — сериализатор читает атрибут по индексу начала параграфа (для пустого параграфа — по индексу его `\n`, атрибут проштампован и на нём)
+- **Картинка внутри ссылки** — image-run обязан нести `.mdLink` и эмититься ПОСЛЕ open/close маркеров, иначе `[![alt](i)](u)` теряет обёртку
+- **`escapeLeading` и для пунктов списка** — текст пункта, начинающийся с `-`/`1.`, породил бы вложенный блок при репарсе
+- **quoteGroup в правиле tight-склейки списков** — иначе списки из двух РАЗНЫХ blockquote склеивают цитаты
+- **GFM autolink после `(`** — `[text](https://…` без `)`: autolink-спан покрывает URL; смотреть покрытие только `[text]`-части (тот же урок, что в линте v19)
 
 ### v19 — Complete
 - **`MarkdownLint.swift`** — pure `lint(text) -> [LintDiagnostic]`; принцип: сравнение сырого текста с тем, что распарсилось (spans/AST) — «похоже на разметку, но не распарсилось» = диагностика
