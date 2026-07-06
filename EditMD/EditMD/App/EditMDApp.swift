@@ -4,6 +4,7 @@ import SwiftUI
 struct EditMDApp: App {
 
     @FocusedValue(\.formatActions) var actions
+    @FocusedValue(\.editorMode) var editorMode
 
     var body: some Scene {
         DocumentGroup(newDocument: { MarkdownDocument() }) { configuration in
@@ -44,6 +45,18 @@ struct EditMDApp: App {
                     NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
                 }
                 .keyboardShortcut("a")
+            }
+
+            CommandGroup(before: .toolbar) {
+                ForEach(EditorMode.allCases) { mode in
+                    Button(mode.title) {
+                        editorMode?.wrappedValue = mode
+                    }
+                    .keyboardShortcut(mode.keyboardShortcutKey)
+                    .disabled(editorMode == nil)
+                }
+
+                Divider()
             }
 
             CommandMenu("Format") {

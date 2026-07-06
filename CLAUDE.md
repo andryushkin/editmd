@@ -4,8 +4,24 @@
 
 Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
 NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
-Только режим Edit (NSTextView). Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
+**Три режима** (v18, переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню):
+- **Source** — сырой markdown без подсветки и декораций (`plainMode` в MarkdownTextView)
+- **Visual** — сейчас гибрид v17 (live preview, маркеры на активной строке); целевое состояние — WYSIWYG (см. Roadmap)
+- **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS)
+
+Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
 Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
+
+## Roadmap трёх режимов (принят 2026-07-06)
+
+- **v18 ✅** — каркас режимов + plain Source + Preview (WKWebView)
+- **v19** — линтер в Source: `MarkdownLint.swift` (pure `lint(text) -> [LintDiagnostic]`), правила: невалидные чекбоксы (`- [+]` → fix `[x]`), незакрытые маркеры, битые ссылки, `#без пробела`, незакрытый fence, кривые таблицы; отображение через `NSLayoutManager.addTemporaryAttribute` (не пачкает storage/undo), quick-fix в контекстном меню, счётчик `⚠ N` в статус-строке
+- **v20** — Visual WYSIWYG фундамент: `isRichText = true`, рендерер `MarkdownToAttributed` + сериализатор `AttributedToMarkdown` с round-trip тестами-воротами (`serialize(render(md)) == normalize(md)`); непредставимые конструкции — read-only острова
+- **v21** — Visual editing: семантика ввода (Enter в списках, Tab-вложенность, typing attributes), чекбоксы (кнопка/⌘⇧L, автоввод `[]`+space, Enter продолжает task-список), блочные декорации из drawBackground
+- **v22** — таблицы через NSTextTable (разблокирован isRichText=true) + изображения NSTextAttachment
+- **v23** — синхронизация режимов, полировка, чистка гибридного кода
+
+**Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
 ## Project Structure
 
@@ -17,12 +33,13 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
-        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift
-        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift
+        ├── Editor/     MarkdownTextView.swift (NSViewRepresentable), MarkdownHighlighter.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор)
+        └── Views/      ContentView.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, MarkdownPreviewView.swift (WKWebView)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 59 XCTest кейсов для LineIndex + collectSpans (все markdown-элементы, включая codeMarker)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
-        └── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
+        ├── EditMenuTests.swift             # 7 XCTest кейсов для MarkdownDocument
+        └── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 
@@ -490,6 +507,21 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
+
+### v18 — Complete
+- **Три режима** — `EditorMode` (source/visual/preview), segmented picker в тулбаре, ⌘1/⌘2/⌘3 через `CommandGroup(before: .toolbar)` + `@FocusedValue(\.editorMode)` (Binding); режим хранится в `@AppStorage("editorMode")`
+- **Source (plain)** — `plainMode: Bool` в MarkdownTextView; guard в начале `rehighlight()` (сбрасывает pendingEdit); entry-массивы остаются пустыми → drawBackground/overlays не рисуют ничего
+- **Preview** — `MarkdownPreviewView` (WKWebView): свой `HTMLBodyVisitor` в `MarkdownHTML.swift` + full-page CSS (`color-scheme: light dark`, системные цвета Canvas/CanvasText → следует за ☀/🌙 без перезагрузки); клики по ссылкам → NSWorkspace (browser), Coordinator кэширует `lastRenderedContent`
+- **Картинки в Preview** — data-URI инлайнинг (`dataURI(for:baseDir:)`): loadHTMLString не даёт file://-доступ к субресурсам; baseDir = папка .md или корень .textbundle; лимит 8 MB, MIME по расширению
+- **101 тест** — +12 `MarkdownHTMLTests`
+- **Смена режима** — ветки switch в ContentView = разные structural identity → NSView пересоздаётся, undo-стек сбрасывается (осознанное решение)
+- **statusBar в Preview** — счёт слов напрямую из `document.content` (нет editor-коллбеков)
+
+### v18 — gotchas
+- **HTMLFormatter из swift-markdown НЕ использовать для Preview** — не эскейпит text/code (`<div>` в code block ломает страницу), заголовки через `plainText` теряют inline-разметку. Свой визитор в `MarkdownHTML.swift`
+- **`<li>` + вложенный `<p>`** — swift-markdown всегда оборачивает контент пункта в Paragraph; блочный `<p>` уносит текст под чекбокс/буллит. Визитор разворачивает первый Paragraph пункта inline (GitHub tight-стиль), остальные children рендерит как есть
+- **WKNavigationDelegate + Swift 6** — в macOS 26 SDK протокол @MainActor-аннотирован: `@MainActor final class Coordinator: NSObject, WKNavigationDelegate` с обычными методами собирается без nonisolated-обвязки
+- **xcodebuild через `| head`** — SIGPIPE убивает сборку на середине; логировать в файл, потом grep
 
 ### v17 — Complete
 - **Кликабельные ссылки** — `linkText(destination: String?)`; `linkEntries` в MarkdownNSTextView; Cmd+click открывает URL через NSWorkspace; tooltip с адресом (`.toolTip` атрибут); обычный клик ставит курсор

@@ -5,32 +5,58 @@ struct ContentView: View {
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
 
+    @AppStorage("editorMode") private var storedMode: String = EditorMode.visual.rawValue
     @State private var isDark: Bool = false
     @State private var theme: EditorTheme = .github
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
 
+    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .visual }
+
+    private var modeBinding: Binding<EditorMode> {
+        Binding(
+            get: { EditorMode(rawValue: storedMode) ?? .visual },
+            set: { storedMode = $0.rawValue }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            MarkdownTextView(
-                document: document,
-                theme: theme,
-                onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                onFormatActions: { actions in formatActions = actions }
-            )
-
-            HStack {
-                Spacer()
-                Text("\(wordCount) words  \(charCount) chars")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+            switch mode {
+            case .source:
+                MarkdownTextView(
+                    document: document,
+                    theme: theme,
+                    plainMode: true,
+                    onStatsUpdate: { w, c in wordCount = w; charCount = c },
+                    onFormatActions: { actions in formatActions = actions }
+                )
+            case .visual:
+                MarkdownTextView(
+                    document: document,
+                    theme: theme,
+                    onStatsUpdate: { w, c in wordCount = w; charCount = c },
+                    onFormatActions: { actions in formatActions = actions }
+                )
+            case .preview:
+                MarkdownPreviewView(document: document, fileURL: fileURL)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+
+            statusBar
         }
         .preferredColorScheme(isDark ? .dark : .light)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Picker("Mode", selection: modeBinding) {
+                    ForEach(EditorMode.allCases) { mode in
+                        Image(systemName: mode.systemImage)
+                            .help(mode.title)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
             ToolbarItemGroup {
                 Button {
                     NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
@@ -65,6 +91,22 @@ struct ContentView: View {
                 }
             }
         }
-        .focusedSceneValue(\.formatActions, formatActions)
+        .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
+        .focusedSceneValue(\.editorMode, modeBinding)
+    }
+
+    private var statusBar: some View {
+        // Preview has no editor callbacks — count directly from the document.
+        let (words, chars) = mode == .preview
+            ? wordAndCharCount(in: document.content)
+            : (wordCount, charCount)
+        return HStack {
+            Spacer()
+            Text("\(words) words  \(chars) chars")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 }

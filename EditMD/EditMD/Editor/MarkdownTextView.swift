@@ -5,6 +5,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
     let document: MarkdownDocument
     var theme: EditorTheme = .system
+    /// Source mode: raw markdown, no highlighting and no drawn decorations.
+    var plainMode: Bool = false
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
 
@@ -152,6 +154,10 @@ struct MarkdownTextView: NSViewRepresentable {
         enum RehighlightMode { case auto, full }
 
         func rehighlight(_ mode: RehighlightMode = .auto) {
+            if parent.plainMode {
+                pendingEdit = nil
+                return
+            }
             guard !isApplyingHighlight, let storage = textView?.textStorage else { return }
             let sel = textView?.selectedRange() ?? NSRange(location: 0, length: 0)
             let len = storage.length
