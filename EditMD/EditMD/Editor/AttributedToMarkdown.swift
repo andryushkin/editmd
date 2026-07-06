@@ -139,6 +139,12 @@ private func tableMarkdown(cells: [(row: Int, column: Int, text: String, alignme
 
 // MARK: - Prefixes & separators
 
+/// UTF-16 length of the markdown prefix emitted before a paragraph's display
+/// text ("# ", "- [x] ", "> "…). Used for cursor mapping across modes.
+func markdownPrefixLength(for block: MDBlock) -> Int {
+    ((linePrefix(block) + kindPrefix(block.kind)) as NSString).length
+}
+
 private func linePrefix(_ block: MDBlock) -> String {
     String(repeating: " ", count: block.listIndent)
         + String(repeating: "> ", count: block.quoteDepth)

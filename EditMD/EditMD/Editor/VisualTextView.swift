@@ -182,6 +182,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         var isInternalUpdate = false
         var lastSerialized = ""
         private var isMutating = false
+        /// setAttributedString during (re)load resets the selection; the
+        /// callback must not clobber the cross-mode cursor store.
+        private var isLoadingDocument = false
         /// Row append / row delete restructure tables legally — bypass the
         /// cell-integrity guard in shouldChangeTextIn.
         private var isProgrammaticTableEdit = false
@@ -205,6 +208,7 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         func loadDocument() {
             guard let textView, let storage = textView.textStorage else { return }
+            isLoadingDocument = true
             let rendered = renderMarkdownToAttributed(parent.document.content, style: visualStyle)
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
@@ -212,6 +216,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
+            isLoadingDocument = false
             restoreCursor()
         }
 
@@ -233,18 +238,25 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         func storeCursor() {
-            guard let store = parent.positionStore, let textView,
+            guard !isLoadingDocument, let store = parent.positionStore, let textView,
+                  let storage = textView.textStorage,
                   !lastParagraphRanges.isEmpty else { return }
             let nsText = textView.string as NSString
             let location = textView.selectedRange().location
             let (index, start) = paragraphIndex(at: location, in: nsText)
             guard index < lastParagraphRanges.count else { return }
             let mdRange = lastParagraphRanges[index]
-            store.markdownOffset = mdRange.location + min(location - start, mdRange.length)
+            // Compensate for the markdown prefix ("# ", "- [x] ", "> " …) the
+            // serializer emits before the display text.
+            let blockValue = block(at: NSRange(location: start, length: 0), in: storage)
+            let prefixLength = markdownPrefixLength(for: blockValue)
+            store.markdownOffset = min(mdRange.location + prefixLength + (location - start),
+                                       NSMaxRange(mdRange))
         }
 
         private func restoreCursor() {
             guard let store = parent.positionStore, let textView,
+                  let storage = textView.textStorage,
                   !lastParagraphRanges.isEmpty else { return }
             let target = store.markdownOffset
             var index = 0
@@ -265,6 +277,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                 }
                 i += 1
             }
+            let blockValue = block(at: NSRange(location: start, length: 0), in: storage)
+            within = max(0, within - markdownPrefixLength(for: blockValue))
             let cursor = min(start + within, end)
             textView.setSelectedRange(NSRange(location: cursor, length: 0))
             DispatchQueue.main.async { [weak textView] in

@@ -57,18 +57,23 @@ struct SourceTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
 
         scrollView.documentView = textView
-        textView.delegate = context.coordinator
 
         let coordinator = context.coordinator
         coordinator.textView = textView
+        // Capture the cross-mode offset BEFORE any text/delegate wiring:
+        // setting the string resets the selection, and the selection-change
+        // callback would clobber the stored value with 0.
+        let restoreOffset = positionStore?.markdownOffset
         textView.string = document.content
+        textView.delegate = coordinator
 
         coordinator.updateStats()
         coordinator.publishActions()
         coordinator.scheduleLint(delaySeconds: 0)
 
-        if let store = positionStore {
-            let offset = min(store.markdownOffset, (textView.string as NSString).length)
+        if let store = positionStore, let restoreOffset {
+            store.markdownOffset = restoreOffset
+            let offset = min(restoreOffset, (textView.string as NSString).length)
             textView.setSelectedRange(NSRange(location: offset, length: 0))
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }

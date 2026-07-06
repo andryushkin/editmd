@@ -108,6 +108,14 @@ final class RoundTripTests: XCTestCase {
 
     // MARK: - Serialization map (cursor continuity)
 
+    func testMarkdownPrefixLengths() {
+        XCTAssertEqual(markdownPrefixLength(for: MDBlock(kind: .heading(2))), 3)      // "## "
+        XCTAssertEqual(markdownPrefixLength(for: MDBlock(kind: .taskItem(depth: 0, done: true))), 6)
+        XCTAssertEqual(markdownPrefixLength(for: MDBlock(kind: .paragraph, quoteDepth: 1)), 2)
+        XCTAssertEqual(markdownPrefixLength(for: MDBlock(kind: .bulletItem(depth: 1))), 6)  // 4 spaces + "- "
+        XCTAssertEqual(markdownPrefixLength(for: MDBlock(kind: .paragraph)), 0)
+    }
+
     func testParagraphRangesMapCoversAllParagraphs() {
         let attr = renderMarkdownToAttributed("# T\n\nbody\n\n- a\n- b")
         let detailed = serializeAttributedToMarkdownDetailed(attr)
