@@ -2,16 +2,13 @@
 
 ## Overview
 
-Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`.
-NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса.
-**Три режима** (переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню, курсор/скролл сохраняются между режимами):
-- **Source** — сырой markdown, моноширинный, без подсветки; линтер (14 правил, quick-fix) — `SourceTextView.swift`
+Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`. NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса. **Три режима** (переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню, курсор/скролл сохраняются между режимами):
+
+- **Source** — сырой markdown, моноширинный; подсветка синтаксиса по настройкам (per-mode элементы: заголовки/жирное/код/цитаты/ссылки — размер/вес/цвет через `collectSpans`, v27) + линтер (14 правил, quick-fix) — `SourceTextView.swift`
 - **Visual** — WYSIWYG на attributed-модели: маркеров в тексте нет, семантика в кастомных атрибутах, пропорциональный шрифт, таблицы NSTextTable, картинки, синхронная сериализация в markdown — `VisualTextView.swift`
 - **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS) — `MarkdownPreviewView.swift`
 
-Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`.
-Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`.
-**Сайдбар-оглавление** (⌃⌘S, кастомный HStack-сплит + перетаскиваемый divider) — заголовки документа, клик = переход. **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами).
+Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`. **Сайдбар-оглавление** (⌃⌘S, кастомный HStack-сплит + перетаскиваемый divider) — заголовки документа, клик = переход. **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
 
 ## Roadmap трёх режимов (принят 2026-07-06)
 
@@ -22,8 +19,11 @@ NSTextView обёрнут в `NSViewRepresentable` для подсветки с�
 - **v22 ✅** — таблицы NSTextTable (редактируемые ячейки, Tab/Enter-навигация), картинки NSTextAttachment, курсор/скролл сохраняются между режимами (EditorPositionStore)
 - **v23 ✅** — чистка (гибрид v17 удалён, Source = SourceTextView) + ⌘K ссылки в Visual + visual-audit.md переписан. **Roadmap трёх режимов завершён.**
 - **v24 ✅** — сайдбар-оглавление + сплит редактор/превью + тулбар в стиле agterm (паттерны из github.com/umputun/agterm)
+- **v25 ✅** — паттерны из FSNotes (github.com/glushchenko/fsnotes): интерактивный Preview (Enter→Visual, кликабельные чекбоксы с записью в исходник, CSS синхронизирован с редактором), Back/Forward по документам, Edit▸Find (⌘F/⌥⌘F/⌘G/⇧⌘G/⌘E через NSTextFinder), полное Format-меню (strikethrough/code span/заголовки ⌥⌘1–6/списки/цитата/code block — в Source и Visual)
+- **v26 ✅** — Settings-окно (⌘,): шрифт/отступы/ширина колонки раздельно по Source/Visual/Preview, межстрочный интервал (Visual), line-height (Preview), тема + цвета элементов (General). `EditorFontSettings` удалён в пользу `EditorSettings`
+- **v27 ✅** — настройки по-настоящему применяются + per-mode элементы: честные цвета (Visual/Preview/Source читают тему, не хардкод), выбор гарнитуры+веса per mode, per-mode ElementStyles (H1–H6/bold/code/link/quote — размер/вес/цвет), **Source получил подсветку** (стилизует raw markdown по своим элементам), Appearance (System/Light/Dark) персистится, Comfortable удалён
 
-**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок.
+**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes).
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
@@ -38,7 +38,7 @@ editmd/
         ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
         ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
         ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), MarkdownOutline.swift (outline для сайдбара), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
-        └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар), OutlineSidebar.swift, EditorFontSettings.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift (+ jump-нотификация), MarkdownPreviewView.swift (WKWebView, live-режим для сплита)
+        └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар), OutlineSidebar.swift, EditorSettings.swift (шрифт/отступы/колонка/тема — per-mode + general, персист в UserDefaults), SettingsView.swift (⌘, окно, вкладки General/Source/Visual/Preview), FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift (+ jump-нотификация), MarkdownPreviewView.swift (WKWebView, live-режим для сплита), DocumentHistory.swift (Back/Forward)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
@@ -64,11 +64,13 @@ xcodebuild -scheme EditMD -destination "platform=macOS" -enableCodeCoverage NO t
 ## Architecture
 
 ### DocumentGroup + ReferenceFileDocument
-`EditMDApp.swift` использует `DocumentGroup(newDocument:editor:)`. Документ — `MarkdownDocument` (class, `ReferenceFileDocument`).
-DocumentGroup автоматически предоставляет File меню (New/Open/Save/Save As/Revert) — ручные File-команды не нужны.
+
+`EditMDApp.swift` использует `DocumentGroup(newDocument:editor:)`. Документ — `MarkdownDocument` (class, `ReferenceFileDocument`). DocumentGroup автоматически предоставляет File меню (New/Open/Save/Save As/Revert) — ручные File-команды не нужны.
 
 ### NSTextView через NSViewRepresentable
+
 `MarkdownTextView.swift` — обёртка NSTextView. Coordinator содержит:
+
 - NSTextViewDelegate (textDidChange, textViewDidChangeSelection)
 - Подсветка синтаксиса (applyHighlighting, rehighlight)
 - Форматирование (toggleBold, toggleItalic, wrapSelection)
@@ -76,17 +78,17 @@ DocumentGroup автоматически предоставляет File мен�
 - Обработка изменения шрифта
 
 ### @FocusedValue для меню Format
-Кастомные команды (Bold/Italic/Font size) передаются через `@FocusedValue(\.formatActions)`.
-Стандартные команды (Cut/Copy/Paste/Undo/Redo) — через `NSApp.sendAction` → responder chain.
+
+Кастомные команды (Bold/Italic/Font size) передаются через `@FocusedValue(\.formatActions)`. Стандартные команды (Cut/Copy/Paste/Undo/Redo) — через `NSApp.sendAction` → responder chain.
 
 ### Feedback loop prevention
-В `updateNSView` флаг `isInternalUpdate` предотвращает цикл:
-textDidChange → document.content = ... → SwiftUI вызывает updateNSView → НЕ перезаписываем textView.string.
+
+В `updateNSView` флаг `isInternalUpdate` предотвращает цикл: textDidChange → document.content = … → SwiftUI вызывает updateNSView → НЕ перезаписываем textView.string.
 
 ### updateNSView: смена темы требует явной обработки
-`coordinator.parent = self` обновляет `parent.theme`, но **не** обновляет `textView.theme` и не вызывает `rehighlight()`.
-Без явной проверки переключение тем визуально не работает.
-Паттерн: сравнивать по `theme.name` (т.к. `NSColor` не `Equatable`), затем обновлять textView и rehighlight:
+
+`coordinator.parent = self` обновляет `parent.theme`, но **не** обновляет `textView.theme` и не вызывает `rehighlight()`. Без явной проверки переключение тем визуально не работает. Паттерн: сравнивать по `theme.name` (т.к. `NSColor` не `Equatable`), затем обновлять textView и rehighlight:
+
 ```swift
 if textView.theme.name != theme.name {
     textView.theme = theme
@@ -95,20 +97,24 @@ if textView.theme.name != theme.name {
     return
 }
 ```
-`EditorTheme` содержит поле `var name: String` — идентификатор темы ("system", "comfortable", "github").
+
+`EditorTheme` содержит поле `var name: String` — идентификатор темы (“system”, “comfortable”, “github”).
 
 ## Known Issues / Gotchas
 
 ### ReferenceFileDocument.init(configuration:) — nonisolated
-Protocol methods `init(configuration:)`, `snapshot()`, `fileWrapper()` — nonisolated.
-Свойства, мутируемые в них:
+
+Protocol methods `init(configuration:)`, `snapshot()`, `fileWrapper()` — nonisolated. Свойства, мутируемые в них:
+
 ```swift
 nonisolated(unsafe) var content: String
 nonisolated(unsafe) var assetsFileWrapper: FileWrapper?
 ```
 
 ### Snapshot + FileWrapper Sendable
+
 `FileWrapper` не конформит `Sendable`. Snapshot маркирован `@unchecked Sendable`:
+
 ```swift
 struct Snapshot: @unchecked Sendable {
     let content: String
@@ -117,12 +123,13 @@ struct Snapshot: @unchecked Sendable {
 ```
 
 ### NotificationCenter + @MainActor + Swift 6
-Closure в `addObserver(forName:object:queue:using:)` — `@Sendable`, конфликт с `@MainActor`.
-Решение: selector-based `addObserver(self, selector:, name:, object:)`.
+
+Closure в `addObserver(forName:object:queue:using:)` — `@Sendable`, конфликт с `@MainActor`. Решение: selector-based `addObserver(self, selector:, name:, object:)`.
 
 ### NSTextStorage: комбинирование font traits (bold + italic)
-При применении italic к тексту, который уже может быть bold — читать существующий шрифт из storage
-и union трейты, иначе italic затрёт bold:
+
+При применении italic к тексту, который уже может быть bold — читать существующий шрифт из storage и union трейты, иначе italic затрёт bold:
+
 ```swift
 let existing = storage.attribute(.font, at: range.location, effectiveRange: nil)
     as? NSFont ?? fallbackFont
@@ -133,16 +140,17 @@ if let font = existing.withSymbolicTraits(combined) {
 ```
 
 ### ImageProvider (MarkdownUI) + Swift 6: не использовать NSImage
-`@MainActor struct` не может конформить nonisolated `ImageProvider` в Swift 6 strict mode.
-Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL).
-`NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
+
+`@MainActor struct` не может конформить nonisolated `ImageProvider` в Swift 6 strict mode. Решение: `AsyncImage` с `file://` URL (резолвить путь до файла, отдать URL). `NSImage(contentsOf:)` — @MainActor в macOS 26 SDK, использовать нельзя.
 
 ### Кэширование spans: `collectSpans` — чистая функция текста
+
 `collectSpans` зависит только от текста, не от позиции курсора. Coordinator кэширует результат в `cachedSpans` и инвалидирует при `text != cachedText` (String `==` через pointer equality — O(1) для COW). При движении курсора spans берутся из кэша, пересчитывается только `activeRegion` и применяются атрибуты. Аналогично `cachedQuoteDepths` — глубина цитат вычисляется O(N) стеком при изменении текста.
 
 ### NSTextBlock не работает при isRichText = false
-`NSTextBlock` (border, padding через `NSMutableParagraphStyle.textBlocks`) — не рендерится когда `NSTextView.isRichText = false`.
-Для рисования левых полос/фона блоков использовать подкласс NSTextView с переопределением `drawBackground(in:)`:
+
+`NSTextBlock` (border, padding через `NSMutableParagraphStyle.textBlocks`) — не рендерится когда `NSTextView.isRichText = false`. Для рисования левых полос/фона блоков использовать подкласс NSTextView с переопределением `drawBackground(in:)`:
+
 ```swift
 class MarkdownNSTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
@@ -153,23 +161,26 @@ class MarkdownNSTextView: NSTextView {
 ```
 
 ### quoteMarker в вложенных blockquote
-`cmark_node_get_start_column(node)` даёт колонку `>` для данного уровня вложенности (sc=1 для внешнего, sc=3 для вложенного после `> `).
-Для поиска маркера на каждой строке: `lineIdx.offset(line, sc)`, НЕ `lineIdx.lineStart(line)`.
+
+`cmark_node_get_start_column(node)` даёт колонку `>` для данного уровня вложенности (sc=1 для внешнего, sc=3 для вложенного после `> `). Для поиска маркера на каждой строке: `lineIdx.offset(line, sc)`, НЕ `lineIdx.lineStart(line)`.
 
 ### headIndent для вложенных blockquote (NSParagraphStyle — paragraph-level атрибут)
-`headIndent` / `firstLineHeadIndent` применяется к **первому символу параграфа** — NSLayoutManager игнорирует стили на последующих символах той же строки.
-Проблема: внутренний blockquote начинается на колонке 3 (после внешнего `> `), но параграф начинается на колонке 1. Применение `paragraphStyle` только к `quoteBody` range — НЕ работает для вложенных цитат.
-Решение: расширять range до начала строки перед применением `paragraphStyle`:
+
+`headIndent` / `firstLineHeadIndent` применяется к **первому символу параграфа** — NSLayoutManager игнорирует стили на последующих символах той же строки. Проблема: внутренний blockquote начинается на колонке 3 (после внешнего `> `), но параграф начинается на колонке 1. Применение `paragraphStyle` только к `quoteBody` range — НЕ работает для вложенных цитат. Решение: расширять range до начала строки перед применением `paragraphStyle`:
+
 ```swift
 storage.addAttribute(.foregroundColor, value: secondary, range: r)  // только quoteBody
 let lineStart = (text as NSString).lineRange(for: NSRange(location: r.location, length: 0)).location
 let paraRange = NSRange(location: lineStart, length: NSMaxRange(r) - lineStart)
 storage.addAttribute(.paragraphStyle, value: para, range: paraRange)  // от начала строки
 ```
+
 Outer (depth=0) применяется первым → headIndent=0 с lineStart. Inner (depth=1) применяется вторым → headIndent=20 переопределяет.
 
 ### applyHighlighting: activeRegion (v17: вычисляется в Coordinator.computeActiveRegion)
+
 `applyHighlighting(to:in:activeRegion:)` принимает готовый `activeRegion`; его считает `Coordinator.computeActiveRegion(cursorPos:in:)` — строка курсора, расширенная блоками. Это позволяет показывать маркеры всего блока (все `>` в blockquote, оба fence в code block) когда курсор находится внутри блока. После добавления `codeBlockBody(language:)` проверку делать через pattern matching, не через `==`:
+
 ```swift
 var activeRegion: NSRange? = activeLine
 if let pos = cursorPos {
@@ -186,12 +197,14 @@ if let pos = cursorPos {
 ```
 
 ### NSTextView flipped координаты
+
 `NSTextView.isFlipped = true`. В flipped-системе y=0 вверху, растёт вниз:
+
 - `rect.minY` = верхний визуальный край
-- `rect.maxY` = нижний визуальный край
-Для позиционирования overlay в **верхнем** правом углу code block: `y: paddedRect.minY + offset`.
+- `rect.maxY` = нижний визуальный край Для позиционирования overlay в **верхнем** правом углу code block: `y: paddedRect.minY + offset`.
 
 ### NSView overlays поверх NSTextView: не появляются при открытии документа
+
 Две причины:
 
 **1. Бесконечный цикл layout:** `layout()` → `updateOverlays()` → `removeFromSuperview` + `addSubview` → AppKit помечает view dirty → новый `layout()`. AppKit прерывает цикл принудительно, до завершения рендеринга.
@@ -199,9 +212,11 @@ if let pos = cursorPos {
 **2. Race condition при открытии:** `bounds.width == 0` на первом вызове → кнопки получают отрицательный X.
 
 **Решение — button pooling + NSLayoutManagerDelegate:**
+
 - В `updateOverlays()` не удалять все кнопки — использовать пул: удалять/добавлять только разницу, `.frame` обновлять без `addSubview`
 - `setFrameSize()` override не нужен — `layout()` покрывает все изменения bounds
 - `NSLayoutManagerDelegate` обеспечивает первый корректный вызов после завершения layout
+
 ```swift
 // Пул: удалить лишние / добавить недостающие
 while codeOverlayButtons.count > codeBlockEntries.count {
@@ -233,8 +248,9 @@ nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
 ```
 
 ### NSLayoutManagerDelegate + Swift 6 @MainActor конфликт
-`NSLayoutManagerDelegate` не помечен `@MainActor`, но `NSTextView` (и его подклассы) — `@MainActor`. Конформанс вызывает ошибку "crosses into main actor-isolated code".
-Решение: `nonisolated` на методе делегата + `MainActor.assumeIsolated` внутри (AppKit гарантирует вызов на главном потоке):
+
+`NSLayoutManagerDelegate` не помечен `@MainActor`, но `NSTextView` (и его подклассы) — `@MainActor`. Конформанс вызывает ошибку “crosses into main actor-isolated code”. Решение: `nonisolated` на методе делегата + `MainActor.assumeIsolated` внутри (AppKit гарантирует вызов на главном потоке):
+
 ```swift
 nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
                               didCompleteLayoutFor textContainer: NSTextContainer?,
@@ -244,7 +260,9 @@ nonisolated func layoutManager(_ layoutManager: NSLayoutManager,
 ```
 
 ### NSButton adaptive background без CALayer
+
 `CALayer.backgroundColor` требует `CGColor` — не поддерживает dynamic NSColor. Для адаптивного фона кнопки (light/dark) — переопределять `draw(_:)` в NSButton subclass:
+
 ```swift
 final class CodeCopyButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
@@ -256,39 +274,44 @@ final class CodeCopyButton: NSButton {
 ```
 
 ### Меню: Undo/Redo selectors
-Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием),
-потому что `#selector(UndoManager.undo)` даёт `undo` без `:`, а AppKit ожидает `undo:`.
+
+Для Undo/Redo — `Selector(("undo:"))` / `Selector(("redo:"))` (с двоеточием), потому что `#selector(UndoManager.undo)` даёт `undo` без `:`, а AppKit ожидает `undo:`.
 
 ### SourceKit false positives
-При редактировании отдельных файлов SourceKit показывает "Cannot find type X" — это нормально,
-пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
 
-### xcodebuild test: linker error ___llvm_profile_runtime
-Unit-test bundle без host app не линкует code coverage runtime. Всегда передавать:
-`-enableCodeCoverage NO` при вызове `xcodebuild test`.
+При редактировании отдельных файлов SourceKit показывает “Cannot find type X” — это нормально, пока проект не проиндексирован целиком. Проверяй реальные ошибки через `xcodebuild`.
+
+### xcodebuild test: linker error \_\_\_llvm\_profile\_runtime
+
+Unit-test bundle без host app не линкует code coverage runtime. Всегда передавать: `-enableCodeCoverage NO` при вызове `xcodebuild test`.
 
 ### cmark C API: позиции узлов (1-based, UTF-8 байты)
-`cmark_node_get_start_column` / `cmark_node_get_end_column` — **1-based UTF-8 byte column**.
-Конвертация в UTF-16 NSRange требует маппинга байтов (см. `LineIndex` в `MarkdownHighlighter.swift`).
+
+`cmark_node_get_start_column` / `cmark_node_get_end_column` — **1-based UTF-8 byte column**. Конвертация в UTF-16 NSRange требует маппинга байтов (см. `LineIndex` в `MarkdownHighlighter.swift`).
 
 Важные особенности по типам узлов:
+
 - `CMARK_NODE_CODE` (inline code) — позиции span **только content** (без backticks). Расширять вручную: `sc - bt` / `offsetAfter(ec) + bt`, где `bt = cmark_node_get_backtick_count(node)`.
 - `CMARK_NODE_STRONG`/`EMPH` — позиции включают маркеры (`**` / `*`); тело = весь nodeRange.
 - `CMARK_NODE_HEADING` — позиции = вся строка заголовка включая `# `; trailing `\n` НЕ включается в `ec`.
 - `CMARK_NODE_LINK` — `cmark_node_first_child` / `cmark_node_last_child` дают диапазон текста внутри `[...]`.
-- `CMARK_NODE_CODE_BLOCK` — fenced: `cmark_node_get_fence_info != nil`; indented: fence_info == nil. Позиции включают fence строки.
+- `CMARK_NODE_CODE_BLOCK` — fenced: `cmark_node_get_fence_info != nil`; indented: fence\_info == nil. Позиции включают fence строки.
 - `CMARK_NODE_ITEM` — позиции начинаются с маркера (`-`, `*`, `1.`). Длину маркера определяем сканированием текста.
 - `CMARK_NODE_IMAGE` — аналогичен LINK: `![` + alt text + `](url)`.
 
 ### cmark GFM extensions: extern node types недоступны из Swift
+
 `CMARK_NODE_STRIKETHROUGH`, `CMARK_NODE_TABLE` и пр. — extern переменные из внутренних заголовков (`strikethrough.h`, `table.h`), которые НЕ экспортируются через `module.modulemap` пакета `cmark-gfm-extensions`. Сравнение через `cmark_node_get_type_string(node)`:
+
 ```swift
 let typeStr = cmark_node_get_type_string(node).flatMap { String(cString: $0) }
 // typeStr == "strikethrough", "table", "table_row", "table_cell"
 ```
 
 ### cmark GFM parser API
+
 Для поддержки GFM-расширений (strikethrough, table, tasklist, autolink) необходимо использовать явный parser API вместо `cmark_parse_document()`:
+
 ```swift
 import cmark_gfm_extensions
 cmark_gfm_core_extensions_ensure_registered()
@@ -301,7 +324,9 @@ for name in ["strikethrough", "table", "tasklist", "autolink"] {
 ```
 
 ### cmark: добавление как explicit SPM dep
+
 `swift-cmark` — транзитивная зависимость `swift-markdown-ui`. Чтобы импортировать напрямую (`import cmark_gfm`), нужно добавить в `project.yml` явно:
+
 ```yaml
 packages:
   swift-cmark:
@@ -313,20 +338,21 @@ packages:
 - package: swift-cmark
   product: cmark-gfm-extensions
 ```
+
 SPM переиспользует уже скачанную версию из `Package.resolved` — без повторной загрузки.
 
 ## SPM Dependencies
 
 - `swift-markdown` (Apple) v0.7.3 — официальная Swift-обёртка cmark-gfm, используется в `MarkdownHighlighter.swift` через `MarkupWalker`
-  - Продукт: `Markdown` (GFM extensions включены автоматически: table, strikethrough, tasklist)
-  - `swift-cmark` подтягивается как транзитивная зависимость — импортировать напрямую не нужно
+    - Продукт: `Markdown` (GFM extensions включены автоматически: table, strikethrough, tasklist)
+    - `swift-cmark` подтягивается как транзитивная зависимость — импортировать напрямую не нужно
 
-> `swift-markdown-ui` удалён в v12 — Preview режим убран из приложения.
-> `swift-cmark` (прямая зависимость) удалена в v13 — заменена на `swift-markdown` MarkupWalker.
+> `swift-markdown-ui` удалён в v12 — Preview режим убран из приложения. `swift-cmark` (прямая зависимость) удалена в v13 — заменена на `swift-markdown` MarkupWalker.
 
 ## Releases
 
 ### v1 — Initial
+
 NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 
 ### v2 — Complete
@@ -334,6 +360,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 **Паттерн тестируемости:** бизнес-логику выносить в pure free functions в `Editor/` (internal), тестировать через `@testable import EditMD`. Пример: `FormattingHelpers.swift`.
 
 ### v2 — Детали
+
 - **Live Preview / cursor proximity** — маркеры (`#`, `**`, `*`, `>`, ссылки) скрыты везде кроме текущей строки. Паттерн: `rehighlight()`, `activeLine`, `isApplyingHighlight` (ренетранс-защита). Highlighting через cmark AST (`collectSpans` + `LineIndex` в `MarkdownHighlighter.swift`).
 - **Настройки шрифта** — `EditorFontSettings` (singleton, UserDefaults), Format-меню ⌘=/⌘−
 - **Счётчик слов/символов** — статус-строка внизу редактора, обновляется на каждый keystroke
@@ -342,10 +369,12 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **Cut/Copy/Paste** — Edit-меню + тулбар-кнопки (scissors/doc.on.doc/doc.on.clipboard), target=nil → responder chain
 
 ### v3 — Complete
+
 - **SwiftUI App lifecycle + `.commands`** — `EditMDApp.swift` entry point, декларативное меню (Edit/Format)
 - **Полное меню** — Edit (Undo/Redo/Cut/Copy/Paste/Select All), Format (Bigger/Smaller/Bold/Italic)
 
 ### v4 — Complete
+
 - **Миграция на чистый SwiftUI** — `DocumentGroup` + `ReferenceFileDocument` вместо NSDocument
 - **NSViewRepresentable** — `MarkdownTextView.swift` обёртка NSTextView (подсветка, форматирование, счётчик)
 - **ContentView** — SwiftUI view с Edit/Preview toggle + `.toolbar`
@@ -355,6 +384,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **49 тестов** — 28 highlighter + 14 formatting + 7 document
 
 ### v5 — Complete
+
 - **Полная подсветка всех markdown-элементов** — 22 SpanKind (было 11)
 - **GFM extensions** — strikethrough (`~~text~~`), таблицы, tasklists, autolinks через `cmark-gfm-extensions`
 - **Новые элементы:** fenced/indented code blocks, thematic breaks (`---`/`***`/`___`), list markers (ordered/unordered), images (`![alt](url)`), inline/block HTML, strikethrough, table headers/delimiters
@@ -363,6 +393,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **test-all-elements.md** — визуальный тестовый файл со всеми элементами
 
 ### v6 — Complete
+
 - **Визуальная разметка цитат** — `MarkdownNSTextView` (подкласс NSTextView) рисует левую полосу 3pt через `drawBackground(in:)` используя `NSLayoutManager.enumerateLineFragments`
 - **Вложенные цитаты** — глубина вычисляется через containment ranges; каждый уровень добавляет 20pt к x-позиции полосы и к `headIndent` текста
 - **Исправлено обнаружение quoteMarker** — `lineIdx.offset(line, sc)` вместо `lineIdx.lineStart(line)` для корректной работы вложенных `>`
@@ -371,6 +402,7 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **79 тестов** — 59 highlighter + 14 formatting + 7 document (без изменений, баги были в rendering логике)
 
 ### v7 — Complete
+
 - **Фоновая панель code block** — `drawBackground(in:)` рисует полноширинный прямоугольник с +8pt вертикальными полями (`insetBy(dx: 0, dy: -8)`); цвет `NSColor(white: 0.5, alpha: 0.07)` — адаптируется к light/dark
 - **Метка языка + кнопка копирования** — `CodeCopyButton` (NSButton subclass) в правом верхнем углу каждого code block; клик копирует содержимое без fence-строк; `⎘` для блоков без языка
 - **`codeBlockBody(language: String)`** — SpanKind добавлен associated value; язык извлекается через `cmark_node_get_fence_info(node)` в `collectSpans`
@@ -380,16 +412,19 @@ NSDocument + NSTextView + SwiftUI Preview. Два режима Edit/Preview.
 - **Fix: отступы кнопки** — top 2→6pt, right 12→6pt от paddedRect
 
 ### v8 — Complete
+
 - **Кэширование spans** — `collectSpans` вызывается только при изменении текста, не при движении курсора; `cachedText`/`cachedSpans`/`cachedQuoteDepths` в Coordinator
-- **O(N) quote depth** — стек `NSMaxRange` значений вместо O(N²) containment loop; использует depth-first порядок cmark (outer BLOCK_QUOTE → ENTER раньше inner)
+- **O(N) quote depth** — стек `NSMaxRange` значений вместо O(N²) containment loop; использует depth-first порядок cmark (outer BLOCK\_QUOTE → ENTER раньше inner)
 - **79 тестов** — без изменений (оптимизация только в Coordinator, тесты покрывают pure functions)
 
 ### v9 — Complete
+
 - **Отступы вокруг code blocks** — `paragraphSpacing = 16` на параграфе ДО блока, `paragraphSpacingBefore = 16` на параграфе ПОСЛЕ блока; применяется через post-processing loop по `codeBlockEntries` после spans loop, перед `storage.endEditing()`
 - **Фон code block** — `insetBy(dx: 0, dy: -8)`, даёт 8pt внутреннего отступа
 - **79 тестов** — без изменений
 
 ### paragraphSpacing + tinyFont — gotcha
+
 `applyMarker` при inactive строке устанавливает `.font: NSFont.systemFont(ofSize: 0.01)` (tinyFont) на fence-строках code block. NSLayoutManager игнорирует `paragraphSpacingBefore`/`paragraphSpacing` на параграфах с near-zero-height шрифтом.
 
 **Симптом:** spacing применён через NSParagraphStyle, билд OK, но визуально ничего не меняется.
@@ -412,19 +447,22 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 При изменении любого параметра проверять, что M > N.
 
 ### v10 — Complete
+
 - **EditorTheme** — `EditorTheme.swift` в `Editor/`: все цвета, spacing, layout в одном `struct`
 - **Два варианта:** `.system` (системные адаптивные NSColor) и `.comfortable` (те же цвета + увеличенные отступы)
 - **MarkdownTextView** получил `var theme: EditorTheme = .system`; `MarkdownNSTextView` — `var theme: EditorTheme`
 - **CodeCopyButton** получил `var fillColor: NSColor` вместо хардкода `NSColor(white:0.5, alpha:0.12)`
-- **visual-audit.md** — все 17 SpanKind помечены [x]; 3 пункта light/dark/selection требуют ручной проверки
+- **visual-audit.md** — все 17 SpanKind помечены \[x\]; 3 пункта light/dark/selection требуют ручной проверки
 
 ### v11 — Complete
+
 - **codeMarker SpanKind** — inline code split на `codeMarker` (backtick-символы) + `code` (тело); `codeMarker` скрывается на неактивных строках через `applyMarker`, тело всегда показывается с orange + background
 - **listMarker всегда видим** — убран `applyMarker` для `.listMarker`; маркеры (`-`, `*`, `1.`, task list `- `) всегда показываются в `accent` цвете
 - **tableDelimiter всегда видим** — убран `applyMarker` для `.tableDelimiter`; `|` всегда показывается в `tertiary` цвете
 - **59 тестов** — 3 inline code теста обновлены (expect codeMarker×2 + code body; было: code×1 на весь диапазон)
 
 ### v12 — Complete
+
 - **Удалён Preview режим** — `EditorMode` enum, mode state, segmented picker, `MarkdownPreviewView.swift`
 - **Кнопка light/dark** — `isDark: Bool` state в ContentView; `.preferredColorScheme(isDark ? .dark : .light)` на VStack; иконки `sun.max` / `moon`
 - **Удалена зависимость `swift-markdown-ui`** — из `project.yml` (packages + dependencies); xcodeproj пересоздан через `xcodegen`
@@ -432,28 +470,32 @@ paragraphSpacing = M    →  M pt между соседним параграфо
 
 ### codeMarker vs code span — разделение
 
-`visitInlineCode` (SpanCollector) emits три span'а:
+`visitInlineCode` (SpanCollector) emits три span’а:
+
 ```swift
 // bt = (r.length - inlineCode.code.utf16.count) / 2
 let openRange  = NSRange(location: r.location, length: bt)             // codeMarker
 let bodyRange  = NSRange(location: r.location + bt, length: bodyLen)   // code
 let closeRange = NSRange(location: NSMaxRange(r) - bt, length: bt)     // codeMarker
 ```
-`code` span (тело) получает: monospaced font + `inlineCodeBackground` + `inlineCodeColor`.
-`codeMarker` (backtick-и) получает: `applyMarker(secondary)` — скрывается когда курсор не на строке.
+
+`code` span (тело) получает: monospaced font + `inlineCodeBackground` + `inlineCodeColor`. `codeMarker` (backtick-и) получает: `applyMarker(secondary)` — скрывается когда курсор не на строке.
 
 ### listMarker и tableDelimiter — NOT hidden
 
 Элементы которые должны быть ВСЕГДА видимы (не вызывают `applyMarker`):
+
 - `.listMarker` — accent color
 - `.tableDelimiter` — tertiary color
 - `.tableHeader`, `.thematicBreak`, все body spans
 
 Элементы которые СКРЫВАЮТСЯ на неактивных строках через `applyMarker`:
+
 - headingMarker, boldMarker, italicMarker, codeMarker, quoteMarker
 - codeBlockFence, linkSyntax, imageSyntax, strikethroughMarker
 
 ### EditorTheme — структура
+
 ```
 EditorTheme {
   Colors:    textColor, secondaryColor, tertiaryColor, accentColor,
@@ -470,6 +512,7 @@ EditorTheme {
 ```
 
 ### v13 — Complete
+
 - **Миграция `collectSpans` на swift-markdown MarkupWalker** — заменён весь C API cmark-gfm на `import Markdown` + `SpanCollector: MarkupWalker`
 - **Удалена прямая зависимость `swift-cmark`** — из `project.yml`; `swift-markdown` v0.7.3 подтягивает её транзитивно
 - **`Document(parsing:)`** автоматически включает GFM: table, strikethrough, tasklist — без ParseOptions
@@ -477,18 +520,21 @@ EditorTheme {
 
 ### swift-markdown: ключевые gotchas
 
-**SourceRange — exclusive upperBound:** swift-markdown добавляет `+1` к cmark's endColumn. Для конвертации в NSRange — `lineIdx.offset()` для обоих bounds (НЕ `offsetAfter` для upperBound):
+**SourceRange — exclusive upperBound:** swift-markdown добавляет `+1` к cmark’s endColumn. Для конвертации в NSRange — `lineIdx.offset()` для обоих bounds (НЕ `offsetAfter` для upperBound):
+
 ```swift
 let loc = lineIdx.offset(src.lowerBound.line, src.lowerBound.column)
 let end = lineIdx.offset(src.upperBound.line, src.upperBound.column)  // upper уже exclusive
 ```
 
 **InlineCode.range включает backtick-и:** swift-markdown сам корректирует `startColumn - bt / endColumn + bt`. Формула:
+
 ```swift
 let bt = (r.length - inlineCode.code.utf16.count) / 2
 ```
 
 **isFenced: language=nil для обоих — indented и fenced-без-языка.** Различать по символу в тексте:
+
 ```swift
 let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or ~
 ```
@@ -496,6 +542,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 **MarkupWalker: descendInto явный.** В переопределённых методах нужно вызывать `descendInto(node)` — иначе children не посещаются. `defaultVisit` (для не-переопределённых методов) вызывает descendInto автоматически.
 
 ### v14 — Complete
+
 - **`.github` тема** — `NSColor(name:dynamicProvider:)` с адаптивными hex-цветами из MarkdownUI GitHub-темы; хелпер `gh(lightHex, darkHex)` в `EditorTheme` extension
 - **Heading weight** — `.bold` → `.semibold` для всех заголовков
 - **H1/H2 dividers** — горизонтальная линия 1pt под H1/H2; `headingDividerRanges: [NSRange]` в Coordinator → MarkdownNSTextView → `drawBackground(in:)`
@@ -510,30 +557,85 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Blockquote drawBackground** — один проход `enumerateLineFragments` вместо двух (bg union + bar rects за один цикл)
 
 ### v15 — Complete
+
 - **Hanging indent для списков** — `listItemBody(textStartCol: Int)` хранит 1-based колонку начала текста; `headIndent = (textStartCol-1) * charWidth`, `firstLineHeadIndent = 0`; применяется к первому параграфу пункта
 - **Visual bullet rendering** — `listMarker(ordered: Bool, depth: Int)`; unordered маркеры скрываются через `NSColor.clear` (layout width сохраняется); `drawBackground` рисует `•`/`◦`/`▪` по depth; ordered маркеры всегда видимы
 - **listBlock span** — `visitUnorderedList`/`visitOrderedList` эмитят `.listBlock`; добавлен в activeRegion expansion → весь блок списка активен при курсоре внутри любого пункта
 - **79 тестов** — обновлён паттерн `if case .listMarker(_, _) = $0.kind` (добавлены associated values)
 
+### v27 — Complete (настройки применяются по-настоящему + per-mode элементы + подсветка Source)
+
+- **Модель переписана** — `EditorSettings` теперь несёт: `general` (themePreset + `AppearanceMode` system/light/dark + textColor/accentColor hex-оверрайды), три `ModeSettings` (source/visual/preview), у каждого `fontSize`/`insetH`/`insetV`/`columnWidth`/`fontFamily`/`fontWeight` + **свой `ElementStyles`**. `ElementStyle` = {colorHex?, weight: FontWeight?, sizeScale}. Все структуры с кастомным `init(from:)` через `decodeIfPresent` — старые v26-блобы декодятся без потерь
+- **Честные цвета (главный фикс v26-обмана)** — раньше ColorPicker крутился, а Visual/Preview хардкодили `NSColor.linkColor`/`.systemOrange`/CSS `LinkText`. Теперь: `EditorSettings.effectiveTheme` = preset + General-оверрайды; Visual `applyDerivedInlineDecorations` красит из `theme` + `visual.elements`; Preview генерит CSS из `preview.elements` + оверрайдов; Source — из `source.elements`
+- **Source больше не plain** — `SourceTextView` стал `isRichText=true`; `highlightSource()` применяет РЕАЛЬНЫЕ text-storage атрибуты (не temporary — иначе размер заголовка не меняется) из `collectSpans` + `source.elements`. Два прохода: block (heading-строка целиком с `# ` → размер/вес/цвет; quote) → inline (bold/code/link/italic/strike), чтобы inline перекрывал. Плоская `.string` (source of truth) не трогается, undo чист (attribute-only). Paste → `pasteAsPlainText`. **Частично отменяет решение v23 «Source = plain»** — по прямому запросу пользователя настраивать элементы в каждом режиме
+- **Шрифты per mode** — `ModeSettings.resolvedFont(defaultMono:)` строит NSFont из family (пусто = system) + weight через `NSFontDescriptor` weight-trait; `VisualStyle` получил `bodyFamily`/`bodyWeight`/`elements`; Preview — CSS `font: <weight> <size>px/<lh> <family>`. `FontCatalog` (кешированные `allFamilies`/`monospacedFamilies` — enumerate дорогой, набор стабилен за запуск; Source-пикер = только fixed-pitch)
+- **effectiveTheme + smena** — тема теперь derived от настроек (computed в ContentView), тулбар-меню тем и Settings пишут один `general.themePreset`. Смена ТОЛЬКО цвета-оверрайда не меняет имя пресета → `updateNSView` name-gate её не поймал бы; поэтому координаторы обновляют `textView.theme = EditorSettings.shared.effectiveTheme` прямо в `settingsDidChange`
+- **Дебаунс уведомления** — `.editorFontSizeDidChange` → `.editorSettingsDidChange`; `persist` коалесит пост через `Task.sleep(120мс)` (перерисовка Visual на каждый тик слайдера дорогая); UserDefaults пишется сразу, SwiftUI-биндинги (@Published) обновляются мгновенно
+- **Appearance** — `general.appearance` (`AppearanceMode`) вместо `@State isDark`; `ContentView.preferredColorScheme(appearance.colorScheme)` (system → nil); тулбар ☀/🌙 пишет в настройки, резолвит `.system` через `NSApp.effectiveAppearance`
+- **SettingsView** — TabView General/Source/Visual/Preview (общей вкладки Elements НЕТ — элементы внутри каждой вкладки режима). Контролы: `FontSizeStepper` (поле+степпер, не слайдер), `ValueSlider` (отступы/колонка/scale/lh), `FontFamilyPicker`, weight-пикеры, `ColorOverrideRow`/`ElementRow` (nil hex = fallback-цвет темы, кнопка сброса), живой `StyleSample` в каждой вкладке. Per-tab reset + глобальный
+- **Comfortable удалён** — отличался только insets (теперь per-mode) → был пустышкой; `preset(named:)` маппит старое "comfortable" на System. Мёртвые Typography/Spacing-поля `EditorTheme` пока оставлены (не мешают)
+- **243 теста** — +3 previewHTMLPage (font weight/family, heading element CSS, color overrides); Source-подсветка и UI-слой не покрыты юнитами (проверка вживую)
+
+### v27 — gotchas
+
+- **Source-подсветка: только РЕАЛЬНЫЕ атрибуты, не temporary** — `layoutManager.addTemporaryAttribute(.font)` НЕ меняет размер (temporary-атрибуты не влияют на layout). Для смены размера заголовка нужен `textStorage.addAttribute(.font)` → отсюда `isRichText=true`. Линт-подчёркивания (temporary) сосуществуют — разные подсистемы
+- **Heading-строка целиком** — `.headingBody(level)` не покрывает `# `-маркер; чтобы вся строка была одного размера — стилизуем `nsText.lineRange(for:)`, а не span. Inline-проход идёт вторым и перекрывает bold/code внутри заголовка
+- **`setAttributes` на всю строку сбрасывает подсветку линта?** Нет — линт держит подчёркивания в layoutManager (temporary), `storage.setAttributes` их не трогает
+- **Attribute-only мутации внутри `textDidChange` не рекурсят** — `textDidChange` шлётся на изменение символов, не атрибутов; `highlightSource` (begin/endEditing + addAttribute) не вызывает повторный `textDidChange`
+- **ColorPicker к optional hex** — `Binding<Color>`: get = `hex → NSColor` или fallback темы, set = `NSColor.hexString`; сброс = `hex = nil`. Сравнение через hex, не NSColor (не Equatable)
+
+### v26 — Complete (Settings-окно: шрифт/отступы/колонка/цвета по режимам)
+
+- **`EditorSettings.swift`** — заменяет `EditorFontSettings` (удалён). `ObservableObject`-синглтон (`.shared`), персист в UserDefaults через `Codable` JSON-блобы (не отдельные `@AppStorage`-ключи — проще версионировать структуру целиком). Каждое изменение поля шлёт `.editorSettingsDidChange` (было `.editorFontSizeDidChange`) — AppKit-координаторы Source/Visual/Preview остаются на notification-паттерне, SwiftUI (`SettingsView`) — на `@Published`
+- **`ModeSettings`** (`fontSize`/`insetH`/`insetV`/`columnWidth`) — раздельно для `source`/`visual`/`preview`; `EditorSettings.shared.visual.fontSize` больше не завязан на Source (раньше Visual брал `sharedFontSize + 1`)
+- **`columnWidth == 0`** = full width. `ModeSettings.textContainerInset(forWidth:)` считает доп. горизонтальный inset так, чтобы центрировать колонку заданной ширины: `extra = max(0, (viewWidth - insetH*2 - columnWidth) / 2)`. Source/Visual зовут это в `updateNSView` от `scrollView.contentView.bounds.width` — **не в `makeNSView`** (там ширина ещё 0); центрирование "на живую" при ресайзе окна работает благодаря тому, что `ContentView`'s `GeometryReader` перевызывает body при смене `geo.size`, а SwiftUI зовёт `updateNSView` на каждый такой ре-рендер родителя (не только когда сам representable's props изменились)
+- **`VisualSpacingSettings.scale`** — множитель на хардкод-константы `applyPresentation` (было `style.paragraphSpacing = 6` и т.п. — эти числа НЕ были производными от `EditorTheme`, тема их не трогала вообще; теперь `6 * spacingScale`)
+- **Preview** — `previewHTMLPage` получил `lineHeight`/`columnWidth` параметры; `columnWidth > 0` → `max-width: Npx; margin: 0 auto` (центрирует); `columnWidth == 0` (дефолт функции, не дефолт приложения) → `max-width: none; margin: 0`, сохраняя старое поведение "паддинг слева = editor inset, без прыжка при переключении режимов"
+- **`GeneralSettings`** — `themePreset` (system/comfortable/github) + опциональные hex-оверрайды (text/accent/code/image). `EditorTheme.preset(named:)` + `.applyingOverrides(_:)` строят итоговую тему; `ContentView.theme` стал computed property от `editorSettings.general`, а не рассинхронизированный `@State` — тулбар-меню тем и Settings-вкладка General пишут в один источник
+- **Удалены `editorInsetH`/`editorInsetV`** из `EditorTheme` — были единственным местом, где тема управляла отступами; теперь отступы всегда из `EditorSettings`, независимо от пресета
+- **⌘=/⌘−** — раньше меняли один общий `EditorFontSettings.shared.fontSize`; теперь `EditorSettings.shared.adjustFontSize(\.source, by:)` / `\.visual`, каждый режим публикует свой `FormatActions` с собственным keypath — само разделение "per-mode" потребовало только `ReferenceWritableKeyPath<EditorSettings, ModeSettings>` (не `WritableKeyPath` — на классе `self[keyPath:]=` через простой `WritableKeyPath` не компилируется, нужен reference-вариант)
+- **Settings-сцена** — `Settings { SettingsView() }` в `EditMDApp.swift`, стандартный ⌘,/EditMD▸Settings… без ручной проводки меню
+- **240 тестов** — без изменений (все правки в UI-слое и AppKit-координаторах, не в чистых функциях)
+
+### v25 — Complete (паттерны FSNotes: интерактивный Preview + меню)
+
+- **Enter в Preview → Visual** — `PreviewWebView` (сабкласс WKWebView, `MarkdownPreviewView.swift`): `keyDown` перехватывает Return/Enter (keyCode 36/76) и зовёт `onRequestEdit` (ContentView передаёт только в полноэкранном Preview, в сплите nil). После рендера в полном Preview webview получает фокус async (`makeFirstResponder`), иначе Enter не доходит
+- **Кликабельные чекбоксы в Preview** — паттерн FSNotes HandlerCheckbox: JS в `previewHTMLPage` снимает `disabled` и шлёт индекс чекбокса в `messageHandlers.taskToggle`; `TaskToggleHandler` (weak coordinator — WKUserContentController держит хендлеры strongly) → `toggleTaskListItem(in:index:)` (pure, `FormattingHelpers.swift`, по `.taskListMarker`-спанам collectSpans) → `document.content`. Порядок DOM `li.task > input` = порядок спанов (оба — обход дерева документа). Body-фрагмент по-прежнему рендерит `disabled` — RoundTrip/HTML-тесты не задеты
+- **CSS Preview = редактор** — `previewHTMLPage(markdown:fontSize:insetH:)`: точный размер шрифта редактора (был +2px), `padding` слева/справа = `theme.editorInsetH`, `margin: 0` (не центр) — переключение режимов не сдвигает текст. Смена шрифта (⌘=/⌘−) ре-рендерит превью через observer `.editorFontSizeDidChange` → `coordinator.rerender` (контент не меняется — без observer CSS остался бы старым)
+- **Back/Forward по документам** — `DocumentHistory` (singleton ObservableObject, `Views/DocumentHistory.swift`): слушает `NSWindow.didBecomeKeyNotification`, пишет `representedURL` (DocumentGroup его ставит; untitled без URL не в истории); навигация активирует окно с этим URL или реоткрывает через `@Environment(\.openDocument)`. Меню View: Back ⌘[ / Forward ⌘]. Повторный фокус текущей записи не пишется (это же гасит и «эхо» самой навигации)
+- **Edit ▸ Find** — `usesFindBar + isIncrementalSearchingEnabled` на обоих NSTextView; меню шлёт `performTextFinderAction` c NSMenuItem-сендером, у которого `tag = NSTextFinder.Action.rawValue` (Find ⌘F, Replace ⌥⌘F, Next ⌘G, Prev ⇧⌘G, Use Selection ⌘E). В Preview — noop (нет NSTextView)
+- **Format-меню целиком** — новые опциональные поля `FormatActions`: strikethrough ⇧⌘X, code span ⇧⌘C, заголовки ⌥⌘1–6 (⌘1–3 заняты режимами), bulleted ⌘L / numbered ⌥⌘L / checklist ⇧⌘L, quote ⇧⌘U, code block ⌥⌘C. Source — pure-хелперы `transformLines(_:lines:)` + `fenceLines` (toggle-семантика: если все строки уже в форме — снять); Visual — `toggleInlineStyle(.strike/.code)`, `toggleListKind` (обобщение toggleChecklist), `setHeading`, `toggleQuote` (quoteDepth/quoteGroup), `toggleCodeBlock` (одна группа → сериализатор склеивает в один fence). `selectedParagraphs()` пропускает tableCell/raw — restamp их бы поломал
+- **240 тестов** — +15 `TransformLinesTests`, +5 `ToggleTaskListItemTests`
+
+### v25 — gotchas
+
+- **`performTextFinderAction` читает action из sender.tag** — из SwiftUI-кнопки прокидывать NSMenuItem с `tag = action.rawValue` как `from:` в `NSApp.sendAction`
+- **WKUserContentController удерживает message handlers strongly** — хендлер держит coordinator weak, иначе retain cycle (webView → controller → handler → coordinator → webView)
+- **WKWebView получает keyDown только как firstResponder** — после переключения в Preview фокус надо отдать явно (async, окна ещё нет в makeNSView)
+- **Клик по чекбоксу в Preview НЕ требует ре-рендера DOM** — браузер уже перерисовал; дебаунс-reload после `document.content = toggled` визуально no-op, скролл сохраняется штатным pendingScrollY-механизмом
+
 ### v24 — Complete (сайдбар + сплит + agterm-тулбар)
+
 - **Сайдбар-оглавление** — `MarkdownOutline.swift` (pure `markdownOutline(text) -> [OutlineItem]`: level/plainText-title/UTF-16 offset через MarkupWalker + LineIndex) + `OutlineSidebar.swift` (SwiftUI, дебаунс-парсинг через `.task(id: content)` 200мс, hover-wash, отступ по level). Клик → `EditorPositionStore.requestJump(toMarkdownOffset:)`
 - **Jump-механика** — `.editMDJumpToOffset` нотификация, **object-scoped к positionStore** (один на окно — прыжок не пересекает окна; паттерн agterm). Коордиаторы: Source — setSelectedRange напрямую; Visual — `restoreCursor()` (маппинг через paragraphRanges); Preview — пропорциональный скролл JS
 - **Кастомный сплит вместо NavigationSplitView** (паттерн agterm): `HStack(spacing:0)` + divider = Rectangle 1px + невидимая hit-полоса 12px; drag по **абсолютному X** (`DragGesture(coordinateSpace:)`), не translation (feeds back → мерцание); `.zIndex(1)` на divider — иначе правая колонка перекрывает половину hit-зоны; `.animation(value:)` на контейнере — все триггеры анимируются одинаково
-- **Сплит редактор+превью** (⌥⌘P) — GeometryReader + HStack: editorPane `frame(width: geo.width * splitFraction)` + divider (fraction = x/width, clamp 0.25...0.75) + MarkdownPreviewView. **editorPane всегда первый ребёнок HStack** (сплит только добавляет siblings) — structural identity сохраняется, NSTextView не пересоздаётся при toggle
+- **Сплит редактор+превью** (⌥⌘P) — GeometryReader + HStack: editorPane `frame(width: geo.width * splitFraction)` + divider (fraction = x/width, clamp 0.25…0.75) + MarkdownPreviewView. **editorPane всегда первый ребёнок HStack** (сплит только добавляет siblings) — structural identity сохраняется, NSTextView не пересоздаётся при toggle
 - **Preview live-режим** — дебаунс 250мс через `renderTask: Task` (отмена при каждом updateNSView); при живом reload скролл сохраняется попиксельно: `evaluateJavaScript("window.scrollY")` до `loadHTMLString`, restore в didFinish; пропорциональный скролл — только первый рендер
 - **`MarkdownDocument.content` didSet → objectWillChange.send()** — сайдбар/live-превью/Preview-статусбар обновляются на каждую правку (init присваивания didSet не триггерят; guard `content != oldValue`)
 - **Тулбар в стиле agterm** — плоские `Label` + `.help("… (⌘N)")`; режимы = 3 кнопки с multi-state SF Symbols (`activeSystemImage` — filled при активном + accent tint); split-кнопка `rectangle.split.2x1`/`.fill`; sidebar toggle `sidebar.left`
 - **View-меню** — Toggle Sidebar ⌃⌘S, Show/Hide Preview Pane ⌥⌘P через новые FocusedValues (`sidebarVisible`, `splitPreview`); `splitBinding` setter при включении сплита из Preview-режима переключает в Visual
-- **Персист** — @AppStorage: sidebarVisible/sidebarWidth (150...400), splitPreview/splitFraction
+- **Персист** — @AppStorage: sidebarVisible/sidebarWidth (150…400), splitPreview/splitFraction
 - **220 тестов** — +9 `MarkdownOutlineTests` (plainText сохраняет backticks инлайн-кода — это ожидаемо)
 
 ### v24 — gotchas
+
 - **WKNavigationDelegate `decidePolicyFor` с closure-сигнатурой БОЛЬШЕ НЕ матчится** в macOS 26 SDK (completion стал `@MainActor @Sendable`) — компилятор даёт только warning «nearly matches», метод молча не вызывается, клики по ссылкам уходят в сам WKWebView. Использовать **async-вариант**: `func webView(_:decidePolicyFor:) async -> WKNavigationActionPolicy`
 - **`evaluateJavaScript` completion в macOS 26 SDK — @MainActor** — можно писать в @MainActor-состояние координатора без обвязки
 - **Jump-нотификация регистрируется только при `positionStore != nil`** — `object: nil` подписал бы координатор на прыжки ВСЕХ окон
 
 ### v23 — Complete (чистка + ⌘K)
-- **Гибрид v17 удалён** — `MarkdownTextView.swift` (1180 строк) заменён на `SourceTextView.swift` (~330): plain-редактор + линт + позиция курсора. Умерли: applyHighlighting, activeRegion, инкрементальная переразметка, overlay-кнопки кода, drawBackground-декорации, `spanDiffDirtyRange` (+5 его тестов)
+
+- **Гибрид v17 удалён** — `MarkdownTextView.swift` (1180 строк) заменён на `SourceTextView.swift` (\~330): plain-редактор + линт + позиция курсора. Умерли: applyHighlighting, activeRegion, инкрементальная переразметка, overlay-кнопки кода, drawBackground-декорации, `spanDiffDirtyRange` (+5 его тестов)
 - **`MarkdownHighlighter.swift` живёт** — `collectSpans` + `LineIndex` нужны линтеру (v19) и рендереру островов (v20); все 53 span-теста остаются
 - **⌘K в Visual** — Add/Edit/Remove Link: NSAlert с полем URL; существующая ссылка под курсором расширяется через `longestEffectiveRange(.mdLink)`; пустое выделение без ссылки — вставка URL как линк-текста; `FormatActions.editLink` (optional, nil в Source)
 - **visual-audit.md переписан** — чеклист трёх режимов вместо матрицы SpanKind v10
@@ -542,6 +644,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 > **Историческая заметка:** разделы ниже про MarkdownTextView / MarkdownNSTextView / applyHighlighting / activeRegion / applyMarker / overlay-кнопки (v2–v17 gotchas) описывают КОД, УДАЛЁННЫЙ в v23. Они сохранены как знание о граблях NSTextView/TextKit — многие паттерны (boundingRect, button pooling, NSLayoutManagerDelegate, shouldChangeText-restamp) переиспользованы в VisualTextView.
 
 ### v22 — Complete (таблицы + картинки + курсор между режимами)
+
 - **Таблицы — третья попытка, успешная** — `isRichText=true` разблокировал `NSTextTable`: `MDBlock.Kind.tableCell(row:column:columns:alignment:)`, ячейки одной таблицы делят `group`; render → параграф на ячейку; presentation вешает `NSTextTableBlock` (ОДИН shared NSTextTable на группу — иначе layout разваливается); сериализатор собирает grid и эмитит GFM (нормальная форма `| --- |`, alignment `:--`/`:-:`/`--:` сохраняются)
 - **Редактирование ячеек** — текст ячейки редактируется свободно; целостность через shouldChangeTextIn: правка либо внутри текста одной ячейки (без `\n`), либо покрывает ВСЮ таблицу (удаление целиком); Tab/Shift+Tab — по ячейкам (`nextTableCellPosition`, pure); Tab с последней ячейки и Enter на последней строке добавляют строку; Enter на пустой последней строке — удаляет её и выходит под таблицу; Backspace в начале ячейки — прыжок в конец предыдущей (никогда не сливает); программные перестройки (append/delete row) — под флагом `isProgrammaticTableEdit` (обходит guard)
 - **Картинки** — `attachImages` в presentation: U+FFFC + `.mdImage` → `NSTextAttachment` (кэш по src — переиспользование объекта, иначе layout-чурн на каждый keystroke); baseDir = папка .md / корень .textbundle; ширина капится 420pt; нет файла/remote → SF Symbol «photo»-плейсхолдер; сериализация не меняется (.mdImage — источник истины)
@@ -550,21 +653,23 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **215 тестов** — +7 table round-trip, +1 карта параграфов, +5 nextTableCellPosition
 
 ### v22 — gotchas
+
 - **`textView.string = …` / `setAttributedString` сбрасывают выделение и СИНХРОННО дёргают `textViewDidChangeSelection`** — если колбек пишет в разделяемое состояние (EditorPositionStore), он затирает его ДО восстановления. Паттерн: прочитать сохранённую позицию в локальную ДО установки текста (+ делегат после), в Visual — флаг `isLoadingDocument` вокруг перезагрузки
 - **Маппинг курсора компенсирует markdown-префикс** — `markdownPrefixLength(for:)` (internal в AttributedToMarkdown.swift): display-колонка + длина `"# "`/`"- [x] "`/`"> "` = markdown-колонка
-- **NSTextTable требует один shared инстанс на таблицу** — NSTextTableBlock'и разных NSTextTable не соединяются в грид
+- **NSTextTable требует один shared инстанс на таблицу** — NSTextTableBlock’и разных NSTextTable не соединяются в грид
 - **Хедер таблицы жирный — derived** (в applyDerivedInlineDecorations по row==0), НЕ через .mdInline — иначе сериализатор писал бы `| **a** |`
 - **Пайпы в ячейках** — escapeInline с escapePipes=true для tableCell; hard break в ячейке → пробел (ячейки однострочные)
 - **Вложенные таблицы (в цитатах/списках) остаются островами** — NSTextTable + indent-контексты не смешиваем
 
 ### v21 — Complete (Visual = WYSIWYG)
+
 - **`VisualTextView.swift`** — `VisualMarkdownView` (NSViewRepresentable) + `VisualNSTextView` (isRichText=true) + Coordinator; ContentView case .visual переключён с гибрида v17 на него
 - **Поток данных** — render при входе/внешнем изменении; каждый textDidChange: autoformat → applyPresentation → **синхронная** сериализация в `document.content` (+trailing `\n`) → сейв и смена режима всегда видят актуальный markdown; `lastSerialized` отличает внешние правки от своих
 - **Семантика ввода** (чистые тестируемые хелперы `autoformatKind`/`continuationKind`/`indentedKind`):
-  - Enter: в списке продолжает пункт (ordered +1, task → unchecked); на пустом пункте — выход из структуры; в конце заголовка — обычный параграф; `` ```lang `` + Enter → пустой code block
-  - Tab/Shift+Tab — вложенность пункта 0..5; Backspace в начале пункта — outdent → paragraph
-  - Автоформат после пробела: `- `, `* `, `+ `, `[] `, `[x] `, `#×n `, `N. `
-  - ⌘B/⌘I — toggle `.mdInline` + шрифт (по runs); ⌘⇧L Checklist (FormatActions.toggleChecklist, optional — nil в Source/старом редакторе)
+    - Enter: в списке продолжает пункт (ordered +1, task → unchecked); на пустом пункте — выход из структуры; в конце заголовка — обычный параграф; ```` ```lang ```` + Enter → пустой code block
+    - Tab/Shift+Tab — вложенность пункта 0..5; Backspace в начале пункта — outdent → paragraph
+    - Автоформат после пробела: `- `, `* `, `+ `, `[] `, `[x] `, `#×n `, `N. `
+    - ⌘B/⌘I — toggle `.mdInline` + шрифт (по runs); ⌘⇧L Checklist (FormatActions.toggleChecklist, optional — nil в Source/старом редакторе)
 - **applyPresentation** — производные визуалы за один проход: paragraphStyle (indent по depth/quote, spacing), перенумерация ordered в группе, strikethrough = mdInline.strike ∪ done-task, цвета ссылок/кода; собирает entry-массивы для drawBackground (буллиты, номера, чекбоксы, quote bars, code panels, hr, H1/H2 dividers)
 - **Маркеры рисуются, не печатаются** — `markerRect(forParagraph:)` в марджине слева от `firstLineHeadIndent`; клик по чекбоксу → `toggleTaskDone` (restamp атрибута, undo работает)
 - **Острова read-only** — `shouldChangeTextIn` запрещает частичные правки `.raw`-параграфов (удалить целиком — можно)
@@ -572,6 +677,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **203 теста** — +17 `VisualEditingTests`
 
 ### v21 — gotchas
+
 - **Restamp паттерн** — смена MDBlock-атрибута параграфа через `shouldChangeText(in:replacementString: nil)` → addAttribute → `didChangeText()`: undo регистрируется; для пустого параграфа штамп кладётся на его `\n`
 - **typingAttributes наследуют кастомные атрибуты** — от символа перед курсором; ссылки надо явно вычищать в `textViewDidChangeSelection`, иначе набор после ссылки продолжает её
 - **`isMutating` флаг** — гейтит textDidChange во время своих мутаций (autoformat/restamp/presentation), иначе рекурсия
@@ -579,6 +685,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Гибрид v17 (`MarkdownTextView`) остаётся** только как Source-редактор (plainMode); его highlighting-код станет мёртвым после чистки v23
 
 ### v20 — Complete (модель WYSIWYG, без UI)
+
 - **`MarkdownToAttributed.swift`** — `renderMarkdownToAttributed(md, style:)`: markdown → NSAttributedString **без маркеров**; семантика в кастомных атрибутах: `.mdBlock` (MDBlock: kind + quoteDepth + quoteGroup + group + listIndent, проштампован на весь параграф включая `\n`), `.mdInline` (битмаска bold/italic/strike/code/rawHTML), `.mdLink`, `.mdImage`; шрифты **пропорциональные** (решение зафиксировано), код — моно
 - **`AttributedToMarkdown.swift`** — `serializeAttributedToMarkdown(attr)`: читает ТОЛЬКО семантические атрибуты (шрифты/цвета — производные, никогда не источник истины); стек-алгоритм открытия/закрытия inline-маркеров с reopen (корректно `**a [b](u) c**`)
 - **Острова** — Table и HTMLBlock → `.raw(текст)`: отображаются моноширинно (переводы строк → U+2028), сериализуются дословно
@@ -588,6 +695,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **186 тестов** — +55 RoundTripTests (включая корпус `test-all-elements.md` через `#filePath`)
 
 ### v20 — gotchas
+
 - **MDBlock (Swift struct) как значение атрибута** — боксится в `_SwiftValue`; чтение `as? MDBlock` работает; на равенство рантайм полагается только внутри параграфа — сериализатор читает атрибут по индексу начала параграфа (для пустого параграфа — по индексу его `\n`, атрибут проштампован и на нём)
 - **Картинка внутри ссылки** — image-run обязан нести `.mdLink` и эмититься ПОСЛЕ open/close маркеров, иначе `[![alt](i)](u)` теряет обёртку
 - **`escapeLeading` и для пунктов списка** — текст пункта, начинающийся с `-`/`1.`, породил бы вложенный блок при репарсе
@@ -595,15 +703,17 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **GFM autolink после `(`** — `[text](https://…` без `)`: autolink-спан покрывает URL; смотреть покрытие только `[text]`-части (тот же урок, что в линте v19)
 
 ### v19 — Complete
+
 - **`MarkdownLint.swift`** — pure `lint(text) -> [LintDiagnostic]`; принцип: сравнение сырого текста с тем, что распарсилось (spans/AST) — «похоже на разметку, но не распарсилось» = диагностика
 - **14 правил**: invalidCheckbox (`- [+]` → error, fixes `[x]`/`[ ]`), emptyCheckbox (`[]`), uppercaseCheckbox (`[X]` → warning, fix `x`), checkboxMissingSpace (`[x]done`), listMarkerMissingSpace (`-[ ]`), unpairedBold/Strikethrough/Backtick, emptyLinkDestination (`[t]()`), unresolvedReference (`[a][нет]`), unclosedLink (`[a](url` → fix `)`), headingMissingSpace (`#Заголовок`), unclosedCodeFence (fix закрыть), tableCellCountMismatch
 - **Отображение** — `NSLayoutManager.addTemporaryAttribute` (underline dot: красный error / оранжевый warning + toolTip): не трогает NSTextStorage → документ и undo чистые
-- **Quick-fix** — `menu(for:)` override в MarkdownNSTextView: заголовок-сообщение (action nil → авто-disabled) + пункты fix'ов; применение через shouldChangeText/didChangeText (undo работает)
-- **Статус-бар** — `LintSummary` (errorCount/warningCount/jumpToNext) через callback `onLintUpdate`; бейдж `✕ N ⚠ M` кликабелен → прыжок к следующей диагностике
+- **Quick-fix** — `menu(for:)` override в MarkdownNSTextView: заголовок-сообщение (action nil → авто-disabled) + пункты fix’ов; применение через shouldChangeText/didChangeText (undo работает)
+- **Статус-бар** — `LintSummary` (errorCount/warningCount/jumpToNext) через callback `onLintUpdate`; бейдж `✕``  N  ``⚠`` M` кликабелен → прыжок к следующей диагностике
 - **Дебаунс** — `Task` + `Task.sleep` 300 мс в Coordinator (Task из @MainActor контекста наследует актор — без Sendable-обвязки, в отличие от DispatchWorkItem)
 - **131 тест** — +30 `MarkdownLintTests`
 
 ### v19 — gotchas (анти-FP гарды линтера)
+
 - **Чекбокс-правила матчат только `[c]` с содержимым ≤1 символа** — `- [Link](url)`, `- [^1]`, `- [ab]` не флагаются по построению регекса
 - **`isCovered` (не только excluded) для чекбокс-правил** — `- [x](url)` это ссылка (linkSyntax покрывает `[`), `*[x]* note` это курсив (italicMarker)
 - **unclosedLink проверяет покрытие только `[text]`-части** — GFM extended autolink срабатывает на голый URL после `(` и его linkText-спан маскировал бы матч целиком
@@ -612,6 +722,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **codeBlockFence-спаны для незакрытого fence НЕ надёжны** — SpanCollector эмитит closing-спан для последней строки блока даже когда она не fence (при `el > sl`); линт сканирует текст сам
 
 ### v18 — Complete
+
 - **Три режима** — `EditorMode` (source/visual/preview), segmented picker в тулбаре, ⌘1/⌘2/⌘3 через `CommandGroup(before: .toolbar)` + `@FocusedValue(\.editorMode)` (Binding); режим хранится в `@AppStorage("editorMode")`
 - **Source (plain)** — `plainMode: Bool` в MarkdownTextView; guard в начале `rehighlight()` (сбрасывает pendingEdit); entry-массивы остаются пустыми → drawBackground/overlays не рисуют ничего
 - **Preview** — `MarkdownPreviewView` (WKWebView): свой `HTMLBodyVisitor` в `MarkdownHTML.swift` + full-page CSS (`color-scheme: light dark`, системные цвета Canvas/CanvasText → следует за ☀/🌙 без перезагрузки); клики по ссылкам → NSWorkspace (browser), Coordinator кэширует `lastRenderedContent`
@@ -621,12 +732,14 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **statusBar в Preview** — счёт слов напрямую из `document.content` (нет editor-коллбеков)
 
 ### v18 — gotchas
+
 - **HTMLFormatter из swift-markdown НЕ использовать для Preview** — не эскейпит text/code (`<div>` в code block ломает страницу), заголовки через `plainText` теряют inline-разметку. Свой визитор в `MarkdownHTML.swift`
 - **`<li>` + вложенный `<p>`** — swift-markdown всегда оборачивает контент пункта в Paragraph; блочный `<p>` уносит текст под чекбокс/буллит. Визитор разворачивает первый Paragraph пункта inline (GitHub tight-стиль), остальные children рендерит как есть
 - **WKNavigationDelegate + Swift 6** — в macOS 26 SDK протокол @MainActor-аннотирован: `@MainActor final class Coordinator: NSObject, WKNavigationDelegate` с обычными методами собирается без nonisolated-обвязки
 - **xcodebuild через `| head`** — SIGPIPE убивает сборку на середине; логировать в файл, потом grep
 
 ### v17 — Complete
+
 - **Кликабельные ссылки** — `linkText(destination: String?)`; `linkEntries` в MarkdownNSTextView; Cmd+click открывает URL через NSWorkspace; tooltip с адресом (`.toolTip` атрибут); обычный клик ставит курсор
 - **Setext-заголовки** — `visitHeading` различает ATX (первый символ `#`) и setext; для setext маркер = underline-строка (`===`/`---`), а не префикс текста заголовка
 - **Task list через `ListItem.checkbox`** — замена text-scan на API; фикс `- [x]` на EOF
@@ -638,6 +751,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **89 тестов** — +5 (setext ×2, link destination, taskListMarker spans, `- [Link]` не tasklist) +5 `SpanDiffDirtyRangeTests`
 
 ### v17 — ключевые инварианты инкрементальной покраски
+
 - **Overlay entries всегда пересобираются из ПОЛНОГО списка spans** (entry-пасс перед beginEditing), атрибуты пишутся только в dirty range — массивы на textView заменяются целиком
 - **Маркеры видимости**: dirty обязан включать old∪new activeRegion, если они различаются (mapRange сдвигает старый регион на delta правки)
 - **dirty расширяется на ±1 строку** (`expandToAdjacentParagraphs`) — соседние параграфы несут code-block spacing
@@ -645,6 +759,7 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **Страховка**: в selection-пути при несовпадении длины текста с кэшем — полный reparse
 
 ### v16 — Complete
+
 - **Надёжная отрисовка буллитов** — заменён `lineFragmentRect + location(forGlyphAt:)` на `boundingRect(forGlyphRange:in:)` (TextKit 2 fix); радиус `0.22 * lineHeight` вместо `0.18 * min(height, charW)`; убрана проверка `intersects(rect)`
 - **Графические чекбоксы** — task list markers (`[ ]`/`[x]`) скрываются через `NSColor.clear` на неактивных строках; в `drawBackground` рисуются rounded-corner квадраты (14pt, `xRadius: 3.5`); done → `accentColor` fill + белая галочка; todo → `secondaryColor` stroke
 - **Подавление буллита для task list** — в `.listMarker` case проверяем символ `[` (0x5B) после маркера: `bulletEntries.append(..., shouldDraw: !active && !isTaskList)`
@@ -652,17 +767,22 @@ let isFenced = nsText.character(at: r.location) == 0x60 || ... == 0x7E  // ` or 
 - **79 тестов** — без изменений (изменения только в rendering логике)
 
 ### task list checkboxes — паттерн подавления буллита
+
 Task list items (`- [ ]`, `- [x]`) имеют и `.listMarker`, и `.taskListMarker` span. Чтобы не рисовать буллит поверх чекбокса — проверка по реальным `taskListMarker`-спанам (v17), НЕ по одному символу `[`:
+
 ```swift
 var taskMarkerLocs = Set<Int>()
 for s in spans { if case .taskListMarker = s.kind { taskMarkerLocs.insert(s.range.location) } }
 // в entry-пассе:
 let isTaskList = taskMarkerLocs.contains(NSMaxRange(s.range))
 ```
+
 Проверка одного символа `[` ошибочно подавляла буллит у пунктов вида `- [Link](url)`.
 
 ### NSColor dynamic provider — правильный паттерн
+
 `NSColor(name:dynamicProvider:)` для adaptive hex-цветов. Нужно проверять **все 4** dark appearance варианта:
+
 ```swift
 NSColor(name: nil) { appearance in
     switch appearance.name {
@@ -675,9 +795,11 @@ NSColor(name: nil) { appearance in
     }
 }
 ```
+
 Если проверять только `.darkAqua` — тема не сработает в accessibility High Contrast режимах.
 
 Для **полупрозрачных** adaptive-цветов (white/black с alpha) используется `ghAlpha(light:dark:)` хелпер в `EditorTheme` — шаблон аналогичный `gh()`, но принимает `CGFloat` alpha вместо hex:
+
 ```swift
 private static func ghAlpha(light: CGFloat, dark: CGFloat) -> NSColor {
     NSColor(name: nil) { appearance in
@@ -693,14 +815,18 @@ private static func ghAlpha(light: CGFloat, dark: CGFloat) -> NSColor {
 ```
 
 ### visitTable — объявлять `el` явно
+
 `el` (последняя строка таблицы) не объявляется автоматически в `visitTable`. Обязательно добавить перед использованием:
+
 ```swift
 let sl = srcRange.lowerBound.line
 let el = srcRange.upperBound.line  // ← без этого "cannot find 'el' in scope"
 ```
 
 ### Task list: `ListItem.checkbox` ЕСТЬ в swift-markdown v0.7.3
+
 Ранее здесь ошибочно значилось, что API отсутствует. `ListItem.checkbox: Checkbox?` (`.checked`/`.unchecked`) существует и используется с v17 — авторитетнее text-scan:
+
 ```swift
 if let checkbox = listItem.checkbox {
     let cbStart = markerStart + markerLen
@@ -712,24 +838,26 @@ if let checkbox = listItem.checkbox {
 ```
 
 ### List item hanging indent — firstLineHeadIndent = 0 + headIndent
+
 Вложенные списки содержат literal пробелы в исходнике (`  - subitem`). Применять **только**:
+
 - `firstLineHeadIndent = 0` — первая строка позиционируется литеральными символами
 - `headIndent = CGFloat(textStartCol - 1) * charWidth` — wrapped строки выравниваются по тексту
 
-`charWidth = baseFont.maximumAdvancement.width` — точно для monospace (редактор использует `NSFont.monospacedSystemFont`).
-Применять только к **первому параграфу** пункта (`lineRange(for:)`), иначе continuation-параграфы (blank line + indent) тоже получают неверный indent.
+`charWidth = baseFont.maximumAdvancement.width` — точно для monospace (редактор использует `NSFont.monospacedSystemFont`). Применять только к **первому параграфу** пункта (`lineRange(for:)`), иначе continuation-параграфы (blank line + indent) тоже получают неверный indent.
 
-Прежнее правило "не применять headIndent" было связано с установкой `firstLineHeadIndent = headIndent = N` — это создавало двойной отступ (стиль + literal пробелы). Паттерн `firstLineHeadIndent = 0` + `headIndent = N` не создаёт двойного отступа.
+Прежнее правило “не применять headIndent” было связано с установкой `firstLineHeadIndent = headIndent = N` — это создавало двойной отступ (стиль + literal пробелы). Паттерн `firstLineHeadIndent = 0` + `headIndent = N` не создаёт двойного отступа.
 
 `textStartCol` передаётся в `listItemBody(textStartCol: Int)` — 1-based column где начинается текст после маркера (`sc + markerLen` в `visitListItem`).
 
 ### Скрытие маркеров в списках — NSColor.clear, не tinyFont
-Для unordered маркеров (`- `, `* `) на неактивных строках использовать **только** `.foregroundColor = NSColor.clear`.
-`tinyFont` (0.01pt) уменьшает ширину символа → текст после маркера смещается влево → hanging indent ломается.
-`NSColor.clear` делает символ прозрачным но сохраняет layout width — glyph занимает то же место.
+
+Для unordered маркеров (`- `, `* `) на неактивных строках использовать **только** `.foregroundColor = NSColor.clear`. `tinyFont` (0.01pt) уменьшает ширину символа → текст после маркера смещается влево → hanging indent ломается. `NSColor.clear` делает символ прозрачным но сохраняет layout width — glyph занимает то же место.
 
 ### drawBackground: boundingRect vs lineFragmentRect + location (TextKit 2)
+
 В TextKit 2 compatibility mode `location(forGlyphAt:)` ненадёжен — возвращает 0 или некорректные значения для символов, layout которых ещё не завершён. Использовать `boundingRect(forGlyphRange:in:)`:
+
 ```swift
 guard let textContainer = self.textContainer else { return }
 let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
@@ -740,12 +868,15 @@ guard symbolRect.width > 0, symbolRect.height > 0 else { continue }
 let cx = inset.width + symbolRect.midX
 let cy = inset.height + symbolRect.midY
 ```
+
 `boundingRect` форсирует генерацию глифов и возвращает точный rect. Убирать проверку `intersects(rect)` — macOS сама отсекает невидимые регионы, ручная проверка с вычисленными координатами часто отсекает лишнее.
 
 Нужно ли рисовать символ — хранить в `shouldDraw: Bool` поле самого entry-tuple (устанавливать в `applyHighlighting`). Проверка alpha из storage (`markerColor?.cgColor.alpha == 0`) — устаревший паттерн, заменён на `shouldDraw`.
 
 ### listBlock span — activeRegion для всего блока списка
+
 Для корректного отображения маркеров всего блока (все `- ` видимы пока курсор в любом пункте списка) нужен span на весь `UnorderedList` / `OrderedList`:
+
 ```swift
 // SpanKind:
 case listBlock  // full UnorderedList/OrderedList range
@@ -759,20 +890,26 @@ mutating func visitUnorderedList(_ list: UnorderedList) {
 }
 // аналогично visitOrderedList
 ```
+
 Добавить `.listBlock` в activeRegion expansion рядом с `.quoteBody`/`.codeBlockBody`:
+
 ```swift
 case .quoteBody, .codeBlockBody, .listBlock:
     if NSLocationInRange(pos, span.range) {
         activeRegion = activeRegion.map { NSUnionRange($0, span.range) } ?? span.range
     }
 ```
+
 `case .listBlock: break` в основном switch (нет прямого styling).
 
 ### drawBackground: fullWidth объявлять на верхнем уровне
+
 Если несколько секций drawBackground используют `fullWidth = bounds.width - inset.width * 2`, объявлять одну переменную вверху функции, не повторять в каждой секции — иначе closure capture lists дублируются и код читается хуже.
 
 ### drawBackground: один проход enumerateLineFragments для bg + bar
+
 Blockquote-секция рисует фон (bgRect) и левые полосы (barRects). Делать это за **один** вызов `enumerateLineFragments`, собирая bgRect union и массив barRects, затем рисовать в порядке: bg → bars:
+
 ```swift
 var bgRect = NSRect.null; var barRects: [NSRect] = []
 layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { ... in
@@ -782,15 +919,14 @@ if hasQuoteBg && !bgRect.isNull { theme.quoteBackground.setFill(); bgRect.fill()
 theme.separatorColor.setFill()
 for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 ```
+
 Два отдельных вызова `enumerateLineFragments` на одном range — расточительно.
 
 ### Таблицы: два подхода попробованы и отброшены (откат на v12)
 
-**Подход 1 — Overlay с per-cell NSTextView editing (v13–v14):**
-TableOverlayView + CellTextView per ячейке + TableOverlayDelegate (CRUD строк/столбцов). Проблемы: stale NSRange после rehighlight, сложный deferred commit, overlay timing при открытии. Reverted.
+**Подход 1 — Overlay с per-cell NSTextView editing (v13–v14):** TableOverlayView + CellTextView per ячейке + TableOverlayDelegate (CRUD строк/столбцов). Проблемы: stale NSRange после rehighlight, сложный deferred commit, overlay timing при открытии. Reverted.
 
-**Подход 2 — Toggle по позиции курсора:**
-Cursor вне таблицы → read-only overlay (hitTest → nil), текст скрыт; cursor внутри → plain markdown. Проблема: cmark-gfm расширяет диапазон `tableBody` на следующий параграф без blank line → логика "cursor inside/outside" ломается. Reverted.
+**Подход 2 — Toggle по позиции курсора:** Cursor вне таблицы → read-only overlay (hitTest → nil), текст скрыт; cursor внутри → plain markdown. Проблема: cmark-gfm расширяет диапазон `tableBody` на следующий параграф без blank line → логика “cursor inside/outside” ломается. Reverted.
 
 **Корень проблемы:** `NSTextTable` не работает при `isRichText = false`. Overlay-подходы упираются в NSRange-десинхронизацию после rehighlight.
 

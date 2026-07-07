@@ -72,10 +72,16 @@ let mdObjectChar = "\u{FFFC}"
 
 struct VisualStyle {
     var baseSize: CGFloat = 15
+    /// Body font family (empty = system proportional) and its base weight —
+    /// from the Visual mode's font settings.
+    var bodyFamily: String = ""
+    var bodyWeight: NSFont.Weight = .regular
+    /// Per-element size/weight config (headings, bold). Colors are applied
+    /// separately at draw time.
+    var elements = ElementStyles()
 
     func headingSize(_ level: Int) -> CGFloat {
-        let offsets: [CGFloat] = [12, 8, 5, 3, 1, 0]
-        return baseSize + offsets[max(0, min(5, level - 1))]
+        baseSize * elements.heading(level).sizeScale
     }
 
     func font(for styles: MDInlineStyle, blockKind: MDBlock.Kind) -> NSFont {
@@ -86,15 +92,29 @@ struct VisualStyle {
         case .codeBlock, .raw:
             return NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
         case .heading(let level):
-            let base = NSFont.systemFont(ofSize: headingSize(level), weight: .semibold)
+            let element = elements.heading(level)
+            let weight = (element.weight ?? .semibold).nsWeight
+            let base = proportional(ofSize: headingSize(level), weight: weight)
             return styles.contains(.italic) ? base.withTraits(.italic) : base
         default:
-            var traits: NSFontDescriptor.SymbolicTraits = []
-            if styles.contains(.bold) { traits.insert(.bold) }
-            if styles.contains(.italic) { traits.insert(.italic) }
-            let base = NSFont.systemFont(ofSize: baseSize)
-            return traits.isEmpty ? base : base.withTraits(traits)
+            var weight = bodyWeight
+            if styles.contains(.bold) { weight = (elements.bold.weight ?? .bold).nsWeight }
+            let base = proportional(ofSize: baseSize, weight: weight)
+            return styles.contains(.italic) ? base.withTraits(.italic) : base
         }
+    }
+
+    /// A proportional font honoring `bodyFamily` when set, else the system UI
+    /// font at the requested weight.
+    private func proportional(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        if !bodyFamily.isEmpty {
+            let descriptor = NSFontDescriptor(fontAttributes: [
+                .family: bodyFamily,
+                .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue],
+            ])
+            if let font = NSFont(descriptor: descriptor, size: size) { return font }
+        }
+        return .systemFont(ofSize: size, weight: weight)
     }
 }
 

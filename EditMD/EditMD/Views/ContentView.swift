@@ -13,8 +13,7 @@ struct ContentView: View {
     /// Preview pane side by side; `splitFraction` is the edit pane's share.
     @AppStorage("splitPreview") private var splitPreview = false
     @AppStorage("splitFraction") private var splitFraction = 0.5
-    @State private var isDark: Bool = false
-    @State private var theme: EditorTheme = .github
+    @ObservedObject private var editorSettings = EditorSettings.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -25,6 +24,24 @@ struct ContentView: View {
     private static let splitFractionRange = 0.25...0.75
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .visual }
+
+    /// The active theme: the Settings window's preset plus its color
+    /// overrides. Single source of truth — the toolbar's Theme menu and the
+    /// General settings tab both write `editorSettings.general.themePreset`,
+    /// so neither can drift from the other.
+    private var theme: EditorTheme { editorSettings.effectiveTheme }
+
+    /// Whether the window currently renders dark — resolves `.system` against
+    /// the app's effective appearance so the ☀/🌙 toolbar toggle flips the
+    /// right way.
+    private var appearanceIsDark: Bool {
+        switch editorSettings.general.appearance {
+        case .dark: return true
+        case .light: return false
+        case .system:
+            return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
+    }
 
     private var modeBinding: Binding<EditorMode> {
         Binding(
@@ -71,7 +88,7 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
             statusBar
         }
-        .preferredColorScheme(isDark ? .dark : .light)
+        .preferredColorScheme(editorSettings.general.appearance.colorScheme)
         .toolbar { toolbarContent }
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.editorMode, modeBinding)
@@ -90,7 +107,8 @@ struct ContentView: View {
     @ViewBuilder private var editorArea: some View {
         if mode == .preview {
             MarkdownPreviewView(document: document, fileURL: fileURL,
-                                positionStore: positionStore)
+                                positionStore: positionStore,
+                                onRequestEdit: { storedMode = EditorMode.visual.rawValue })
         } else {
             GeometryReader { geo in
                 HStack(spacing: 0) {
@@ -121,7 +139,6 @@ struct ContentView: View {
         case .source:
             SourceTextView(
                 document: document,
-                theme: theme,
                 positionStore: positionStore,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
                 onFormatActions: { actions in formatActions = actions },
@@ -224,21 +241,30 @@ struct ContentView: View {
         }
         ToolbarItem {
             Menu {
-                Button("System")      { theme = .system }
-                Button("Comfortable") { theme = .comfortable }
-                Button("GitHub")      { theme = .github }
+                Picker("Theme", selection: $editorSettings.general.themePreset) {
+                    Text("System").tag("system")
+                    Text("GitHub").tag("github")
+                }
+                Divider()
+                Button("Settings…") {
+                    // macOS 14+ uses showSettingsWindow:; 13 uses the older
+                    // showPreferencesWindow:.
+                    if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                    }
+                }
             } label: {
                 Label("Theme", systemImage: "paintpalette")
             }
-            .help("Editor theme")
+            .help("Editor theme & settings")
         }
         ToolbarItem {
             Button {
-                isDark.toggle()
+                editorSettings.general.appearance = appearanceIsDark ? .light : .dark
             } label: {
-                Label("Appearance", systemImage: isDark ? "moon" : "sun.max")
+                Label("Appearance", systemImage: appearanceIsDark ? "moon" : "sun.max")
             }
-            .help(isDark ? "Switch to light appearance" : "Switch to dark appearance")
+            .help(appearanceIsDark ? "Switch to light appearance" : "Switch to dark appearance")
         }
     }
 

@@ -236,10 +236,51 @@ private struct HTMLBodyVisitor: MarkupWalker {
 /// Wraps the rendered body in a standalone page. Colors follow the system
 /// appearance via `color-scheme` + CSS system colors, so the WKWebView tracks
 /// the app's light/dark toggle without reloading.
+///
+/// Typography mirrors the editor (FSNotes' getPreviewStyle idea): the body
+/// uses the editor's exact font size and the page's left inset matches the
+/// editor's `textContainerInset`, so toggling edit↔preview doesn't jump.
 func previewHTMLPage(markdown: String,
                      fontSize: CGFloat,
+                     insetH: CGFloat = 32,
+                     lineHeight: CGFloat = 1.6,
+                     /// A centered reading column; `0` disables it (full width,
+                     /// left-aligned to `insetH` — matches the editor's inset
+                     /// so toggling edit↔preview doesn't shift the text).
+                     columnWidth: CGFloat = 0,
+                     fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
+                     fontWeight: Int = 400,
+                     elements: ElementStyles = ElementStyles(),
+                     /// Base text / link color overrides (hex). Nil keeps the
+                     /// adaptive system colors (Canvas/CanvasText/LinkText).
+                     textColorHex: String? = nil,
+                     accentColorHex: String? = nil,
                      imageResolver: ((String) -> String?)? = nil) -> String {
     let body = markdownHTMLBody(markdown, imageResolver: imageResolver)
+    let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
+    let margin = columnWidth > 0 ? "0 auto" : "0"
+    let bodyColor = textColorHex ?? "CanvasText"
+
+    // Per-element rules generated from ElementStyles — appended after the base
+    // rules so they win. Heading size uses `em` (= the scale), matching how
+    // Visual multiplies its base size, so the two modes stay consistent.
+    func numstr(_ v: CGFloat) -> String { String(format: "%.4g", v) }
+    var elementCSS = ""
+    for level in 1...6 {
+        let e = elements.heading(level)
+        var decl = "font-size: \(numstr(e.sizeScale))em;"
+        if let w = e.weight { decl += " font-weight: \(w.cssValue);" }
+        if let c = e.colorHex { decl += " color: \(c);" }
+        elementCSS += "h\(level) { \(decl) }\n"
+    }
+    var boldDecl = ""
+    if let w = elements.bold.weight { boldDecl += "font-weight: \(w.cssValue);" }
+    if let c = elements.bold.colorHex { boldDecl += " color: \(c);" }
+    if !boldDecl.isEmpty { elementCSS += "strong, b { \(boldDecl) }\n" }
+    if let c = elements.inlineCode.colorHex { elementCSS += "code { color: \(c); }\n" }
+    if let c = elements.link.colorHex ?? accentColorHex { elementCSS += "a { color: \(c); }\n" }
+    if let c = elements.quote.colorHex { elementCSS += "blockquote { color: \(c); opacity: 1; }\n" }
+
     return """
     <!DOCTYPE html>
     <html>
@@ -249,9 +290,9 @@ func previewHTMLPage(markdown: String,
     :root { color-scheme: light dark; }
     * { box-sizing: border-box; }
     body {
-        font: \(Int(fontSize + 2))px/1.6 -apple-system, "Helvetica Neue", sans-serif;
-        background: Canvas; color: CanvasText;
-        max-width: 46em; margin: 0 auto; padding: 24px 32px 64px;
+        font: \(fontWeight) \(Int(fontSize))px/\(numstr(lineHeight)) \(fontFamily);
+        background: Canvas; color: \(bodyColor);
+        max-width: \(maxWidth); margin: \(margin); padding: 24px \(Int(insetH))px 64px;
         word-wrap: break-word;
     }
     h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
@@ -288,10 +329,23 @@ func previewHTMLPage(markdown: String,
     tbody tr:nth-child(odd) { background: rgba(128,128,128,0.07); }
     img { max-width: 100%; }
     del { opacity: 0.6; }
-    </style>
+    \(elementCSS)</style>
     </head>
     <body>
     \(body)
+    <script>
+    // Interactive task checkboxes (FSNotes' HandlerCheckbox idea): the body
+    // fragment renders them disabled; the live preview re-enables them and
+    // reports the clicked index — document order matches the order of
+    // taskListMarker spans, which the Swift side uses to edit the source.
+    document.querySelectorAll('li.task > input[type=checkbox]').forEach(function (box, i) {
+        box.disabled = false;
+        box.addEventListener('change', function () {
+            var handlers = window.webkit && window.webkit.messageHandlers;
+            if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+        });
+    });
+    </script>
     </body>
     </html>
     """

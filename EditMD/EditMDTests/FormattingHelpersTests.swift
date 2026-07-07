@@ -1,6 +1,105 @@
 import XCTest
 @testable import EditMD
 
+// MARK: - transformLines / fenceLines (Source-mode Format menu)
+
+final class TransformLinesTests: XCTestCase {
+
+    func testHeadingSet() {
+        XCTAssertEqual(transformLines(.heading(2), lines: "Title\n"), "## Title\n")
+    }
+
+    func testHeadingReplacesExistingLevel() {
+        XCTAssertEqual(transformLines(.heading(3), lines: "# Title\n"), "### Title\n")
+    }
+
+    func testHeadingToggleOff() {
+        XCTAssertEqual(transformLines(.heading(2), lines: "## Title\n"), "Title\n")
+    }
+
+    func testHeadingMultilineSkipsEmpty() {
+        XCTAssertEqual(transformLines(.heading(1), lines: "a\n\nb\n"), "# a\n\n# b\n")
+    }
+
+    func testBulletSet() {
+        XCTAssertEqual(transformLines(.bullet, lines: "one\ntwo\n"), "- one\n- two\n")
+    }
+
+    func testBulletToggleOff() {
+        XCTAssertEqual(transformLines(.bullet, lines: "- one\n* two\n"), "one\ntwo\n")
+    }
+
+    func testBulletKeepsIndent() {
+        XCTAssertEqual(transformLines(.bullet, lines: "  - sub\n"), "  sub\n")
+    }
+
+    func testBulletFromOrdered() {
+        XCTAssertEqual(transformLines(.bullet, lines: "1. one\n2. two\n"), "- one\n- two\n")
+    }
+
+    func testOrderedNumbersSequentially() {
+        XCTAssertEqual(transformLines(.ordered, lines: "a\nb\nc\n"), "1. a\n2. b\n3. c\n")
+    }
+
+    func testOrderedToggleOff() {
+        XCTAssertEqual(transformLines(.ordered, lines: "1. a\n2) b\n"), "a\nb\n")
+    }
+
+    func testQuoteSetPrefixesEmptyLines() {
+        XCTAssertEqual(transformLines(.quote, lines: "a\n\nb\n"), "> a\n>\n> b\n")
+    }
+
+    func testQuoteToggleOff() {
+        XCTAssertEqual(transformLines(.quote, lines: "> a\n>\n> b\n"), "a\n\nb\n")
+    }
+
+    func testNoTrailingNewlinePreserved() {
+        XCTAssertEqual(transformLines(.bullet, lines: "one"), "- one")
+    }
+
+    func testFenceLines() {
+        XCTAssertEqual(fenceLines("code\n"), "```\ncode\n```\n")
+    }
+
+    func testFenceLinesNoTrailingNewline() {
+        XCTAssertEqual(fenceLines("code"), "```\ncode\n```")
+    }
+}
+
+// MARK: - toggleTaskListItem (Preview checkbox click-through)
+
+final class ToggleTaskListItemTests: XCTestCase {
+
+    func testTogglesUncheckedToChecked() {
+        let md = "- [ ] one\n- [ ] two\n"
+        XCTAssertEqual(toggleTaskListItem(in: md, index: 0), "- [x] one\n- [ ] two\n")
+    }
+
+    func testTogglesCheckedToUnchecked() {
+        let md = "- [ ] one\n- [x] two\n"
+        XCTAssertEqual(toggleTaskListItem(in: md, index: 1), "- [ ] one\n- [ ] two\n")
+    }
+
+    func testIndexOutOfRangeReturnsNil() {
+        XCTAssertNil(toggleTaskListItem(in: "- [ ] one\n", index: 1))
+        XCTAssertNil(toggleTaskListItem(in: "- [ ] one\n", index: -1))
+        XCTAssertNil(toggleTaskListItem(in: "plain text", index: 0))
+    }
+
+    func testDocumentOrderAcrossNestingAndText() {
+        let md = "# H\n\n- [x] a\n  - [ ] nested\n\ntext\n\n- [ ] b\n"
+        XCTAssertEqual(toggleTaskListItem(in: md, index: 2),
+                       "# H\n\n- [x] a\n  - [ ] nested\n\ntext\n\n- [x] b\n")
+    }
+
+    func testLinkItemIsNotACheckbox() {
+        // "- [Link](url)" is a link, not a task — index 0 must hit the real one.
+        let md = "- [Link](https://e.com)\n- [ ] real\n"
+        XCTAssertEqual(toggleTaskListItem(in: md, index: 0),
+                       "- [Link](https://e.com)\n- [x] real\n")
+    }
+}
+
 // MARK: - wordAndCharCount
 
 final class WordAndCharCountTests: XCTestCase {

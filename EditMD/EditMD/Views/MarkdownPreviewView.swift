@@ -14,30 +14,70 @@ struct MarkdownPreviewView: NSViewRepresentable {
     let document: MarkdownDocument
     let fileURL: URL?
     var positionStore: EditorPositionStore? = nil
+    /// Full-preview mode only: Return switches back to editing (FSNotes).
+    var onRequestEdit: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.navigationDelegate = context.coordinator
+        let coordinator = context.coordinator
+        // Task checkboxes in the page report their index here; the controller
+        // retains its handlers strongly, so the handler holds the coordinator
+        // weakly to avoid a retain cycle.
+        let userContentController = WKUserContentController()
+        userContentController.add(TaskToggleHandler(coordinator: coordinator),
+                                  name: "taskToggle")
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = userContentController
+
+        let webView = PreviewWebView(frame: .zero, configuration: configuration)
+        webView.onReturnKey = onRequestEdit
+        webView.navigationDelegate = coordinator
         webView.underPageBackgroundColor = .textBackgroundColor
-        context.coordinator.webView = webView
-        context.coordinator.positionStore = positionStore
+        coordinator.webView = webView
+        coordinator.positionStore = positionStore
+        coordinator.document = document
+        coordinator.rerender = { [weak coordinator] in
+            guard let coordinator else { return }
+            coordinator.lastRenderedContent = nil
+            if let webView = coordinator.webView {
+                self.render(in: webView, coordinator: coordinator)
+            }
+        }
+        // Preview settings changes must re-render: the page bakes font size/
+        // insets/line-height/column width into its CSS, so no content change
+        // would otherwise trigger an update.
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.settingsDidChange),
+            name: .editorSettingsDidChange,
+            object: nil
+        )
         // Outline-sidebar jumps, object-scoped to this window's store.
         if let store = positionStore {
             NotificationCenter.default.addObserver(
-                context.coordinator,
+                coordinator,
                 selector: #selector(Coordinator.jumpToStoredOffset),
                 name: .editMDJumpToOffset,
                 object: store
             )
         }
-        render(in: webView, coordinator: context.coordinator)
+        render(in: webView, coordinator: coordinator)
+        // Full Preview mode: focus the web view so Return-to-edit works
+        // right after the mode switch (async — no window yet in makeNSView).
+        if onRequestEdit != nil {
+            DispatchQueue.main.async { [weak webView] in
+                guard let webView else { return }
+                webView.window?.makeFirstResponder(webView)
+            }
+        }
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.document = document
+        (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         guard coordinator.lastRenderedContent != document.content else { return }
         // Debounce: every updateNSView during typing cancels the pending
         // render, so the reload fires ~250 ms after the last keystroke.
@@ -57,9 +97,19 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.lastRenderedContent = content
 
         let baseDir = assetBaseDir
+        let settings = EditorSettings.shared.preview
+        let general = EditorSettings.shared.general
         let html = previewHTMLPage(
             markdown: content,
-            fontSize: EditorFontSettings.shared.fontSize,
+            fontSize: settings.fontSize,
+            insetH: settings.insetH,
+            lineHeight: EditorSettings.shared.previewTypography.lineHeight,
+            columnWidth: settings.columnWidth,
+            fontFamily: settings.cssFontFamily,
+            fontWeight: settings.fontWeight.cssValue,
+            elements: settings.elements,
+            textColorHex: general.textColorHex,
+            accentColorHex: general.accentColorHex,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }
         )
 
@@ -120,9 +170,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var webView: WKWebView?
         var positionStore: EditorPositionStore?
+        var document: MarkdownDocument?
         var lastRenderedContent: String?
         var renderTask: Task<Void, Never>?
         var hasRenderedOnce = false
+        /// Forces a full re-render (font size changes: same content,
+        /// different CSS).
+        var rerender: (() -> Void)?
         /// Proportional scroll target from the shared position store (first
         /// render only).
         var pendingScrollFraction: Double?
@@ -131,6 +185,21 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc func settingsDidChange() {
+            rerender?()
+        }
+
+        /// A task checkbox was clicked in the page: flip the matching
+        /// `[ ]`/`[x]` in the markdown source. The DOM already shows the new
+        /// state; the debounced re-render that follows is a visual no-op and
+        /// keeps the scroll (pendingScrollY dance in render/didFinish).
+        func toggleTask(at index: Int) {
+            guard let document,
+                  let toggled = toggleTaskListItem(in: document.content, index: index)
+            else { return }
+            document.content = toggled
         }
 
         /// Outline-sidebar jump: scroll to the offset's proportional position
@@ -176,5 +245,40 @@ struct MarkdownPreviewView: NSViewRepresentable {
             }
             return .allow
         }
+    }
+}
+
+// MARK: - Web view with Return-to-edit
+
+/// Return in the read-only preview switches back to editing (FSNotes'
+/// MPreviewView.keyDown). Only set in full Preview mode — in the split the
+/// editor is already on screen.
+final class PreviewWebView: WKWebView {
+    var onReturnKey: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // 36 = Return, 76 = keypad Enter
+        if onReturnKey != nil, event.keyCode == 36 || event.keyCode == 76 {
+            onReturnKey?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+/// Bridges the page's checkbox clicks to the coordinator. Held strongly by
+/// WKUserContentController, hence the weak coordinator reference.
+@MainActor
+private final class TaskToggleHandler: NSObject, WKScriptMessageHandler {
+    weak var coordinator: MarkdownPreviewView.Coordinator?
+
+    init(coordinator: MarkdownPreviewView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let index = message.body as? Int else { return }
+        coordinator?.toggleTask(at: index)
     }
 }

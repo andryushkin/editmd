@@ -84,4 +84,25 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("<h1>Title</h1>"), page)
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
     }
+
+    func testPreviewPageEmbedsFontWeightAndFamily() {
+        let page = previewHTMLPage(markdown: "text", fontSize: 16,
+                                   fontFamily: "\"Menlo\", monospace", fontWeight: 500)
+        XCTAssertTrue(page.contains("font: 500 16px/"), page)
+        XCTAssertTrue(page.contains("\"Menlo\", monospace"), page)
+    }
+
+    func testPreviewPageEmitsHeadingElementCSS() {
+        var elements = ElementStyles()
+        elements.h1 = ElementStyle(colorHex: "#FF0000", weight: .black, sizeScale: 2.5)
+        let page = previewHTMLPage(markdown: "# H", fontSize: 14, elements: elements)
+        XCTAssertTrue(page.contains("h1 { font-size: 2.5em; font-weight: 900; color: #FF0000; }"), page)
+    }
+
+    func testPreviewPageAppliesColorOverrides() {
+        let page = previewHTMLPage(markdown: "[l](u)", fontSize: 14,
+                                   textColorHex: "#112233", accentColorHex: "#445566")
+        XCTAssertTrue(page.contains("color: #112233"), page)   // body text
+        XCTAssertTrue(page.contains("a { color: #445566; }"), page)
+    }
 }

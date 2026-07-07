@@ -72,10 +72,6 @@ struct EditorTheme {
 
     // MARK: - Layout
 
-    /// Horizontal padding of the text container (left and right).
-    var editorInsetH: CGFloat
-    /// Vertical padding of the text container (top and bottom).
-    var editorInsetV: CGFloat
     /// Width of the blockquote left-border bar.
     var quoteBarWidth: CGFloat
     /// How far the blockquote bar is inset from the left edge of the text container.
@@ -118,46 +114,8 @@ extension EditorTheme {
         codeBlockHeadIndent:  12,
         codeBlockPanelInset:   8,
         codeBlockOuterSpacing: 16,
-        editorInsetH:          48,
-        editorInsetV:          24,
         quoteBarWidth:          3,
         quoteBarXOffset:       12
-    )
-
-    /// Comfortable theme — same colours, more generous whitespace.
-    static let comfortable = EditorTheme(
-        name:                  "comfortable",
-        textColor:             .labelColor,
-        secondaryColor:        .secondaryLabelColor,
-        tertiaryColor:         .tertiaryLabelColor,
-        accentColor:           .linkColor,
-        inlineCodeColor:       .systemOrange,
-        imageColor:            .systemGreen,
-        separatorColor:        .separatorColor,
-        inlineCodeBackground:  .controlBackgroundColor,
-        codeBlockBackground:   NSColor(white: 0.5, alpha: 0.07),
-        copyButtonBackground:  NSColor(white: 0.5, alpha: 0.12),
-        headingDividerColor:   .clear,
-        quoteBackground:       .clear,
-        codeBlockCornerRadius: 0,
-        tableRowBackground:    .clear,
-        listItemSpacing:       0,
-        h1SizeOffset:          9,
-        h2SizeOffset:          6,
-        h3SizeOffset:          4,
-        h4PlusSizeOffset:      2,
-        smallFontOffset:      -1,
-        h1_2SpacingBefore:    16,
-        h3PlusSpacingBefore:  12,
-        headingSpacingAfter:   6,
-        quoteIndentStep:      24,
-        codeBlockHeadIndent:  16,
-        codeBlockPanelInset:  10,
-        codeBlockOuterSpacing: 20,
-        editorInsetH:          64,
-        editorInsetV:          32,
-        quoteBarWidth:          3,
-        quoteBarXOffset:       16
     )
 
     // MARK: - GitHub theme
@@ -227,9 +185,31 @@ extension EditorTheme {
         codeBlockHeadIndent:  12,
         codeBlockPanelInset:   8,
         codeBlockOuterSpacing: 16,
-        editorInsetH:          48,
-        editorInsetV:          24,
         quoteBarWidth:          3,
         quoteBarXOffset:       12
     )
+
+    // MARK: - Settings-driven customization
+
+    /// Looks up a built-in preset by `GeneralSettings.themePreset` name,
+    /// falling back to `.system`. "comfortable" is a retired preset (its only
+    /// distinction — larger insets — is now a per-mode setting); old prefs
+    /// naming it resolve to System.
+    static func preset(named name: String) -> EditorTheme {
+        name == "github" ? .github : .system
+    }
+
+    /// Applies General's base color overrides on top of this theme.
+    /// A nil hex leaves the preset's own color untouched. Fine-grained
+    /// per-element colors are applied at draw time, not here.
+    func applyingOverrides(_ overrides: GeneralSettings) -> EditorTheme {
+        var theme = self
+        if let color = overrides.textColorHex.flatMap({ NSColor(hex: $0) }) {
+            theme.textColor = color
+        }
+        if let color = overrides.accentColorHex.flatMap({ NSColor(hex: $0) }) {
+            theme.accentColor = color
+        }
+        return theme
+    }
 }

@@ -19,7 +19,6 @@ struct LintSummary {
 struct SourceTextView: NSViewRepresentable {
 
     let document: MarkdownDocument
-    var theme: EditorTheme = .system
     /// Cursor continuity across modes (markdown offsets are native here).
     var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void
@@ -38,23 +37,29 @@ struct SourceTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
 
         let textView = SourceNSTextView()
-        textView.isRichText = false
+        // Rich text so per-element highlighting (heading size/weight, colors)
+        // renders. The document's source of truth is still the plain `.string`;
+        // paste is forced to plain text so external rich content can't leak in.
+        textView.isRichText = true
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isGrammarCheckingEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.font = NSFont.monospacedSystemFont(
-            ofSize: EditorFontSettings.shared.fontSize, weight: .regular)
-        textView.textColor = NSColor.labelColor
+        textView.font = EditorSettings.shared.source.resolvedFont(defaultMono: true)
+        textView.textColor = EditorSettings.shared.effectiveTheme.textColor
+        textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
         textView.backgroundColor = NSColor.textBackgroundColor
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
+        textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        // Edit ▸ Find menu (⌘F & co.) drives the standard find bar.
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
 
         scrollView.documentView = textView
 
@@ -69,6 +74,7 @@ struct SourceTextView: NSViewRepresentable {
 
         coordinator.updateStats()
         coordinator.publishActions()
+        coordinator.highlightSource()
         coordinator.scheduleLint(delaySeconds: 0)
 
         if let store = positionStore, let restoreOffset {
@@ -85,8 +91,8 @@ struct SourceTextView: NSViewRepresentable {
 
         NotificationCenter.default.addObserver(
             coordinator,
-            selector: #selector(Coordinator.fontSizeDidChange),
-            name: .editorFontSizeDidChange,
+            selector: #selector(Coordinator.settingsDidChange),
+            name: .editorSettingsDidChange,
             object: nil
         )
         // Outline-sidebar jumps, object-scoped to this window's store (a nil
@@ -108,12 +114,13 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.parent = self
 
         guard let textView = coordinator.textView else { return }
-        textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
+        textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
 
         // Only update text if changed externally (not from typing)
         if !coordinator.isInternalUpdate, textView.string != document.content {
             textView.string = document.content
             coordinator.updateStats()
+            coordinator.highlightSource()
             coordinator.scheduleLint(delaySeconds: 0)
         }
     }
@@ -143,6 +150,7 @@ struct SourceTextView: NSViewRepresentable {
             parent.document.content = tv.string
             isInternalUpdate = false
             updateStats()
+            highlightSource()
             scheduleLint()
         }
 
@@ -246,10 +254,17 @@ struct SourceTextView: NSViewRepresentable {
             let actions = FormatActions(
                 toggleBold: { [weak self] in self?.wrapSelection(with: "**") },
                 toggleItalic: { [weak self] in self?.wrapSelection(with: "*") },
-                makeFontBigger: { EditorFontSettings.shared.fontSize += 1 },
-                makeFontSmaller: { EditorFontSettings.shared.fontSize -= 1 },
-                canIncreaseFontSize: EditorFontSettings.shared.canIncrease,
-                canDecreaseFontSize: EditorFontSettings.shared.canDecrease
+                makeFontBigger: { EditorSettings.shared.adjustFontSize(\.source, by: 1) },
+                makeFontSmaller: { EditorSettings.shared.adjustFontSize(\.source, by: -1) },
+                canIncreaseFontSize: EditorSettings.shared.source.fontSize < ModeSettings.fontSizeRange.upperBound,
+                canDecreaseFontSize: EditorSettings.shared.source.fontSize > ModeSettings.fontSizeRange.lowerBound,
+                toggleStrikethrough: { [weak self] in self?.wrapSelection(with: "~~") },
+                toggleCodeSpan: { [weak self] in self?.wrapSelection(with: "`") },
+                setHeading: { [weak self] level in self?.transformSelectedLines(.heading(level)) },
+                toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
+                toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
+                toggleQuote: { [weak self] in self?.transformSelectedLines(.quote) },
+                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -268,23 +283,156 @@ struct SourceTextView: NSViewRepresentable {
             textView.setSelectedRange(newSelection)
         }
 
-        // MARK: Font size
-
-        @objc func fontSizeDidChange() {
+        /// Replaces the lines the selection touches with `replacement`,
+        /// keeping undo intact, and selects the replaced text.
+        private func replaceSelectedLines(with replacement: (String) -> String) {
             guard let textView else { return }
-            textView.font = NSFont.monospacedSystemFont(
-                ofSize: EditorFontSettings.shared.fontSize, weight: .regular)
+            let nsText = textView.string as NSString
+            let lineRange = nsText.lineRange(for: textView.selectedRange())
+            let replaced = replacement(nsText.substring(with: lineRange))
+            guard textView.shouldChangeText(in: lineRange, replacementString: replaced) else { return }
+            textView.textStorage?.replaceCharacters(in: lineRange, with: replaced)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: lineRange.location,
+                                              length: (replaced as NSString).length))
+        }
+
+        private func transformSelectedLines(_ transform: BlockTransform) {
+            replaceSelectedLines { transformLines(transform, lines: $0) }
+        }
+
+        private func fenceSelectedLines() {
+            replaceSelectedLines { fenceLines($0) }
+        }
+
+        // MARK: Settings
+
+        @objc func settingsDidChange() {
+            guard let textView else { return }
+            let settings = EditorSettings.shared.source
+            textView.font = settings.resolvedFont(defaultMono: true)
+            textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
+            textView.textContainerInset = settings.textContainerInset(
+                forWidth: textView.enclosingScrollView?.contentView.bounds.width ?? 0)
+            highlightSource()
             publishActions()
+        }
+
+        // MARK: Source highlighting
+
+        /// Re-styles the raw markdown from `collectSpans` + the Source mode's
+        /// per-element settings. Real text-storage attributes (not temporary
+        /// ones) so heading size changes take effect; the plain `.string` — the
+        /// document's source of truth — is untouched, and attribute-only edits
+        /// don't register undo. Two passes: block-level (heading lines, quotes)
+        /// then inline (bold/code/link/italic/strike) so inline overrides win.
+        func highlightSource() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let settings = EditorSettings.shared.source
+            let theme = EditorSettings.shared.effectiveTheme
+            let els = settings.elements
+            let baseFont = settings.resolvedFont(defaultMono: true)
+            let nsText = textView.string as NSString
+            let full = NSRange(location: 0, length: nsText.length)
+            let spans = collectSpans(textView.string)
+
+            func headingFont(_ level: Int) -> NSFont {
+                let e = els.heading(level)
+                return sourceFont(size: settings.fontSize * e.sizeScale,
+                                  weight: (e.weight ?? .semibold).nsWeight)
+            }
+
+            storage.beginEditing()
+            storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
+
+            // Pass A — block level.
+            for span in spans where NSMaxRange(span.range) <= full.length {
+                switch span.kind {
+                case .headingBody(let level):
+                    let line = nsText.lineRange(for: span.range)
+                    storage.addAttribute(.font, value: headingFont(level), range: line)
+                    if let c = els.heading(level).color {
+                        storage.addAttribute(.foregroundColor, value: c, range: line)
+                    }
+                case .quoteBody, .quoteMarker:
+                    if let c = els.quote.color {
+                        storage.addAttribute(.foregroundColor, value: c, range: span.range)
+                    }
+                default:
+                    break
+                }
+            }
+
+            // Pass B — inline.
+            for span in spans where NSMaxRange(span.range) <= full.length {
+                switch span.kind {
+                case .boldBody, .boldMarker:
+                    let existing = storage.attribute(.font, at: span.range.location,
+                                                     effectiveRange: nil) as? NSFont ?? baseFont
+                    storage.addAttribute(.font, value: sourceFont(
+                        size: existing.pointSize, weight: (els.bold.weight ?? .bold).nsWeight),
+                                         range: span.range)
+                    if let c = els.bold.color {
+                        storage.addAttribute(.foregroundColor, value: c, range: span.range)
+                    }
+                case .italicBody:
+                    let existing = storage.attribute(.font, at: span.range.location,
+                                                     effectiveRange: nil) as? NSFont ?? baseFont
+                    if let italic = existing.withSourceTraits(.italic) {
+                        storage.addAttribute(.font, value: italic, range: span.range)
+                    }
+                case .code, .codeMarker:
+                    if let c = els.inlineCode.color {
+                        storage.addAttribute(.foregroundColor, value: c, range: span.range)
+                    }
+                case .linkText:
+                    if let c = els.link.color {
+                        storage.addAttribute(.foregroundColor, value: c, range: span.range)
+                    }
+                case .strikethroughBody:
+                    storage.addAttribute(.strikethroughStyle,
+                                         value: NSUnderlineStyle.single.rawValue, range: span.range)
+                default:
+                    break
+                }
+            }
+            storage.endEditing()
+        }
+
+        /// A Source font honoring the mode's family (else system mono) at an
+        /// explicit size/weight.
+        private func sourceFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+            let family = EditorSettings.shared.source.fontFamily
+            if !family.isEmpty {
+                let descriptor = NSFontDescriptor(fontAttributes: [
+                    .family: family,
+                    .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue],
+                ])
+                if let font = NSFont(descriptor: descriptor, size: size) { return font }
+            }
+            return .monospacedSystemFont(ofSize: size, weight: weight)
         }
     }
 }
 
 // MARK: - Text view with lint quick-fixes in the context menu
 
+fileprivate extension NSFont {
+    func withSourceTraits(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont? {
+        let combined = fontDescriptor.symbolicTraits.union(traits)
+        return NSFont(descriptor: fontDescriptor.withSymbolicTraits(combined), size: pointSize)
+    }
+}
+
 fileprivate final class SourceNSTextView: NSTextView {
 
     var lintDiagnostics: [LintDiagnostic] = []
     private var menuFixes: [LintFix] = []
+
+    // Paste as plain text — rich content from the clipboard would introduce
+    // attributes the highlighter doesn't own (isRichText is on only so our
+    // own per-element attributes render).
+    override func paste(_ sender: Any?) { pasteAsPlainText(sender) }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)

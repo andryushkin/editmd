@@ -137,8 +137,12 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
+        textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(forWidth: scrollView.contentView.bounds.width)
         textView.theme = theme
+        // Edit ▸ Find menu (⌘F & co.) drives the standard find bar; replaces
+        // go through shouldChangeTextIn, so island/table guards still apply.
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
 
         scrollView.documentView = textView
         textView.delegate = context.coordinator
@@ -150,8 +154,8 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         NotificationCenter.default.addObserver(
             coordinator,
-            selector: #selector(Coordinator.fontSizeDidChange),
-            name: .editorFontSizeDidChange,
+            selector: #selector(Coordinator.settingsDidChange),
+            name: .editorSettingsDidChange,
             object: nil)
         // Outline-sidebar jumps, object-scoped to this window's store (a nil
         // object would subscribe to every window's jumps).
@@ -169,9 +173,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         guard let textView = coordinator.textView else { return }
+        textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(forWidth: scrollView.contentView.bounds.width)
         if textView.theme.name != theme.name {
             textView.theme = theme
-            textView.textContainerInset = NSSize(width: theme.editorInsetH, height: theme.editorInsetV)
             coordinator.applyPresentation()
             return
         }
@@ -204,7 +208,11 @@ struct VisualMarkdownView: NSViewRepresentable {
         private var imageAttachments: [String: NSTextAttachment] = [:]
 
         var visualStyle: VisualStyle {
-            VisualStyle(baseSize: EditorFontSettings.shared.fontSize + 1)
+            let settings = EditorSettings.shared.visual
+            return VisualStyle(baseSize: settings.fontSize,
+                               bodyFamily: settings.fontFamily,
+                               bodyWeight: settings.fontWeight.nsWeight,
+                               elements: settings.elements)
         }
 
         init(parent: VisualMarkdownView) {
@@ -795,12 +803,23 @@ struct VisualMarkdownView: NSViewRepresentable {
             let actions = FormatActions(
                 toggleBold: { [weak self] in self?.toggleInlineStyle(.bold) },
                 toggleItalic: { [weak self] in self?.toggleInlineStyle(.italic) },
-                makeFontBigger: { EditorFontSettings.shared.fontSize += 1 },
-                makeFontSmaller: { EditorFontSettings.shared.fontSize -= 1 },
-                canIncreaseFontSize: EditorFontSettings.shared.canIncrease,
-                canDecreaseFontSize: EditorFontSettings.shared.canDecrease,
+                makeFontBigger: { EditorSettings.shared.adjustFontSize(\.visual, by: 1) },
+                makeFontSmaller: { EditorSettings.shared.adjustFontSize(\.visual, by: -1) },
+                canIncreaseFontSize: EditorSettings.shared.visual.fontSize < ModeSettings.fontSizeRange.upperBound,
+                canDecreaseFontSize: EditorSettings.shared.visual.fontSize > ModeSettings.fontSizeRange.lowerBound,
                 toggleChecklist: { [weak self] in self?.toggleChecklist() },
-                editLink: { [weak self] in self?.editLink() }
+                editLink: { [weak self] in self?.editLink() },
+                toggleStrikethrough: { [weak self] in self?.toggleInlineStyle(.strike) },
+                toggleCodeSpan: { [weak self] in self?.toggleInlineStyle(.code) },
+                setHeading: { [weak self] level in self?.setHeading(level) },
+                toggleBulletList: { [weak self] in self?.toggleListKind(
+                    isTarget: { if case .bulletItem = $0 { return true }; return false },
+                    makeKind: { .bulletItem(depth: $0) }) },
+                toggleNumberedList: { [weak self] in self?.toggleListKind(
+                    isTarget: { if case .orderedItem = $0 { return true }; return false },
+                    makeKind: { .orderedItem(depth: $0, number: 1) }) },
+                toggleQuote: { [weak self] in self?.toggleQuote() },
+                toggleCodeBlock: { [weak self] in self?.toggleCodeBlock() }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -850,30 +869,51 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         func toggleChecklist() {
-            guard let textView, let storage = textView.textStorage else { return }
+            toggleListKind(
+                isTarget: { if case .taskItem = $0 { return true }; return false },
+                makeKind: { .taskItem(depth: $0, done: false) })
+        }
+
+        /// Paragraph ranges the selection touches (skipping none); table
+        /// cells and raw islands are excluded — block restamps would corrupt
+        /// them.
+        private func selectedParagraphs() -> [NSRange] {
+            guard let textView, let storage = textView.textStorage else { return [] }
             let nsText = storage.string as NSString
             let selection = textView.selectedRange()
             var location = paragraphRange(at: selection.location, in: nsText).location
             let selectionEnd = max(NSMaxRange(selection), location + 1)
 
-            // Collect target paragraphs.
             var paragraphs: [NSRange] = []
             while location < selectionEnd && location <= nsText.length {
                 let paragraph = paragraphRange(at: location, in: nsText)
-                paragraphs.append(paragraph)
+                switch block(at: paragraph, in: storage).kind {
+                case .tableCell, .raw:
+                    break
+                default:
+                    paragraphs.append(paragraph)
+                }
                 if NSMaxRange(paragraph) == location { break }
                 location = NSMaxRange(paragraph)
             }
+            return paragraphs
+        }
+
+        /// Shared list toggle (bullet/ordered/task): if every selected
+        /// paragraph already is the target kind, all flatten to paragraphs;
+        /// otherwise each becomes the target kind — existing list depth
+        /// survives, plain paragraphs enter at depth 0 in one new group.
+        func toggleListKind(isTarget: (MDBlock.Kind) -> Bool,
+                            makeKind: (Int) -> MDBlock.Kind) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraphs = selectedParagraphs()
             guard !paragraphs.isEmpty else { return }
 
-            let allTasks = paragraphs.allSatisfy {
-                if case .taskItem = block(at: $0, in: storage).kind { return true }
-                return false
-            }
+            let allTarget = paragraphs.allSatisfy { isTarget(block(at: $0, in: storage).kind) }
             let group = uniqueGroup(in: storage)
             for paragraph in paragraphs {
                 var target = block(at: paragraph, in: storage)
-                if allTasks {
+                if allTarget {
                     target.kind = .paragraph
                     target.group = -1
                 } else {
@@ -884,10 +924,78 @@ struct VisualMarkdownView: NSViewRepresentable {
                     default:
                         depth = 0
                     }
-                    if case .taskItem = target.kind {} else {
-                        target.kind = .taskItem(depth: depth, done: false)
+                    if !isTarget(target.kind) {
+                        target.kind = makeKind(depth)
                         if target.group < 0 { target.group = group }
                     }
+                }
+                restamp(paragraph, to: target, in: textView)
+            }
+        }
+
+        /// Heading level 1…6 on the selected paragraphs; the same level again
+        /// turns them back into plain paragraphs.
+        func setHeading(_ level: Int) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraphs = selectedParagraphs()
+            guard !paragraphs.isEmpty else { return }
+
+            let allMatch = paragraphs.allSatisfy {
+                block(at: $0, in: storage).kind == .heading(level)
+            }
+            for paragraph in paragraphs {
+                var target = block(at: paragraph, in: storage)
+                target.kind = allMatch ? .paragraph : .heading(level)
+                target.group = -1
+                restamp(paragraph, to: target, in: textView)
+            }
+        }
+
+        /// Quote is orthogonal to the block kind (quoteDepth/quoteGroup):
+        /// unquoted paragraphs join one new quote group, fully quoted
+        /// selections lose the quote.
+        func toggleQuote() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraphs = selectedParagraphs()
+            guard !paragraphs.isEmpty else { return }
+
+            let allQuoted = paragraphs.allSatisfy { block(at: $0, in: storage).quoteDepth > 0 }
+            let group = uniqueGroup(in: storage)
+            for paragraph in paragraphs {
+                var target = block(at: paragraph, in: storage)
+                if allQuoted {
+                    target.quoteDepth = 0
+                    target.quoteGroup = -1
+                } else if target.quoteDepth == 0 {
+                    target.quoteDepth = 1
+                    target.quoteGroup = group
+                }
+                restamp(paragraph, to: target, in: textView)
+            }
+        }
+
+        /// Code block: the selected paragraphs become lines of ONE fenced
+        /// block (shared group — the serializer merges same-group codeBlock
+        /// paragraphs into a single fence); a fully-code selection reverts to
+        /// paragraphs.
+        func toggleCodeBlock() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraphs = selectedParagraphs()
+            guard !paragraphs.isEmpty else { return }
+
+            let allCode = paragraphs.allSatisfy {
+                if case .codeBlock = block(at: $0, in: storage).kind { return true }
+                return false
+            }
+            let group = uniqueGroup(in: storage)
+            for paragraph in paragraphs {
+                var target = block(at: paragraph, in: storage)
+                if allCode {
+                    target.kind = .paragraph
+                    target.group = -1
+                } else {
+                    target.kind = .codeBlock(language: "")
+                    target.group = group
                 }
                 restamp(paragraph, to: target, in: textView)
             }
@@ -989,6 +1097,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             var textTables: [Int: NSTextTable] = [:]
             let theme = textView.theme
 
+            let spacingScale = EditorSettings.shared.visualSpacing.scale
             isMutating = true
             storage.beginEditing()
             var location = 0
@@ -1000,23 +1109,23 @@ struct VisualMarkdownView: NSViewRepresentable {
                     ?? MDBlock(kind: .paragraph)
 
                 let style = NSMutableParagraphStyle()
-                style.paragraphSpacing = 6
+                style.paragraphSpacing = 6 * spacingScale
                 var markerIndent: CGFloat = 0
 
                 switch blockValue.kind {
                 case .heading(let level):
-                    style.paragraphSpacingBefore = level <= 2 ? 14 : 10
-                    style.paragraphSpacing = 8
+                    style.paragraphSpacingBefore = (level <= 2 ? 14 : 10) * spacingScale
+                    style.paragraphSpacing = 8 * spacingScale
                     if level <= 2 { headingDividers.append(paragraph) }
                 case .bulletItem(let depth):
                     markerIndent = 24 + CGFloat(depth) * 22
                     bullets.append((paragraph, depth))
-                    style.paragraphSpacing = 2
+                    style.paragraphSpacing = 2 * spacingScale
                     lastListGroupDepth = (blockValue.group, depth)
                 case .taskItem(let depth, let done):
                     markerIndent = 24 + CGFloat(depth) * 22
                     tasks.append((paragraph, depth, done))
-                    style.paragraphSpacing = 2
+                    style.paragraphSpacing = 2 * spacingScale
                     lastListGroupDepth = (blockValue.group, depth)
                 case .orderedItem(let depth, _):
                     markerIndent = 28 + CGFloat(depth) * 22
@@ -1043,7 +1152,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                         if case .orderedItem(_, let n) = blockValue.kind { return n }
                         return 1
                     }()))
-                    style.paragraphSpacing = 2
+                    style.paragraphSpacing = 2 * spacingScale
                     lastListGroupDepth = (blockValue.group, depth)
                 case .listContinuation(let indent):
                     markerIndent = 24 + CGFloat(max(0, indent - 2) / 4) * 22
@@ -1130,6 +1239,17 @@ struct VisualMarkdownView: NSViewRepresentable {
             if case .taskItem(_, true) = block.kind { isDone = true }
             var isHeaderCell = false
             if case .tableCell(0, _, _, _) = block.kind { isHeaderCell = true }
+            var headingLevel = 0
+            if case .heading(let level) = block.kind { headingLevel = level }
+            var isBodyCode = false
+            if case .codeBlock = block.kind { isBodyCode = true }
+            if case .raw = block.kind { isBodyCode = true }
+            let isQuote = block.quoteDepth > 0
+            // Colors are honest here: theme (preset + General overrides) plus
+            // per-element overrides — no hardcoded system colors.
+            let theme = textView?.theme ?? .system
+            let elements = EditorSettings.shared.visual.elements
+
             storage.enumerateAttributes(in: paragraph) { attrs, range, _ in
                 let styles = MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0)
                 if isHeaderCell {
@@ -1148,25 +1268,34 @@ struct VisualMarkdownView: NSViewRepresentable {
                 }
                 if attrs[.mdLink] != nil {
                     storage.addAttributes([
-                        .foregroundColor: NSColor.linkColor,
+                        .foregroundColor: elements.link.color ?? theme.accentColor,
                         .underlineStyle: NSUnderlineStyle.single.rawValue,
                     ], range: range)
                 } else if isDone {
-                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor,
+                    storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
                                          range: range)
+                    storage.removeAttribute(.underlineStyle, range: range)
+                    storage.removeAttribute(.backgroundColor, range: range)
                 } else if styles.contains(.code) {
                     storage.addAttributes([
-                        .foregroundColor: NSColor.systemOrange,
+                        .foregroundColor: elements.inlineCode.color ?? theme.inlineCodeColor,
                         .backgroundColor: NSColor(white: 0.5, alpha: 0.12),
                     ], range: range)
                     storage.removeAttribute(.underlineStyle, range: range)
                 } else {
-                    var isRawOrCode = false
-                    if case .codeBlock = block.kind { isRawOrCode = true }
-                    if case .raw = block.kind { isRawOrCode = true }
-                    storage.addAttribute(.foregroundColor,
-                                         value: isRawOrCode ? NSColor.secondaryLabelColor : NSColor.labelColor,
-                                         range: range)
+                    let color: NSColor
+                    if headingLevel > 0 {
+                        color = elements.heading(headingLevel).color ?? theme.textColor
+                    } else if isBodyCode {
+                        color = theme.secondaryColor
+                    } else if isQuote {
+                        color = elements.quote.color ?? theme.textColor
+                    } else if styles.contains(.bold), let bold = elements.bold.color {
+                        color = bold
+                    } else {
+                        color = theme.textColor
+                    }
+                    storage.addAttribute(.foregroundColor, value: color, range: range)
                     storage.removeAttribute(.underlineStyle, range: range)
                     storage.removeAttribute(.backgroundColor, range: range)
                 }
@@ -1243,9 +1372,16 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
         }
 
-        @objc func fontSizeDidChange() {
+        @objc func settingsDidChange() {
+            // A color-override change keeps the preset name, so updateNSView's
+            // name gate wouldn't refresh the theme — source it here directly.
+            textView?.theme = EditorSettings.shared.effectiveTheme
             imageAttachments.removeAll()
             loadDocument()  // restoreCursor keeps the place via the position store
+            if let textView {
+                textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(
+                    forWidth: textView.enclosingScrollView?.contentView.bounds.width ?? 0)
+            }
             publishActions()
         }
     }

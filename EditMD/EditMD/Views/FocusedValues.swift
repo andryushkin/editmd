@@ -11,6 +11,17 @@ struct FormatActions {
     var toggleChecklist: (() -> Void)? = nil
     /// Visual mode only: add/edit/remove a link on the selection (⌘K).
     var editLink: (() -> Void)? = nil
+    // Format-menu block/inline commands (v25). Optional: a mode publishes
+    // only what it implements, the menu item disables on nil.
+    var toggleStrikethrough: (() -> Void)? = nil
+    var toggleCodeSpan: (() -> Void)? = nil
+    /// Sets heading level 1…6 on the selected paragraphs; the same level
+    /// again turns them back into plain paragraphs.
+    var setHeading: ((Int) -> Void)? = nil
+    var toggleBulletList: (() -> Void)? = nil
+    var toggleNumberedList: (() -> Void)? = nil
+    var toggleQuote: (() -> Void)? = nil
+    var toggleCodeBlock: (() -> Void)? = nil
 }
 
 struct FormatActionsKey: FocusedValueKey {
