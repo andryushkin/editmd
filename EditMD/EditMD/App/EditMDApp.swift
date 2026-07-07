@@ -4,13 +4,15 @@ import AppKit
 @main
 struct EditMDApp: App {
 
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @FocusedValue(\.formatActions) var actions
     @FocusedValue(\.editorMode) var editorMode
     @FocusedValue(\.sidebarVisible) var sidebarVisible
     @FocusedValue(\.splitPreview) var splitPreview
+    @FocusedValue(\.documentActions) var documentActions
 
     @StateObject private var history = DocumentHistory.shared
-    @Environment(\.openDocument) private var openDocument
 
     /// Routes an Edit ▸ Find command into the focused NSTextView's find bar.
     /// performTextFinderAction reads the action from the SENDER's tag, so the
@@ -22,11 +24,54 @@ struct EditMDApp: App {
                          to: nil, from: item)
     }
 
+    /// File ▸ Open — DocumentGroup no longer provides it. Loads the chosen file
+    /// into the main window (Lite mode is only about Finder double-clicks).
+    @MainActor private func openFilePanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.markdown, .textBundle]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            AppState.shared.openInMainWindow(url.standardizedFileURL)
+        }
+    }
+
     var body: some Scene {
-        DocumentGroup(newDocument: { MarkdownDocument() }) { configuration in
-            ContentView(document: configuration.document, fileURL: configuration.fileURL)
+        // The single main workspace window (in-place file replacement).
+        Window("EditMD", id: WindowID.main) {
+            MainWindowView()
         }
         .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New") {
+                    AppState.shared.openInMainWindow(nil)
+                }
+                .keyboardShortcut("n")
+
+                Button("Open…") {
+                    openFilePanel()
+                }
+                .keyboardShortcut("o")
+
+                Button("Open Folder…") {
+                    WorkspaceModel.shared.promptAddFolder()
+                }
+                .keyboardShortcut("o", modifiers: [.shift, .command])
+            }
+
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") {
+                    documentActions?.save()
+                }
+                .keyboardShortcut("s")
+                .disabled(documentActions == nil)
+
+                Button("Save As…") {
+                    documentActions?.saveAs()
+                }
+                .keyboardShortcut("s", modifiers: [.shift, .command])
+                .disabled(documentActions == nil)
+            }
+
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
@@ -121,17 +166,13 @@ struct EditMDApp: App {
                 Divider()
 
                 Button("Back") {
-                    history.goBack { url in
-                        Task { try? await openDocument(at: url) }
-                    }
+                    history.goBack { url in AppState.shared.openInMainWindow(url) }
                 }
                 .keyboardShortcut("[")
                 .disabled(!history.canGoBack)
 
                 Button("Forward") {
-                    history.goForward { url in
-                        Task { try? await openDocument(at: url) }
-                    }
+                    history.goForward { url in AppState.shared.openInMainWindow(url) }
                 }
                 .keyboardShortcut("]")
                 .disabled(!history.canGoForward)
@@ -234,6 +275,12 @@ struct EditMDApp: App {
                 .keyboardShortcut("k")
                 .disabled(actions?.editLink == nil)
             }
+        }
+
+        // Separate (lite) windows — one file each, sidebar-less. Opened via the
+        // Lite-mode Finder route and the sidebar's "Open in separate window".
+        WindowGroup(for: URL.self) { $url in
+            FileEditor(url: url, allowsSidebar: false, isMain: false)
         }
 
         Settings {

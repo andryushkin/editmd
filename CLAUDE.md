@@ -2,13 +2,13 @@
 
 ## Overview
 
-Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle + `DocumentGroup` + `ReferenceFileDocument`. NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса. **Три режима** (переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню, курсор/скролл сохраняются между режимами):
+Минималистичный Markdown редактор для macOS. Чистый SwiftUI App lifecycle. **С v28 — `WindowGroup` + собственный `DocumentRegistry`** (уход от `DocumentGroup`): главное окно с файловым сайдбаром меняет файл на месте, отдельные lite-окна — value-based `WindowGroup(for: URL)`; `MarkdownDocument` = модель контента, сериализация/IO в `DocumentStore.swift`. NSTextView обёрнут в `NSViewRepresentable` для подсветки синтаксиса. **Три режима** (переключатель в тулбаре + ⌘1/⌘2/⌘3 в View-меню, курсор/скролл сохраняются между режимами):
 
 - **Source** — сырой markdown, моноширинный; подсветка синтаксиса по настройкам (per-mode элементы: заголовки/жирное/код/цитаты/ссылки — размер/вес/цвет через `collectSpans`, v27) + линтер (14 правил, quick-fix) — `SourceTextView.swift`
 - **Visual** — WYSIWYG на attributed-модели: маркеров в тексте нет, семантика в кастомных атрибутах, пропорциональный шрифт, таблицы NSTextTable, картинки, синхронная сериализация в markdown — `VisualTextView.swift`
 - **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS) — `MarkdownPreviewView.swift`
 
-Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift`. **Сайдбар-оглавление** (⌃⌘S, кастомный HStack-сплит + перетаскиваемый divider) — заголовки документа, клик = переход. **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
+Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift` (File-меню теперь ручное — DocumentGroup его больше не даёт). **Файловый сайдбар** (⌃⌘S, кастомный HStack-сплит + divider) — вкладки **Files/Outline**: Files = несколько workspace-папок (скрытые файлы, пины) + «Открытые файлы», клик = замена файла в окне; Outline = заголовки документа (`WorkspaceSidebar.swift` + `OutlineSidebar.swift`, `WorkspaceModel.swift`). **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
 
 ## Roadmap трёх режимов (принят 2026-07-06)
 
@@ -22,10 +22,32 @@
 - **v25 ✅** — паттерны из FSNotes (github.com/glushchenko/fsnotes): интерактивный Preview (Enter→Visual, кликабельные чекбоксы с записью в исходник, CSS синхронизирован с редактором), Back/Forward по документам, Edit▸Find (⌘F/⌥⌘F/⌘G/⇧⌘G/⌘E через NSTextFinder), полное Format-меню (strikethrough/code span/заголовки ⌥⌘1–6/списки/цитата/code block — в Source и Visual)
 - **v26 ✅** — Settings-окно (⌘,): шрифт/отступы/ширина колонки раздельно по Source/Visual/Preview, межстрочный интервал (Visual), line-height (Preview), тема + цвета элементов (General). `EditorFontSettings` удалён в пользу `EditorSettings`
 - **v27 ✅** — настройки по-настоящему применяются + per-mode элементы: честные цвета (Visual/Preview/Source читают тему, не хардкод), выбор гарнитуры+веса per mode, per-mode ElementStyles (H1–H6/bold/code/link/quote — размер/вес/цвет), **Source получил подсветку** (стилизует raw markdown по своим элементам), Appearance (System/Light/Dark) персистится, Comfortable удалён
+- **v28 ✅** — **уход от `DocumentGroup` → `WindowGroup` + `DocumentRegistry`**; файловый сайдбар (несколько workspace: скрытые/пины/loose; вкладки Files/Outline), Lite mode (Finder→отдельное окно), модалка «файл уже открыт в другом окне», on-focus reload. См. «## v28 — Complete» ниже
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes).
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
+
+## v28 — Complete (файловый сайдбар + workspace, уход от DocumentGroup)
+
+Мотив: нужна навигация по файлам с «заменой файла в том же окне», а `DocumentGroup` = окно-на-документ (файл в окне фиксирован). UX-решения прошли Q&A + макет-ревью в smotr (`docs/design/10_workspace_sidebar.html`). Сделано 4 фазами (255 тестов зелёные, +12).
+
+- **Оконная модель.** `Window("main")` (главное workspace-окно, слушает `AppState.currentURL`) + `WindowGroup(for: URL.self)` (lite-окна). `AppDelegate.application(_:open:)` роутит Finder-открытия через `AppState` по `general.liteMode`: off (деф.) → в главное заменой, on → отдельное окно. ПКМ в сайдбаре → «Открыть в отдельном окне». Клик в сайдбаре по файлу, уже открытому в другом окне → модалка «Перейти к нему»/«Открыть здесь».
+- **Слой документа.** `DocumentStore.swift`: `parseMarkdownWrapper`/`makeMarkdownWrapper` (общий core сериализации) + `loadMarkdownDocument`/`writeMarkdownDocument` (диск) + `DocumentRegistry` (URL→`MarkdownDocument`, refcount, dirty, debounce-autosave). `MarkdownDocument` делегирует в этот core (паритет по построению).
+- **Сайдбар.** `WorkspaceModel` (несколько workspace-папок, скрытые по папкам, пины loose-файлов, session-loose; персист UserDefaults по пути) + `WorkspaceSidebar` (сегмент Files/Outline, глаз показывает скрытые с restore, пины, ПКМ). File▸Open Folder ⇧⌘O.
+
+### v28 — gotchas
+
+- **Value-based окна: `WindowGroup(for: URL.self)`, не `URL?.self`** — оптионал-значение дало бы двойной опционал в замыкании (`$url: URL?`). Lite-окна всегда титульные; untitled = File▸New в главном (`AppState.currentURL=nil`).
+- **`openWindow`/`Window` действия живут только внутри сцены** → `AppState` захватывает `OpenWindowAction` в `MainWindowView.onAppear` (`bindOpenWindow`) и **буферит** открытия, пришедшие до появления сцены (важно для Lite-on холодного старта из Finder).
+- **Замена файла на месте = мутация `AppState.currentURL`**; `MainWindowView` вешает `.id(currentURL)` на `FileEditor` → SwiftUI пересоздаёт `DocHost` (release старого, acquire нового) — чистый редактор без stale-undo. Lifecycle реестра завязан на идентичность вью (deinit `DocHost` → `Task { @MainActor in registry.release }`, т.к. deinit nonisolated).
+- **`representedURL`/title** ставит `WindowAccessor` (NSViewRepresentable, `DispatchQueue.main.async` до появления window) — SwiftUI-API нет до macOS 15. «Открыт в другом окне?» и Back/Forward определяются по `NSApp.windows`/`representedURL`.
+- **On-focus reload.** Фоновое (не key) окно откладывает внешний reload (`pendingExternalReload`) и применяет на `NSWindow.didBecomeKeyNotification` — иначе правка того же файла в другом окне сбрасывала бы курсор. Source сохраняет offset (clamp), Visual — через `restoreCursor()`. Гейт в `updateNSView`: `textView.window?.isKeyWindow ?? true`.
+- **`DocumentRegistry` без Combine-подписок** (Swift 6 strict concurrency): dirty/autosave драйвится явно `markDirty(_:)` из `FileEditor` (`onReceive(document.objectWillChange)`); `release` флашит на последнем refcount. Реестр — `@MainActor`, `init()` internal (тесты создают изолированный инстанс).
+- **`WorkspaceModel`** персист по пути в UserDefaults (инъекция `defaults` для тестов, `init(defaults:)`); скан **плоский** (не рекурсивный), файл «в» workspace = его родитель == `folderPath`. `[String: Set<String>]` для скрытых Codable-able.
+- **File-меню вручную** (DocumentGroup его больше не даёт): New/Open/Open Folder/Save/Save As через `@FocusedValue(\.documentActions)` (публикует `FileEditor`), Save untitled → `NSSavePanel`.
+
+**Известные шероховатости (отложено):** Lite-on холодный старт может показать лишнее пустое главное окно (`Window`-сцена всегда создаётся); Save As для untitled lite-окна не переусыновляет URL (главное — переусыновляет); `ReferenceFileDocument`-конформанс `MarkdownDocument` оставлен, но сцену не питает (можно снять). **Later:** точка «открыт в отдельном окне» в сайдбаре, восстановление окон, недавние папки, per-document режим, вложенные папки-деревья/drag-reorder/поиск по файлам.
 
 ## Project Structure
 
@@ -35,10 +57,10 @@ editmd/
     ├── project.yml   # xcodegen конфиг — ЕДИНСТВЕННЫЙ источник структуры проекта
     ├── EditMD.xcodeproj/
     └── EditMD/
-        ├── App/        EditMDApp.swift (entry point, DocumentGroup, SwiftUI commands), Info.plist
-        ├── Document/   MarkdownDocument.swift (ReferenceFileDocument)
+        ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
+        ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave)
         ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), MarkdownOutline.swift (outline для сайдбара), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
-        └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар), OutlineSidebar.swift, EditorSettings.swift (шрифт/отступы/колонка/тема — per-mode + general, персист в UserDefaults), SettingsView.swift (⌘, окно, вкладки General/Source/Visual/Preview), FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift (+ jump-нотификация), MarkdownPreviewView.swift (WKWebView, live-режим для сплита), DocumentHistory.swift (Back/Forward)
+        └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар, allowsSidebar, модалка «уже открыт»), FileEditor.swift (DocHost: резолв документа из реестра по идентичности вью + MainWindowView + WindowAccessor), WorkspaceModel.swift (workspace-папки/скрытые/пины/loose, персист по пути), WorkspaceSidebar.swift (Files/Outline, глаз, restore, пины, ПКМ), OutlineSidebar.swift, EditorSettings.swift (per-mode + general incl. liteMode, персист UserDefaults), SettingsView.swift (⌘, окно, вкладки General/Source/Visual/Preview), FocusedValues.swift (+ DocumentActions), EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift (WKWebView, live-режим), DocumentHistory.swift (Back/Forward)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
@@ -46,7 +68,9 @@ editmd/
         ├── MarkdownHTMLTests.swift         # 12 XCTest кейсов для markdownHTMLBody/previewHTMLPage (эскейпинг, task list, таблицы, image resolver)
         ├── MarkdownLintTests.swift         # 30 XCTest кейсов для lint() — все 14 правил + анти-FP гарды + применение fix'ов
         ├── MarkdownOutlineTests.swift      # 9 XCTest кейсов для markdownOutline (уровни, plainText, UTF-16 оффсеты, fence/setext/blockquote)
-        └── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
+        ├── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
+        ├── DocumentStoreTests.swift        # 7 кейсов: round-trip .md/.textbundle + assets, DocumentRegistry (shared-model/refcount, save-on-dirty, flush-on-release)
+        └── WorkspaceModelTests.swift       # 5 кейсов: скан-фильтрация, hide/unhide, персист скрытых по пути, пины, noteOpened
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 
@@ -63,9 +87,11 @@ xcodebuild -scheme EditMD -destination "platform=macOS" -enableCodeCoverage NO t
 
 ## Architecture
 
-### DocumentGroup + ReferenceFileDocument
+### Оконная модель (v28 — заменила DocumentGroup)
 
-`EditMDApp.swift` использует `DocumentGroup(newDocument:editor:)`. Документ — `MarkdownDocument` (class, `ReferenceFileDocument`). DocumentGroup автоматически предоставляет File меню (New/Open/Save/Save As/Revert) — ручные File-команды не нужны.
+> **Историческое:** до v28 `EditMDApp.swift` использовал `DocumentGroup(newDocument:editor:)` (окно=документ), которое само давало File-меню/автосейв/`.textbundle`/роутинг Finder. С v28 это заменено (нужна была «замена файла в том же окне»). Детали ниже в «## v28 — Complete».
+
+`EditMDApp.swift` объявляет две сцены: `Window("EditMD", id:"main")` (главное workspace-окно, слушает `AppState.currentURL`) и `WindowGroup(for: URL.self)` (отдельные lite-окна). `AppDelegate.application(_:open:)` роутит Finder-открытия через `AppState` по настройке `general.liteMode`. Документы резолвятся через `DocumentRegistry` (одна модель на URL, refcount) — `DocHost` в `FileEditor.swift` делает acquire/release по идентичности вью. File-меню (New/Open/Open Folder/Save/Save As) собрано вручную; сохранение/автосейв — через реестр.
 
 ### NSTextView через NSViewRepresentable
 

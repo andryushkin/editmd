@@ -24,6 +24,20 @@ struct FormatActions {
     var toggleCodeBlock: (() -> Void)? = nil
 }
 
+/// Save/Save As for the focused window's document. Published by ContentView so
+/// the manual File menu (which replaced DocumentGroup's built-in one) can act on
+/// whichever window is key.
+struct DocumentActions {
+    var save: () -> Void
+    var saveAs: () -> Void
+    /// false = untitled (Save falls back to a save panel).
+    var hasURL: Bool
+}
+
+struct DocumentActionsKey: FocusedValueKey {
+    typealias Value = DocumentActions
+}
+
 struct FormatActionsKey: FocusedValueKey {
     typealias Value = FormatActions
 }
@@ -44,6 +58,12 @@ extension FocusedValues {
     var formatActions: FormatActions? {
         get { self[FormatActionsKey.self] }
         set { self[FormatActionsKey.self] = newValue }
+    }
+
+    /// Save/Save As for the key window's document (manual File menu).
+    var documentActions: DocumentActions? {
+        get { self[DocumentActionsKey.self] }
+        set { self[DocumentActionsKey.self] = newValue }
     }
 
     var editorMode: Binding<EditorMode>? {

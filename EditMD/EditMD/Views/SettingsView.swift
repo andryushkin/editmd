@@ -56,6 +56,12 @@ private struct GeneralTab: View {
                 Text("Per-element colors are set separately on each mode tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Windows") {
+                Toggle("Lite mode — open files from Finder in a separate window",
+                       isOn: $settings.general.liteMode)
+                Text("Off: a double-click in Finder loads the file into the main window. Sidebar clicks and File ▸ Open always use the main window; right-click a file to open it separately.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section {
                 Button("Reset General to Defaults") { settings.resetGeneral() }
                 Button("Reset Everything…", role: .destructive) { settings.resetToDefaults() }

@@ -4,6 +4,8 @@ struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
+    /// Lite (separate) windows pass false to suppress the workspace sidebar.
+    var allowsSidebar: Bool = true
 
     @AppStorage("editorMode") private var storedMode: String = EditorMode.visual.rawValue
     /// Sidebar (document outline) show/hide + width, persisted like the mode.
@@ -14,6 +16,7 @@ struct ContentView: View {
     @AppStorage("splitPreview") private var splitPreview = false
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
+    @ObservedObject private var workspace = WorkspaceModel.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -66,10 +69,14 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                if sidebarVisible {
-                    OutlineSidebar(content: document.content) { offset in
-                        positionStore.requestJump(toMarkdownOffset: offset)
-                    }
+                if sidebarVisible && allowsSidebar {
+                    WorkspaceSidebar(
+                        workspace: workspace,
+                        outlineContent: document.content,
+                        activeURL: fileURL,
+                        onOpen: openFromSidebar,
+                        onJump: { offset in positionStore.requestJump(toMarkdownOffset: offset) }
+                    )
                     .frame(width: sidebarWidth)
                     paneDivider(space: .global) { x in
                         sidebarWidth = min(Self.sidebarWidthRange.upperBound,
@@ -188,13 +195,15 @@ struct ContentView: View {
     /// Flat icon-only buttons with tooltip+shortcut hints and multi-state
     /// SF Symbols (filled while active) — the agterm titlebar button style.
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                sidebarVisible.toggle()
-            } label: {
-                Label("Toggle Sidebar", systemImage: "sidebar.left")
+        if allowsSidebar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    sidebarVisible.toggle()
+                } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.left")
+                }
+                .help("Toggle Sidebar (⌃⌘S)")
             }
-            .help("Toggle Sidebar (⌃⌘S)")
         }
         ToolbarItemGroup(placement: .navigation) {
             ForEach(EditorMode.allCases) { candidate in
@@ -301,5 +310,41 @@ struct ContentView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Sidebar open
+
+    /// Left-click a file in the sidebar. If it's already open in another window,
+    /// ask whether to jump there or move it here (closing the other); otherwise
+    /// replace the main window's file in place.
+    private func openFromSidebar(_ url: URL) {
+        let std = url.standardizedFileURL
+        if std == fileURL?.standardizedFileURL { return }
+        if let other = NSApp.windows.first(where: {
+            $0 !== NSApp.keyWindow && $0.isVisible
+                && $0.representedURL?.standardizedFileURL == std
+        }) {
+            presentAlreadyOpenModal(url: std, other: other)
+        } else {
+            AppState.shared.openInMainWindow(std)
+        }
+    }
+
+    private func presentAlreadyOpenModal(url: URL, other: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = "«\(url.lastPathComponent)» уже открыт в другом окне"
+        alert.informativeText = "Перейти к тому окну или открыть здесь и закрыть то?"
+        alert.addButton(withTitle: "Перейти к нему")
+        alert.addButton(withTitle: "Открыть здесь")
+        alert.addButton(withTitle: "Отмена")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            other.makeKeyAndOrderFront(nil)
+        case .alertSecondButtonReturn:
+            AppState.shared.openInMainWindow(url)
+            other.close()
+        default:
+            break
+        }
     }
 }

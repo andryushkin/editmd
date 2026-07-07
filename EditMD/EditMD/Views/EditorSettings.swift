@@ -267,13 +267,18 @@ struct GeneralSettings: Codable, Equatable {
     var appearance: AppearanceMode
     var textColorHex: String?
     var accentColorHex: String?
+    /// When on, a double-click in Finder opens the file in its own separate
+    /// (sidebar-less) window; off (default) loads it into the main window.
+    var liteMode: Bool
 
     init(themePreset: String, appearance: AppearanceMode = .system,
-         textColorHex: String? = nil, accentColorHex: String? = nil) {
+         textColorHex: String? = nil, accentColorHex: String? = nil,
+         liteMode: Bool = false) {
         self.themePreset = themePreset
         self.appearance = appearance
         self.textColorHex = textColorHex
         self.accentColorHex = accentColorHex
+        self.liteMode = liteMode
     }
 
     init(from decoder: Decoder) throws {
@@ -282,6 +287,7 @@ struct GeneralSettings: Codable, Equatable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
         textColorHex = try c.decodeIfPresent(String.self, forKey: .textColorHex)
         accentColorHex = try c.decodeIfPresent(String.self, forKey: .accentColorHex)
+        liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? false
     }
 }
 

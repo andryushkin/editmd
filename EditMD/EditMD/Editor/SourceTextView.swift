@@ -95,6 +95,12 @@ struct SourceTextView: NSViewRepresentable {
             name: .editorSettingsDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.windowBecameKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
         // Outline-sidebar jumps, object-scoped to this window's store (a nil
         // object would subscribe to every window's jumps).
         if let store = positionStore {
@@ -116,12 +122,15 @@ struct SourceTextView: NSViewRepresentable {
         guard let textView = coordinator.textView else { return }
         textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
 
-        // Only update text if changed externally (not from typing)
+        // External change (Revert, or another window editing the shared
+        // document). A background window defers the reload until it becomes key
+        // so its cursor/scroll survive edits made elsewhere.
         if !coordinator.isInternalUpdate, textView.string != document.content {
-            textView.string = document.content
-            coordinator.updateStats()
-            coordinator.highlightSource()
-            coordinator.scheduleLint(delaySeconds: 0)
+            if textView.window?.isKeyWindow ?? true {
+                coordinator.reloadFromDocument()
+            } else {
+                coordinator.pendingExternalReload = true
+            }
         }
     }
 
@@ -133,6 +142,9 @@ struct SourceTextView: NSViewRepresentable {
         var parent: SourceTextView
         fileprivate var textView: SourceNSTextView?
         var isInternalUpdate = false
+        /// A background window sets this when the shared document changes under
+        /// it; the reload is applied when the window next becomes key.
+        var pendingExternalReload = false
 
         init(parent: SourceTextView) {
             self.parent = parent
@@ -170,6 +182,28 @@ struct SourceTextView: NSViewRepresentable {
             textView.scrollRangeToVisible(textView.selectedRange())
             textView.centerSelectionInVisibleArea(nil)
             textView.window?.makeFirstResponder(textView)
+        }
+
+        /// Reloads from the shared document (external change), preserving the
+        /// cursor offset (clamped) across the swap.
+        func reloadFromDocument() {
+            guard let textView else { return }
+            pendingExternalReload = false
+            let sel = textView.selectedRange()
+            textView.string = parent.document.content
+            let len = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+            updateStats()
+            highlightSource()
+            scheduleLint(delaySeconds: 0)
+        }
+
+        /// When a deferred external change is pending, apply it once the window
+        /// regains focus (see updateNSView's background-window gate).
+        @objc func windowBecameKey(_ note: Notification) {
+            guard pendingExternalReload, let tv = textView,
+                  (note.object as? NSWindow) === tv.window else { return }
+            reloadFromDocument()
         }
 
         // MARK: Lint

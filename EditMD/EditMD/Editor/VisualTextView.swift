@@ -166,6 +166,11 @@ struct VisualMarkdownView: NSViewRepresentable {
                 name: .editMDJumpToOffset,
                 object: store)
         }
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.windowBecameKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil)
         return scrollView
     }
 
@@ -179,9 +184,15 @@ struct VisualMarkdownView: NSViewRepresentable {
             coordinator.applyPresentation()
             return
         }
-        // External change (e.g. Revert): re-render.
+        // External change (Revert, or another window editing the shared
+        // document). A background window defers the re-render until it becomes
+        // key so its cursor/scroll survive edits made elsewhere.
         if !coordinator.isInternalUpdate, document.content != coordinator.lastSerialized {
-            coordinator.loadDocument()
+            if textView.window?.isKeyWindow ?? true {
+                coordinator.loadDocument()
+            } else {
+                coordinator.pendingExternalReload = true
+            }
         }
     }
 
@@ -194,6 +205,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         weak var textView: VisualNSTextView?
         var isInternalUpdate = false
         var lastSerialized = ""
+        /// A background window sets this when the shared document changes under
+        /// it; the re-render is applied when the window next becomes key.
+        var pendingExternalReload = false
         private var isMutating = false
         /// setAttributedString during (re)load resets the selection; the
         /// callback must not clobber the cross-mode cursor store.
@@ -235,6 +249,15 @@ struct VisualMarkdownView: NSViewRepresentable {
             updateStats()
             isLoadingDocument = false
             restoreCursor()
+        }
+
+        /// Applies a deferred external change once the window regains focus (see
+        /// updateNSView's background-window gate).
+        @objc func windowBecameKey(_ note: Notification) {
+            guard pendingExternalReload, let tv = textView,
+                  (note.object as? NSWindow) === tv.window else { return }
+            pendingExternalReload = false
+            loadDocument()
         }
 
         // MARK: Cursor continuity across modes
