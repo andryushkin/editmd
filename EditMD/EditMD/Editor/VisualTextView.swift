@@ -1110,6 +1110,34 @@ struct VisualMarkdownView: NSViewRepresentable {
             navigateToWikiLink(target: payload.target, from: parent.fileURL)
         }
 
+        /// Absolute x edges (left→right, including the right edge) for a large
+        /// table's columns. Widths come from the header plus a sample of body
+        /// rows (measuring every row of a 9000-row table would be wasteful),
+        /// clamped to a sane min/max so one long cell can't blow out the grid.
+        private func tableColumnEdges(_ grid: TableGrid, font: NSFont, headerFont: NSFont,
+                                      originX: CGFloat) -> [CGFloat] {
+            let columns = grid.columnCount
+            guard columns > 0 else { return [originX] }
+            let cellPadding: CGFloat = 12   // 6pt on each side
+            let minWidth: CGFloat = 44
+            let maxWidth: CGFloat = 260
+            func measure(_ s: String, _ f: NSFont) -> CGFloat {
+                (s as NSString).size(withAttributes: [.font: f]).width
+            }
+            var widths = [CGFloat](repeating: minWidth, count: columns)
+            for (c, header) in grid.headers.enumerated() where c < columns {
+                widths[c] = max(widths[c], measure(header, headerFont) + cellPadding)
+            }
+            for row in grid.rows.prefix(60) {
+                for (c, cell) in row.enumerated() where c < columns {
+                    widths[c] = max(widths[c], measure(cell, font) + cellPadding)
+                }
+            }
+            var edges: [CGFloat] = [originX]
+            for w in widths { edges.append((edges.last ?? originX) + min(w, maxWidth)) }
+            return edges
+        }
+
         // MARK: Presentation (derived visuals + decoration entries)
 
         func applyPresentation() {
@@ -1122,6 +1150,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             var codeGroups: [Int: NSRange] = [:]
             var ruleRanges: [NSRange] = []
             var headingDividers: [NSRange] = []
+            var tableIslands: [TableIslandEntry] = []
 
             var orderedCounters: [String: Int] = [:]
             var lastListGroupDepth: (group: Int, depth: Int)? = nil
@@ -1144,6 +1173,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                 let style = NSMutableParagraphStyle()
                 style.paragraphSpacing = 6 * spacingScale
                 var markerIndent: CGFloat = 0
+                var isTableIsland = false
 
                 switch blockValue.kind {
                 case .heading(let level):
@@ -1221,8 +1251,29 @@ struct VisualMarkdownView: NSViewRepresentable {
                     case 3: style.alignment = .right
                     default: break
                     }
-                case .raw:
-                    markerIndent = 10
+                case .raw(let rawText):
+                    // A large table stored as a raw island (renderTable falls
+                    // back to `.raw` above maxNativeTableCells). Draw it as a
+                    // virtualized grid instead of monospace pipe text: hide the
+                    // text, pin a fixed row height, register a draw entry. Other
+                    // raw islands (HTML) keep the monospace fallback.
+                    if let grid = parseGFMTable(rawText) {
+                        let bodyFont = visualStyle.font(for: [], blockKind: .paragraph)
+                        let headerFont = visualStyle.font(for: .bold, blockKind: .paragraph)
+                        let rowHeight = ceil(bodyFont.ascender - bodyFont.descender) + 12
+                        style.minimumLineHeight = rowHeight
+                        style.maximumLineHeight = rowHeight
+                        style.lineBreakMode = .byClipping
+                        style.paragraphSpacing = 8 * spacingScale
+                        let edges = tableColumnEdges(grid, font: bodyFont, headerFont: headerFont,
+                                                     originX: textView.textContainerInset.width)
+                        tableIslands.append(TableIslandEntry(range: paragraph, grid: grid,
+                                                             columnEdges: edges, rowHeight: rowHeight,
+                                                             font: bodyFont, headerFont: headerFont))
+                        isTableIsland = true
+                    } else {
+                        markerIndent = 10
+                    }
                 case .paragraph:
                     break
                 }
@@ -1238,7 +1289,14 @@ struct VisualMarkdownView: NSViewRepresentable {
 
                 if paragraph.length > 0 {
                     storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
-                    applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
+                    if isTableIsland {
+                        // The pipe text only reserves layout height; the grid is
+                        // drawn in drawBackground. Hide the characters.
+                        storage.addAttribute(.foregroundColor, value: NSColor.clear,
+                                             range: paragraph)
+                    } else {
+                        applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
+                    }
                 }
             }
             attachImages(storage)
@@ -1252,6 +1310,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.codePanelRanges = Array(codeGroups.values)
             textView.ruleRanges = ruleRanges
             textView.headingDividerRanges = headingDividers
+            textView.tableIslandEntries = tableIslands
             textView.needsDisplay = true
         }
 
@@ -1428,6 +1487,22 @@ struct VisualMarkdownView: NSViewRepresentable {
 
 // MARK: - Text view with drawn markers
 
+/// A large table drawn as a virtualized, read-only grid rather than laid out as
+/// NSTextTable cells (which peg the CPU past a few thousand cells). `range` is
+/// the island paragraph whose (hidden) pipe text reserves the vertical space;
+/// `columnEdges` are absolute x positions left→right including the right edge;
+/// `rowHeight` is the fixed height each display line was pinned to, so row rects
+/// are computed arithmetically — no full line-fragment enumeration, which is
+/// what keeps a 9000-row table cheap to draw.
+struct TableIslandEntry {
+    let range: NSRange
+    let grid: TableGrid
+    let columnEdges: [CGFloat]
+    let rowHeight: CGFloat
+    let font: NSFont
+    let headerFont: NSFont
+}
+
 final class VisualNSTextView: NSTextView {
     var theme: EditorTheme = .system
     var bulletEntries: [(range: NSRange, depth: Int)] = []
@@ -1437,6 +1512,7 @@ final class VisualNSTextView: NSTextView {
     var codePanelRanges: [NSRange] = []
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
+    var tableIslandEntries: [TableIslandEntry] = []
 
     private var visualCoordinator: VisualMarkdownView.Coordinator? {
         delegate as? VisualMarkdownView.Coordinator
@@ -1627,6 +1703,97 @@ final class VisualNSTextView: NSTextView {
                 let line = NSRect(x: inset.width, y: rectUnion.maxY - 1, width: fullWidth, height: 1)
                 if line.intersects(rect) { line.fill() }
             }
+        }
+
+        // Large tables (drawn as virtualized read-only grids)
+        for entry in tableIslandEntries {
+            drawTableIsland(entry, dirty: rect, inset: inset, layoutManager: layoutManager)
+        }
+    }
+
+    /// Draws only the rows of a large table that intersect `dirty`. Row rects
+    /// are derived from the island's first line-fragment origin plus a fixed
+    /// `rowHeight` (arithmetic, not a full fragment walk), so cost scales with
+    /// the viewport, not with table size. The island's display text drops the
+    /// `---` delimiter, so display line 0 = header and lines 1… = data rows.
+    private func drawTableIsland(_ entry: TableIslandEntry, dirty: NSRect, inset: NSSize,
+                                 layoutManager: NSLayoutManager) {
+        let totalLength = (string as NSString).length
+        guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { return }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range,
+                                                  actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return }
+        let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
+                                                       effectiveRange: nil)
+        let top = firstRect.minY + inset.height
+        let rowH = entry.rowHeight
+        let grid = entry.grid
+        let edges = entry.columnEdges
+        let left = edges.first ?? inset.width
+        let right = edges.last ?? inset.width
+        let width = right - left
+        let totalLines = grid.rows.count + 1   // header + data rows (no delimiter)
+        let bottom = top + CGFloat(totalLines) * rowH
+
+        let firstVisible = max(0, Int(floor((dirty.minY - top) / rowH)))
+        let lastVisible = min(totalLines - 1, Int(ceil((dirty.maxY - top) / rowH)))
+        guard firstVisible <= lastVisible else { return }
+
+        let border = theme.separatorColor
+        for i in firstVisible...lastVisible {
+            let rowY = top + CGFloat(i) * rowH
+            let rowRect = NSRect(x: left, y: rowY, width: width, height: rowH)
+            if i == 0 {
+                NSColor(white: 0.5, alpha: 0.08).setFill()
+                rowRect.fill()
+                border.setFill()
+                NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
+                drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
+                             color: theme.textColor, edges: edges, alignments: grid.alignments)
+            } else {
+                let dataIndex = i - 1
+                if dataIndex < grid.rows.count {
+                    drawTableRow(grid.rows[dataIndex], in: rowRect, font: entry.font,
+                                 color: theme.textColor, edges: edges, alignments: grid.alignments)
+                }
+            }
+            border.setFill()
+            NSRect(x: left, y: rowY + rowH - 0.5, width: width, height: 0.5).fill()   // row rule
+        }
+
+        // Vertical column separators across the visible span.
+        let visTop = max(dirty.minY, top)
+        let visBottom = min(dirty.maxY, bottom)
+        if visBottom > visTop {
+            border.setFill()
+            for x in edges {
+                NSRect(x: x - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()
+            }
+        }
+    }
+
+    private func drawTableRow(_ cells: [String], in rowRect: NSRect, font: NSFont,
+                              color: NSColor, edges: [CGFloat],
+                              alignments: [TableGrid.Alignment]) {
+        let columns = edges.count - 1
+        let lineHeight = font.ascender - font.descender
+        let textY = rowRect.minY + (rowRect.height - lineHeight) / 2
+        for c in 0..<columns where c < cells.count {
+            let text = cells[c]
+            guard !text.isEmpty else { continue }
+            let cellW = edges[c + 1] - edges[c]
+            guard cellW > 12 else { continue }
+            let para = NSMutableParagraphStyle()
+            para.lineBreakMode = .byTruncatingTail
+            switch (c < alignments.count ? alignments[c] : .leading) {
+            case .leading: para.alignment = .left
+            case .center: para.alignment = .center
+            case .trailing: para.alignment = .right
+            }
+            let drawRect = NSRect(x: edges[c] + 6, y: textY, width: cellW - 12, height: lineHeight)
+            (text as NSString).draw(in: drawRect, withAttributes: [
+                .font: font, .foregroundColor: color, .paragraphStyle: para,
+            ])
         }
     }
 }

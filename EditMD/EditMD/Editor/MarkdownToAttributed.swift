@@ -254,7 +254,7 @@ private final class VisualRenderer {
         for _ in table.body.rows {
             rowCount += 1
             if rowCount * columns > Self.maxNativeTableCells {
-                renderIsland(table, ctx: ctx)
+                renderTableIsland(table, ctx: ctx)
                 return
             }
         }
@@ -383,6 +383,32 @@ private final class VisualRenderer {
     }
 
     // MARK: Islands
+
+    /// A large table stored as a raw island. The `.raw` value is the verbatim
+    /// pipe markdown (serializer reads it → round-trips unchanged), but the
+    /// DISPLAYED text drops the `| --- |` delimiter line so the grid drawn in
+    /// Visual has no empty band under the header. Display is cosmetic; only the
+    /// stored `.raw` feeds serialization.
+    private func renderTableIsland(_ table: Markdown.Table, ctx: Ctx) {
+        let raw: String
+        if let srcRange = table.range {
+            let loc = lineIdx.lineStart(srcRange.lowerBound.line)
+            let end = lineIdx.offset(srcRange.upperBound.line, srcRange.upperBound.column)
+            raw = end > loc
+                ? nsSource.substring(with: NSRange(location: loc, length: end - loc))
+                    .trimmingCharacters(in: CharacterSet.newlines)
+                : table.format()
+        } else {
+            raw = table.format()
+        }
+        guard !raw.isEmpty else { return }
+        var lines = raw.components(separatedBy: "\n")
+        if lines.count >= 2 { lines.remove(at: 1) }   // drop delimiter from display only
+        let display = lines.joined(separator: mdHardBreak)
+        appendParagraph(makeBlock(.raw(raw), ctx)) { b in
+            self.appendText(display, block: b, styles: [], link: nil)
+        }
+    }
 
     private func renderIsland(_ block: Markup, ctx: Ctx) {
         let raw: String

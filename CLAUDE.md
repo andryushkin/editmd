@@ -24,8 +24,10 @@
 - **v27 ✅** — настройки по-настоящему применяются + per-mode элементы: честные цвета (Visual/Preview/Source читают тему, не хардкод), выбор гарнитуры+веса per mode, per-mode ElementStyles (H1–H6/bold/code/link/quote — размер/вес/цвет), **Source получил подсветку** (стилизует raw markdown по своим элементам), Appearance (System/Light/Dark) персистится, Comfortable удалён
 - **v28 ✅** — **уход от `DocumentGroup` → `WindowGroup` + `DocumentRegistry`**; файловый сайдбар (несколько workspace: скрытые/пины/loose; вкладки Files/Outline), Lite mode (Finder→отдельное окно), модалка «файл уже открыт в другом окне», on-focus reload. См. «## v28 — Complete» ниже
 - **v29 ✅** — **большие файлы больше не вешают приложение** (файл-таблица 342K/9000 ячеек висел ∞ на 100% CPU): `MDBlock` стал `Hashable` с ручным O(1) `hash(into:)` (не хеширует payload `.raw`), большие таблицы (>400 ячеек) рендерятся моноширинным island’ом вместо `NSTextTable`, `allowsNonContiguousLayout`, Source пропускает подсветку/линт на «тяжёлых» документах. **Дерево подпапок** в сайдбаре (ленивое, раскрытие персистится). См. «## v29 — Complete» ниже
+- **v30 ✅** — **wiki-links `[[Note|alias]]`** во всех трёх режимах (Obsidian-стиль): сканер `WikiLink.swift` (`originalInner` = источник истины для round-trip), подсветка Source, `.mdWikiLink`-атрибут + сериализация Visual, HTML+JS Preview; навигация `WikiLinkResolver` (ленивый actor-индекс basename→[URL], Cmd+click/клик открывают файл). См. «## v30 — Complete» ниже
+- **v31 ✅** — **большие таблицы рисуются как таблицы в Visual** (был моноширинный island с v29): чистый `parseGFMTable` + виртуализированная отрисовка сетки в `drawBackground` (только видимые строки, read-only). См. «## v31 — Complete» ниже
 
-**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), виртуализация огромных таблиц в Visual (сейчас — read-only island).
+**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. «## v31» → идеи). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
@@ -67,6 +69,36 @@
 - **Два независимых порога, разные цели:** `maxNativeTableCells` (island vs нативная ТАБЛИЦА в Visual, по ячейкам) и `markdownIsHeavy` (plain vs подсветка в SOURCE, по размеру+таблицам). Не путать.
 - **Диагностика зависания = `sample <pid> 3`**, не догадки: изолированный замер функции (без NSTextView) не воспроизвёл проблему (301мс), а `sample` живого процесса точно показал `hash(into:)` под фиксацией атрибутов.
 - Runtime сам предупреждает: `Obj-C -hash invoked on Swift value MDBlock that is Equatable but not Hashable; severe performance problems` — это был первый след.
+
+## v30 — Complete (wiki-links `[[Note|alias]]` во всех трёх режимах + навигация)
+
+Мотив: `.md`-файлы vault полны Obsidian-ссылок `[[target]]`/`[[target|alias]]`/`[[target#heading]]`/`[[target#^block]]`; `swift-markdown` (cmark-gfm) их не знает → был обычный текст. Ресёрч внешней LLM разобран критически (по wiki-links почти верен, но в его парсере алиас после `#` терялся — исправлено). Сделано 5 фазами, 305 тестов зелёные.
+
+- **`Editor/WikiLink.swift`** — чистый сканер: `MDWikiLinkPayload` (`originalInner` = дословный текст внутри `[[...]]`, **ИСТОЧНИК ИСТИНЫ для round-trip**; target/alias/heading/blockID — только для показа/резолва) + `scanWikiLinks(in:) -> [WikiLinkMatch]` (UTF-16 NSRange, однострочно, первый `]]` закрывает) + `parseWikiInner` (порядок ВАЖЕН: сначала split по `|`, потом по `#`/`#^` — иначе `[[N#H|a]]` теряет алиас; `\|` в таблицах = тоже разделитель).
+- **Source** — `Span.Kind.wikiLink(payload:)`/`.wikiLinkSyntax`; `SpanCollector.visitText` сканирует ИСХОДНУЮ подстроку узла (не `text.string` — против экранирования); инлайн-код исключён (у `InlineCode` контент — свойство, не `Text`-дети). Линтер: wiki-диапазоны в `excluded`.
+- **Visual** — атрибут `.mdWikiLink` (`MDWikiLinkPayload`); рендерер `appendTextWithWikiLinks`; сериализатор эмичет `[[originalInner]]` дословно; Cmd+click (`wikiPayload(at:)` в `mouseDown`) → навигация. Декорация + чистка typingAttributes.
+- **Preview** — `<a class="wikilink" data-wiki-target/heading/block>` + CSS `cursor:pointer` + JS-клик → `wikiLinkClick` message handler.
+- **`Views/WikiLinkResolver.swift`** — `actor WikiLinkResolver` (ЛЕНИВЫЙ индекс basename→[URL]: под `wol` 7010 файлов, НЕ обходить жадно; build по требованию/по workspace-корням, `invalidate()` пересканирует; FSEvents ещё нет) + `navigateToWikiLink(target:from:)` (@MainActor) → `AppState.shared.openInMainWindow`, bias на папку текущего документа (Obsidian shortest-path), несуществующая → `NSSound.beep()`.
+
+**Осталось:** стиль несуществующих ссылок (другой цвет — сейчас выглядят как валидные), heading/block-скролл после открытия (`navigateToWikiLink` игнорирует heading/blockID), опц. `[[`-автокомплит. Тесты: `WikiLinkScannerTests`, `WikiLinkResolverTests` + wiki-кейсы в RoundTrip/MarkdownHTML.
+
+## v31 — Complete (большие таблицы рисуются как таблицы в Visual)
+
+Мотив: v29 ради антифриза заменил большие таблицы (>`maxNativeTableCells`=400 ячеек) на **моноширинный** `.raw`-island — открывалось быстро, но выглядело как pipe-текст, а не таблица. v31 рисует ту же island КАК таблицу, **не трогая модель/сериализацию** (round-trip неизменен). Подход B′ (моя рекомендация, не ресёрча): рисовать сетку самим в `drawBackground` (как буллиты/quote-bars/чекбоксы), виртуализация по dirtyRect, read-only. Остаёмся в TextKit 1.
+
+- **`Editor/MarkdownTableGrid.swift`** — чистый `parseGFMTable(raw) -> TableGrid?` (заголовки/строки/выравнивания; `splitTableRow` разэкранирует `\|`→`|` и `\\`→`\`, дропает border-пайпы но хранит пустые интерьерные ячейки; `nil` для не-таблиц → HTML-острова остаются моно). **Display-only**, сериализацию НЕ питает. 13 тестов.
+- **Рендер** (`MarkdownToAttributed.renderTableIsland`) — `.raw(verbatim)` как раньше (сериализатор читает `.raw` → round-trip дословный), но **display-текст без строки-разделителя** `| --- |` (иначе под заголовком пустая полоса). Display косметичен, длина ≠ raw — ок (островов cursor-mapping коарс, сериализация читает `.raw`).
+- **Презентация** (`VisualTextView.applyPresentation`, ветка `.raw`) — если `parseGFMTable` успешен: скрыть pipe-текст (`NSColor.clear`), `.byClipping` + фикс. высота строки (min=max lineHeight), ширины колонок по сэмплу (header + первые 60 строк, clamp 44…260) → `tableColumnEdges`; регистрирует `TableIslandEntry`. Иначе — прежний моно-island.
+- **Отрисовка** (`VisualNSTextView.drawTableIsland`) — **виртуализация**: берёт origin первого line-fragment острова (`lineFragmentRect(forGlyphAt:)` — дёшево, один фрагмент) и рисует строки арифметически `y = top + row*rowH`, только пересекающие `dirty` (НЕ перебор всех 9000 фрагментов — это и вешало бы). Границы, фон header, вертикали колонок, выравнивание per column. Display-линия 0 = header, 1… = data.
+- Маленькие таблицы (≤400) — прежний редактируемый `NSTextTable`. 318 тестов зелёные (+13).
+
+### v31 — gotchas
+
+- **Виртуализация = арифметика, НЕ `enumerateLineFragments` по всему острову** — перебор фрагментов форсирует layout всех 9000 строк = тот же фриз. Нужна фикс. высота строки (`min==maxLineHeight`), тогда `y=top+i*rowH` и origin одного первого фрагмента достаточно.
+- **`.byClipping` на параграфе острова обязателен** — иначе длинная ячейка ПЕРЕНОСИТСЯ → фрагментов больше числа строк → арифметика `line i = row i` ломается. U+2028 всегда бьёт строку независимо от lineBreakMode.
+- **Display-текст острова косметичен** — можно дропать строку-разделитель и вообще менять, `.raw`-значение (= сериализация) не затрагивается. Отсюда «нет пустой полосы под header» без риска round-trip.
+- **Ширины колонок — по сэмплу** (первые 60 строк), не по всем 9000: measure каждой ячейки был бы O(rows·cols). Clamp min/max, чтобы одна длинная ячейка не разнесла грид.
+- **Известные ограничения (MVP):** большие таблицы read-only; широкая клипается (нет независимого H-скролла); текст ячейки — сырой inline-markdown (`**bold**` не рендерится). Полноценное решение — на будущее (редактирование + H-скролл), направления в [[editmd-large-tables-future]] / памяти.
 
 ## Project Structure
 
