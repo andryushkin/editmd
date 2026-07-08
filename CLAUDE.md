@@ -23,8 +23,9 @@
 - **v26 ✅** — Settings-окно (⌘,): шрифт/отступы/ширина колонки раздельно по Source/Visual/Preview, межстрочный интервал (Visual), line-height (Preview), тема + цвета элементов (General). `EditorFontSettings` удалён в пользу `EditorSettings`
 - **v27 ✅** — настройки по-настоящему применяются + per-mode элементы: честные цвета (Visual/Preview/Source читают тему, не хардкод), выбор гарнитуры+веса per mode, per-mode ElementStyles (H1–H6/bold/code/link/quote — размер/вес/цвет), **Source получил подсветку** (стилизует raw markdown по своим элементам), Appearance (System/Light/Dark) персистится, Comfortable удалён
 - **v28 ✅** — **уход от `DocumentGroup` → `WindowGroup` + `DocumentRegistry`**; файловый сайдбар (несколько workspace: скрытые/пины/loose; вкладки Files/Outline), Lite mode (Finder→отдельное окно), модалка «файл уже открыт в другом окне», on-focus reload. См. «## v28 — Complete» ниже
+- **v29 ✅** — **большие файлы больше не вешают приложение** (файл-таблица 342K/9000 ячеек висел ∞ на 100% CPU): `MDBlock` стал `Hashable` с ручным O(1) `hash(into:)` (не хеширует payload `.raw`), большие таблицы (>400 ячеек) рендерятся моноширинным island’ом вместо `NSTextTable`, `allowsNonContiguousLayout`, Source пропускает подсветку/линт на «тяжёлых» документах. **Дерево подпапок** в сайдбаре (ленивое, раскрытие персистится). См. «## v29 — Complete» ниже
 
-**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes).
+**Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), виртуализация огромных таблиц в Visual (сейчас — read-only island).
 
 **Принятые решения:** Visual — пропорциональный шрифт, Source — моноширинный. Source of truth — markdown-строка в MarkdownDocument; Visual сериализует при смене режима/сейве/дебаунсе. Undo-стек сбрасывается при смене режима. Гибрид v17 остаётся Visual-режимом до v20.
 
@@ -47,7 +48,25 @@
 - **`WorkspaceModel`** персист по пути в UserDefaults (инъекция `defaults` для тестов, `init(defaults:)`); скан **плоский** (не рекурсивный), файл «в» workspace = его родитель == `folderPath`. `[String: Set<String>]` для скрытых Codable-able.
 - **File-меню вручную** (DocumentGroup его больше не даёт): New/Open/Open Folder/Save/Save As через `@FocusedValue(\.documentActions)` (публикует `FileEditor`), Save untitled → `NSSavePanel`.
 
-**Известные шероховатости (отложено):** Lite-on холодный старт может показать лишнее пустое главное окно (`Window`-сцена всегда создаётся); Save As для untitled lite-окна не переусыновляет URL (главное — переусыновляет); `ReferenceFileDocument`-конформанс `MarkdownDocument` оставлен, но сцену не питает (можно снять). **Later:** точка «открыт в отдельном окне» в сайдбаре, восстановление окон, недавние папки, per-document режим, вложенные папки-деревья/drag-reorder/поиск по файлам.
+**Известные шероховатости (отложено):** Lite-on холодный старт может показать лишнее пустое главное окно (`Window`-сцена всегда создаётся); Save As для untitled lite-окна не переусыновляет URL (главное — переусыновляет); `ReferenceFileDocument`-конформанс `MarkdownDocument` оставлен, но сцену не питает (можно снять). **Later:** точка «открыт в отдельном окне» в сайдбаре, восстановление окон, недавние папки, per-document режим, drag-reorder/поиск по файлам (дерево подпапок — сделано в v29).
+
+## v29 — Complete (большие файлы не вешают app + дерево подпапок)
+
+Мотив: открытие большого `.md` (репортнутый `wol/pmid.md` — 342K символов / 1826 строк = ОДНА GFM-таблица ~9000 ячеек) вешало приложение на 100% CPU бесконечно. Диагностика — `sample` зависшего процесса (не гадать!). Обнаружены ДВА независимых O(n)-капкана, оба вокруг того, что `MDBlock` кладётся значением в атрибут NSAttributedString и **NSTextStorage хеширует/сравнивает значения атрибутов при фиксации рангов** (`fixAttributesInRange` → `NSAttributeDictionary` → hash). Плюс `NSTextTable` на 9000 ячеек раскладывается весь сразу (super-linear). Подтверждено ресёрчем (Perplexity) + deepseek: паттерн = маленькие таблицы inline `NSTextTable`, большие → island/placeholder (как FSNotes/Obsidian, которые `NSTextTable` вообще не используют).
+
+- **`MDBlock: Hashable` + ручной `hash(into:)` на `Kind`** — синтезированный хеш `.raw(String)` прогонял ВЕСЬ multi-hundred-KB payload при каждом `addAttribute`. Ручной хеш комбинирует только дискриминант (для `.raw` — просто `9`, без payload; `.raw(let s); hasher.combine(s.count)` — тоже НЕЛЬЗЯ: `String.count` = O(n) обход грапхем-кластеров). Островов в документе единицы → коллизии дёшевы, `==` уточняет при редкой коллизии.
+- **Большие таблицы → моноширинный island** (`MarkdownToAttributed.renderTable`): >`maxNativeTableCells`(=400) ячеек → `renderIsland(table)` вместо `NSTextTable`-ячеек. Ранний выход по счётчику строк (rows — `Sequence`, не `Collection`: `.count` резолвится в `count(where:)`). Island = один `.raw`-параграф (round-trips verbatim; построчно разбить нельзя — сериализатор ставит `\n\n` между `.raw`).
+- **`allowsNonContiguousLayout = true`** на обоих NSTextView (Apple-рекомендация для больших документов).
+- **`markdownIsHeavy(_ content)` + `MarkdownDocument.isHeavy`** (кэш, пересчёт в `content.didSet`): >200K символов ИЛИ (40–200K И >300 строк-таблиц). Source на heavy-доке пропускает `collectSpans`-подсветку (276мс/keystroke) и линт (1207мс) → plain, но мгновенно (как FSNotes viewport). Порог **table-aware**, не только размер — крупная проза остаётся с подсветкой.
+- **Дерево подпапок** в сайдбаре: `WorkspaceModel.subfolders(in:)` (непосредственные дочерние папки, skip hidden/packages) + `expandedFolders: Set<String>` (персист). `WorkspaceSidebar.SubfolderNode` — рекурсивная вью, контент папки сканируется ТОЛЬКО пока раскрыта (ленивость критична: под `wol` 7010 файлов в 693 подпапках — плоский рекурсивный импорт недопустим). `FileRow` получил `indent` + `.none` trailing (вложенные файлы без hide/pin).
+
+### v29 — gotchas
+
+- **НЕ клади большую строку в атрибут NSAttributedString наивно** — NSTextStorage хеширует И сравнивает значения атрибутов при `fixAttributes`; для тяжёлого значения дай дешёвый `hash(into:)`. Симптом: 100% CPU в `MDBlock.Kind.hash(into:)` под `-[NSAttributeDictionary newWithKey:object:]` (виден в `sample`, НЕ в юнит-замере render — там нет NSTextStorage-фиксации).
+- **`String.count` = O(n)** (грапхем-кластеры, `_foreignOpaqueCharacterStride`). В hot-path (хеш, per-keystroke) — не вызывать. `.utf16.count` дешевле.
+- **Два независимых порога, разные цели:** `maxNativeTableCells` (island vs нативная ТАБЛИЦА в Visual, по ячейкам) и `markdownIsHeavy` (plain vs подсветка в SOURCE, по размеру+таблицам). Не путать.
+- **Диагностика зависания = `sample <pid> 3`**, не догадки: изолированный замер функции (без NSTextView) не воспроизвёл проблему (301мс), а `sample` живого процесса точно показал `hash(into:)` под фиксацией атрибутов.
+- Runtime сам предупреждает: `Obj-C -hash invoked on Swift value MDBlock that is Equatable but not Hashable; severe performance problems` — это был первый след.
 
 ## Project Structure
 

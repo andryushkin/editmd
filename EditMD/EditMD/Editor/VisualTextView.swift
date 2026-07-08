@@ -138,6 +138,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        // Large documents: lay out only the ranges TextKit needs, not the whole
+        // storage up front (Apple's recommended big-document win).
+        textView.layoutManager?.allowsNonContiguousLayout = true
         textView.theme = theme
         // Edit ▸ Find menu (⌘F & co.) drives the standard find bar; replaces
         // go through shouldChangeTextIn, so island/table guards still apply.

@@ -83,6 +83,30 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertFalse(m2.looseFilesToShow.contains(draft))  // session file did not
     }
 
+    func testSubfoldersListsChildDirsSkippingHidden() throws {
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("notes"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        let model = WorkspaceModel(defaults: defaults)
+        let subs = names(model.subfolders(in: dir))
+        XCTAssertTrue(subs.contains("notes"))
+        XCTAssertFalse(subs.contains(".git"))   // hidden folder skipped
+    }
+
+    func testExpandedFoldersPersist() {
+        let child = dir.appendingPathComponent("notes")
+        let m1 = WorkspaceModel(defaults: defaults)
+        XCTAssertFalse(m1.isExpanded(child))
+        m1.toggleExpanded(child)
+        XCTAssertTrue(m1.isExpanded(child))
+
+        let m2 = WorkspaceModel(defaults: defaults)   // reloads from the same suite
+        XCTAssertTrue(m2.isExpanded(child))
+        m2.toggleExpanded(child)
+        XCTAssertFalse(m2.isExpanded(child))
+    }
+
     func testNoteOpenedSkipsFilesInsideAWorkspace() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)

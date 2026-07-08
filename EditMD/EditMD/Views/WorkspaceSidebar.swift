@@ -159,6 +159,11 @@ struct WorkspaceSidebar: View {
                     fileRow(url, in: ws, hidden: true)
                 }
             }
+            // Nested subfolders as a lazy, collapsible tree.
+            ForEach(workspace.subfolders(in: ws.url), id: \.self) { sub in
+                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                              activeURL: activeURL, onOpen: onOpen)
+            }
         }
     }
 
@@ -214,26 +219,97 @@ struct WorkspaceSidebar: View {
     }
 }
 
+// MARK: - Subfolder tree node
+
+/// One node of the lazy subfolder tree: a disclosure header (chevron + folder)
+/// that, when expanded, renders its own subfolders (recursively) and its direct
+/// markdown files. Contents are scanned only while expanded, so a workspace with
+/// thousands of nested files costs nothing until the user drills in.
+private struct SubfolderNode: View {
+    @ObservedObject var workspace: WorkspaceModel
+    let folder: URL
+    let depth: Int
+    let activeURL: URL?
+    let onOpen: (URL) -> Void
+
+    private var indent: CGFloat { CGFloat(depth) * 14 }
+
+    var body: some View {
+        let expanded = workspace.isExpanded(folder)
+        Button { workspace.toggleExpanded(folder) } label: {
+            HStack(spacing: 6) {
+                if indent > 0 { Spacer().frame(width: indent) }
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+                Image(systemName: expanded ? "folder.fill" : "folder")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(folder.lastPathComponent)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Показать в Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([folder])
+            }
+        }
+
+        if expanded {
+            ForEach(workspace.subfolders(in: folder), id: \.self) { sub in
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                              activeURL: activeURL, onOpen: onOpen)
+            }
+            ForEach(workspace.markdownFiles(in: folder), id: \.self) { file in
+                FileRow(name: file.lastPathComponent,
+                        isActive: file.standardizedFileURL == activeURL?.standardizedFileURL,
+                        indent: indent + 14,
+                        trailing: .none,
+                        onTap: { onOpen(file) })
+                    .contextMenu {
+                        Button("Открыть в отдельном окне") {
+                            AppState.shared.openInSeparateWindow(file)
+                        }
+                        Button("Показать в Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([file])
+                        }
+                    }
+            }
+        }
+    }
+}
+
 // MARK: - Row
 
 /// One file row: doc icon, name (+ optional path subtitle), active tint, hover
 /// wash, and a trailing action (hide / restore / pin). The row is a tappable
 /// surface; the trailing control is a real button that consumes its own taps.
 private struct FileRow: View {
-    enum Trailing: Equatable { case hide, restore, pin(Bool) }
+    enum Trailing: Equatable { case hide, restore, pin(Bool), none }
 
     let name: String
     var subtitle: String?
     let isActive: Bool
     var dimmed = false
+    var indent: CGFloat = 0
     let trailing: Trailing
     let onTap: () -> Void
-    let onTrailing: () -> Void
+    var onTrailing: () -> Void = {}
 
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 7) {
+            if indent > 0 { Spacer().frame(width: indent) }
             Image(systemName: "doc.text")
                 .font(.system(size: 12))
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
@@ -281,6 +357,8 @@ private struct FileRow: View {
                            pinned ? "Открепить" : "Закрепить")
                     .foregroundStyle(pinned ? Color.accentColor : Color.secondary)
             }
+        case .none:
+            EmptyView()
         }
     }
 

@@ -28,8 +28,8 @@ struct MDInlineStyle: OptionSet, Hashable {
     static let rawHTML = MDInlineStyle(rawValue: 1 << 4)  // inline HTML: no escaping
 }
 
-struct MDBlock: Equatable {
-    enum Kind: Equatable {
+struct MDBlock: Equatable, Hashable {
+    enum Kind: Equatable, Hashable {
         case paragraph
         case heading(Int)
         case codeBlock(language: String)
@@ -45,6 +45,33 @@ struct MDBlock: Equatable {
         case tableCell(row: Int, column: Int, columns: Int, alignment: Int)
         /// Read-only island: serialized verbatim from the stored source text.
         case raw(String)
+
+        // A hand-written hash so `.raw`'s payload is NOT walked. This kind is
+        // stored as an NSAttributedString attribute value, and NSTextStorage
+        // hashes attribute values while fixing/coalescing runs — for a large
+        // island (a whole 9000-row table lives in one `.raw`) the synthesized
+        // hash would re-walk the entire multi-hundred-KB string on every
+        // addAttribute, pegging the CPU. Length is a cheap discriminant;
+        // collisions are fine (Hashable only requires equal ⇒ equal-hash, and
+        // `==` still compares fully on the rare collision).
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .paragraph: hasher.combine(0)
+            case .heading(let level): hasher.combine(1); hasher.combine(level)
+            case .codeBlock(let language): hasher.combine(2); hasher.combine(language)
+            case .bulletItem(let depth): hasher.combine(3); hasher.combine(depth)
+            case .orderedItem(let depth, let number):
+                hasher.combine(4); hasher.combine(depth); hasher.combine(number)
+            case .taskItem(let depth, let done):
+                hasher.combine(5); hasher.combine(depth); hasher.combine(done)
+            case .listContinuation(let indent): hasher.combine(6); hasher.combine(indent)
+            case .thematicBreak: hasher.combine(7)
+            case .tableCell(let row, let column, let columns, let alignment):
+                hasher.combine(8); hasher.combine(row); hasher.combine(column)
+                hasher.combine(columns); hasher.combine(alignment)
+            case .raw: hasher.combine(9)   // payload-free: docs have very few islands
+            }
+        }
     }
     var kind: Kind
     var quoteDepth: Int = 0
@@ -206,10 +233,30 @@ private final class VisualRenderer {
         }
     }
 
+    /// Above this many cells a native NSTextTable is rendered as a monospace
+    /// island instead. NSTextTable layout is super-linear in cell count — a few
+    /// thousand cells peg the CPU indefinitely (TextKit lays out every cell of
+    /// the whole document up front, no virtualization). The island is plain
+    /// monospace text that lays out fast and round-trips the pipe table
+    /// verbatim; FSNotes/Obsidian likewise never use native table widgets for
+    /// large tables. Small tables keep the editable grid.
+    static let maxNativeTableCells = 400
+
     private func renderTable(_ table: Markdown.Table, ctx: Ctx) {
         let group = nextGroup()
         let alignments = table.columnAlignments
         let columns = max(1, alignments.count)
+
+        // Count rows with an early-out at the budget (rows is a Sequence, and
+        // a giant table would be wasteful to fully materialize just to size it).
+        var rowCount = 1  // header row
+        for _ in table.body.rows {
+            rowCount += 1
+            if rowCount * columns > Self.maxNativeTableCells {
+                renderIsland(table, ctx: ctx)
+                return
+            }
+        }
 
         func alignmentCode(_ column: Int) -> Int {
             guard column < alignments.count, let alignment = alignments[column] else { return 0 }

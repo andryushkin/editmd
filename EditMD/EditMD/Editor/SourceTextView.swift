@@ -57,6 +57,9 @@ struct SourceTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        // Large documents: lay out only the ranges TextKit needs, not the whole
+        // storage up front (Apple's recommended big-document win).
+        textView.layoutManager?.allowsNonContiguousLayout = true
         // Edit ▸ Find menu (⌘F & co.) drives the standard find bar.
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -224,6 +227,17 @@ struct SourceTextView: NSViewRepresentable {
 
         private func runLint() {
             guard let textView else { return }
+            // Skip linting heavy documents — lint() is O(n) over the whole text
+            // (~1.2s on a 300K table) and would freeze the editor.
+            guard !parent.document.isHeavy else {
+                lintDiagnostics = []
+                textView.lintDiagnostics = []
+                applyLintUnderlines([])
+                DispatchQueue.main.async { [parent] in
+                    parent.onLintUpdate?(LintSummary(errorCount: 0, warningCount: 0, jumpToNext: {}))
+                }
+                return
+            }
             let diags = lint(textView.string)
             lintDiagnostics = diags
             textView.lintDiagnostics = diags
@@ -368,6 +382,17 @@ struct SourceTextView: NSViewRepresentable {
             let baseFont = settings.resolvedFont(defaultMono: true)
             let nsText = textView.string as NSString
             let full = NSRange(location: 0, length: nsText.length)
+
+            // Heavy documents (a 300K single-table file) stay plain: collectSpans
+            // and the per-keystroke re-attribution would freeze on every edit.
+            // Base font/color only — same choice FSNotes makes for large notes.
+            if parent.document.isHeavy {
+                storage.beginEditing()
+                storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
+                storage.endEditing()
+                return
+            }
+
             let spans = collectSpans(textView.string)
 
             func headingFont(_ level: Int) -> NSFont {

@@ -28,6 +28,10 @@ final class WorkspaceModel: ObservableObject {
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
     /// Session-only loose files (opened this run, not in any workspace).
     @Published var looseFiles: [URL] = []
+    /// Paths of subfolders the user expanded in the tree (persisted). The tree
+    /// is lazy — a subfolder's contents are only scanned while it is expanded —
+    /// so adopting a folder with thousands of nested files stays cheap.
+    @Published var expandedFolders: Set<String> { didSet { persist(expandedFolders, Keys.expanded) } }
 
     private let defaults: UserDefaults
 
@@ -35,6 +39,7 @@ final class WorkspaceModel: ObservableObject {
         static let folders = "workspace.folders"
         static let hidden = "workspace.hidden"
         static let pinned = "workspace.pinned"
+        static let expanded = "workspace.expanded"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -42,6 +47,7 @@ final class WorkspaceModel: ObservableObject {
         workspaces = Self.load(defaults, Keys.folders) ?? []
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
+        expandedFolders = Self.load(defaults, Keys.expanded) ?? []
     }
 
     // MARK: - Folder scan
@@ -57,6 +63,33 @@ final class WorkspaceModel: ObservableObject {
         return items
             .filter { Self.markdownExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Immediate subfolders of `folder` (non-recursive), name-sorted. Skips
+    /// hidden folders and packages (a `.textbundle` is a document, listed by
+    /// `markdownFiles`, not a folder to descend into).
+    func subfolders(in folder: URL) -> [URL] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles])) ?? []
+        return items
+            .filter { url in
+                let vals = try? url.resourceValues(forKeys: Set(keys))
+                return (vals?.isDirectory ?? false) && !(vals?.isPackage ?? false)
+            }
+            .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    func isExpanded(_ folder: URL) -> Bool {
+        expandedFolders.contains(folder.standardizedFileURL.path)
+    }
+
+    func toggleExpanded(_ folder: URL) {
+        let path = folder.standardizedFileURL.path
+        if expandedFolders.contains(path) { expandedFolders.remove(path) }
+        else { expandedFolders.insert(path) }
     }
 
     func visibleFiles(_ ws: Workspace) -> [URL] {
