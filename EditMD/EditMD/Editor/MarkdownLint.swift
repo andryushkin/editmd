@@ -62,7 +62,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     for s in spans {
         switch s.kind {
-        case .codeBlockBody, .htmlBlock, .code, .codeMarker, .htmlInline:
+        case .codeBlockBody, .htmlBlock, .code, .codeMarker, .htmlInline,
+             .wikiLink, .wikiLinkSyntax:
             excluded.append(s.range)
         case .boldMarker, .italicMarker, .strikethroughMarker,
              .codeBlockFence, .linkSyntax, .imageSyntax, .thematicBreak:

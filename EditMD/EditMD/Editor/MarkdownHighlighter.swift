@@ -92,6 +92,8 @@ struct Span {
         case listItemBody(textStartCol: Int)  // full item range; 1-based col where text begins (after spaces + marker)
         case tableRow                    // alternating body rows, for background
         case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
+        case wikiLink(payload: MDWikiLinkPayload)  // inner content of a [[...]] wiki-link
+        case wikiLinkSyntax                        // the `[[` and `]]` brackets
     }
     var range: NSRange
     var kind: Kind
@@ -410,6 +412,28 @@ private struct SpanCollector: MarkupWalker {
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
         guard let r = inlineHTML.range.flatMap({ nsRange(for: $0) }) else { return }
         spans.append(Span(range: r, kind: .htmlInline))
+    }
+
+    /// Wiki-links live in plain text — swift-markdown does not model them, so we
+    /// scan the source substring of each Text node. Inline code / code blocks
+    /// carry their content in `String` properties (not `Text` children), so they
+    /// are excluded for free. We scan the SOURCE slice (not `text.string`) so
+    /// escapes like `\[` can't drift the offsets.
+    mutating func visitText(_ text: Text) {
+        guard let src = text.range, let r = nsRange(for: src), r.length > 4 else { return }
+        let substring = nsText.substring(with: r)
+        guard substring.contains("[[") else { return }
+        for m in scanWikiLinks(in: substring) {
+            let base = r.location + m.range.location
+            spans.append(Span(range: NSRange(location: base, length: 2), kind: .wikiLinkSyntax))
+            let innerLen = m.range.length - 4
+            if innerLen > 0 {
+                spans.append(Span(range: NSRange(location: base + 2, length: innerLen),
+                                  kind: .wikiLink(payload: m.payload)))
+            }
+            spans.append(Span(range: NSRange(location: base + m.range.length - 2, length: 2),
+                              kind: .wikiLinkSyntax))
+        }
     }
 
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) {

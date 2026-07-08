@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EditMD — Sidebar outline</title>
+<style>
+  :root{
+    --desk:#c7c7cd; --win-bg:#ececec; --toolbar:#f4f4f5; --toolbar-brd:rgba(0,0,0,.12);
+    --content:#ffffff; --sidebar:#f2f2f4; --text:#1d1d1f; --secondary:rgba(0,0,0,.5); --tertiary:rgba(0,0,0,.34);
+    --separator:rgba(0,0,0,.10); --accent:#0068da; --code:#c85b16; --code-bg:#f1f1f4;
+    --quote:rgba(0,0,0,.55); --btn-hover:rgba(0,0,0,.07); --row-hover:rgba(0,0,0,.06);
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --desk:#1b1b1d; --win-bg:#2a2a2c; --toolbar:#323234; --toolbar-brd:rgba(255,255,255,.10);
+      --content:#1e1e20; --sidebar:#252527; --text:#fbfbfc; --secondary:rgba(255,255,255,.55); --tertiary:rgba(255,255,255,.36);
+      --separator:rgba(255,255,255,.12); --accent:#4c8ef8; --code:#ff9051; --code-bg:#2b2b2e;
+      --quote:rgba(255,255,255,.6); --btn-hover:rgba(255,255,255,.10); --row-hover:rgba(255,255,255,.07);
+    }
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{background:var(--desk); font-family:var(--sans); color:var(--text);
+    display:flex; align-items:center; justify-content:center; padding:34px; -webkit-font-smoothing:antialiased;}
+  .caption{position:fixed; top:14px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--secondary);}
+
+  .window{width:min(960px,100%); height:min(660px,86vh); background:var(--win-bg); border-radius:11px; overflow:hidden;
+    box-shadow:0 26px 70px rgba(0,0,0,.42), 0 0 0 .5px rgba(0,0,0,.28); display:flex; flex-direction:column;}
+  .titlebar{height:52px; flex:0 0 auto; background:var(--toolbar); border-bottom:1px solid var(--toolbar-brd);
+    display:flex; align-items:center; gap:14px; padding:0 14px;}
+  .lights{display:flex; gap:8px;} .lights i{width:12px; height:12px; border-radius:50%; display:block;}
+  .lights .r{background:#ff5f57;} .lights .y{background:#febc2e;} .lights .g{background:#28c840;}
+  .tbar{display:flex; align-items:center; gap:2px;}
+  .tsep{width:1px; height:20px; background:var(--separator); margin:0 8px;}
+  .spring{flex:1;}
+  .tbtn{width:30px; height:26px; border-radius:6px; border:none; background:transparent; color:var(--text);
+    display:inline-flex; align-items:center; justify-content:center; cursor:default;}
+  .tbtn:hover{background:var(--btn-hover);}
+  .tbtn svg{width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;}
+  .tbtn.active{color:var(--accent);} .tbtn.active svg{stroke:var(--accent);}
+
+  .body{flex:1; display:flex; min-height:0;}
+  /* ---- sidebar outline ---- */
+  .sidebar{width:220px; flex:0 0 auto; background:var(--sidebar); overflow:auto; padding:8px 6px;}
+  .orow{display:block; font-size:11px; color:var(--secondary); border-radius:5px;
+    padding:3px 6px; margin:1px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default;}
+  .orow.l1{font-size:12px; font-weight:600; color:var(--text);}
+  .orow.l2{font-weight:600; color:var(--text);}
+  .orow.l3{padding-left:18px;} .orow.l4{padding-left:30px;}
+  .orow:hover{background:var(--row-hover);}
+  .vdiv{width:1px; flex:0 0 auto; background:var(--separator);}
+
+  .main{flex:1; min-width:0; background:var(--content); display:flex; flex-direction:column;}
+  .editor{flex:1; overflow:auto; padding:22px 30px; font-size:15px; line-height:1.55;}
+  .editor h1{font-size:26px; font-weight:700; margin:.1em 0 .35em;}
+  .editor h2{font-size:20px; font-weight:600; margin:1.1em 0 .3em;}
+  .editor h3{font-size:16.5px; font-weight:600; margin:1em 0 .25em;}
+  .editor p{margin:.5em 0;}
+  .editor strong{font-weight:700;} .editor em{font-style:italic;}
+  .editor code{font-family:var(--mono); font-size:.86em; color:var(--code); background:var(--code-bg); border-radius:4px; padding:.1em .3em;}
+  .editor blockquote{margin:.7em 0; padding:.2em 0 .2em 16px; border-left:3px solid var(--separator); color:var(--quote);}
+  .ul{list-style:none; margin:.4em 0;} .ul li{position:relative; padding-left:22px; margin:.28em 0;}
+  .ul li::before{content:"•"; position:absolute; left:6px; top:-1px; color:var(--accent); font-size:16px;}
+
+  .statusbar{flex:0 0 auto; height:26px; display:flex; align-items:center; padding:0 12px; font-size:11px;
+    color:var(--secondary); border-top:1px solid var(--separator); background:var(--win-bg);}
+  .statusbar .spring{flex:1;}
+</style>
+</head>
+<body>
+  <div class="caption">EditMD · Sidebar (⌃⌘S) — оглавление документа, клик = переход к заголовку</div>
+
+  <svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="ic-sidebar" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><line x1="9" y1="4.5" x2="9" y2="19.5"/></symbol>
+    <symbol id="ic-source" viewBox="0 0 24 24"><polyline points="8 8.5 4 12 8 15.5"/><polyline points="16 8.5 20 12 16 15.5"/><line x1="13.4" y1="6.5" x2="10.6" y2="17.5"/></symbol>
+    <symbol id="ic-visual" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="2.2"/><line x1="8" y1="8.5" x2="16" y2="8.5"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="13" y2="15.5"/></symbol>
+    <symbol id="ic-preview" viewBox="0 0 24 24"><path d="M2.5 12s3.6-6.6 9.5-6.6S21.5 12 21.5 12 17.9 18.6 12 18.6 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+    <symbol id="ic-cut" viewBox="0 0 24 24"><circle cx="6" cy="6.4" r="2.4"/><circle cx="6" cy="17.6" r="2.4"/><line x1="8.1" y1="7.6" x2="20" y2="16"/><line x1="8.1" y1="16.4" x2="20" y2="8"/></symbol>
+    <symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M15.5 5.5H6a2 2 0 0 0-2 2V17"/></symbol>
+    <symbol id="ic-paste" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="15.5" rx="2.2"/><rect x="9" y="3.2" width="6" height="4" rx="1.2"/></symbol>
+    <symbol id="ic-split" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><line x1="12" y1="5.5" x2="12" y2="18.5"/></symbol>
+    <symbol id="ic-palette" viewBox="0 0 24 24"><path d="M12 3.2a8.8 8.8 0 1 0 0 17.6c1.2 0 2-1 2-2.1 0-1.1 1-2 2.1-2h1.4A3.5 3.5 0 0 0 21 13 8.8 8.8 0 0 0 12 3.2z"/><circle cx="7.6" cy="12.4" r="1"/><circle cx="9.8" cy="8" r="1"/><circle cx="14.6" cy="7.8" r="1"/></symbol>
+    <symbol id="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2.5" x2="12" y2="4.6"/><line x1="12" y1="19.4" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="4.6" y2="12"/><line x1="19.4" y1="12" x2="21.5" y2="12"/><line x1="5.2" y1="5.2" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="18.8" y2="18.8"/><line x1="5.2" y1="18.8" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="18.8" y2="5.2"/></symbol>
+  </defs></svg>
+
+  <div class="window">
+    <div class="titlebar">
+      <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+      <div class="tbar">
+        <button class="tbtn active" title="Toggle Sidebar (⌃⌘S)"><svg><use href="#ic-sidebar"/></svg></button>
+        <div class="tsep"></div>
+        <button class="tbtn" title="Source (⌘1)"><svg><use href="#ic-source"/></svg></button>
+        <button class="tbtn active" title="Visual (⌘2)"><svg><use href="#ic-visual"/></svg></button>
+        <button class="tbtn" title="Preview (⌘3)"><svg><use href="#ic-preview"/></svg></button>
+      </div>
+      <div class="spring"></div>
+      <div class="tbar">
+        <button class="tbtn" title="Cut (⌘X)"><svg><use href="#ic-cut"/></svg></button>
+        <button class="tbtn" title="Copy (⌘C)"><svg><use href="#ic-copy"/></svg></button>
+        <button class="tbtn" title="Paste (⌘V)"><svg><use href="#ic-paste"/></svg></button>
+        <div class="tsep"></div>
+        <button class="tbtn" title="Show preview pane (⌥⌘P)"><svg><use href="#ic-split"/></svg></button>
+        <button class="tbtn" title="Editor theme & settings"><svg><use href="#ic-palette"/></svg></button>
+        <button class="tbtn" title="Switch to dark appearance"><svg><use href="#ic-sun"/></svg></button>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="sidebar">
+        <div class="orow l1">Release Notes — v27</div>
+        <div class="orow l2">Highlights</div>
+        <div class="orow l3">Code</div>
+        <div class="orow l2">Settings model</div>
+        <div class="orow l3">Per-mode fonts</div>
+        <div class="orow l3">Element styles</div>
+        <div class="orow l4">Headings</div>
+        <div class="orow l4">Inline</div>
+        <div class="orow l2">Gotchas</div>
+        <div class="orow l2">Roadmap</div>
+      </div>
+      <div class="vdiv"></div>
+      <div class="main">
+        <div class="editor">
+          <h1>Release Notes — v27</h1>
+          <p>Editor settings now apply <strong>per mode</strong>. Fonts, margins and element styles are independent for Source, Visual and Preview.</p>
+          <h2>Highlights</h2>
+          <ul class="ul">
+            <li>Honest colors — Visual/Preview read the <em>active theme</em></li>
+            <li>Source got <code>real</code> highlighting on the raw markdown</li>
+            <li><code>ElementStyles</code> — size, weight, color per element</li>
+          </ul>
+          <blockquote>Source of truth stays the markdown string.</blockquote>
+          <h3>Code</h3>
+          <p>The outline re-parses ~200 ms after the last keystroke; deeper levels are smaller and secondary, H1/H2 are semibold and primary.</p>
+        </div>
+        <div class="statusbar"><span class="spring"></span><span>58 words&nbsp;&nbsp;362 chars</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

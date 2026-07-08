@@ -451,6 +451,11 @@ struct SourceTextView: NSViewRepresentable {
                 case .strikethroughBody:
                     storage.addAttribute(.strikethroughStyle,
                                          value: NSUnderlineStyle.single.rawValue, range: span.range)
+                case .wikiLink:
+                    storage.addAttribute(.foregroundColor,
+                                         value: els.link.color ?? theme.accentColor, range: span.range)
+                case .wikiLinkSyntax:
+                    storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
                 default:
                     break
                 }

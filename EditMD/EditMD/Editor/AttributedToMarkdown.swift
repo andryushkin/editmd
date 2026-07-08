@@ -258,6 +258,7 @@ private struct InlineRun {
     var styles: MDInlineStyle
     var link: String?
     var image: [String: String]?
+    var wikiLink: MDWikiLinkPayload?
 }
 
 private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
@@ -271,7 +272,8 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             text: nsText.substring(with: r),
             styles: MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0),
             link: attrs[.mdLink] as? String,
-            image: attrs[.mdImage] as? [String: String]))
+            image: attrs[.mdImage] as? [String: String],
+            wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload))
     }
 
     // Autolink: a whole-paragraph unstyled link whose text equals its
@@ -317,7 +319,12 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             openMarker(marker, into: &result, stack: &stack)
         }
 
-        if let image = run.image {
+        if let wiki = run.wikiLink {
+            // Round-trip source of truth: re-emit the verbatim inner text, never
+            // reconstruct from parsed fields. After marker management so bold/
+            // italic around a wiki-link keep their wrappers.
+            result += "[[\(wiki.originalInner)]]"
+        } else if let image = run.image {
             // Emitted after marker management so an image inside a link keeps
             // its enclosing [..](..) wrapper.
             result += imageMarkdown(image)

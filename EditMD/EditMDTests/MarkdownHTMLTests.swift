@@ -105,4 +105,49 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("color: #112233"), page)   // body text
         XCTAssertTrue(page.contains("a { color: #445566; }"), page)
     }
+
+    // MARK: - Wiki-links
+
+    func testWikiLinkRendersAsAnchor() {
+        let html = markdownHTMLBody("See [[Note|Shown]] here")
+        XCTAssertTrue(html.contains("<a class=\"wikilink\" data-wiki-target=\"Note\">Shown</a>"), html)
+        XCTAssertFalse(html.contains("[["), html)
+    }
+
+    func testWikiLinkHeadingAndBlockData() {
+        let html = markdownHTMLBody("[[Note#Sec]] and [[Note#^b1]]")
+        XCTAssertTrue(html.contains("data-wiki-target=\"Note\" data-wiki-heading=\"Sec\""), html)
+        XCTAssertTrue(html.contains("data-wiki-target=\"Note\" data-wiki-block=\"b1\""), html)
+    }
+
+    func testWikiLinkTargetIsAttributeEscaped() {
+        let html = markdownHTMLBody("[[A & B]]")
+        XCTAssertTrue(html.contains("data-wiki-target=\"A &amp; B\""), html)
+    }
+
+    func testWikiLinkNotDetectedInCode() {
+        let html = markdownHTMLBody("`[[Note]]`")
+        XCTAssertTrue(html.contains("<code>[[Note]]</code>"), html)
+        XCTAssertFalse(html.contains("wikilink"), html)
+    }
+
+    // MARK: - Underscore soft-wrap
+
+    func testUnderscoreGetsSoftBreak() {
+        // Long snake_case words widen the line because browsers don't break at
+        // `_`; a `<wbr>` after each underscore restores hyphen-like wrapping.
+        let html = markdownHTMLBody("uses very_long_snake_case_name here")
+        XCTAssertTrue(html.contains("very_<wbr>long_<wbr>snake_<wbr>case_<wbr>name"), html)
+    }
+
+    func testUnderscoreBreakNotInInlineCode() {
+        let html = markdownHTMLBody("`snake_case_id`")
+        XCTAssertTrue(html.contains("<code>snake_case_id</code>"), html)
+        XCTAssertFalse(html.contains("<wbr>"), html)
+    }
+
+    func testUnderscoreBreakInTableCell() {
+        let html = markdownHTMLBody("| name |\n| --- |\n| a_b_c |")
+        XCTAssertTrue(html.contains("a_<wbr>b_<wbr>c"), html)
+    }
 }

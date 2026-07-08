@@ -19,6 +19,15 @@ func htmlAttributeEscape(_ s: String) -> String {
     htmlEscape(s).replacingOccurrences(of: "\"", with: "&quot;")
 }
 
+/// HTML-escapes body text and adds a `<wbr>` soft break after each underscore.
+/// Browsers treat `-` as a line-break opportunity but not `_`, so a long
+/// `snake_case` identifier is one unbreakable word that widens the line (and,
+/// in a table cell, the whole column). `<wbr>` breaks only when needed and is
+/// not copied to the clipboard.
+func htmlEscapeBreakingUnderscores(_ s: String) -> String {
+    htmlEscape(s).replacingOccurrences(of: "_", with: "_<wbr>")
+}
+
 /// Renders markdown to an HTML body fragment.
 /// `imageResolver` may replace an image's `src` (e.g. with a data: URI for
 /// local files); returning nil keeps the original source.
@@ -169,7 +178,34 @@ private struct HTMLBodyVisitor: MarkupWalker {
     // MARK: Inline elements
 
     mutating func visitText(_ text: Text) {
-        result += htmlEscape(text.string)
+        let s = text.string
+        let matches = scanWikiLinks(in: s)
+        guard !matches.isEmpty else { result += htmlEscapeBreakingUnderscores(s); return }
+        let ns = s as NSString
+        var cursor = 0
+        for m in matches {
+            if m.range.location > cursor {
+                result += htmlEscapeBreakingUnderscores(
+                    ns.substring(with: NSRange(location: cursor,
+                                               length: m.range.location - cursor)))
+            }
+            result += Self.wikiLinkHTML(m.payload)
+            cursor = NSMaxRange(m.range)
+        }
+        if cursor < ns.length {
+            result += htmlEscapeBreakingUnderscores(
+                ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)))
+        }
+    }
+
+    /// A wiki-link as an anchor carrying resolution metadata in data-attributes;
+    /// the preview's JS turns a click into a `wikiLinkClick` message (v-next).
+    static func wikiLinkHTML(_ p: MDWikiLinkPayload) -> String {
+        var a = "<a class=\"wikilink\" data-wiki-target=\"\(htmlAttributeEscape(p.target))\""
+        if let h = p.heading { a += " data-wiki-heading=\"\(htmlAttributeEscape(h))\"" }
+        if let b = p.blockID { a += " data-wiki-block=\"\(htmlAttributeEscape(b))\"" }
+        a += ">\(htmlEscapeBreakingUnderscores(p.displayText))</a>"
+        return a
     }
 
     mutating func visitEmphasis(_ emphasis: Emphasis) {
@@ -302,6 +338,7 @@ func previewHTMLPage(markdown: String,
     p { margin: 0.6em 0; }
     a { color: LinkText; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    a.wikilink { cursor: pointer; }
     code {
         font: 0.9em ui-monospace, "SF Mono", Menlo, monospace;
         background: rgba(128,128,128,0.15);
@@ -343,6 +380,21 @@ func previewHTMLPage(markdown: String,
         box.addEventListener('change', function () {
             var handlers = window.webkit && window.webkit.messageHandlers;
             if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+        });
+    });
+    // Wiki-link navigation: report a click; the Swift side resolves target →
+    // file and opens it. Handler may be absent (no-op) until wired.
+    document.querySelectorAll('a.wikilink').forEach(function (el) {
+        el.addEventListener('click', function (e) {
+            e.preventDefault();
+            var handlers = window.webkit && window.webkit.messageHandlers;
+            if (handlers && handlers.wikiLinkClick) {
+                handlers.wikiLinkClick.postMessage({
+                    target: el.dataset.wikiTarget,
+                    heading: el.dataset.wikiHeading || null,
+                    blockID: el.dataset.wikiBlock || null
+                });
+            }
         });
     });
     </script>

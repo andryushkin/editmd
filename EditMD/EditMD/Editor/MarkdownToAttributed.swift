@@ -88,6 +88,7 @@ extension NSAttributedString.Key {
     static let mdInline = NSAttributedString.Key("md.inline")  // Int (MDInlineStyle)
     static let mdLink   = NSAttributedString.Key("md.link")    // String destination
     static let mdImage  = NSAttributedString.Key("md.image")   // [String: String] src/alt/title
+    static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
 }
 
 /// Intra-paragraph hard line break (markdown "  \n" / "\<newline>").
@@ -415,7 +416,7 @@ private final class VisualRenderer {
         for child in children {
             switch child {
             case let text as Markdown.Text:
-                appendText(text.string, block: block, styles: styles, link: link)
+                appendTextWithWikiLinks(text, block: block, styles: styles, link: link)
             case let strong as Strong:
                 renderInlines(strong.children, block: block, styles: styles.union(.bold), link: link)
             case let emphasis as Emphasis:
@@ -458,6 +459,44 @@ private final class VisualRenderer {
         out.append(NSAttributedString(string: string,
                                       attributes: baseAttributes(block: block, styles: styles,
                                                                  link: link)))
+    }
+
+    /// A Text node may contain `[[wiki-links]]`, which swift-markdown treats as
+    /// literal text. We split the run so each wiki-link becomes a marker-free
+    /// run carrying `.mdWikiLink` (shows alias/target; serializes back verbatim).
+    /// Scanning the SOURCE slice keeps escaped brackets (`\[`) from matching.
+    private func appendTextWithWikiLinks(_ text: Markdown.Text, block: MDBlock,
+                                         styles: MDInlineStyle, link: String?) {
+        guard let src = text.range else {
+            appendText(text.string, block: block, styles: styles, link: link); return
+        }
+        let loc = lineIdx.offset(src.lowerBound.line, src.lowerBound.column)
+        let end = lineIdx.offset(src.upperBound.line, src.upperBound.column)
+        guard end > loc, end <= nsSource.length else {
+            appendText(text.string, block: block, styles: styles, link: link); return
+        }
+        let source = nsSource.substring(with: NSRange(location: loc, length: end - loc))
+        let matches = scanWikiLinks(in: source)
+        guard !matches.isEmpty else {
+            appendText(text.string, block: block, styles: styles, link: link); return
+        }
+        let ns = source as NSString
+        var cursor = 0
+        for m in matches {
+            if m.range.location > cursor {
+                appendText(ns.substring(with: NSRange(location: cursor,
+                                                      length: m.range.location - cursor)),
+                           block: block, styles: styles, link: link)
+            }
+            var attrs = baseAttributes(block: block, styles: styles, link: link)
+            attrs[.mdWikiLink] = m.payload
+            out.append(NSAttributedString(string: m.payload.displayText, attributes: attrs))
+            cursor = NSMaxRange(m.range)
+        }
+        if cursor < ns.length {
+            appendText(ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),
+                       block: block, styles: styles, link: link)
+        }
     }
 
     private func baseAttributes(block: MDBlock, styles: MDInlineStyle,

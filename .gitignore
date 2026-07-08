@@ -3,3 +3,6 @@
 xcuserdata/
 DerivedData/
 .build/
+*.baseline
+.smotr-queue.json
+.smotr-agent.log

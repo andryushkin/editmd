@@ -27,6 +27,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let userContentController = WKUserContentController()
         userContentController.add(TaskToggleHandler(coordinator: coordinator),
                                   name: "taskToggle")
+        userContentController.add(WikiLinkClickHandler(coordinator: coordinator),
+                                  name: "wikiLinkClick")
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = userContentController
 
@@ -37,6 +39,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.webView = webView
         coordinator.positionStore = positionStore
         coordinator.document = document
+        coordinator.fileURL = fileURL
         coordinator.rerender = { [weak coordinator] in
             guard let coordinator else { return }
             coordinator.lastRenderedContent = nil
@@ -171,6 +174,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         weak var webView: WKWebView?
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
+        var fileURL: URL?
         var lastRenderedContent: String?
         var renderTask: Task<Void, Never>?
         var hasRenderedOnce = false
@@ -200,6 +204,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   let toggled = toggleTaskListItem(in: document.content, index: index)
             else { return }
             document.content = toggled
+        }
+
+        /// A wiki-link was clicked in the page: resolve its target and open the
+        /// file (relative to this document's folder).
+        func openWikiLink(target: String) {
+            navigateToWikiLink(target: target, from: fileURL)
         }
 
         /// Outline-sidebar jump: scroll to the offset's proportional position
@@ -280,5 +290,23 @@ private final class TaskToggleHandler: NSObject, WKScriptMessageHandler {
                                didReceive message: WKScriptMessage) {
         guard let index = message.body as? Int else { return }
         coordinator?.toggleTask(at: index)
+    }
+}
+
+/// Bridges the page's wiki-link clicks to the coordinator. Held strongly by
+/// WKUserContentController, hence the weak coordinator reference.
+@MainActor
+private final class WikiLinkClickHandler: NSObject, WKScriptMessageHandler {
+    weak var coordinator: MarkdownPreviewView.Coordinator?
+
+    init(coordinator: MarkdownPreviewView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let target = body["target"] as? String, !target.isEmpty else { return }
+        coordinator?.openWikiLink(target: target)
     }
 }

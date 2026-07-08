@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EditMD — Settings · Visual</title>
+<style>
+  :root{
+    --desk:#c7c7cd; --win-bg:#ececec; --toolbar:#f4f4f5; --toolbar-brd:rgba(0,0,0,.12);
+    --card:#ffffff; --text:#1d1d1f; --secondary:rgba(0,0,0,.5); --tertiary:rgba(0,0,0,.34);
+    --separator:rgba(0,0,0,.09); --accent:#0068da; --field:#ffffff; --field-brd:rgba(0,0,0,.18);
+    --seg:#e6e6e9; --sel:#ffffff; --track:rgba(0,0,0,.14); --code:#c85b16;
+    --sample-bg:#ffffff; --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --desk:#1b1b1d; --win-bg:#2a2a2c; --toolbar:#323234; --toolbar-brd:rgba(255,255,255,.10);
+      --card:#333335; --text:#fbfbfc; --secondary:rgba(255,255,255,.55); --tertiary:rgba(255,255,255,.36);
+      --separator:rgba(255,255,255,.10); --accent:#4c8ef8; --field:#48484b; --field-brd:rgba(255,255,255,.16);
+      --seg:#3a3a3d; --sel:#5a5a5e; --track:rgba(255,255,255,.16); --code:#ff9051; --sample-bg:#1e1e20;
+    }
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{background:var(--desk); font-family:var(--sans); color:var(--text); font-size:13px;
+    display:flex; align-items:center; justify-content:center; padding:28px; -webkit-font-smoothing:antialiased;}
+  .caption{position:fixed; top:12px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--secondary);}
+  .window{width:580px; height:min(720px,92vh); background:var(--win-bg); border-radius:11px; overflow:hidden;
+    box-shadow:0 26px 70px rgba(0,0,0,.42), 0 0 0 .5px rgba(0,0,0,.28); display:flex; flex-direction:column;}
+  .titlebar{background:var(--toolbar); border-bottom:1px solid var(--toolbar-brd); padding:8px 12px 0; position:relative; flex:0 0 auto;}
+  .lights{display:flex; gap:8px; position:absolute; top:14px; left:14px;}
+  .lights i{width:12px; height:12px; border-radius:50%; display:block;}
+  .lights .r{background:#ff5f57;} .lights .y{background:#febc2e;} .lights .g{background:#28c840;}
+  .tabs{display:flex; justify-content:center; gap:2px;}
+  .tab{display:flex; flex-direction:column; align-items:center; gap:3px; width:74px; padding:6px 4px 8px;
+    border-radius:7px 7px 0 0; color:var(--secondary); cursor:default; font-size:11px;}
+  .tab svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round;}
+  .tab.on{color:var(--accent); background:var(--win-bg);} .tab.on svg{stroke:var(--accent);}
+  .form{padding:16px 18px 20px; overflow:auto; flex:1;}
+  .sec{margin-bottom:16px;} .sec > h3{font-size:12px; font-weight:600; color:var(--secondary); margin:0 4px 6px;}
+  .card{background:var(--card); border-radius:8px; box-shadow:0 0 0 .5px var(--separator);}
+  .row{display:flex; align-items:center; min-height:36px; padding:5px 14px; gap:12px;}
+  .row + .row{border-top:1px solid var(--separator);} .row .lbl{flex:1;}
+  .popup{display:inline-flex; align-items:center; gap:16px; background:var(--field); border:.5px solid var(--field-brd);
+    border-radius:6px; padding:3px 6px 3px 10px; min-width:120px; box-shadow:0 .5px 1px rgba(0,0,0,.08);}
+  .popup .cv{flex:1;} .popup .chev{width:15px; height:15px; border-radius:4px; background:var(--accent); position:relative;}
+  .popup .chev::before{content:""; position:absolute; left:3.5px; top:6px; width:8px; height:1.5px; background:#fff; border-radius:1px;}
+  .field{background:var(--field); border:.5px solid var(--field-brd); border-radius:6px; padding:3px 8px; width:56px; text-align:right; font-variant-numeric:tabular-nums;}
+  .stepper{display:inline-flex; flex-direction:column; border:.5px solid var(--field-brd); border-radius:5px; overflow:hidden; background:var(--field);}
+  .stepper span{width:16px; height:11px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--secondary);}
+  .stepper span:first-child{border-bottom:.5px solid var(--field-brd);}
+  .unit{color:var(--secondary);}
+  .slider{flex:1; height:4px; background:var(--track); border-radius:2px; position:relative; margin:0 4px;}
+  .slider .knob{position:absolute; top:50%; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 .5px 2px rgba(0,0,0,.35), 0 0 0 .5px rgba(0,0,0,.12); transform:translate(-50%,-50%);}
+  .readout{width:56px; text-align:right; color:var(--secondary); font-variant-numeric:tabular-nums;}
+  .toggle{width:38px; height:22px; border-radius:11px; background:var(--track); position:relative;}
+  .toggle::after{content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 .5px 2px rgba(0,0,0,.3);}
+  .grid{padding:8px 14px 12px; display:grid; grid-template-columns:44px 78px 1fr 62px; gap:7px 12px; align-items:center;}
+  .grid .hd{font-size:10px; color:var(--tertiary);} .grid .el{font-weight:500;}
+  .sizefld{display:inline-flex; align-items:center; gap:4px; background:var(--field); border:.5px solid var(--field-brd); border-radius:5px; padding:2px 4px 2px 7px; width:74px; font-variant-numeric:tabular-nums;}
+  .sizefld .stepper{margin-left:auto;}
+  .wpopup{display:inline-flex; align-items:center; justify-content:space-between; background:var(--field); border:.5px solid var(--field-brd); border-radius:6px; padding:3px 6px 3px 9px; width:100%;}
+  .wpopup .chev{width:14px; height:14px; border-radius:4px; background:var(--accent); position:relative;}
+  .wpopup .chev::before{content:""; position:absolute; left:3px; top:5.5px; width:7.5px; height:1.4px; background:#fff; border-radius:1px;}
+  .well{width:40px; height:20px; border-radius:5px; box-shadow:inset 0 0 0 .5px rgba(0,0,0,.28);}
+  .sample{margin:10px 14px 14px; padding:12px; background:var(--sample-bg); border-radius:6px; box-shadow:inset 0 0 0 .5px var(--separator);}
+  .sample .s1{font-size:20px; font-weight:700;} .sample .s2{font-size:16px; font-weight:600; margin-top:3px;}
+  .sample .sb{font-size:14px; margin-top:5px;}
+  .sample .sb b{font-weight:700;} .sample .sb .c{color:var(--code); font-family:var(--mono); font-size:.86em;} .sample .sb .a{color:var(--accent);}
+  .btn{background:var(--field); border:.5px solid var(--field-brd); border-radius:6px; padding:4px 12px; box-shadow:0 .5px 1px rgba(0,0,0,.08);}
+</style>
+</head>
+<body>
+  <div class="caption">EditMD · Settings (⌘,) · Visual — то же + Spacing (множитель отступов), пропорциональный шрифт</div>
+
+  <svg style="display:none" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="t-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.8-1.4-1.9-3.2L19 6.6a7.6 7.6 0 0 0-2.6-1.5L16 3h-3.9l-.4 2.1A7.6 7.6 0 0 0 9.1 6.6l-2.3-.7L4.9 9.1 6.7 10.5a7.6 7.6 0 0 0 0 3L4.9 14.9l1.9 3.2 2.3-.7a7.6 7.6 0 0 0 2.6 1.5l.4 2.1H16l.4-2.1a7.6 7.6 0 0 0 2.6-1.5l2.3.7 1.9-3.2z"/></symbol>
+    <symbol id="t-source" viewBox="0 0 24 24"><polyline points="8 8.5 4 12 8 15.5"/><polyline points="16 8.5 20 12 16 15.5"/><line x1="13.4" y1="6.5" x2="10.6" y2="17.5"/></symbol>
+    <symbol id="t-visual" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.2"/><line x1="7.5" y1="8.5" x2="16.5" y2="8.5"/><line x1="7.5" y1="12" x2="16.5" y2="12"/><line x1="7.5" y1="15.5" x2="13" y2="15.5"/></symbol>
+    <symbol id="t-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.6-6.6 9.5-6.6S21.5 12 21.5 12 17.9 18.6 12 18.6 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  </defs></svg>
+
+  <div class="window">
+    <div class="titlebar">
+      <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+      <div class="tabs">
+        <div class="tab"><svg><use href="#t-gear"/></svg>General</div>
+        <div class="tab"><svg><use href="#t-source"/></svg>Source</div>
+        <div class="tab on"><svg><use href="#t-visual"/></svg>Visual</div>
+        <div class="tab"><svg><use href="#t-eye"/></svg>Preview</div>
+      </div>
+    </div>
+
+    <div class="form">
+      <div class="sec"><h3>Font</h3><div class="card">
+        <div class="row"><span class="lbl">Size</span><span class="field">16</span><span class="stepper"><span>▲</span><span>▼</span></span><span class="unit">pt</span></div>
+        <div class="row"><span class="lbl">Family</span><span class="popup"><span class="cv">System Default</span><span class="chev"></span></span></div>
+        <div class="row"><span class="lbl">Weight</span><span class="popup"><span class="cv">Regular</span><span class="chev"></span></span></div>
+      </div></div>
+
+      <div class="sec"><h3>Margins</h3><div class="card">
+        <div class="row"><span class="lbl">Horizontal</span><span class="slider"><span class="knob" style="left:40%"></span></span><span class="readout">34 pt</span></div>
+        <div class="row"><span class="lbl">Vertical</span><span class="slider"><span class="knob" style="left:24%"></span></span><span class="readout">22 pt</span></div>
+      </div></div>
+
+      <div class="sec"><h3>Reading column</h3><div class="card">
+        <div class="row"><span class="lbl">Limit column width</span><span class="toggle"></span></div>
+      </div></div>
+
+      <div class="sec"><h3>Spacing</h3><div class="card">
+        <div class="row"><span class="lbl">Paragraph &amp; list spacing</span><span class="slider"><span class="knob" style="left:33%"></span></span><span class="readout">1.00×</span></div>
+      </div></div>
+
+      <div class="sec"><h3>Headings</h3><div class="card">
+        <div class="grid">
+          <span></span><span class="hd">Size</span><span class="hd">Weight</span><span class="hd">Color</span>
+          <span class="el">H1</span><span class="sizefld">1.60×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Bold</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">H2</span><span class="sizefld">1.30×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Semibold</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">H3</span><span class="sizefld">1.15×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Semibold</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">H4</span><span class="sizefld">1.05×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Default</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">H5</span><span class="sizefld">1.00×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Default</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">H6</span><span class="sizefld">1.00×<span class="stepper"><span>▲</span><span>▼</span></span></span><span class="wpopup"><span>Default</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+        </div>
+      </div></div>
+
+      <div class="sec"><h3>Inline</h3><div class="card">
+        <div class="grid">
+          <span class="el">Bold</span><span></span><span class="wpopup"><span>Bold</span><span class="chev"></span></span><span class="well" style="background:#1d1d1f"></span>
+          <span class="el">Code</span><span></span><span></span><span class="well" style="background:#c85b16"></span>
+          <span class="el">Link</span><span></span><span></span><span class="well" style="background:#0068da"></span>
+          <span class="el">Quote</span><span></span><span></span><span class="well" style="background:#7c7c80"></span>
+        </div>
+      </div></div>
+
+      <div class="sec"><h3>Sample</h3><div class="card">
+        <div class="sample">
+          <div class="s1">Heading 1</div>
+          <div class="s2">Heading 2</div>
+          <div class="sb">Body with <b>bold</b>, <span class="c">code</span>, a <span class="a">link</span> and quote.</div>
+        </div>
+      </div></div>
+
+      <div class="sec"><div class="card"><div class="row"><span class="btn">Reset This Tab</span></div></div></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -362,9 +362,10 @@ struct VisualMarkdownView: NSViewRepresentable {
             // links must not extend as the user types after them.
             guard let textView else { return }
             var attrs = textView.typingAttributes
-            if attrs[.mdLink] != nil || attrs[.mdImage] != nil {
+            if attrs[.mdLink] != nil || attrs[.mdImage] != nil || attrs[.mdWikiLink] != nil {
                 attrs[.mdLink] = nil
                 attrs[.mdImage] = nil
+                attrs[.mdWikiLink] = nil
                 textView.typingAttributes = attrs
             }
             storeCursor()
@@ -1103,6 +1104,12 @@ struct VisualMarkdownView: NSViewRepresentable {
             restamp(paragraph, to: target, in: textView)
         }
 
+        /// Cmd+click on a wiki-link: resolve its target against the workspace
+        /// and open the file (relative to this document's folder).
+        func openWikiLink(_ payload: MDWikiLinkPayload) {
+            navigateToWikiLink(target: payload.target, from: parent.fileURL)
+        }
+
         // MARK: Presentation (derived visuals + decoration entries)
 
         func applyPresentation() {
@@ -1292,7 +1299,13 @@ struct VisualMarkdownView: NSViewRepresentable {
                 } else {
                     storage.removeAttribute(.strikethroughStyle, range: range)
                 }
-                if attrs[.mdLink] != nil {
+                if attrs[.mdWikiLink] != nil {
+                    // Wiki-links look like links; navigation is Cmd+click (resolver).
+                    storage.addAttributes([
+                        .foregroundColor: elements.link.color ?? theme.accentColor,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    ], range: range)
+                } else if attrs[.mdLink] != nil {
                     storage.addAttributes([
                         .foregroundColor: elements.link.color ?? theme.accentColor,
                         .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -1441,11 +1454,29 @@ final class VisualNSTextView: NSTextView {
             return
         }
         if event.modifierFlags.contains(.command),
+           let payload = wikiPayload(at: point) {
+            visualCoordinator?.openWikiLink(payload)
+            return
+        }
+        if event.modifierFlags.contains(.command),
            let url = linkURL(at: point) {
             NSWorkspace.shared.open(url)
             return
         }
         super.mouseDown(with: event)
+    }
+
+    private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+        return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
     }
 
     private func linkURL(at point: NSPoint) -> URL? {
@@ -1497,7 +1528,7 @@ final class VisualNSTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let layoutManager, let textContainer else { return }
+        guard let layoutManager else { return }
         let inset = textContainerInset
         let totalLength = (string as NSString).length
         let fullWidth = bounds.width - inset.width * 2

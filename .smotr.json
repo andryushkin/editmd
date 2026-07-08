@@ -1,0 +1,6 @@
+{
+  "contentDir": "docs",
+  "port": 8000,
+  "skipDirs": [],
+  "include": []
+}

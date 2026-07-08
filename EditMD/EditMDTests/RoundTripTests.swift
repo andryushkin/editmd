@@ -243,4 +243,35 @@ final class RoundTripTests: XCTestCase {
         XCTAssertEqual(roundTrip(""), "")
         XCTAssertEqual(renderMarkdownToAttributed("").length, 0)
     }
+
+    // MARK: - Wiki-links
+
+    func testWikiLinkStable() {
+        assertStable("See [[Note]] for more.")
+        assertStable("[[Note|alias]]")
+        assertStable("[[Note#Heading]]")
+        assertStable("[[Note#^block-id]]")
+        assertStable("[[target#Heading|alias]]")
+    }
+
+    func testWikiLinkEscapedPipeStable() {
+        // A wiki-link inside a table escapes its alias pipe; the verbatim inner
+        // must survive so the cell isn't split on re-parse.
+        assertStable("Row [[Note\\|Alias]] end")
+    }
+
+    func testWikiLinkInBoldStable() {
+        assertStable("**[[Note]]**")
+    }
+
+    func testWikiLinkIdempotent() {
+        assertRoundTrip("Text with [[A]] and [[B|b]] links.")
+    }
+
+    func testWikiLinkDisplaysAliasNotMarkers() {
+        let attr = renderMarkdownToAttributed("[[Note|Shown]]")
+        XCTAssertEqual(attr.string.trimmingCharacters(in: .whitespacesAndNewlines), "Shown")
+        XCTAssertFalse(attr.string.contains("["))
+        XCTAssertNotNil(attr.attribute(.mdWikiLink, at: 0, effectiveRange: nil) as? MDWikiLinkPayload)
+    }
 }
