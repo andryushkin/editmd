@@ -27,6 +27,7 @@
 - **v30 ✅** — **wiki-links `[[Note|alias]]`** во всех трёх режимах (Obsidian-стиль): сканер `WikiLink.swift` (`originalInner` = источник истины для round-trip), подсветка Source, `.mdWikiLink`-атрибут + сериализация Visual, HTML+JS Preview; навигация `WikiLinkResolver` (ленивый actor-индекс basename→[URL], Cmd+click/клик открывают файл). См. «## v30 — Complete» ниже
 - **v31 ✅** — **большие таблицы рисуются как таблицы в Visual** (был моноширинный island с v29): чистый `parseGFMTable` + виртуализированная отрисовка сетки в `drawBackground` (только видимые строки, read-only). См. «## v31 — Complete» ниже
 - **v32 ✅** — **виртуальное выравнивание колонок таблиц в Source** (`.kern`, файл не меняется): `scanSourceTables` + kern-паддинг до целевой ширины колонки с капом (длинная ячейка → рваная строка). См. «## v32 — Complete» ниже
+- **v33 ✅** — **YAML frontmatter «как в Obsidian» (Visual + Preview) + подсветка ```yaml во всех трёх режимах**: `Editor/Frontmatter.swift` (детект блока `---…---`, разбор свойств, YAML-токенайзер). swift-markdown frontmatter не знает (открывающий `---` = thematic break, закрывающий после тела = setext H2 → блок раздувался в заголовок). Frontmatter: Visual — read-only остров-карточка свойств (round-trip дословный через `.raw`), Preview — таблица свойств, **Source** — YAML-подсветка тела + приглушённые `---`-фенсы (перекрывает setext-mangle). ```yaml код-блоки — подсветка ключ/значение в Preview (HTML-спаны) и Source (`.codeBlockBody(language:)`), Visual остаётся моно. См. «## v33 — Complete» ниже
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. «## v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -118,6 +119,28 @@
 - **Мерить ширину ПОСЛЕ passes A/B** (шрифты применены) и ДО добавления kern — иначе bold/heading-ячейки или уже-кернутый текст дадут неверную ширину.
 - **`.kern`-значение — `NSNumber(Double)`**, применяется на 1 символ (`kernIndex`), добавляет зазор ПОСЛЕ него (→ сдвигает закрывающий пайп вправо).
 
+## v33 — Complete (YAML frontmatter «как в Obsidian» в Visual + Preview)
+
+Мотив: `.md`-файлы vault (nutriom-карточки и пр.) начинаются с YAML-frontmatter (`---\ntitle: …\ntags: [x]\n---`). swift-markdown (cmark-gfm) frontmatter НЕ знает: открывающий `---` парсится как thematic break, а закрывающий `---` ПОСЛЕ тела — как **setext-заголовок H2**, из-за чего весь блок раздувался в большой заголовок во всех режимах. Итог (после нескольких итераций с пользователем): **Visual + Preview — frontmatter «как в Obsidian»** (панель/таблица свойств); **Source** — frontmatter и ```yaml подсвечиваются YAML-токенами (изначально «Source оставить как есть», затем пользователь попросил и код-блок, и верхний блок). Frontmatter-РЕНДЕР (остров/таблица) — только Visual+Preview; в Source frontmatter остаётся сырым текстом, но с YAML-подсветкой. 344 теста зелёные (+22).
+
+- **`Editor/Frontmatter.swift`** — чистое ядро (переиспользуется Visual+Preview, НЕ Source):
+  - `frontmatterRange(in:) -> FrontmatterRange?` — первая строка ровно `---` + позже закрывающая `---`/`...`; `full` (с фенсами, без trailing `\n`) + `body`. Малформ/без закрытия → nil (старое поведение).
+  - `parseFrontmatterProperties(body) -> [FMProperty]` — прагматичный line-based ридер (не полный YAML): scalar / flow-list `[a, b]` / block-list (`- item`), пропуск комментов/пустых. `FMProperty{key, value, items}`.
+  - `yamlLineSegments(line) -> [(text, YAMLTokenKind)]` — токенайзер для подсветки; **конкатенация текстов сегментов == строка** (офсеты валидны для NSTextStorage). `.key/.punctuation/.string/.number/.bool/.null/.comment/.plain`. **Plain (сырые нетипизированные скаляры) НЕ красятся** — длинные текстовые значения не пестрят; красятся только кавычки-строки/числа/bool/null/ключи/комменты/пунктуация.
+- **Preview** (`MarkdownHTML.swift`) — `markdownHTMLBody` детектит frontmatter, СТРИПАЕТ из markdown перед визитором (иначе mangle), префиксует `frontmatterTableHTML` (Obsidian-таблица свойств: `td.fm-key` приглушённые + `fm-chip`-чипсы для списков). ```yaml/```yml код-блоки → `highlightYAMLToHTML` (спаны `.yaml-*` + CSS с dark-media). Порог для CSS — `prefers-color-scheme`, не `light-dark()` (deployment 13.0).
+- **Visual** (`MarkdownToAttributed.swift` + `VisualTextView.swift`) — `VisualRenderer.run` эмитит frontmatter как `.raw`-остров (round-trip дословный: `.raw` сериализуется verbatim) и ПРОПУСКАЕТ AST-узлы внутри `full` (их loc < `NSMaxRange(full)`). **Display-текст острова** = чистые `key: value` строки (фенсы дропнуты — косметика, сериализация читает `.raw`). `applyPresentation` ветка `.raw`: `parseGFMTable` → таблица-остров (v31), иначе `frontmatterRange(rawText) != nil` → карточка свойств (`colorYAMLIsland` красит ключи/значения через `yamlLineSegments`; `propertiesPanelRanges` → скруглённая панель+бордер в `drawBackground`). Read-only (как все острова — правка frontmatter в Source).
+
+### v33 — gotchas
+
+- **Три режима — три независимых парс-пути**: Source=`collectSpans`, Visual=`VisualRenderer`, Preview=`HTMLBodyVisitor`. **Frontmatter-РЕНДЕР** (остров-карточка / HTML-таблица) — только Visual+Preview. В **Source** frontmatter остаётся сырым текстом, но подсвечен: `highlightSource` Pass B.5 детектит `frontmatterRange`, СБРАСЫВАЕТ шрифт всего блока на base (перекрывая setext-heading-mangle из Pass A), красит тело через `highlightYAMLBlock` и приглушает `---`-фенсы. **```yaml-подсветка** — Source+Preview: Source красит `.codeBlockBody(language:)` в Pass A + тело frontmatter тем же `highlightYAMLBlock` (фенс/`---`-строки `yamlLineSegments` оставляет `.plain` → не красятся; только цвет, моно-шрифт не меняем → выравнивание цело).
+- **Round-trip держит `.raw` (полный блок с фенсами), а не display** — display-текст острова косметичен (можно дропать фенсы/чистить), сериализатор берёт `.raw`. Разделитель к след. блоку = `\n\n` (если в оригинале был один `\n` после `---` — нормализуется в пустую строку, приемлемо).
+- **Пропуск AST-узлов frontmatter в Visual — по офсету старта** (`lineIdx.offset(child.range.lower) < NSMaxRange(full)`), НЕ по типу узла: setext-heading покрывает тело+закрывающий фенс, оба (thematic break + heading) стартуют внутри `full`.
+- **`yamlLineSegments` обязан быть лосслесс** — конкатенация сегментов == строка, иначе офсеты покраски в Visual разъедутся. Есть тест `testSegmentsReconstructLine`.
+- **`keyColonIndex`**: разделитель `key: value` = первый `:` вне кавычек, за которым пробел или EOL → `url: http://x` корректно делит после `url` (в `http:` после `:` идёт `/`).
+- **Малформ frontmatter** (нет закрытия) → `frontmatterRange` = nil → старое (mangled) поведение; спец-рендер только для well-formed.
+
+**Осталось:** frontmatter в Visual read-only (правка в Source) — редактируемые свойства-виджеты как в Obsidian Live Preview отложены; подсветка ```yaml в Visual (код-блоки там пока моно — Source+Preview уже есть); nested-map значения показываются плоско (`sub: v; sub2: v2`).
+
 ## Project Structure
 
 ```
@@ -128,7 +151,7 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
         ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave)
-        ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), MarkdownOutline.swift (outline для сайдбара), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель)
+        ├── Editor/     SourceTextView.swift (Source: plain + линт), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans — движок спанов для линта), MarkdownOutline.swift (outline для сайдбара), FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift (Preview HTML-визитор + frontmatter-таблица + yaml-подсветка), MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift (WYSIWYG-модель), Frontmatter.swift (детект YAML-frontmatter + разбор свойств + YAML-токенайзер, чистое ядро для Visual+Preview), MarkdownTableGrid.swift, WikiLink.swift
         └── Views/      ContentView.swift (layout: сайдбар + сплит + тулбар, allowsSidebar, модалка «уже открыт»), FileEditor.swift (DocHost: резолв документа из реестра по идентичности вью + MainWindowView + WindowAccessor), WorkspaceModel.swift (workspace-папки/скрытые/пины/loose, персист по пути), WorkspaceSidebar.swift (Files/Outline, глаз, restore, пины, ПКМ), OutlineSidebar.swift, EditorSettings.swift (per-mode + general incl. liteMode, персист UserDefaults), SettingsView.swift (⌘, окно, вкладки General/Source/Visual/Preview), FocusedValues.swift (+ DocumentActions), EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift (WKWebView, live-режим), DocumentHistory.swift (Back/Forward)
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
@@ -139,7 +162,8 @@ editmd/
         ├── MarkdownOutlineTests.swift      # 9 XCTest кейсов для markdownOutline (уровни, plainText, UTF-16 оффсеты, fence/setext/blockquote)
         ├── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
         ├── DocumentStoreTests.swift        # 7 кейсов: round-trip .md/.textbundle + assets, DocumentRegistry (shared-model/refcount, save-on-dirty, flush-on-release)
-        └── WorkspaceModelTests.swift       # 5 кейсов: скан-фильтрация, hide/unhide, персист скрытых по пути, пины, noteOpened
+        ├── WorkspaceModelTests.swift       # 5 кейсов: скан-фильтрация, hide/unhide, персист скрытых по пути, пины, noteOpened
+        └── FrontmatterTests.swift          # 22 кейса: frontmatterRange (детект/фенсы/малформ), parseFrontmatterProperties (scalar/flow/block-list/comment/colon-в-значении), yamlLineSegments (лосслесс/классификация), HTML-таблица + yaml-спаны, Visual round-trip
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 

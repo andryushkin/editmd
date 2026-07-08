@@ -423,6 +423,11 @@ struct SourceTextView: NSViewRepresentable {
                     if let c = els.quote.color {
                         storage.addAttribute(.foregroundColor, value: c, range: span.range)
                     }
+                case .codeBlockBody(let language):
+                    let lower = language.lowercased()
+                    if lower == "yaml" || lower == "yml" {
+                        highlightYAMLBlock(storage, blockRange: span.range, theme: theme)
+                    }
                 default:
                     break
                 }
@@ -467,6 +472,30 @@ struct SourceTextView: NSViewRepresentable {
                 }
             }
 
+            // Pass B.5 — YAML frontmatter (top-of-file ---…---). swift-markdown
+            // mis-parses it as a thematic break + setext heading, so Pass A gave
+            // the body a big heading font; override the whole block back to the
+            // base font and color it like a ```yaml block (fences dimmed).
+            if let frontmatter = frontmatterRange(in: textView.string),
+               NSMaxRange(frontmatter.full) <= nsText.length {
+                storage.addAttribute(.font, value: baseFont, range: frontmatter.full)
+                storage.addAttribute(.foregroundColor, value: theme.textColor,
+                                     range: frontmatter.full)
+                let openLen = frontmatter.body.location - frontmatter.full.location
+                if openLen > 0 {
+                    storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
+                                         range: NSRange(location: frontmatter.full.location,
+                                                        length: openLen))
+                }
+                let closeStart = NSMaxRange(frontmatter.body)
+                let closeLen = NSMaxRange(frontmatter.full) - closeStart
+                if closeLen > 0 {
+                    storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
+                                         range: NSRange(location: closeStart, length: closeLen))
+                }
+                highlightYAMLBlock(storage, blockRange: frontmatter.body, theme: theme)
+            }
+
             // Pass C — virtual table column alignment (display-only .kern; the
             // raw text stays compact, columns just line up visually).
             applyTableAlignment(storage, baseFont: baseFont)
@@ -503,6 +532,46 @@ struct SourceTextView: NSViewRepresentable {
                     storage.addAttribute(.kern, value: NSNumber(value: Double(goal - width)),
                                          range: NSRange(location: cell.kernIndex, length: 1))
                 }
+            }
+        }
+
+        /// Tints the YAML tokens of a fenced ```yaml block (keys / typed
+        /// values / comments) in the raw Source view. The fence lines
+        /// (```yaml / ```) have no `:`/`-`/`#` shape, so `yamlLineSegments`
+        /// leaves them `.plain` — they keep the base color. Colors only; the
+        /// monospace font stays, so column alignment is untouched.
+        private func highlightYAMLBlock(_ storage: NSTextStorage, blockRange: NSRange,
+                                        theme: EditorTheme) {
+            let nsText = storage.string as NSString
+            let end = min(NSMaxRange(blockRange), nsText.length)
+            var loc = blockRange.location
+            while loc < end {
+                let lineRange = nsText.lineRange(for: NSRange(location: loc, length: 0))
+                let lineEnd = min(NSMaxRange(lineRange), end)
+                var line = nsText.substring(with: NSRange(location: lineRange.location,
+                                                          length: lineEnd - lineRange.location))
+                if line.hasSuffix("\n") { line.removeLast() }
+                var col = lineRange.location
+                for (segText, kind) in yamlLineSegments(line) {
+                    let length = (segText as NSString).length
+                    let range = NSRange(location: col, length: length)
+                    if NSMaxRange(range) <= end, let color = sourceYAMLColor(kind, theme) {
+                        storage.addAttribute(.foregroundColor, value: color, range: range)
+                    }
+                    col += length
+                }
+                if NSMaxRange(lineRange) == loc { break }
+                loc = NSMaxRange(lineRange)
+            }
+        }
+
+        private func sourceYAMLColor(_ kind: YAMLTokenKind, _ theme: EditorTheme) -> NSColor? {
+            switch kind {
+            case .key, .comment: return theme.secondaryColor
+            case .punctuation: return theme.tertiaryColor
+            case .number, .bool, .null: return theme.accentColor
+            case .string: return theme.inlineCodeColor
+            case .plain: return nil
             }
         }
 

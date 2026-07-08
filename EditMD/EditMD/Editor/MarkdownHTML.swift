@@ -33,10 +33,72 @@ func htmlEscapeBreakingUnderscores(_ s: String) -> String {
 /// local files); returning nil keeps the original source.
 func markdownHTMLBody(_ text: String,
                       imageResolver: ((String) -> String?)? = nil) -> String {
-    let document = Document(parsing: text)
+    var source = text
+    var prefix = ""
+    // YAML frontmatter isn't part of the markdown grammar — strip it and render
+    // it as an Obsidian-style properties table, so it doesn't mangle into a
+    // thematic break + setext heading.
+    if let fm = frontmatterRange(in: text) {
+        let ns = text as NSString
+        let props = parseFrontmatterProperties(ns.substring(with: fm.body))
+        if !props.isEmpty { prefix = frontmatterTableHTML(props) }
+        source = ns.substring(from: NSMaxRange(fm.full))
+    }
+    let document = Document(parsing: source)
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver)
     visitor.visit(document)
-    return visitor.result
+    return prefix + visitor.result
+}
+
+/// An Obsidian-style properties table for the frontmatter block.
+func frontmatterTableHTML(_ props: [FMProperty]) -> String {
+    var rows = ""
+    for property in props {
+        let valueHTML: String
+        if property.isList {
+            valueHTML = property.items
+                .map { "<span class=\"fm-chip\">\(htmlEscape($0))</span>" }
+                .joined()
+        } else if property.value.isEmpty {
+            valueHTML = "<span class=\"fm-empty\">—</span>"
+        } else {
+            valueHTML = htmlEscapeBreakingUnderscores(property.value)
+        }
+        rows += "<tr><td class=\"fm-key\">\(htmlEscape(property.key))</td>"
+            + "<td class=\"fm-val\">\(valueHTML)</td></tr>\n"
+    }
+    return "<table class=\"frontmatter\"><tbody>\n\(rows)</tbody></table>\n"
+}
+
+/// Colors a `yaml`/`yml` code block: keys / values / comments become spans the
+/// preview's CSS tints. Concatenated segment texts reproduce the source, so
+/// nothing is lost.
+func highlightYAMLToHTML(_ code: String) -> String {
+    var out = ""
+    for (index, line) in code.components(separatedBy: "\n").enumerated() {
+        if index > 0 { out += "\n" }
+        for (text, kind) in yamlLineSegments(line) {
+            if let cssClass = yamlCSSClass(kind) {
+                out += "<span class=\"\(cssClass)\">\(htmlEscape(text))</span>"
+            } else {
+                out += htmlEscape(text)
+            }
+        }
+    }
+    return out
+}
+
+private func yamlCSSClass(_ kind: YAMLTokenKind) -> String? {
+    switch kind {
+    case .key: return "yaml-key"
+    case .punctuation: return "yaml-punct"
+    case .string: return "yaml-string"
+    case .number: return "yaml-number"
+    case .bool: return "yaml-bool"
+    case .null: return "yaml-null"
+    case .comment: return "yaml-comment"
+    case .plain: return nil
+    }
 }
 
 private struct HTMLBodyVisitor: MarkupWalker {
@@ -72,12 +134,18 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        if let language = codeBlock.language, !language.isEmpty {
+        let language = codeBlock.language ?? ""
+        if !language.isEmpty {
             result += "<pre><code class=\"language-\(htmlAttributeEscape(language))\">"
         } else {
             result += "<pre><code>"
         }
-        result += htmlEscape(codeBlock.code)
+        let lower = language.lowercased()
+        if lower == "yaml" || lower == "yml" {
+            result += highlightYAMLToHTML(codeBlock.code)
+        } else {
+            result += htmlEscape(codeBlock.code)
+        }
         result += "</code></pre>\n"
     }
 
@@ -366,6 +434,41 @@ func previewHTMLPage(markdown: String,
     tbody tr:nth-child(odd) { background: rgba(128,128,128,0.07); }
     img { max-width: 100%; }
     del { opacity: 0.6; }
+    /* Obsidian-style frontmatter properties */
+    table.frontmatter {
+        display: table; width: 100%; border-collapse: collapse;
+        margin: 0 0 1.4em; font-size: 0.9em;
+        background: rgba(128,128,128,0.05);
+        border: 1px solid rgba(128,128,128,0.22); border-radius: 8px; overflow: hidden;
+    }
+    table.frontmatter td {
+        border: none; border-bottom: 1px solid rgba(128,128,128,0.12);
+        padding: 6px 12px; vertical-align: top;
+    }
+    table.frontmatter tr:last-child td { border-bottom: none; }
+    table.frontmatter tbody tr { background: none; }
+    td.fm-key { color: rgba(128,128,128,0.95); font-weight: 500; width: 1%; white-space: nowrap; }
+    td.fm-val { color: inherit; }
+    .fm-chip {
+        display: inline-block; background: rgba(128,128,128,0.16); border-radius: 4px;
+        padding: 1px 8px; margin: 1px 4px 1px 0; font-size: 0.92em;
+    }
+    .fm-empty { opacity: 0.4; }
+    /* yaml code-block syntax colors */
+    .yaml-key { color: #6f42c1; }
+    .yaml-string { color: #0a7d33; }
+    .yaml-number { color: #0550ae; }
+    .yaml-bool, .yaml-null { color: #953800; }
+    .yaml-comment { color: #6e7781; font-style: italic; }
+    .yaml-punct { color: #57606a; }
+    @media (prefers-color-scheme: dark) {
+        .yaml-key { color: #d2a8ff; }
+        .yaml-string { color: #7ee787; }
+        .yaml-number { color: #79c0ff; }
+        .yaml-bool, .yaml-null { color: #ffa657; }
+        .yaml-comment { color: #8b949e; }
+        .yaml-punct { color: #8b949e; }
+    }
     \(elementCSS)</style>
     </head>
     <body>

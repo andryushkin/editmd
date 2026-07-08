@@ -1151,6 +1151,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             var ruleRanges: [NSRange] = []
             var headingDividers: [NSRange] = []
             var tableIslands: [TableIslandEntry] = []
+            var propertiesPanels: [NSRange] = []
 
             var orderedCounters: [String: Int] = [:]
             var lastListGroupDepth: (group: Int, depth: Int)? = nil
@@ -1174,6 +1175,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                 style.paragraphSpacing = 6 * spacingScale
                 var markerIndent: CGFloat = 0
                 var isTableIsland = false
+                var isFrontmatter = false
 
                 switch blockValue.kind {
                 case .heading(let level):
@@ -1271,6 +1273,14 @@ struct VisualMarkdownView: NSViewRepresentable {
                                                              columnEdges: edges, rowHeight: rowHeight,
                                                              font: bodyFont, headerFont: headerFont))
                         isTableIsland = true
+                    } else if frontmatterRange(in: rawText) != nil {
+                        // Frontmatter properties card: a subtle panel (drawn in
+                        // drawBackground) with colored keys (colorYAMLIsland).
+                        style.paragraphSpacingBefore = 4 * spacingScale
+                        style.paragraphSpacing = 12 * spacingScale
+                        markerIndent = 14
+                        propertiesPanels.append(paragraph)
+                        isFrontmatter = true
                     } else {
                         markerIndent = 10
                     }
@@ -1294,6 +1304,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                         // drawn in drawBackground. Hide the characters.
                         storage.addAttribute(.foregroundColor, value: NSColor.clear,
                                              range: paragraph)
+                    } else if isFrontmatter {
+                        colorYAMLIsland(storage, paragraph: paragraph)
                     } else {
                         applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
                     }
@@ -1311,7 +1323,50 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.ruleRanges = ruleRanges
             textView.headingDividerRanges = headingDividers
             textView.tableIslandEntries = tableIslands
+            textView.propertiesPanelRanges = propertiesPanels
             textView.needsDisplay = true
+        }
+
+        /// Colors a frontmatter island's display text: keys muted + semibold,
+        /// typed values (numbers/booleans/null/quoted strings) tinted, comments
+        /// dimmed. Segment offsets come from `yamlLineSegments`, whose texts
+        /// concatenate back to each display line. Display lines are joined by
+        /// the hard-break char (one UTF-16 unit) inside one paragraph.
+        private func colorYAMLIsland(_ storage: NSTextStorage, paragraph: NSRange) {
+            guard let textView else { return }
+            let theme = textView.theme
+            let nsText = storage.string as NSString
+            storage.addAttribute(.foregroundColor, value: theme.textColor, range: paragraph)
+            let keyFont = NSFont.monospacedSystemFont(ofSize: max(1, visualStyle.baseSize - 1),
+                                                      weight: .semibold)
+            var lineStart = paragraph.location
+            for line in nsText.substring(with: paragraph).components(separatedBy: mdHardBreak) {
+                var col = lineStart
+                for (segText, kind) in yamlLineSegments(line) {
+                    let length = (segText as NSString).length
+                    let range = NSRange(location: col, length: length)
+                    if NSMaxRange(range) <= NSMaxRange(paragraph) {
+                        if let color = yamlColor(kind, theme) {
+                            storage.addAttribute(.foregroundColor, value: color, range: range)
+                        }
+                        if kind == .key {
+                            storage.addAttribute(.font, value: keyFont, range: range)
+                        }
+                    }
+                    col += length
+                }
+                lineStart += (line as NSString).length + 1   // + hard-break char
+            }
+        }
+
+        private func yamlColor(_ kind: YAMLTokenKind, _ theme: EditorTheme) -> NSColor? {
+            switch kind {
+            case .key, .comment: return theme.secondaryColor
+            case .punctuation: return theme.tertiaryColor
+            case .number, .bool, .null: return theme.accentColor
+            case .string: return theme.inlineCodeColor
+            case .plain: return nil
+            }
         }
 
         private func isListKind(_ kind: MDBlock.Kind) -> Bool {
@@ -1513,6 +1568,7 @@ final class VisualNSTextView: NSTextView {
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
     var tableIslandEntries: [TableIslandEntry] = []
+    var propertiesPanelRanges: [NSRange] = []
 
     private var visualCoordinator: VisualMarkdownView.Coordinator? {
         delegate as? VisualMarkdownView.Coordinator
@@ -1631,6 +1687,19 @@ final class VisualNSTextView: NSTextView {
             guard padded.intersects(rect) else { continue }
             theme.codeBlockBackground.setFill()
             NSBezierPath(roundedRect: padded, xRadius: 6, yRadius: 6).fill()
+        }
+
+        // Frontmatter properties cards (Obsidian-style metadata panel)
+        for range in propertiesPanelRanges {
+            guard let rectUnion = unionRect(for: range) else { continue }
+            let padded = rectUnion.insetBy(dx: 0, dy: -8)
+            guard padded.intersects(rect) else { continue }
+            let path = NSBezierPath(roundedRect: padded, xRadius: 7, yRadius: 7)
+            NSColor(white: 0.5, alpha: 0.06).setFill()
+            path.fill()
+            path.lineWidth = 1
+            theme.separatorColor.withAlphaComponent(0.6).setStroke()
+            path.stroke()
         }
 
         // Quote bars

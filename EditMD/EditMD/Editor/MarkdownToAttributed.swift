@@ -190,10 +190,45 @@ private final class VisualRenderer {
 
     func run() -> NSAttributedString {
         let document = Document(parsing: source)
+        // YAML frontmatter isn't in the markdown grammar — emit it as a
+        // read-only properties island and skip the AST nodes it produced
+        // (a thematic break + a setext heading) so it isn't rendered twice.
+        let frontmatter = frontmatterRange(in: source)
+        if let frontmatter { emitFrontmatterIsland(frontmatter) }
+        let skipUntil = frontmatter.map { NSMaxRange($0.full) } ?? 0
         for child in document.children {
+            if skipUntil > 0, let range = child.range,
+               lineIdx.offset(range.lowerBound.line, range.lowerBound.column) < skipUntil {
+                continue
+            }
             renderBlock(child, ctx: Ctx())
         }
         return out
+    }
+
+    /// The frontmatter as a `.raw` island: the stored value is the verbatim
+    /// block (fences included) so it round-trips unchanged, but the DISPLAYED
+    /// text is clean "key: value" lines (fences dropped) — cosmetic, since only
+    /// the stored `.raw` feeds serialization. Presentation draws a properties
+    /// panel and colors the keys (VisualTextView.colorYAMLIsland).
+    private func emitFrontmatterIsland(_ frontmatter: FrontmatterRange) {
+        let full = nsSource.substring(with: frontmatter.full)
+        let bodyText = nsSource.substring(with: frontmatter.body)
+        let props = parseFrontmatterProperties(bodyText)
+        let display: String
+        if props.isEmpty {
+            display = bodyText.components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: mdHardBreak)
+        } else {
+            display = props
+                .map { $0.value.isEmpty ? "\($0.key):" : "\($0.key): \($0.value)" }
+                .joined(separator: mdHardBreak)
+        }
+        appendParagraph(makeBlock(.raw(full), Ctx())) { b in
+            self.appendText(display, block: b, styles: [], link: nil)
+        }
     }
 
     // MARK: Block dispatch
