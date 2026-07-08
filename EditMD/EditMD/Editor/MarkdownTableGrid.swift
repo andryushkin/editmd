@@ -110,3 +110,95 @@ private func parseColumnAlignments(_ line: String) -> [TableGrid.Alignment] {
         }
     }
 }
+
+// MARK: - Source virtual column alignment
+
+/// One cell of a Source-mode table, used to pad columns to a common width with
+/// a display-only `.kern` attribute (no text change). `segmentRange` is the text
+/// between the cell's surrounding pipes (exclusive of both); `kernIndex` is the
+/// single character whose `.kern` widens the cell — the char just before the
+/// closing pipe, or the opening pipe itself for an empty cell.
+struct SourceTableCell: Equatable {
+    let column: Int
+    let segmentRange: NSRange
+    let kernIndex: Int
+}
+
+/// Scans `text` for GFM pipe tables (a header line with a pipe followed by a
+/// `---` delimiter line, then body rows that keep pipes until a blank line) and
+/// returns each table's cells across all its physical rows — header, delimiter
+/// and body. Pure: measuring widths and applying `.kern` happens in the view.
+/// UTF-16 offsets (NSRange), so it composes with NSTextStorage directly.
+func scanSourceTables(_ text: String) -> [[SourceTableCell]] {
+    let ns = text as NSString
+    let lines = sourceLineRanges(ns)
+    var tables: [[SourceTableCell]] = []
+    var i = 0
+    while i < lines.count {
+        if i + 1 < lines.count,
+           hasUnescapedPipe(ns, in: lines[i]),
+           isTableDelimiterRow(ns.substring(with: lines[i + 1])) {
+            var members = [i, i + 1]
+            var j = i + 2
+            while j < lines.count {
+                let range = lines[j]
+                if ns.substring(with: range).trimmingCharacters(in: .whitespaces).isEmpty { break }
+                if !hasUnescapedPipe(ns, in: range) { break }
+                members.append(j)
+                j += 1
+            }
+            var cells: [SourceTableCell] = []
+            for m in members { cells.append(contentsOf: sourceRowCells(ns, in: lines[m])) }
+            if !cells.isEmpty { tables.append(cells) }
+            i = j
+        } else {
+            i += 1
+        }
+    }
+    return tables
+}
+
+private func sourceLineRanges(_ ns: NSString) -> [NSRange] {
+    var lines: [NSRange] = []
+    var idx = 0
+    let n = ns.length
+    while idx < n {
+        var lineEnd = 0, contentEnd = 0
+        ns.getLineStart(nil, end: &lineEnd, contentsEnd: &contentEnd,
+                        for: NSRange(location: idx, length: 0))
+        lines.append(NSRange(location: idx, length: contentEnd - idx))
+        idx = lineEnd
+    }
+    return lines
+}
+
+private func sourceRowCells(_ ns: NSString, in lineRange: NSRange) -> [SourceTableCell] {
+    let pipes = unescapedPipePositions(ns, in: lineRange)
+    guard pipes.count >= 2 else { return [] }
+    return (0..<(pipes.count - 1)).map { k in
+        let opening = pipes[k]
+        let closing = pipes[k + 1]
+        let segLen = closing - (opening + 1)
+        return SourceTableCell(
+            column: k,
+            segmentRange: NSRange(location: opening + 1, length: max(0, segLen)),
+            kernIndex: segLen > 0 ? closing - 1 : opening)
+    }
+}
+
+private func unescapedPipePositions(_ ns: NSString, in range: NSRange) -> [Int] {
+    var result: [Int] = []
+    var i = range.location
+    let end = NSMaxRange(range)
+    while i < end {
+        let c = ns.character(at: i)
+        if c == 0x5C { i += 2; continue }   // backslash escapes the next char
+        if c == 0x7C { result.append(i) }   // unescaped pipe
+        i += 1
+    }
+    return result
+}
+
+private func hasUnescapedPipe(_ ns: NSString, in range: NSRange) -> Bool {
+    !unescapedPipePositions(ns, in: range).isEmpty
+}

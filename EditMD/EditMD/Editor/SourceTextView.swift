@@ -172,6 +172,12 @@ struct SourceTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             if let textView {
                 parent.positionStore?.markdownOffset = textView.selectedRange().location
+                // Don't let the virtual-alignment .kern bleed into typed text —
+                // the char before the caret may carry a pad; re-highlight will
+                // recompute it, but typing attributes must start clean.
+                if textView.typingAttributes[.kern] != nil {
+                    textView.typingAttributes[.kern] = nil
+                }
             }
         }
 
@@ -460,7 +466,44 @@ struct SourceTextView: NSViewRepresentable {
                     break
                 }
             }
+
+            // Pass C — virtual table column alignment (display-only .kern; the
+            // raw text stays compact, columns just line up visually).
+            applyTableAlignment(storage, baseFont: baseFont)
+
             storage.endEditing()
+        }
+
+        /// Pads each table column to a common width using the `.kern` attribute
+        /// so pipes line up in the monospaced Source view — WITHOUT inserting
+        /// spaces (the file bytes are untouched, so no git churn). Width is
+        /// measured from the already-styled substring, so bold/heading cells
+        /// count correctly; a per-column cap keeps one long cell from blowing
+        /// the table wide (that cell's row just runs ragged past the cap).
+        private func applyTableAlignment(_ storage: NSTextStorage, baseFont: NSFont) {
+            let tables = scanSourceTables(storage.string)
+            guard !tables.isEmpty else { return }
+            let length = storage.length
+            let charWidth = ("0" as NSString).size(withAttributes: [.font: baseFont]).width
+            let maxColumnWidth = charWidth * 40   // cap ≈ 40 characters
+
+            for cells in tables {
+                var target: [Int: CGFloat] = [:]
+                var measured: [(cell: SourceTableCell, width: CGFloat)] = []
+                for cell in cells where NSMaxRange(cell.segmentRange) <= length {
+                    let width = cell.segmentRange.length > 0
+                        ? storage.attributedSubstring(from: cell.segmentRange).size().width
+                        : 0
+                    measured.append((cell, width))
+                    target[cell.column] = min(max(target[cell.column] ?? 0, width), maxColumnWidth)
+                }
+                for (cell, width) in measured {
+                    guard let goal = target[cell.column], goal > width + 0.5,
+                          cell.kernIndex < length else { continue }
+                    storage.addAttribute(.kern, value: NSNumber(value: Double(goal - width)),
+                                         range: NSRange(location: cell.kernIndex, length: 1))
+                }
+            }
         }
 
         /// A Source font honoring the mode's family (else system mono) at an
