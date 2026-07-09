@@ -7,7 +7,7 @@ struct FormatActions {
     var makeFontSmaller: () -> Void
     var canIncreaseFontSize: Bool
     var canDecreaseFontSize: Bool
-    /// Visual mode only: toggles task-list state of the selected paragraphs.
+    /// Toggles task-list on the selected paragraphs / lines.
     var toggleChecklist: (() -> Void)? = nil
     /// Visual mode only: add/edit/remove a link on the selection (⌘K).
     var editLink: (() -> Void)? = nil
@@ -15,13 +15,24 @@ struct FormatActions {
     // only what it implements, the menu item disables on nil.
     var toggleStrikethrough: (() -> Void)? = nil
     var toggleCodeSpan: (() -> Void)? = nil
+    /// `==…==` highlight (Obsidian-style).
+    var toggleHighlight: (() -> Void)? = nil
     /// Sets heading level 1…6 on the selected paragraphs; the same level
     /// again turns them back into plain paragraphs.
     var setHeading: ((Int) -> Void)? = nil
+    /// Plain body paragraph (strip heading / list / quote structure).
+    var setBody: (() -> Void)? = nil
     var toggleBulletList: (() -> Void)? = nil
     var toggleNumberedList: (() -> Void)? = nil
     var toggleQuote: (() -> Void)? = nil
     var toggleCodeBlock: (() -> Void)? = nil
+    var copySelection: (() -> Void)? = nil
+    // Visual table tools (nil in Source / Preview)
+    var insertTable: (() -> Void)? = nil
+    var tableAddRow: (() -> Void)? = nil
+    var tableDeleteRow: (() -> Void)? = nil
+    /// Placeholder for future math/formula editing (Visual).
+    var formulaStub: (() -> Void)? = nil
 }
 
 /// Save/Save As for the focused window's document. Published by ContentView so

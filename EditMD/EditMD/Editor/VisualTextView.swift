@@ -914,7 +914,9 @@ struct VisualMarkdownView: NSViewRepresentable {
                 editLink: { [weak self] in self?.editLink() },
                 toggleStrikethrough: { [weak self] in self?.toggleInlineStyle(.strike) },
                 toggleCodeSpan: { [weak self] in self?.toggleInlineStyle(.code) },
+                toggleHighlight: { [weak self] in self?.wrapSelectionMarkers("==") },
                 setHeading: { [weak self] level in self?.setHeading(level) },
+                setBody: { [weak self] in self?.setBodyParagraph() },
                 toggleBulletList: { [weak self] in self?.toggleListKind(
                     isTarget: { if case .bulletItem = $0 { return true }; return false },
                     makeKind: { .bulletItem(depth: $0) }) },
@@ -922,11 +924,152 @@ struct VisualMarkdownView: NSViewRepresentable {
                     isTarget: { if case .orderedItem = $0 { return true }; return false },
                     makeKind: { .orderedItem(depth: $0, number: 1) }) },
                 toggleQuote: { [weak self] in self?.toggleQuote() },
-                toggleCodeBlock: { [weak self] in self?.toggleCodeBlock() }
+                toggleCodeBlock: { [weak self] in self?.toggleCodeBlock() },
+                copySelection: { [weak self] in self?.copySelection() },
+                insertTable: { [weak self] in self?.insertEmptyTable() },
+                tableAddRow: { [weak self] in self?.tableAddRowAtCursor() },
+                tableDeleteRow: { [weak self] in self?.tableDeleteRowAtCursor() },
+                formulaStub: {
+                    NSSound.beep()
+                    let alert = NSAlert()
+                    alert.messageText = "Формулы"
+                    alert.informativeText = "Редактирование формул появится позже."
+                    alert.alertStyle = .informational
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
             }
+        }
+
+        private func copySelection() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { NSSound.beep(); return }
+            let text = (textView.string as NSString).substring(with: range)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// Insert/remove literal `==…==` around the selection (Obsidian highlight).
+        private func wrapSelectionMarkers(_ marker: String) {
+            guard let textView, let storage = textView.textStorage else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { NSSound.beep(); return }
+            let ns = storage.string as NSString
+            let openLen = (marker as NSString).length
+            if range.location >= openLen {
+                let before = ns.substring(with: NSRange(location: range.location - openLen,
+                                                        length: openLen))
+                let afterLoc = NSMaxRange(range)
+                let after = afterLoc + openLen <= ns.length
+                    ? ns.substring(with: NSRange(location: afterLoc, length: openLen)) : ""
+                if before == marker, after == marker {
+                    let full = NSRange(location: range.location - openLen,
+                                       length: range.length + openLen * 2)
+                    let inner = storage.attributedSubstring(from: range)
+                    guard textView.shouldChangeText(in: full, replacementString: inner.string)
+                    else { return }
+                    isMutating = true
+                    storage.replaceCharacters(in: full, with: inner)
+                    isMutating = false
+                    textView.didChangeText()
+                    afterMutation()
+                    textView.setSelectedRange(NSRange(location: full.location, length: range.length))
+                    return
+                }
+            }
+            let selected = storage.attributedSubstring(from: range)
+            let open = NSAttributedString(string: marker, attributes: textView.typingAttributes)
+            let close = NSAttributedString(string: marker, attributes: textView.typingAttributes)
+            let combined = NSMutableAttributedString()
+            combined.append(open)
+            combined.append(selected)
+            combined.append(close)
+            guard textView.shouldChangeText(in: range, replacementString: combined.string)
+            else { return }
+            isMutating = true
+            storage.replaceCharacters(in: range, with: combined)
+            isMutating = false
+            textView.didChangeText()
+            afterMutation()
+            textView.setSelectedRange(NSRange(location: range.location + openLen,
+                                              length: range.length))
+        }
+
+        private func setBodyParagraph() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraphs = selectedParagraphs()
+            guard !paragraphs.isEmpty else { return }
+            for paragraph in paragraphs {
+                var target = block(at: paragraph, in: storage)
+                target.kind = .paragraph
+                target.group = -1
+                target.quoteDepth = 0
+                target.quoteGroup = -1
+                restamp(paragraph, to: target, in: textView)
+            }
+        }
+
+        private func insertEmptyTable() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let md = """
+            |   |   |   |
+            | --- | --- | --- |
+            |   |   |   |
+            |   |   |   |
+
+            """
+            let rendered = renderMarkdownToAttributed(md, style: visualStyle)
+            let selection = textView.selectedRange()
+            guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
+            else { return }
+            isMutating = true
+            storage.replaceCharacters(in: selection, with: rendered)
+            isMutating = false
+            textView.didChangeText()
+            afterMutation()
+        }
+
+        private func tableAddRowAtCursor() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraph = paragraphRange(at: textView.selectedRange().location,
+                                           in: storage.string as NSString)
+            let current = block(at: paragraph, in: storage)
+            if case .tableCell = current.kind {
+                if let newRow = appendTableRow(group: current.group) {
+                    moveCursor(toCell: (newRow, 0), group: current.group)
+                }
+                return
+            }
+            // Large-table island: append a body row.
+            if let island = tableIsland(at: paragraph.location) {
+                let at = island.grid.rows.count
+                if insertTableIslandRow(paragraphLocation: paragraph.location, atBodyIndex: at) {
+                    return
+                }
+            }
+            NSSound.beep()
+        }
+
+        private func tableDeleteRowAtCursor() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let paragraph = paragraphRange(at: textView.selectedRange().location,
+                                           in: storage.string as NSString)
+            let current = block(at: paragraph, in: storage)
+            if case .tableCell(let row, _, _, _) = current.kind {
+                deleteTableRow(row, group: current.group)
+                return
+            }
+            if let island = tableIsland(at: paragraph.location), !island.grid.rows.isEmpty {
+                let last = island.grid.rows.count - 1
+                if deleteTableIslandRow(paragraphLocation: paragraph.location, atBodyIndex: last) {
+                    return
+                }
+            }
+            NSSound.beep()
         }
 
         private func toggleInlineStyle(_ style: MDInlineStyle) {

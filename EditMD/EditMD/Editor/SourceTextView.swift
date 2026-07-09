@@ -325,13 +325,17 @@ struct SourceTextView: NSViewRepresentable {
                 makeFontSmaller: { EditorSettings.shared.adjustFontSize(\.source, by: -1) },
                 canIncreaseFontSize: EditorSettings.shared.source.fontSize < ModeSettings.fontSizeRange.upperBound,
                 canDecreaseFontSize: EditorSettings.shared.source.fontSize > ModeSettings.fontSizeRange.lowerBound,
+                toggleChecklist: { [weak self] in self?.transformSelectedLines(.checklist) },
                 toggleStrikethrough: { [weak self] in self?.wrapSelection(with: "~~") },
                 toggleCodeSpan: { [weak self] in self?.wrapSelection(with: "`") },
+                toggleHighlight: { [weak self] in self?.wrapSelection(with: "==") },
                 setHeading: { [weak self] level in self?.transformSelectedLines(.heading(level)) },
+                setBody: { [weak self] in self?.transformSelectedLines(.body) },
                 toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
                 toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
                 toggleQuote: { [weak self] in self?.transformSelectedLines(.quote) },
-                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() }
+                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() },
+                copySelection: { [weak self] in self?.copySelection() }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -341,13 +345,43 @@ struct SourceTextView: NSViewRepresentable {
         private func wrapSelection(with marker: String) {
             guard let textView else { return }
             let range = textView.selectedRange()
+            let ns = textView.string as NSString
+            let openLen = (marker as NSString).length
+            // Toggle unwrap when markers already surround the selection.
+            if range.length > 0, range.location >= openLen {
+                let before = ns.substring(with: NSRange(location: range.location - openLen,
+                                                        length: openLen))
+                let afterLoc = NSMaxRange(range)
+                let after = afterLoc + openLen <= ns.length
+                    ? ns.substring(with: NSRange(location: afterLoc, length: openLen)) : ""
+                if before == marker, after == marker {
+                    let full = NSRange(location: range.location - openLen,
+                                       length: range.length + openLen * 2)
+                    let inner = ns.substring(with: range)
+                    guard textView.shouldChangeText(in: full, replacementString: inner) else { return }
+                    textView.replaceCharacters(in: full, with: inner)
+                    textView.didChangeText()
+                    textView.setSelectedRange(NSRange(location: full.location,
+                                                      length: (inner as NSString).length))
+                    return
+                }
+            }
             let (_, newSelection) = applyWrap(marker: marker, to: textView.string, selection: range)
-            let selected = (textView.string as NSString).substring(with: range)
+            let selected = ns.substring(with: range)
             let wrapped = marker + selected + marker
             guard textView.shouldChangeText(in: range, replacementString: wrapped) else { return }
-            textView.textStorage?.replaceCharacters(in: range, with: wrapped)
+            textView.replaceCharacters(in: range, with: wrapped)
             textView.didChangeText()
             textView.setSelectedRange(newSelection)
+        }
+
+        private func copySelection() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { NSSound.beep(); return }
+            let text = (textView.string as NSString).substring(with: range)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
         }
 
         /// Replaces the lines the selection touches with `replacement`,

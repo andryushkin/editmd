@@ -17,9 +17,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
     var positionStore: EditorPositionStore? = nil
     /// Full-preview mode only: Return switches back to editing (FSNotes).
     var onRequestEdit: (() -> Void)? = nil
-    /// Optional toolbar bridge (full Preview mode). Coordinator installs
-    /// copy / highlight / strikethrough closures on make + update.
-    var toolbarActions: PreviewToolbarActions? = nil
+    /// Optional strip bridge (full Preview mode). Coordinator installs
+    /// format closures on make + update.
+    var toolbarActions: EditorStripActions? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -248,7 +248,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var webView: WKWebView?
-        weak var toolbarActions: PreviewToolbarActions?
+        weak var toolbarActions: EditorStripActions?
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
         var fileURL: URL?
@@ -276,7 +276,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         /// Installs strip callbacks on the shared actions object (if any).
-        func bindToolbar(_ actions: PreviewToolbarActions?) {
+        /// Does NOT call `objectWillChange` — this runs from `updateNSView` during
+        /// SwiftUI view updates; publishing here freezes the app (feedback loop).
+        func bindToolbar(_ actions: EditorStripActions?) {
             toolbarActions = actions
             guard let actions else { return }
             actions.copySelection = { [weak self] in self?.copySelection() }
@@ -286,6 +288,20 @@ struct MarkdownPreviewView: NSViewRepresentable {
             actions.toggleStrikethrough = { [weak self] in
                 self?.toggleWrap(open: "~~", close: "~~")
             }
+            actions.toggleBold = { [weak self] in self?.toggleWrap(open: "**", close: "**") }
+            actions.toggleItalic = { [weak self] in self?.toggleWrap(open: "*", close: "*") }
+            actions.setHeading = { [weak self] level in self?.transformSelectionLines(.heading(level)) }
+            actions.setBody = { [weak self] in self?.transformSelectionLines(.body) }
+            actions.toggleCodeBlock = { [weak self] in self?.fenceSelectionLines() }
+            actions.toggleBulletList = { [weak self] in self?.transformSelectionLines(.bullet) }
+            actions.toggleChecklist = { [weak self] in self?.transformSelectionLines(.checklist) }
+            actions.toggleNumberedList = { [weak self] in self?.transformSelectionLines(.ordered) }
+            actions.toggleQuote = { [weak self] in self?.transformSelectionLines(.quote) }
+            // Table / formula only in Visual (UI gated by mode, not these nils).
+            actions.insertTable = nil
+            actions.tableAddRow = nil
+            actions.tableDeleteRow = nil
+            actions.formulaStub = nil
         }
 
         @objc func settingsDidChange() {
@@ -356,9 +372,60 @@ struct MarkdownPreviewView: NSViewRepresentable {
             cachedSelection = ""
             cachedStart = -1
             cachedEnd = -1
-            let actionName = open == "==" ? "Highlight" : "Strikethrough"
+            let actionName: String
+            switch open {
+            case "==": actionName = "Highlight"
+            case "~~": actionName = "Strikethrough"
+            case "**": actionName = "Bold"
+            case "*": actionName = "Italic"
+            default: actionName = "Format"
+            }
             document.commitContentEdit()
             document.applyUndoableContent(next, actionName: actionName)
+        }
+
+        /// Line-level transform for the lines covering the cached selection.
+        func transformSelectionLines(_ transform: BlockTransform) {
+            guard let document else { NSSound.beep(); return }
+            guard cachedStart >= 0, cachedEnd >= cachedStart else {
+                NSSound.beep()
+                return
+            }
+            let ns = document.content as NSString
+            let loc = min(cachedStart, ns.length)
+            let end = min(cachedEnd, ns.length)
+            let lineRange = ns.lineRange(for: NSRange(location: loc,
+                                                     length: max(0, end - loc)))
+            let lines = ns.substring(with: lineRange)
+            let replaced = transformLines(transform, lines: lines)
+            guard replaced != lines else { NSSound.beep(); return }
+            let next = ns.replacingCharacters(in: lineRange, with: replaced)
+            cachedSelection = ""
+            cachedStart = -1
+            cachedEnd = -1
+            document.commitContentEdit()
+            document.applyUndoableContent(next, actionName: "Format")
+        }
+
+        func fenceSelectionLines() {
+            guard let document else { NSSound.beep(); return }
+            guard cachedStart >= 0, cachedEnd >= cachedStart else {
+                NSSound.beep()
+                return
+            }
+            let ns = document.content as NSString
+            let loc = min(cachedStart, ns.length)
+            let end = min(cachedEnd, ns.length)
+            let lineRange = ns.lineRange(for: NSRange(location: loc,
+                                                     length: max(0, end - loc)))
+            let lines = ns.substring(with: lineRange)
+            let replaced = fenceLines(lines)
+            let next = ns.replacingCharacters(in: lineRange, with: replaced)
+            cachedSelection = ""
+            cachedStart = -1
+            cachedEnd = -1
+            document.commitContentEdit()
+            document.applyUndoableContent(next, actionName: "Code Block")
         }
 
         /// Outline-sidebar jump: scroll to the offset's proportional position

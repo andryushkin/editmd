@@ -22,8 +22,9 @@ struct ContentView: View {
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
     @State private var positionStore = EditorPositionStore()
-    /// Full Preview mode action strip (highlight / strike / copy).
-    @StateObject private var previewToolbar = PreviewToolbarActions()
+    /// Shared Notes-style action strip (all three modes). Held in a ref box so
+    /// rebinding closures does not trigger SwiftUI view updates.
+    @State private var stripActions = EditorStripActions()
 
     private static let sidebarWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
@@ -73,6 +74,12 @@ struct ContentView: View {
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
+        if newMode != .visual {
+            stripActions.insertTable = nil
+            stripActions.tableAddRow = nil
+            stripActions.tableDeleteRow = nil
+            stripActions.formulaStub = nil
+        }
         storedMode = newMode.rawValue
     }
 
@@ -129,41 +136,55 @@ struct ContentView: View {
     /// first child (the split only appends siblings), so toggling the split
     /// keeps its structural identity: the NSTextView is not recreated and
     /// cursor/undo survive.
+    /// Mode-specific inset for aligning the strip with the reading column.
+    private var stripInset: (h: CGFloat, column: CGFloat) {
+        switch mode {
+        case .source:
+            return (editorSettings.source.insetH, editorSettings.source.columnWidth)
+        case .visual:
+            return (editorSettings.visual.insetH, editorSettings.visual.columnWidth)
+        case .preview:
+            return (editorSettings.preview.insetH, editorSettings.preview.columnWidth)
+        }
+    }
+
     @ViewBuilder private var editorArea: some View {
-        if mode == .preview {
-            // Action strip above the page — same capsule chrome as folder info.
-            VStack(spacing: 0) {
-                PreviewActionStrip(actions: previewToolbar)
+        VStack(spacing: 0) {
+            EditorActionStrip(actions: stripActions,
+                              insetH: stripInset.h,
+                              columnWidth: stripInset.column,
+                              showVisualExtras: mode == .visual)
+            if mode == .preview {
                 MarkdownPreviewView(document: document, fileURL: fileURL,
                                     positionStore: positionStore,
                                     onRequestEdit: { setEditorMode(.visual) },
-                                    toolbarActions: previewToolbar)
+                                    toolbarActions: stripActions)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(Color(nsColor: .windowBackgroundColor))
-        } else {
-            GeometryReader { geo in
-                HStack(spacing: 0) {
-                    editorPane
-                        .frame(width: splitPreview
-                            ? max(160, geo.size.width * splitFraction)
-                            : geo.size.width)
-                    if splitPreview {
-                        paneDivider(space: .named("editorSplit")) { x in
-                            splitFraction = min(Self.splitFractionRange.upperBound,
-                                                max(Self.splitFractionRange.lowerBound,
-                                                    Double(x) / max(1, Double(geo.size.width))))
+            } else {
+                GeometryReader { geo in
+                    HStack(spacing: 0) {
+                        editorPane
+                            .frame(width: splitPreview
+                                ? max(160, geo.size.width * splitFraction)
+                                : geo.size.width)
+                        if splitPreview {
+                            paneDivider(space: .named("editorSplit")) { x in
+                                splitFraction = min(Self.splitFractionRange.upperBound,
+                                                    max(Self.splitFractionRange.lowerBound,
+                                                        Double(x) / max(1, Double(geo.size.width))))
+                            }
+                            .zIndex(1)
+                            MarkdownPreviewView(document: document, fileURL: fileURL,
+                                                positionStore: positionStore)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .zIndex(1)
-                        MarkdownPreviewView(document: document, fileURL: fileURL,
-                                            positionStore: positionStore)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .coordinateSpace(name: "editorSplit")
+                    .animation(.easeInOut(duration: 0.15), value: splitPreview)
                 }
-                .coordinateSpace(name: "editorSplit")
-                .animation(.easeInOut(duration: 0.15), value: splitPreview)
             }
         }
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder private var editorPane: some View {
@@ -173,7 +194,10 @@ struct ContentView: View {
                 document: document,
                 positionStore: positionStore,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                onFormatActions: { actions in formatActions = actions },
+                onFormatActions: { actions in
+                    formatActions = actions
+                    bindStrip(from: actions, visualExtras: false)
+                },
                 onLintUpdate: { summary in lintSummary = summary }
             )
         case .visual:
@@ -183,12 +207,43 @@ struct ContentView: View {
                 fileURL: fileURL,
                 positionStore: positionStore,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                onFormatActions: { actions in formatActions = actions }
+                onFormatActions: { actions in
+                    formatActions = actions
+                    bindStrip(from: actions, visualExtras: true)
+                }
             )
         case .preview:
             // unreachable: editorArea routes .preview to the full preview
             EmptyView()
         }
+    }
+
+    /// Mirrors FormatActions into the shared strip bag.
+    private func bindStrip(from fa: FormatActions, visualExtras: Bool) {
+        stripActions.toggleBold = fa.toggleBold
+        stripActions.toggleItalic = fa.toggleItalic
+        stripActions.toggleStrikethrough = fa.toggleStrikethrough
+        stripActions.toggleHighlight = fa.toggleHighlight
+        stripActions.setHeading = fa.setHeading
+        stripActions.setBody = fa.setBody
+        stripActions.toggleCodeBlock = fa.toggleCodeBlock
+        stripActions.toggleBulletList = fa.toggleBulletList
+        stripActions.toggleChecklist = fa.toggleChecklist
+        stripActions.toggleNumberedList = fa.toggleNumberedList
+        stripActions.toggleQuote = fa.toggleQuote
+        stripActions.copySelection = fa.copySelection
+        if visualExtras {
+            stripActions.insertTable = fa.insertTable
+            stripActions.tableAddRow = fa.tableAddRow
+            stripActions.tableDeleteRow = fa.tableDeleteRow
+            stripActions.formulaStub = fa.formulaStub
+        } else {
+            stripActions.insertTable = nil
+            stripActions.tableAddRow = nil
+            stripActions.tableDeleteRow = nil
+            stripActions.formulaStub = nil
+        }
+        // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }
 
     /// agterm-style divider: a 1px separator with a wider invisible grab

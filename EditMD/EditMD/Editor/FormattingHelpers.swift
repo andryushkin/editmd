@@ -49,12 +49,15 @@ func toggleTaskListItem(in markdown: String, index: Int) -> String? {
 /// A markdown transform applied to whole lines.
 enum BlockTransform: Equatable {
     case heading(Int)   // 1...6
+    case body           // strip heading / list / quote → plain
     case bullet
+    case checklist
     case ordered
     case quote
 }
 
 private let headingPrefixPattern = "^(#{1,6})\\s+"
+private let checklistPrefixPattern = "^(\\s*)-\\s+\\[[ xX]\\]\\s+"
 private let bulletPrefixPattern = "^(\\s*)[-*+]\\s+"
 private let orderedPrefixPattern = "^(\\s*)\\d+[.)]\\s+"
 
@@ -89,12 +92,34 @@ func transformLines(_ transform: BlockTransform, lines: String) -> String {
         case .heading(let level):
             guard let match = firstMatch(headingPrefixPattern, in: line) else { return false }
             return match.range(at: 1).length == level
-        case .bullet:  return firstMatch(bulletPrefixPattern, in: line) != nil
+        case .body:
+            // "Applied" means already plain — never "remove", always strip structure.
+            return false
+        case .bullet:
+            // Checklist is a bullet form; treat pure `- ` (not `- [ ]`) as bullet.
+            if firstMatch(checklistPrefixPattern, in: line) != nil { return false }
+            return firstMatch(bulletPrefixPattern, in: line) != nil
+        case .checklist:
+            return firstMatch(checklistPrefixPattern, in: line) != nil
         case .ordered: return firstMatch(orderedPrefixPattern, in: line) != nil
         case .quote:   return line.hasPrefix("> ") || line == ">"
         }
     }
-    let removing = !content.isEmpty && content.allSatisfy { alreadyApplied($0.element) }
+    let removing = transform != .body
+        && !content.isEmpty
+        && content.allSatisfy { alreadyApplied($0.element) }
+
+    func stripAllStructure(_ line: String) -> String {
+        var s = line
+        if s.hasPrefix("> ") { s = String(s.dropFirst(2)) }
+        else if s == ">" { s = "" }
+        s = stripPrefix(headingPrefixPattern, from: s)
+            ?? stripPrefix(checklistPrefixPattern, from: s)
+            ?? stripPrefix(orderedPrefixPattern, from: s)
+            ?? stripPrefix(bulletPrefixPattern, from: s)
+            ?? s
+        return s
+    }
 
     var ordinal = 0
     let result = parts.map { line -> String in
@@ -103,12 +128,21 @@ func transformLines(_ transform: BlockTransform, lines: String) -> String {
         case .heading(let level):
             let stripped = stripPrefix(headingPrefixPattern, from: line) ?? line
             return removing ? stripped : String(repeating: "#", count: level) + " " + stripped
+        case .body:
+            return stripAllStructure(line)
         case .bullet:
-            let stripped = stripPrefix(bulletPrefixPattern, from: line)
+            let stripped = stripPrefix(checklistPrefixPattern, from: line)
+                ?? stripPrefix(bulletPrefixPattern, from: line)
                 ?? stripPrefix(orderedPrefixPattern, from: line) ?? line
             return removing ? stripped : "- " + stripped
+        case .checklist:
+            let stripped = stripPrefix(checklistPrefixPattern, from: line)
+                ?? stripPrefix(bulletPrefixPattern, from: line)
+                ?? stripPrefix(orderedPrefixPattern, from: line) ?? line
+            return removing ? stripped : "- [ ] " + stripped
         case .ordered:
             let stripped = stripPrefix(orderedPrefixPattern, from: line)
+                ?? stripPrefix(checklistPrefixPattern, from: line)
                 ?? stripPrefix(bulletPrefixPattern, from: line) ?? line
             if removing { return stripped }
             ordinal += 1

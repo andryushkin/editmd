@@ -34,6 +34,54 @@ func markdownIsHeavy(_ content: String) -> Bool {
     return false
 }
 
+/// Main-actor undo stack + typing-coalesce state for one document.
+/// Held behind `@unchecked Sendable` so `MarkdownDocument` (nonisolated
+/// `ReferenceFileDocument` inits) can own it without storing a MainActor
+/// `UndoManager` as a stored property of a nonisolated class.
+@MainActor
+final class DocumentUndoController {
+    let manager: UndoManager
+    /// Content at the start of a coalesced typing session.
+    var editBaseline: String?
+    private var endEditTask: Task<Void, Never>?
+
+    init() {
+        let um = UndoManager()
+        um.levelsOfUndo = 50
+        manager = um
+    }
+
+    var isPerformingUndoRedo: Bool {
+        manager.isUndoing || manager.isRedoing
+    }
+
+    func cancelTypingSession() {
+        endEditTask?.cancel()
+        endEditTask = nil
+        editBaseline = nil
+    }
+
+    func scheduleCommit(on document: MarkdownDocument) {
+        endEditTask?.cancel()
+        endEditTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            document.commitContentEdit(actionName: "Typing")
+        }
+    }
+
+    func cancelScheduledCommit() {
+        endEditTask?.cancel()
+        endEditTask = nil
+    }
+}
+
+/// Box so the document can hold MainActor undo state from a nonisolated init.
+private final class DocumentUndoBox: @unchecked Sendable {
+    /// Lazily created on first MainActor use.
+    @MainActor var controller: DocumentUndoController?
+}
+
 final class MarkdownDocument: ReferenceFileDocument {
 
     // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated.
@@ -54,16 +102,7 @@ final class MarkdownDocument: ReferenceFileDocument {
     /// `markdownIsHeavy`. Recomputed cheaply whenever `content` changes.
     nonisolated(unsafe) private(set) var isHeavy = false
 
-    /// Document-scoped undo stack. Targets `content` string swaps, not an
-    /// NSTextView — so ⌘Z survives Source ↔ Visual ↔ Preview mode switches
-    /// (view-local text undos die with the text view).
-    /// `nonisolated(unsafe)`: UndoManager is MainActor in recent SDKs, but this
-    /// document is mutated from AppKit callbacks that already run on main.
-    nonisolated(unsafe) let contentUndoManager: UndoManager
-
-    /// Content at the start of a coalesced typing session (`beginContentEdit`).
-    private var editBaseline: String?
-    private var endEditTask: Task<Void, Never>?
+    private let undoBox = DocumentUndoBox()
 
     struct Snapshot: @unchecked Sendable {
         let content: String
@@ -78,9 +117,6 @@ final class MarkdownDocument: ReferenceFileDocument {
     init() {
         content = ""
         assetsFileWrapper = nil
-        let um = UndoManager()
-        um.levelsOfUndo = 50
-        contentUndoManager = um
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -90,9 +126,6 @@ final class MarkdownDocument: ReferenceFileDocument {
         content = text
         assetsFileWrapper = assets
         isHeavy = markdownIsHeavy(text)
-        let um = UndoManager()
-        um.levelsOfUndo = 50
-        contentUndoManager = um
     }
 
     // MARK: - Snapshot & Write
@@ -107,86 +140,106 @@ final class MarkdownDocument: ReferenceFileDocument {
                             isTextBundle: configuration.contentType == .textBundle)
     }
 
-    // MARK: - Document undo (cross-mode)
+    // MARK: - Document undo (cross-mode, MainActor)
 
+    /// Document-scoped undo stack. Targets `content` string swaps, not an
+    /// NSTextView — so ⌘Z survives Source ↔ Visual ↔ Preview and file switches.
+    @MainActor
+    var contentUndoManager: UndoManager {
+        undoController.manager
+    }
+
+    @MainActor
+    private var undoController: DocumentUndoController {
+        if let existing = undoBox.controller { return existing }
+        let created = DocumentUndoController()
+        undoBox.controller = created
+        return created
+    }
+
+    @MainActor
     var isPerformingUndoRedo: Bool {
-        contentUndoManager.isUndoing || contentUndoManager.isRedoing
+        undoController.isPerformingUndoRedo
     }
 
     /// Call from `shouldChangeTextIn` before the buffer mutates. Captures a
     /// baseline once per typing burst; commits after idle (see `noteContentEdited`).
+    @MainActor
     func beginContentEdit() {
-        guard !isPerformingUndoRedo else { return }
-        if editBaseline == nil {
-            editBaseline = content
+        let undo = undoController
+        guard !undo.isPerformingUndoRedo else { return }
+        if undo.editBaseline == nil {
+            undo.editBaseline = content
         }
-        scheduleEndContentEdit()
+        undo.scheduleCommit(on: self)
     }
 
     /// Call after `content` was updated by typing. Resets the idle commit timer.
     /// Does not capture a baseline (that must happen in `beginContentEdit` before
     /// the mutation — otherwise the "old" value is already lost).
+    @MainActor
     func noteContentEdited() {
-        guard !isPerformingUndoRedo else { return }
-        guard editBaseline != nil else { return }
-        scheduleEndContentEdit()
+        let undo = undoController
+        guard !undo.isPerformingUndoRedo else { return }
+        guard undo.editBaseline != nil else { return }
+        undo.scheduleCommit(on: self)
     }
 
     /// Flush a pending typing burst into the undo stack (mode switch, save,
     /// toolbar action, coordinator teardown).
+    @MainActor
     func commitContentEdit(actionName: String = "Typing") {
-        endEditTask?.cancel()
-        endEditTask = nil
-        guard let baseline = editBaseline else { return }
-        editBaseline = nil
+        let undo = undoController
+        undo.cancelScheduledCommit()
+        guard let baseline = undo.editBaseline else { return }
+        undo.editBaseline = nil
         guard baseline != content else { return }
         // Content is already at the new value — register restore only.
-        let um = contentUndoManager
+        let um = undo.manager
         um.registerUndo(withTarget: self) { document in
-            document.applyUndoableContent(baseline, actionName: actionName)
+            MainActor.assumeIsolated {
+                document.applyUndoableContent(baseline, actionName: actionName)
+            }
         }
         um.setActionName(actionName)
     }
 
     /// Edit ▸ Undo — flush coalesced typing first so the last keystrokes aren't lost.
+    @MainActor
     func performUndo() {
         commitContentEdit()
-        guard contentUndoManager.canUndo else { return }
-        contentUndoManager.undo()
+        let um = contentUndoManager
+        guard um.canUndo else { return }
+        um.undo()
     }
 
     /// Edit ▸ Redo.
+    @MainActor
     func performRedo() {
-        guard contentUndoManager.canRedo else { return }
-        contentUndoManager.redo()
+        let um = contentUndoManager
+        guard um.canRedo else { return }
+        um.redo()
     }
 
     /// Sets `content` and registers the inverse so ⌘Z / ⌘⇧Z restore the previous
     /// string. Used by Preview toolbar / checkboxes and by undo handlers themselves
     /// (re-entry registers Redo).
+    @MainActor
     func applyUndoableContent(_ newContent: String, actionName: String = "") {
-        endEditTask?.cancel()
-        endEditTask = nil
-        editBaseline = nil
+        let undo = undoController
+        undo.cancelTypingSession()
 
         let previous = content
         guard previous != newContent else { return }
         content = newContent
-        let um = contentUndoManager
+        let um = undo.manager
         um.registerUndo(withTarget: self) { document in
-            document.applyUndoableContent(previous, actionName: actionName)
+            MainActor.assumeIsolated {
+                document.applyUndoableContent(previous, actionName: actionName)
+            }
         }
         if !actionName.isEmpty {
             um.setActionName(actionName)
-        }
-    }
-
-    private func scheduleEndContentEdit() {
-        endEditTask?.cancel()
-        endEditTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            self.commitContentEdit(actionName: "Typing")
         }
     }
 }
