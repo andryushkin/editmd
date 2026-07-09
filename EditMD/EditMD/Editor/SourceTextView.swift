@@ -183,7 +183,7 @@ struct SourceTextView: NSViewRepresentable {
         if current.top != v || current.bottom != v || current.left != 0 || current.right != 0 {
             scrollView.contentInsets = NSEdgeInsets(top: v, left: 0, bottom: v, right: 0)
         }
-        scrollView.backgroundColor = textView.backgroundColor ?? .textBackgroundColor
+        scrollView.backgroundColor = textView.backgroundColor
 
         if let tc = textView.textContainer {
             textView.layoutManager?.textContainerChangedGeometry(tc)
@@ -694,9 +694,193 @@ struct SourceTextView: NSViewRepresentable {
     }
 }
 
+// MARK: - Shared Source highlighting (editor + external-change diff)
+
+/// Renders markdown with the same per-element fonts/colors as Source mode
+/// (Settings ▸ Source ▸ Elements + effective theme). No table-kern pass —
+/// callers that need alignment run it separately on a live text view.
+@MainActor
+func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
+    let settings = EditorSettings.shared.source
+    let theme = EditorSettings.shared.effectiveTheme
+    let els = settings.elements
+    let baseFont = settings.resolvedFont(defaultMono: true)
+    let storage = NSTextStorage(string: text)
+    let nsText = storage.string as NSString
+    let full = NSRange(location: 0, length: nsText.length)
+    guard full.length > 0 else {
+        return NSAttributedString(string: text, attributes: [
+            .font: baseFont, .foregroundColor: theme.textColor,
+        ])
+    }
+
+    func font(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let family = settings.fontFamily
+        if !family.isEmpty {
+            let descriptor = NSFontDescriptor(fontAttributes: [
+                .family: family,
+                .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue],
+            ])
+            if let f = NSFont(descriptor: descriptor, size: size) { return f }
+        }
+        return .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    func yamlColor(_ kind: YAMLTokenKind) -> NSColor? {
+        switch kind {
+        case .key, .comment: return theme.secondaryColor
+        case .punctuation: return theme.tertiaryColor
+        case .number, .bool, .null: return theme.accentColor
+        case .string: return theme.inlineCodeColor
+        case .plain: return nil
+        }
+    }
+
+    func paintYAML(blockRange: NSRange) {
+        let end = min(NSMaxRange(blockRange), nsText.length)
+        var loc = blockRange.location
+        while loc < end {
+            let lineRange = nsText.lineRange(for: NSRange(location: loc, length: 0))
+            let lineEnd = min(NSMaxRange(lineRange), end)
+            var line = nsText.substring(with: NSRange(location: lineRange.location,
+                                                      length: lineEnd - lineRange.location))
+            if line.hasSuffix("\n") { line.removeLast() }
+            var col = lineRange.location
+            for (segText, kind) in yamlLineSegments(line) {
+                let length = (segText as NSString).length
+                let range = NSRange(location: col, length: length)
+                if NSMaxRange(range) <= end, let color = yamlColor(kind) {
+                    storage.addAttribute(.foregroundColor, value: color, range: range)
+                }
+                col += length
+            }
+            if NSMaxRange(lineRange) == loc { break }
+            loc = NSMaxRange(lineRange)
+        }
+    }
+
+    storage.beginEditing()
+    storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
+
+    let spans = collectSpans(text)
+    for span in spans where NSMaxRange(span.range) <= full.length {
+        switch span.kind {
+        case .headingBody(let level):
+            let line = nsText.lineRange(for: span.range)
+            let e = els.heading(level)
+            storage.addAttribute(.font,
+                                 value: font(size: settings.fontSize * e.sizeScale,
+                                             weight: (e.weight ?? .semibold).nsWeight),
+                                 range: line)
+            if let c = e.color {
+                storage.addAttribute(.foregroundColor, value: c, range: line)
+            }
+        case .quoteBody, .quoteMarker:
+            if let c = els.quote.color {
+                storage.addAttribute(.foregroundColor, value: c, range: span.range)
+            }
+        case .codeBlockBody(let language):
+            let lower = language.lowercased()
+            if lower == "yaml" || lower == "yml" {
+                paintYAML(blockRange: span.range)
+            }
+        default:
+            break
+        }
+    }
+    for span in spans where NSMaxRange(span.range) <= full.length {
+        switch span.kind {
+        case .boldBody, .boldMarker:
+            let existing = storage.attribute(.font, at: span.range.location,
+                                             effectiveRange: nil) as? NSFont ?? baseFont
+            storage.addAttribute(.font,
+                                 value: font(size: existing.pointSize,
+                                             weight: (els.bold.weight ?? .bold).nsWeight),
+                                 range: span.range)
+            if let c = els.bold.color {
+                storage.addAttribute(.foregroundColor, value: c, range: span.range)
+            }
+        case .italicBody:
+            let existing = storage.attribute(.font, at: span.range.location,
+                                             effectiveRange: nil) as? NSFont ?? baseFont
+            if let italic = existing.withSourceTraits(.italic) {
+                storage.addAttribute(.font, value: italic, range: span.range)
+            }
+        case .code, .codeMarker:
+            if let c = els.inlineCode.color {
+                storage.addAttribute(.foregroundColor, value: c, range: span.range)
+            }
+        case .linkText:
+            if let c = els.link.color {
+                storage.addAttribute(.foregroundColor, value: c, range: span.range)
+            }
+        case .strikethroughBody:
+            storage.addAttribute(.strikethroughStyle,
+                                 value: NSUnderlineStyle.single.rawValue, range: span.range)
+        case .wikiLink:
+            storage.addAttribute(.foregroundColor,
+                                 value: els.link.color ?? theme.accentColor, range: span.range)
+        case .wikiLinkSyntax:
+            storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
+        default:
+            break
+        }
+    }
+    if let frontmatter = frontmatterRange(in: text),
+       NSMaxRange(frontmatter.full) <= nsText.length {
+        storage.addAttribute(.font, value: baseFont, range: frontmatter.full)
+        storage.addAttribute(.foregroundColor, value: theme.textColor, range: frontmatter.full)
+        let openLen = frontmatter.body.location - frontmatter.full.location
+        if openLen > 0 {
+            storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
+                                 range: NSRange(location: frontmatter.full.location, length: openLen))
+        }
+        let closeStart = NSMaxRange(frontmatter.body)
+        let closeLen = NSMaxRange(frontmatter.full) - closeStart
+        if closeLen > 0 {
+            storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
+                                 range: NSRange(location: closeStart, length: closeLen))
+        }
+        paintYAML(blockRange: frontmatter.body)
+    }
+    storage.endEditing()
+    return NSAttributedString(attributedString: storage)
+}
+
+/// One Source-highlighted attributed string per logical line — indices match
+/// `splitDiffLines` / `lineDiff` line numbers (1-based → array index 0).
+@MainActor
+func sourceHighlightedLines(_ text: String) -> [NSAttributedString] {
+    let full = makeSourceHighlightedString(text)
+    let ns = full.string as NSString
+    let plain = splitDiffLines(text)
+    var lines: [NSAttributedString] = []
+    lines.reserveCapacity(plain.count)
+    var loc = 0
+    for line in plain {
+        let len = (line as NSString).length
+        let range = NSRange(location: loc, length: min(len, max(0, ns.length - loc)))
+        if range.length > 0, NSMaxRange(range) <= ns.length {
+            lines.append(full.attributedSubstring(from: range))
+        } else if range.location <= ns.length {
+            let attrs: [NSAttributedString.Key: Any] = ns.length > 0
+                ? full.attributes(at: min(range.location, ns.length - 1), effectiveRange: nil)
+                : [.font: EditorSettings.shared.source.resolvedFont(defaultMono: true)]
+            lines.append(NSAttributedString(string: line, attributes: attrs))
+        } else {
+            lines.append(NSAttributedString(string: line))
+        }
+        loc += len
+        if loc < ns.length, ns.character(at: loc) == 0x0A {
+            loc += 1
+        }
+    }
+    return lines
+}
+
 // MARK: - Text view with lint quick-fixes in the context menu
 
-fileprivate extension NSFont {
+extension NSFont {
     func withSourceTraits(_ traits: NSFontDescriptor.SymbolicTraits) -> NSFont? {
         let combined = fontDescriptor.symbolicTraits.union(traits)
         return NSFont(descriptor: fontDescriptor.withSymbolicTraits(combined), size: pointSize)

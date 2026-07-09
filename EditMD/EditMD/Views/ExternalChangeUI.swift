@@ -20,13 +20,6 @@ struct ExternalChangeNotice: Equatable, Identifiable, Sendable {
     let removed: Int
 
     var fileName: String { url.lastPathComponent }
-
-    var statsLabel: String {
-        var parts: [String] = []
-        if added > 0 { parts.append("+\(added)") }
-        if removed > 0 { parts.append("−\(removed)") }
-        return parts.isEmpty ? "no line changes" : parts.joined(separator: " ")
-    }
 }
 
 /// Per-URL notices posted by `DocumentRegistry` when the open file changes on disk.
@@ -50,6 +43,58 @@ final class ExternalChangeCenter: ObservableObject {
     }
 }
 
+// MARK: - Diff colors (banner + rows)
+
+enum DiffChrome {
+    static let insert = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.35, green: 0.95, blue: 0.50, alpha: 1)
+            : NSColor(red: 0.05, green: 0.55, blue: 0.20, alpha: 1)
+    })
+    static let delete = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 1.0, green: 0.45, blue: 0.45, alpha: 1)
+            : NSColor(red: 0.80, green: 0.10, blue: 0.15, alpha: 1)
+    })
+    static let insertBg = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.12, green: 0.32, blue: 0.16, alpha: 0.55)
+            : NSColor(red: 0.82, green: 0.95, blue: 0.85, alpha: 1)
+    }
+    static let deleteBg = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.38, green: 0.12, blue: 0.12, alpha: 0.55)
+            : NSColor(red: 0.98, green: 0.86, blue: 0.86, alpha: 1)
+    }
+}
+
+/// `+12 −8` with green / red counts (banner + sheet header).
+struct DiffStatsLabel: View {
+    let added: Int
+    let removed: Int
+    var font: Font = .system(size: 11, design: .monospaced)
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if added > 0 {
+                Text("+\(added)")
+                    .foregroundStyle(DiffChrome.insert)
+                    .fontWeight(.semibold)
+            }
+            if removed > 0 {
+                Text("-\(removed)")
+                    .foregroundStyle(DiffChrome.delete)
+                    .fontWeight(.semibold)
+            }
+            if added == 0 && removed == 0 {
+                Text("no line changes")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(font)
+    }
+}
+
 // MARK: - Banner (all editor modes)
 
 struct ExternalChangeBanner: View {
@@ -69,13 +114,11 @@ struct ExternalChangeBanner: View {
                       ? "Local edits conflict with a newer file on disk"
                       : "File was updated on disk and reloaded")
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
-                Text(notice.statsLabel)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                DiffStatsLabel(added: notice.added, removed: notice.removed)
             }
 
             Spacer(minLength: 8)
@@ -150,21 +193,29 @@ struct UnifiedDiffSheet: View {
         VStack(spacing: 0) {
             header
             Divider()
-            diffBody
+            DiffTextRepresentable(lines: result.lines,
+                                  before: notice.before,
+                                  after: notice.after)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             footer
         }
-        .frame(minWidth: 640, minHeight: 420)
+        // ~2× the previous 640pt minimum; prefer a large working width.
+        .frame(minWidth: 1200, idealWidth: 1320, minHeight: 560, idealHeight: 780)
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(notice.kind == .conflict ? "Conflict diff" : "External change")
                     .font(.headline)
-                Text("\(notice.fileName)  ·  \(notice.statsLabel)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(notice.fileName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    DiffStatsLabel(added: notice.added, removed: notice.removed,
+                                   font: .system(size: 12, design: .monospaced))
+                }
             }
             Spacer()
             Text(notice.kind == .conflict ? "mine → disk" : "before → after")
@@ -175,33 +226,13 @@ struct UnifiedDiffSheet: View {
                 .background(Color(nsColor: .quaternaryLabelColor).opacity(0.25),
                             in: Capsule())
         }
-        .padding(14)
-    }
-
-    private var diffBody: some View {
-        let lines = result.lines
-        let display = lines.count > 8_000 ? Array(lines.prefix(8_000)) : lines
-        return ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(display.enumerated()), id: \.offset) { _, line in
-                    DiffLineRow(line: line)
-                }
-                if lines.count > display.count {
-                    Text("… \(lines.count - display.count) more lines omitted")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(8)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        }
-        .background(Color(nsColor: .textBackgroundColor))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private var footer: some View {
         HStack {
-            Text("GitHub-style unified diff · red removed · green added")
+            Text("Source highlighting · green + added · red − removed")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -214,71 +245,184 @@ struct UnifiedDiffSheet: View {
     }
 }
 
-private struct DiffLineRow: View {
-    let line: DiffLine
+// MARK: - NSTextView diff body (Source fonts + full width)
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(gutterOld)
-                .frame(width: 40, alignment: .trailing)
-                .foregroundStyle(.secondary)
-            Text(gutterNew)
-                .frame(width: 40, alignment: .trailing)
-                .foregroundStyle(.secondary)
-                .padding(.trailing, 8)
-            Text(prefix)
-                .frame(width: 14, alignment: .center)
-                .foregroundStyle(prefixColor)
-            Text(line.text.isEmpty ? " " : line.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
+/// Read-only NSTextView so long lines scroll horizontally, gutters stay tight
+/// on the left, and line bodies use the same highlighting as Source mode.
+private struct DiffTextRepresentable: NSViewRepresentable {
+    let lines: [DiffLine]
+    let before: String
+    let after: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .textBackgroundColor
+
+        let tv = NSTextView()
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.isRichText = true
+        tv.drawsBackground = true
+        tv.backgroundColor = .textBackgroundColor
+        tv.textContainerInset = NSSize(width: 6, height: 8)   // tight left margin
+        tv.isHorizontallyResizable = true
+        tv.isVerticallyResizable = true
+        tv.autoresizingMask = [.width]
+        tv.minSize = .zero
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                            height: CGFloat.greatestFiniteMagnitude)
+        if let container = tv.textContainer {
+            container.widthTracksTextView = false
+            container.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                             height: CGFloat.greatestFiniteMagnitude)
+            container.lineFragmentPadding = 2
         }
-        .font(.system(size: 11.5, design: .monospaced))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 1)
-        .background(rowBackground)
-        .textSelection(.enabled)
+        tv.font = EditorSettings.shared.source.resolvedFont(defaultMono: true)
+
+        scroll.documentView = tv
+        context.coordinator.textView = tv
+        applyContent(to: tv)
+        return scroll
     }
 
-    private var gutterOld: String {
-        line.oldNumber.map(String.init) ?? ""
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let tv = context.coordinator.textView ?? scroll.documentView as? NSTextView
+        else { return }
+        context.coordinator.textView = tv
+        applyContent(to: tv)
     }
 
-    private var gutterNew: String {
-        line.newNumber.map(String.init) ?? ""
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var textView: NSTextView?
+        var lastSignature: String = ""
     }
 
-    private var prefix: String {
-        switch line.kind {
-        case .same: return " "
-        case .insert: return "+"
-        case .delete: return "−"
-        }
+    private func applyContent(to textView: NSTextView) {
+        let built = buildDiffAttributedString(lines: lines, before: before, after: after)
+        if textView.textStorage?.string == built.string { return }
+        textView.textStorage?.setAttributedString(built)
+        // Expand text view width to the longest layout line so H-scroll works.
+        guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
+        lm.ensureLayout(for: tc)
+        let used = lm.usedRect(for: tc)
+        let width = max(used.width + textView.textContainerInset.width * 2 + 24, 400)
+        var frame = textView.frame
+        frame.size.width = width
+        textView.frame = frame
     }
+}
 
-    private var prefixColor: Color {
-        switch line.kind {
-        case .same: return .secondary
-        case .insert: return Color(red: 0.15, green: 0.55, blue: 0.25)
-        case .delete: return Color(red: 0.75, green: 0.2, blue: 0.2)
-        }
-    }
+/// Builds the full unified-diff document: compact gutters + Source-styled body.
+@MainActor
+func buildDiffAttributedString(lines: [DiffLine],
+                               before: String,
+                               after: String) -> NSAttributedString {
+    let display = lines.count > 8_000 ? Array(lines.prefix(8_000)) : lines
+    let beforeHL = sourceHighlightedLines(before)
+    let afterHL = sourceHighlightedLines(after)
+    let baseFont = EditorSettings.shared.source.resolvedFont(defaultMono: true)
+    let gutterFont = NSFont.monospacedDigitSystemFont(ofSize: baseFont.pointSize - 0.5,
+                                                      weight: .regular)
+    let secondary = EditorSettings.shared.effectiveTheme.secondaryColor
+    let out = NSMutableAttributedString()
 
-    private var rowBackground: Color {
+    let insertFg = DiffChrome.insert.nsColorCompatible
+    let deleteFg = DiffChrome.delete.nsColorCompatible
+
+    for line in display {
+        let lineStart = out.length
+
+        // Compact gutters (4-digit fixed, no huge left pad).
+        let oldG = line.oldNumber.map { String(format: "%4d", $0) } ?? "    "
+        let newG = line.newNumber.map { String(format: "%4d", $0) } ?? "    "
+        let gutter = "\(oldG) \(newG) "
+        out.append(NSAttributedString(string: gutter, attributes: [
+            .font: gutterFont,
+            .foregroundColor: secondary,
+        ]))
+
+        let mark: String
+        let markColor: NSColor
         switch line.kind {
         case .same:
-            return .clear
+            mark = " "
+            markColor = secondary
         case .insert:
-            return Color(nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? NSColor(red: 0.15, green: 0.35, blue: 0.18, alpha: 0.45)
-                    : NSColor(red: 0.85, green: 0.96, blue: 0.88, alpha: 1)
-            })
+            mark = "+"
+            markColor = insertFg
         case .delete:
-            return Color(nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? NSColor(red: 0.4, green: 0.15, blue: 0.15, alpha: 0.45)
-                    : NSColor(red: 0.98, green: 0.88, blue: 0.88, alpha: 1)
-            })
+            mark = "-"
+            markColor = deleteFg
         }
+        out.append(NSAttributedString(string: mark + " ", attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .semibold),
+            .foregroundColor: markColor,
+        ]))
+
+        // Body: Source-highlighted line (fallback to plain).
+        let body: NSAttributedString
+        switch line.kind {
+        case .delete:
+            let idx = (line.oldNumber ?? 1) - 1
+            body = (idx >= 0 && idx < beforeHL.count) ? beforeHL[idx]
+                : NSAttributedString(string: line.text, attributes: [
+                    .font: baseFont, .foregroundColor: deleteFg,
+                ])
+        case .insert:
+            let idx = (line.newNumber ?? 1) - 1
+            body = (idx >= 0 && idx < afterHL.count) ? afterHL[idx]
+                : NSAttributedString(string: line.text, attributes: [
+                    .font: baseFont, .foregroundColor: insertFg,
+                ])
+        case .same:
+            let idx = (line.newNumber ?? line.oldNumber ?? 1) - 1
+            if idx >= 0, idx < afterHL.count {
+                body = afterHL[idx]
+            } else if idx >= 0, idx < beforeHL.count {
+                body = beforeHL[idx]
+            } else {
+                body = NSAttributedString(string: line.text, attributes: [
+                    .font: baseFont,
+                    .foregroundColor: EditorSettings.shared.effectiveTheme.textColor,
+                ])
+            }
+        }
+        out.append(body)
+        out.append(NSAttributedString(string: "\n", attributes: [
+            .font: baseFont,
+            .foregroundColor: secondary,
+        ]))
+
+        // Row tint for insert/delete (full line including gutters).
+        let lineRange = NSRange(location: lineStart, length: out.length - lineStart)
+        switch line.kind {
+        case .insert:
+            out.addAttribute(.backgroundColor, value: DiffChrome.insertBg, range: lineRange)
+        case .delete:
+            out.addAttribute(.backgroundColor, value: DiffChrome.deleteBg, range: lineRange)
+        case .same:
+            break
+        }
+    }
+
+    if lines.count > display.count {
+        out.append(NSAttributedString(
+            string: "… \(lines.count - display.count) more lines omitted\n",
+            attributes: [.font: gutterFont, .foregroundColor: secondary]))
+    }
+    return out
+}
+
+private extension Color {
+    /// Resolve a SwiftUI Color to NSColor for NSAttributedString attributes.
+    var nsColorCompatible: NSColor {
+        NSColor(self)
     }
 }
