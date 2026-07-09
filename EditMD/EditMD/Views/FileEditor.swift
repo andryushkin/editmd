@@ -87,16 +87,24 @@ struct FileEditor: View {
 }
 
 /// The single main workspace window. Shows whatever `AppState.currentURL` points
-/// at; changing that reloads the editor in place (`.id`). Hands the window
-/// action to `AppState` on appear so AppKit-side callers can drive windows.
+/// at — a file (editor) or a directory (folder info card). Changing that reloads
+/// the center pane in place (`.id`). Hands the window action to `AppState` on
+/// appear so AppKit-side callers can drive windows.
 struct MainWindowView: View {
     @ObservedObject private var appState = AppState.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
-            .id(appState.currentURL?.absoluteString ?? "·untitled·")
-            .onAppear { appState.bindOpenWindow(openWindow) }
+        Group {
+            if let url = appState.currentURL, AppState.isFolder(url) {
+                FolderInfoHost(folderURL: url)
+                    .id("folder:" + url.absoluteString)
+            } else {
+                FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
+                    .id(appState.currentURL?.absoluteString ?? "·untitled·")
+            }
+        }
+        .onAppear { appState.bindOpenWindow(openWindow) }
     }
 }
 

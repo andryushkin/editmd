@@ -126,6 +126,28 @@ final class WorkspaceModel: ObservableObject {
         workspaces[i].collapsed.toggle()
     }
 
+    /// Expand a workspace root (show its children). No-op if already expanded.
+    func expandWorkspace(_ ws: Workspace) {
+        guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
+        if workspaces[i].collapsed { workspaces[i].collapsed = false }
+    }
+
+    /// Collapse a workspace root. No-op if already collapsed.
+    func collapseWorkspace(_ ws: Workspace) {
+        guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
+        if !workspaces[i].collapsed { workspaces[i].collapsed = true }
+    }
+
+    /// Expand a subfolder in the tree (lazy contents become visible).
+    func expandFolder(_ folder: URL) {
+        expandedFolders.insert(folder.standardizedFileURL.path)
+    }
+
+    /// Collapse a subfolder in the tree. No-op if already collapsed.
+    func collapseFolder(_ folder: URL) {
+        expandedFolders.remove(folder.standardizedFileURL.path)
+    }
+
     /// Runs the folder open panel and adopts the choice — shared by the sidebar
     /// button and File ▸ Open Folder.
     func promptAddFolder() {
@@ -136,6 +158,50 @@ final class WorkspaceModel: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             addWorkspace(url)
         }
+    }
+
+    // MARK: - Create file / folder (folder info card)
+
+    /// Bumped when the tree must re-scan disk (new file/folder). Views that
+    /// list children observe the model; reading this forces a refresh pass.
+    @Published private(set) var contentEpoch: Int = 0
+
+    func noteFilesystemChange() { contentEpoch += 1 }
+
+    /// Creates an empty markdown file in `folder`. `name` is the user-facing
+    /// name (`.md` is appended when missing). Returns the new file URL.
+    @discardableResult
+    func createMarkdownFile(named name: String, in folder: URL) throws -> URL {
+        let fileName = try FolderNaming.markdownFileName(from: name)
+        let dest = folder.appendingPathComponent(fileName)
+        guard !FileManager.default.fileExists(atPath: dest.path) else {
+            throw FolderCreateError.alreadyExists(fileName)
+        }
+        FileManager.default.createFile(atPath: dest.path, contents: Data(), attributes: nil)
+        noteFilesystemChange()
+        return dest.standardizedFileURL
+    }
+
+    /// Creates a subfolder in `folder`. Returns the new folder URL.
+    @discardableResult
+    func createSubfolder(named name: String, in folder: URL) throws -> URL {
+        let folderName = try FolderNaming.folderName(from: name)
+        let dest = folder.appendingPathComponent(folderName)
+        guard !FileManager.default.fileExists(atPath: dest.path) else {
+            throw FolderCreateError.alreadyExists(folderName)
+        }
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: false)
+        noteFilesystemChange()
+        // Ensure the new folder is visible: expand parent in the tree (or the
+        // workspace root's collapsed flag when the parent is a workspace).
+        if let ws = workspaces.first(where: {
+            $0.folderPath == folder.standardizedFileURL.path
+        }) {
+            expandWorkspace(ws)
+        } else {
+            expandFolder(folder)
+        }
+        return dest.standardizedFileURL
     }
 
     // MARK: - Hide / unhide

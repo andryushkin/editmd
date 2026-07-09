@@ -75,6 +75,7 @@ struct ContentView: View {
                         outlineContent: document.content,
                         activeURL: fileURL,
                         onOpen: openFromSidebar,
+                        onOpenFolder: { AppState.shared.openInMainWindow($0) },
                         onJump: { offset in positionStore.requestJump(toMarkdownOffset: offset) }
                     )
                     .frame(width: sidebarWidth)
@@ -216,6 +217,7 @@ struct ContentView: View {
                               : candidate.systemImage)
                         .foregroundStyle(mode == candidate ? Color.accentColor : Color.primary)
                 }
+                // Toolbar already hosts native tooltips via Label; .help is enough.
                 .help("\(candidate.title) (\(candidate.shortcutHint))")
             }
         }
@@ -301,7 +303,7 @@ struct ContentView: View {
                     .font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
-                .help("Jump to the next issue")
+                .editMDHelp("Jump to the next issue")
             }
             Spacer()
             Text("\(words) words  \(chars) chars")

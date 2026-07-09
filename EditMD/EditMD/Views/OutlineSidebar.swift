@@ -82,6 +82,6 @@ private struct OutlineRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(item.title)
+        .editMDHelp(item.title)
     }
 }

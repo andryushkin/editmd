@@ -11,6 +11,9 @@ struct WorkspaceSidebar: View {
     /// Left-click a file: the host decides (replace in place, or the
     /// "already open in another window" modal).
     let onOpen: (URL) -> Void
+    /// Left-click a workspace root or subfolder: open the folder info card
+    /// in the main window (and the click also toggles expand — see handlers).
+    let onOpenFolder: (URL) -> Void
     let onJump: (Int) -> Void
 
     @AppStorage("sidebarTab") private var tab = "files"
@@ -21,9 +24,9 @@ struct WorkspaceSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             navigatorToolbar
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+                .padding(.horizontal, SidebarChrome.barPaddingH)
+                .padding(.top, SidebarChrome.barPaddingTop)
+                .padding(.bottom, SidebarChrome.barPaddingBottom)
 
             if tab == "files" {
                 filesTab
@@ -74,20 +77,8 @@ struct WorkspaceSidebar: View {
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(Color(nsColor: Self.navigatorWellColor))
+                .fill(Color(nsColor: SidebarChrome.wellColor))
         )
-    }
-
-    /// Solid well gray — light ≈ #E5E5EA, dark ≈ slightly lifted surface.
-    private static let navigatorWellColor = NSColor(name: nil) { appearance in
-        switch appearance.name {
-        case .darkAqua, .vibrantDark,
-             .accessibilityHighContrastDarkAqua,
-             .accessibilityHighContrastVibrantDark:
-            return NSColor(srgbRed: 0.24, green: 0.24, blue: 0.25, alpha: 1)
-        default:
-            return NSColor(srgbRed: 0.898, green: 0.898, blue: 0.918, alpha: 1)
-        }
     }
 
     private func navTabButton(id: String, systemImage: String, help: String) -> some View {
@@ -97,8 +88,9 @@ struct WorkspaceSidebar: View {
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.7))
-                .frame(width: 28, height: 24)
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .frame(width: SidebarChrome.iconButtonWidth,
+                       height: SidebarChrome.iconButtonHeight)
                 .background(
                     Circle()
                         .fill(selected ? Color.accentColor : Color.clear)
@@ -106,7 +98,7 @@ struct WorkspaceSidebar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help(help)
+        .editMDHelp(help)
     }
 
     // MARK: - Bottom bar (+ · Filter · eye)
@@ -118,14 +110,14 @@ struct WorkspaceSidebar: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.75))
+                    .foregroundStyle(.primary)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 22, height: 22)
-            .help("New Workspace…")
+            .editMDHelp("New Workspace…")
 
             HStack(spacing: 5) {
                 Image(systemName: "line.3.horizontal.decrease")
@@ -139,7 +131,7 @@ struct WorkspaceSidebar: View {
             .padding(.vertical, 5)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color(nsColor: Self.navigatorWellColor))
+                    .fill(Color(nsColor: SidebarChrome.wellColor))
             )
 
             // Review mode: list hidden files so each can be un-hidden via its row eye.
@@ -154,7 +146,7 @@ struct WorkspaceSidebar: View {
             .buttonStyle(.plain)
             .disabled(hidden == 0 && !showHidden)
             .opacity(hidden == 0 && !showHidden ? 0.35 : 1)
-            .help(showHidden
+            .editMDHelp(showHidden
                   ? "Скрыть снова (режим просмотра скрытых)"
                   : (hidden > 0
                      ? "Показать скрытые (\(hidden)) — затем глаз у файла вернёт его в список"
@@ -222,27 +214,53 @@ struct WorkspaceSidebar: View {
     // MARK: - Workspace group
 
     @ViewBuilder private func workspaceGroup(_ ws: WorkspaceModel.Workspace) -> some View {
-        Button { workspace.toggleCollapsed(ws) } label: {
-            HStack(spacing: SidebarTree.rowSpacing) {
-                Image(systemName: ws.collapsed ? "chevron.right" : "chevron.down")
+        let selected = isActive(ws.url)
+        let expanded = !ws.collapsed
+        HStack(spacing: SidebarTree.rowSpacing) {
+            // Chevron alone toggles expand/collapse (Finder/VS Code).
+            Button {
+                workspace.toggleCollapsed(ws)
+            } label: {
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.tertiary)
-                    .frame(width: SidebarTree.chevronWidth)
-                Image(systemName: "folder")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(ws.name.uppercased())
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
+                    .frame(width: SidebarTree.chevronWidth, height: 18)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 3)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Name: open card + ensure expanded. Re-click while already the
+            // active selection AND expanded → collapse (повторное нажатие).
+            // A first click on an already-expanded folder never collapses.
+            Button {
+                if selected && expanded {
+                    workspace.collapseWorkspace(ws)
+                } else {
+                    workspace.expandWorkspace(ws)
+                    onOpenFolder(ws.url)
+                }
+            } label: {
+                HStack(spacing: SidebarTree.rowSpacing) {
+                    Image(systemName: selected ? "folder.fill" : "folder")
+                        .font(.system(size: 11))
+                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    Text(ws.name.uppercased())
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
         .contextMenu {
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([ws.url])
@@ -252,9 +270,12 @@ struct WorkspaceSidebar: View {
 
         if !ws.collapsed {
             // Folders first, then root files (Finder / VS Code order).
+            // contentEpoch: re-scan when New File/Folder mutates disk.
+            let _ = workspace.contentEpoch
             ForEach(filteredSubfolders(in: ws.url), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1,
-                              filter: filterQuery, activeURL: activeURL, onOpen: onOpen)
+                              filter: filterQuery, activeURL: activeURL,
+                              onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { url in
@@ -358,9 +379,13 @@ private struct SubfolderNode: View {
     let filter: String
     let activeURL: URL?
     let onOpen: (URL) -> Void
+    let onOpenFolder: (URL) -> Void
 
     private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep }
     private var isFiltering: Bool { !filter.isEmpty }
+    private var selected: Bool {
+        folder.standardizedFileURL == activeURL?.standardizedFileURL
+    }
 
     private func nameMatches(_ name: String) -> Bool {
         !isFiltering || name.localizedCaseInsensitiveContains(filter)
@@ -376,28 +401,51 @@ private struct SubfolderNode: View {
 
     var body: some View {
         let expanded = workspace.isExpanded(folder)
-        Button { workspace.toggleExpanded(folder) } label: {
-            HStack(spacing: SidebarTree.rowSpacing) {
-                if indent > 0 { Spacer().frame(width: indent) }
+        let _ = workspace.contentEpoch
+        HStack(spacing: SidebarTree.rowSpacing) {
+            if indent > 0 { Spacer().frame(width: indent) }
+            // Chevron alone toggles expand/collapse.
+            Button {
+                workspace.toggleExpanded(folder)
+            } label: {
                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.tertiary)
-                    .frame(width: SidebarTree.chevronWidth)
-                Image(systemName: expanded ? "folder.fill" : "folder")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(folder.lastPathComponent)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
+                    .frame(width: SidebarTree.chevronWidth, height: 18)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Name: open + expand. Re-click while selected & expanded → collapse.
+            Button {
+                if selected && expanded {
+                    workspace.collapseFolder(folder)
+                } else {
+                    workspace.expandFolder(folder)
+                    onOpenFolder(folder)
+                }
+            } label: {
+                HStack(spacing: SidebarTree.rowSpacing) {
+                    Image(systemName: (expanded || selected) ? "folder.fill" : "folder")
+                        .font(.system(size: 11))
+                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    Text(folder.lastPathComponent)
+                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
         .contextMenu {
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
@@ -408,7 +456,8 @@ private struct SubfolderNode: View {
             // Folders first, then files — same order as the workspace root.
             ForEach(visibleSubfolders(in: folder), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
-                              filter: filter, activeURL: activeURL, onOpen: onOpen)
+                              filter: filter, activeURL: activeURL,
+                              onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             ForEach(workspace.markdownFiles(in: folder).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { file in
@@ -530,6 +579,6 @@ private struct FileRow: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(accent ? Color.accentColor : Color.secondary)
-        .help(help)
+        .editMDHelp(help)
     }
 }
