@@ -17,6 +17,7 @@
 		1336942C491650E720695632 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD07144B2A6466FF2484C /* SettingsView.swift */; };
 		173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */; };
 		193F11852B92E034FAC48D21 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */; };
+		1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75D9EDD5F391199A959F85D /* GitCLITests.swift */; };
 		22FE563AAF328F7A5FEE963B /* MarkdownLint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA44CE853828E5B49C3A9C8B /* MarkdownLint.swift */; };
 		29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */; };
 		29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */; };
@@ -31,6 +32,7 @@
 		3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */; };
 		3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */; };
 		4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */; };
+		515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
@@ -120,6 +122,7 @@
 		924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTrackerTests.swift; sourceTree = "<group>"; };
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9E846D593359014AA812A9A3 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
 		AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistory.swift; sourceTree = "<group>"; };
 		AC8AD07144B2A6466FF2484C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -140,6 +143,7 @@
 		DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPositionStore.swift; sourceTree = "<group>"; };
 		DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEditingTests.swift; sourceTree = "<group>"; };
 		E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableGridTests.swift; sourceTree = "<group>"; };
+		EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCommitWatcher.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 		F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeUI.swift; sourceTree = "<group>"; };
 		F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTracker.swift; sourceTree = "<group>"; };
@@ -186,6 +190,7 @@
 				0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */,
 				699B6916CC8820D33D30549E /* FormattingHelpers.swift */,
 				84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */,
+				EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */,
 				F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */,
 				D05DEB19FD0AF2BE7AE0DD00 /* LineNumberRulerView.swift */,
 				73443608878228D727F6A239 /* MarkdownHighlighter.swift */,
@@ -274,6 +279,7 @@
 				BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */,
 				703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */,
 				95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */,
+				A75D9EDD5F391199A959F85D /* GitCLITests.swift */,
 				712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */,
 				924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */,
 				55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */,
@@ -403,6 +409,7 @@
 				4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */,
 				29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */,
 				D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */,
+				1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */,
 				0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */,
 				AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */,
 				B8C565E206D80AB162BE9AFF /* MarkdownHTMLTests.swift in Sources */,
@@ -441,6 +448,7 @@
 				A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */,
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */,
+				515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */,
 				3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */,
 				9CC198A0ED4AB95AD970D7DF /* LineNumberRulerView.swift in Sources */,
 				36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */,

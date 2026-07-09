@@ -172,13 +172,20 @@
 
 **Осталось / не в v34:** 3-way merge UI; side-by-side diff; hunk-context only (±N around changes); scroll-to-first-change; FSEvents на workspace (wiki index всё ещё lazy, без FS watch).
 
-### v34.1 — Line gutter + session dirty marks (in progress / landed core)
+### v34.1 — Line gutter + session dirty marks
 
 - **`GutterSettings`** (Settings ▸ General ▸ Line gutter): showLineNumbers, highlightChangedLines, showDirtyBulletsWhenNoNumbers, dirtyMarkColorHex.
-- **`LineChangeTracker`**: baseline on open / external apply; dirty = insert/replace lines vs baseline (`lineDiff`); session-only (quit clears); git-commit clear = next stage.
-- **Source / Visual**: `LineNumberRulerView` on NSScrollView vertical ruler; dirty number = bold+color or bullet when numbers off.
-- **Preview**: `SourceLineGutterRail` (source lines; scroll not yet locked to WKWebView).
-- **Git (planned stage 3+):** poll `git log -1 -- path` / `.git` mtime on activate → `clearMarks`; later Commit UI via `git` CLI (no auto-push).
+- **`LineChangeTracker`**: baseline on open / external apply; dirty = insert/replace lines vs baseline (`lineDiff`); session-only (quit clears).
+- **Source / Visual**: `LineNumberRulerView` — **source** line numbers (Visual maps via paragraph ranges; blank lines filled in spacing gaps); unified 11pt digits.
+- **Preview**: `data-ln` baked into HTML (no separate rail).
+- **Status bar**: compact external-change chip (Diff / Revert / …) next to word count.
+
+### v34.2 — Git detect-commit → clear dirty marks ✅
+
+- **`GitCLI`**: `/usr/bin/git` read-only (`rev-parse --show-toplevel`, `log -1 --format=%H -- path`).
+- **`GitCommitWatcher`**: seeds hash on open; on `didBecomeActive` + after document flush re-checks all tracked paths; if hash **changed** → `LineChangeTracker.clearMarks` + `.lineChangeMarksDidChange` (gutter refresh).
+- Any commit that touches the path counts (Terminal / other app / hooks) — not only EditMD-made commits.
+- **Still planned:** stage 4 Commit UI, stage 5 Push.
 
 ## Project Structure
 

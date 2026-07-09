@@ -4,7 +4,7 @@ import Foundation
 
 /// Tracks which **current** 1-based line numbers differ from a per-file baseline.
 /// Baseline resets on open and on external disk apply; marks clear on app quit
-/// (in-memory only) and later on git commit (stage 3).
+/// (in-memory) and when git commit touches the path (`GitCommitWatcher`).
 ///
 /// Not the same as git working-tree dirty: baseline is “content when we last
 /// anchored”, not HEAD.
@@ -31,6 +31,11 @@ final class LineChangeTracker: ObservableObject {
         dirtyLines(for: url).contains(line)
     }
 
+    /// Files with a session baseline (open / recently edited).
+    func trackedURLs() -> [URL] {
+        Array(baseline.keys)
+    }
+
     // MARK: - Lifecycle
 
     /// Open / external apply / Take Disk: new anchor, no marks.
@@ -40,6 +45,7 @@ final class LineChangeTracker: ObservableObject {
         baseline[key] = content
         dirty[key] = []
         bump()
+        GitCommitWatcher.shared.noteOpened(url: key)
     }
 
     /// User typed or paste: recompute dirty vs baseline.
@@ -76,6 +82,7 @@ final class LineChangeTracker: ObservableObject {
         let key = url.standardizedFileURL
         baseline.removeValue(forKey: key)
         dirty.removeValue(forKey: key)
+        GitCommitWatcher.shared.forget(url: key)
         bump()
     }
 
@@ -107,7 +114,9 @@ final class LineChangeTracker: ObservableObject {
     /// (`noteContent` can run from `textDidChange` mid-update).
     private func bump() {
         DispatchQueue.main.async { [weak self] in
-            self?.revision &+= 1
+            guard let self else { return }
+            self.revision &+= 1
+            NotificationCenter.default.post(name: .lineChangeMarksDidChange, object: nil)
         }
     }
 }

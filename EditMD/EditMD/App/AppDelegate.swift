@@ -6,9 +6,18 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Install didBecomeActive observer for git commit → clear dirty marks.
+        _ = GitCommitWatcher.shared
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             AppState.shared.handleOpen(url.standardizedFileURL)
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        GitCommitWatcher.shared.scheduleCheck(reason: "becomeActive")
     }
 }

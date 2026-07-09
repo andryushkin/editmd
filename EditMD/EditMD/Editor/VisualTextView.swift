@@ -168,6 +168,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.settingsDidChange),
             name: .editorSettingsDidChange,
             object: nil)
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.lineMarksDidChange),
+            name: .lineChangeMarksDidChange,
+            object: nil)
         // Outline-sidebar jumps, object-scoped to this window's store (a nil
         // object would subscribe to every window's jumps).
         if let store = positionStore {
@@ -1814,6 +1819,10 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
             refreshGutter()
             publishActions()
+        }
+
+        @objc func lineMarksDidChange() {
+            refreshGutter()
         }
     }
 }

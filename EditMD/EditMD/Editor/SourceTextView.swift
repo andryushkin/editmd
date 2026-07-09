@@ -133,6 +133,12 @@ struct SourceTextView: NSViewRepresentable {
         )
         NotificationCenter.default.addObserver(
             coordinator,
+            selector: #selector(Coordinator.lineMarksDidChange),
+            name: .lineChangeMarksDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            coordinator,
             selector: #selector(Coordinator.windowBecameKey(_:)),
             name: NSWindow.didBecomeKeyNotification,
             object: nil
@@ -512,6 +518,10 @@ struct SourceTextView: NSViewRepresentable {
             highlightSource()
             refreshGutter()
             publishActions()
+        }
+
+        @objc func lineMarksDidChange() {
+            refreshGutter()
         }
 
         // MARK: Source highlighting

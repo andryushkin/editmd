@@ -328,6 +328,9 @@ final class DocumentRegistry {
         entry.knownModDate = contentModificationDate(of: entry.url)
         // Atomic replace may invalidate the watched inode — re-arm.
         rearmWatch(entry)
+        // After save, a concurrent `git commit` (or hook) may have advanced;
+        // re-check path hash so dirty-line marks can clear.
+        GitCommitWatcher.shared.check(url: entry.url)
     }
 
     // MARK: - External disk sync
