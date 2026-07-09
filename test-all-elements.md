@@ -1,10 +1,9 @@
 # **Heading 1**
-
 ## Heading 2
 
 ### Heading 3
 
-#### Heading 40
+#### Heading 4
 
 ##### Heading 5
 
@@ -90,7 +89,7 @@ Mixed: **bold with `code` inside** and *italic with [link](url) inside*.
 
 ![Alt text for image](path/to/image.png)
 
-# Setext Heading 1
+# Setext Heading 10
 
 ## Setext Heading 2
 
