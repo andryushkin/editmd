@@ -410,9 +410,8 @@ struct FolderInfoCard: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Align near first grid icon; slight left of pure rail so the pill isn’t too deep.
-        .padding(.leading, contentLeading + FolderGridTile.iconLeadingInset
-                 - FolderGridTile.actionStripNudge)
+        // Same left rail as title / first grid icon / section headers.
+        .padding(.leading, contentLeading + contentIconRail)
         .padding(.trailing, contentLeading)
         .padding(.top, SidebarChrome.barPaddingTop)
         .padding(.bottom, SidebarChrome.barPaddingBottom)
@@ -420,6 +419,12 @@ struct FolderInfoCard: View {
 
     /// Preview horizontal field (Settings ▸ Preview ▸ inset).
     private var contentLeading: CGFloat { editorSettings.preview.insetH }
+
+    /// Shared left rail for title icon, section headers, and first grid icons
+    /// (grid icons sit centered in each tile → inset from the cell edge).
+    private var contentIconRail: CGFloat {
+        max(0, FolderGridTile.iconLeadingInset - FolderGridTile.headerOpticalNudge)
+    }
 
     /// Full-tree counts on the action row — small secondary text so it fits.
     private var compactStats: some View {
@@ -484,10 +489,7 @@ struct FolderInfoCard: View {
     // MARK: Header
 
     private var header: some View {
-        // Align title folder with first grid icon. Large H1 symbols have extra
-        // optical padding on the left — nudge slightly left of pure geometry.
-        let iconRail = max(0, FolderGridTile.iconLeadingInset - FolderGridTile.headerOpticalNudge)
-        return VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: previewH1Size))
@@ -499,7 +501,7 @@ struct FolderInfoCard: View {
                     .truncationMode(.middle)
                     .textSelection(.enabled)
             }
-            // Path under the folder icon (same leading as the glyph), not under the title.
+            // Path under the folder icon (same leading as the glyph).
             Button(action: copyPath) {
                 Text(displayPath)
                     .font(.system(size: 12, design: .monospaced))
@@ -512,7 +514,7 @@ struct FolderInfoCard: View {
             .buttonStyle(.plain)
             .editMDHelp("Скопировать путь")
         }
-        .padding(.leading, iconRail)
+        .padding(.leading, contentIconRail)
     }
 
     // MARK: Content grid (direct children + hidden section)
@@ -535,6 +537,7 @@ struct FolderInfoCard: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 4)
+                    .padding(.leading, FolderGridTile.iconLeadingInset)
             } else {
                 LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
                     ForEach(folders, id: \.self) { sub in
@@ -591,6 +594,8 @@ struct FolderInfoCard: View {
             .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.tertiary)
             .padding(.top, 4)
+            // Align with first grid icon (tile centers the glyph).
+            .padding(.leading, FolderGridTile.iconLeadingInset)
     }
 
     private func folderTile(_ sub: URL, dimmed: Bool) -> some View {
@@ -677,14 +682,16 @@ private struct FolderGridTile: View {
 
     static let width: CGFloat = 84
     static let iconSize: CGFloat = 30
+    /// Fixed label band (2 lines @ 11pt) so 1-line names don’t shrink the tile
+    /// and push the icon up relative to neighbours in the grid row.
+    static let labelHeight: CGFloat = 28
+    static let iconRowHeight: CGFloat = 34
 
     /// Leading inset of a grid icon inside its tile (icon is centered in `width`).
     static var iconLeadingInset: CGFloat { max(0, (width - iconSize) / 2) }
 
-    /// Large H1 folder symbols sit optically right of a 30pt grid icon — pull header left.
+    /// Large H1 folder symbols sit optically right of a 30pt grid icon — pull rail left.
     static let headerOpticalNudge: CGFloat = 5
-    /// Action strip sits slightly left of the first-icon rail.
-    static let actionStripNudge: CGFloat = 6
 
     let kind: Kind
     let name: String
@@ -704,7 +711,7 @@ private struct FolderGridTile: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(kind == .folder ? Color.accentColor : Color.secondary)
                     .opacity(dimmed ? 0.5 : 1)
-                    .frame(width: Self.width, height: Self.iconSize + 4)
+                    .frame(width: Self.width, height: Self.iconRowHeight)
                 if showUnhide || (showHide && hovering) {
                     Button(action: onTrailing) {
                         Image(systemName: showUnhide ? "eye" : "eye.slash")
@@ -722,15 +729,18 @@ private struct FolderGridTile: View {
                     .padding(2)
                 }
             }
+            .frame(height: Self.iconRowHeight)
             Text(name)
                 .font(.system(size: 11))
                 .foregroundStyle(dimmed ? Color.secondary : Color.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .truncationMode(.middle)
-                .frame(width: Self.width - 4, alignment: .center)
+                .frame(width: Self.width - 4, height: Self.labelHeight, alignment: .top)
         }
-        .frame(width: Self.width)
+        // Fixed footprint + top alignment: icons stay on one row baseline.
+        .frame(width: Self.width, height: Self.iconRowHeight + 4 + Self.labelHeight,
+               alignment: .top)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)
