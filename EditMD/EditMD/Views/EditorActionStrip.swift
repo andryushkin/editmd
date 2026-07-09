@@ -87,7 +87,9 @@ struct EditorActionStrip: View {
                             if let h = actions.setHeading { h(3) } else { NSSound.beep() }
                         }
                         sep
-                        labelBtn("¶", "Обычный текст") { actions.run(actions.setBody) }
+                        labelBtn("Aa", "Обычный текст (снять заголовок/список)") {
+                            actions.run(actions.setBody)
+                        }
                         sep
                         icon("chevron.left.forwardslash.chevron.right", "Блок кода") {
                             actions.run(actions.toggleCodeBlock)

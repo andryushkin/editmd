@@ -468,8 +468,11 @@ struct VisualMarkdownView: NSViewRepresentable {
                           length: min(1, storage.length - paragraph.location))
             if stampRange.length > 0 {
                 storage.addAttribute(.mdBlock, value: newBlock, range: stampRange)
-                storage.enumerateAttribute(.mdInline, in: stampRange) { value, range, _ in
-                    let styles = MDInlineStyle(rawValue: value as? Int ?? 0)
+                // enumerateAttributes (not just .mdInline): plain runs have no
+                // .mdInline key, so enumerateAttribute skipped them and left the
+                // old heading-sized font after demoting to body.
+                storage.enumerateAttributes(in: stampRange) { attrs, range, _ in
+                    let styles = MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0)
                     storage.addAttribute(.font,
                                          value: self.visualStyle.font(for: styles, blockKind: newBlock.kind),
                                          range: range)
@@ -1001,8 +1004,17 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         private func setBodyParagraph() {
             guard let textView, let storage = textView.textStorage else { return }
-            let paragraphs = selectedParagraphs()
-            guard !paragraphs.isEmpty else { return }
+            var paragraphs = selectedParagraphs()
+            // Caret with empty selection still demotes the current paragraph.
+            if paragraphs.isEmpty, storage.length > 0 {
+                let nsText = storage.string as NSString
+                let p = paragraphRange(at: textView.selectedRange().location, in: nsText)
+                switch block(at: p, in: storage).kind {
+                case .tableCell, .raw: break
+                default: paragraphs = [p]
+                }
+            }
+            guard !paragraphs.isEmpty else { NSSound.beep(); return }
             for paragraph in paragraphs {
                 var target = block(at: paragraph, in: storage)
                 target.kind = .paragraph
@@ -1623,13 +1635,13 @@ struct VisualMarkdownView: NSViewRepresentable {
 
             storage.enumerateAttributes(in: paragraph) { attrs, range, _ in
                 let styles = MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0)
-                if isHeaderCell {
-                    // Header row is bold — derived, not stored in .mdInline.
-                    storage.addAttribute(.font,
-                                         value: self.visualStyle.font(for: styles.union(.bold),
-                                                                      blockKind: block.kind),
-                                         range: range)
-                }
+                // Always re-derive font from block kind so demoting a heading
+                // to body (or promoting body → H1) updates size/weight even on
+                // runs that never carried .mdInline.
+                let fontStyles: MDInlineStyle = isHeaderCell ? styles.union(.bold) : styles
+                storage.addAttribute(.font,
+                                     value: self.visualStyle.font(for: fontStyles, blockKind: block.kind),
+                                     range: range)
                 let strike = styles.contains(.strike) || isDone
                 if strike {
                     storage.addAttribute(.strikethroughStyle,

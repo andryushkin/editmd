@@ -385,20 +385,38 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         /// Line-level transform for the lines covering the cached selection.
+        /// For `.body` / heading toggles, a caret (empty selection) still works
+        /// if we have a valid start offset from a previous selectionchange.
         func transformSelectionLines(_ transform: BlockTransform) {
             guard let document else { NSSound.beep(); return }
-            guard cachedStart >= 0, cachedEnd >= cachedStart else {
+            let ns = document.content as NSString
+            guard ns.length > 0 else { NSSound.beep(); return }
+
+            let loc: Int
+            let end: Int
+            if cachedStart >= 0, cachedEnd >= cachedStart {
+                loc = min(cachedStart, ns.length)
+                end = min(max(cachedEnd, cachedStart), ns.length)
+            } else if !cachedSelection.isEmpty {
+                // Fallback: plain-text locate when data-md offsets were lost.
+                let found = ns.range(of: cachedSelection)
+                guard found.location != NSNotFound else { NSSound.beep(); return }
+                loc = found.location
+                end = NSMaxRange(found)
+            } else {
                 NSSound.beep()
                 return
             }
-            let ns = document.content as NSString
-            let loc = min(cachedStart, ns.length)
-            let end = min(cachedEnd, ns.length)
             let lineRange = ns.lineRange(for: NSRange(location: loc,
                                                      length: max(0, end - loc)))
             let lines = ns.substring(with: lineRange)
             let replaced = transformLines(transform, lines: lines)
-            guard replaced != lines else { NSSound.beep(); return }
+            guard replaced != lines else {
+                // Already plain body — not an error.
+                if transform == .body { return }
+                NSSound.beep()
+                return
+            }
             let next = ns.replacingCharacters(in: lineRange, with: replaced)
             cachedSelection = ""
             cachedStart = -1
