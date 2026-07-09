@@ -28,7 +28,7 @@
 - **v31 ✅** — **большие таблицы рисуются как таблицы в Visual** (был моноширинный island с v29): чистый `parseGFMTable` + виртуализированная отрисовка сетки в `drawBackground` (только видимые строки, read-only). См. «## v31 — Complete» ниже
 - **v32 ✅** — **виртуальное выравнивание колонок таблиц в Source** (`.kern`, файл не меняется): `scanSourceTables` + kern-паддинг до целевой ширины колонки с капом (длинная ячейка → рваная строка). См. «## v32 — Complete» ниже
 - **v33 ✅** — \*\*YAML frontmatter «как в Obsidian» (Visual + Preview) + подсветка ``yaml во всех трёх режимах**: `Editor/Frontmatter.swift` (детект блока `---…---`, разбор свойств, YAML-токенайзер). swift-markdown frontmatter не знает (открывающий `---` = thematic break, закрывающий после тела = setext H2 → блок раздувался в заголовок). Frontmatter: Visual — read-only остров-карточка свойств (round-trip дословный через `.raw`), Preview — таблица свойств, **Source** — YAML-подсветка тела + приглушённые `---`-фенсы (перекрывает setext-mangle). ``yaml код-блоки — подсветка ключ/значение в Preview (HTML-спаны) и Source (`.codeBlockBody(language:)`), Visual остаётся моно. См. «## v33 — Complete» ниже
-- **v34 ✅** — **внешние правки открытого файла + GitHub-style diff** (app **0.34.0**): `DocumentRegistry` watch (`DispatchSource` + app-activate), clean → auto-reload + banner review, dirty → conflict (Keep Mine / Take Disk); unified diff sheet (NSTextView, Source-подсветка, wide). См. «## v34 — Complete» ниже
+- **v34 ✅** — **внешние правки открытого файла + GitHub-style diff** (app **0.34.3** = v34.1 gutter + v34.2 detect-commit + v34.3 commit/push): `DocumentRegistry` watch (`DispatchSource` + app-activate), clean → auto-reload + banner review, dirty → conflict (Keep Mine / Take Disk); unified diff sheet (NSTextView, Source-подсветка, wide). См. «## v34 — Complete» ниже
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. «## v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -142,9 +142,9 @@
 
 **Осталось:** frontmatter в Visual read-only (правка в Source) — редактируемые свойства-виджеты как в Obsidian Live Preview отложены; подсветка \`\`\`yaml в Visual (код-блоки там пока моно — Source+Preview уже есть); nested-map значения показываются плоско (`sub: v; sub2: v2`).
 
-## v34 — Complete (external disk reload + GitHub-style diff) — app **0.34.0**
+## v34 — Complete (external disk reload + GitHub-style diff) — app **0.34.3**
 
-Мотив: агент/другой app пишет в `.md`, который уже открыт в EditMD — раньше `DocumentRegistry` держал stale buffer (перечитывал только при acquire). Нужен auto-reload + понятный review «что приехало», и conflict path, если есть несохранённые правки. Версия приложения: `CFBundleShortVersionString` **0.34.0**, `CFBundleVersion` **34**.
+Мотив: агент/другой app пишет в `.md`, который уже открыт в EditMD — раньше `DocumentRegistry` держал stale buffer (перечитывал только при acquire). Нужен auto-reload + понятный review «что приехало», и conflict path, если есть несохранённые правки. Версия приложения: `CFBundleShortVersionString` **0.34.3**, `CFBundleVersion` **343** (v34.0 reload/diff → v34.1 gutter → v34.2 detect-commit → v34.3 commit/push + suggested messages).
 
 - **Watch + sync** (`DocumentStore.swift` / `DocumentRegistry`):
     - `DispatchSource` (`O_EVTONLY`) на каждый live entry; re-arm после atomic replace.
