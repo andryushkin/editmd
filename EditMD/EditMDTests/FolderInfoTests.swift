@@ -98,6 +98,10 @@ final class FolderInfoTests: XCTestCase {
         XCTAssertEqual(stats.markdownCount, 3)
         // a + a/b (have md in subtree). empty / txt-only / textbundle — not counted.
         XCTAssertEqual(stats.subfolderCount, 2)
+        // Main grid: only direct child `a`. Empty / txt-only go to the bottom section.
+        XCTAssertEqual(stats.directMarkdownFolders.map(\.lastPathComponent), ["a"])
+        XCTAssertEqual(Set(stats.directEmptyFolders.map(\.lastPathComponent)),
+                       Set(["empty", "txt-only"]))
     }
 
     func testScanFolderTreeStatsEmpty() throws {
@@ -109,6 +113,7 @@ final class FolderInfoTests: XCTestCase {
         let stats = scanFolderTreeStats(at: root)
         XCTAssertEqual(stats.markdownCount, 0)
         XCTAssertEqual(stats.subfolderCount, 0)
+        XCTAssertTrue(stats.directMarkdownFolders.isEmpty)
     }
 }
 

@@ -134,7 +134,7 @@ struct WorkspaceSidebar: View {
                     .fill(Color(nsColor: SidebarChrome.wellColor))
             )
 
-            // Review mode: list hidden files so each can be un-hidden via its row eye.
+            // Review mode: hidden files + empty (no-md) folders.
             let hidden = workspace.totalHiddenCount
             Button { showHidden.toggle() } label: {
                 Image(systemName: showHidden ? "eye" : "eye.slash")
@@ -144,13 +144,11 @@ struct WorkspaceSidebar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(hidden == 0 && !showHidden)
-            .opacity(hidden == 0 && !showHidden ? 0.35 : 1)
             .editMDHelp(showHidden
-                  ? "Скрыть снова (режим просмотра скрытых)"
+                  ? "Скрыть снова (скрытые файлы и пустые папки)"
                   : (hidden > 0
-                     ? "Показать скрытые (\(hidden)) — затем глаз у файла вернёт его в список"
-                     : "Нет скрытых файлов"))
+                     ? "Показать скрытые файлы (\(hidden)) и пустые папки"
+                     : "Показать скрытые файлы и пустые папки"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -269,14 +267,22 @@ struct WorkspaceSidebar: View {
         }
 
         if !ws.collapsed {
-            // Folders first, then root files (Finder / VS Code order).
+            // Folders first (md-bearing; empty only with eye), then files.
             // contentEpoch: re-scan when New File/Folder mutates disk.
             let _ = workspace.contentEpoch
-            ForEach(filteredSubfolders(in: ws.url), id: \.self) { sub in
+            ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1,
                               filter: filterQuery, activeURL: activeURL,
-                              showHidden: showHidden,
+                              showHidden: showHidden, isEmptyFolder: false,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
+            }
+            if showHidden {
+                ForEach(filteredFolders(workspace.emptySubfolders(in: ws.url)), id: \.self) { sub in
+                    SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                                  filter: filterQuery, activeURL: activeURL,
+                                  showHidden: showHidden, isEmptyFolder: true,
+                                  onOpen: onOpen, onOpenFolder: onOpenFolder)
+                }
             }
             ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { url in
@@ -291,9 +297,9 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// Folders whose name matches the filter, or that are expanded (children may match).
-    private func filteredSubfolders(in folder: URL) -> [URL] {
-        workspace.subfolders(in: folder).filter { sub in
+    /// Name filter: keep match, or expanded so children stay reachable.
+    private func filteredFolders(_ urls: [URL]) -> [URL] {
+        urls.filter { sub in
             !isFiltering
                 || nameMatches(sub.lastPathComponent)
                 || workspace.isExpanded(sub)
@@ -370,6 +376,8 @@ private struct SubfolderNode: View {
     let filter: String
     let activeURL: URL?
     let showHidden: Bool
+    /// No markdown in this folder’s tree — dimmed; only listed when eye is on.
+    var isEmptyFolder: Bool = false
     let onOpen: (URL) -> Void
     let onOpenFolder: (URL) -> Void
 
@@ -383,8 +391,8 @@ private struct SubfolderNode: View {
         !isFiltering || name.localizedCaseInsensitiveContains(filter)
     }
 
-    private func visibleSubfolders(in folder: URL) -> [URL] {
-        workspace.subfolders(in: folder).filter { sub in
+    private func filteredFolders(_ urls: [URL]) -> [URL] {
+        urls.filter { sub in
             !isFiltering
                 || nameMatches(sub.lastPathComponent)
                 || workspace.isExpanded(sub)
@@ -421,9 +429,12 @@ private struct SubfolderNode: View {
                     Image(systemName: (expanded || selected) ? "folder.fill" : "folder")
                         .font(.system(size: 11))
                         .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .opacity(isEmptyFolder ? 0.55 : 1)
                     Text(folder.lastPathComponent)
                         .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                        .foregroundStyle(selected
+                                         ? Color.accentColor
+                                         : (isEmptyFolder ? Color.secondary : Color.primary))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
@@ -445,12 +456,20 @@ private struct SubfolderNode: View {
         }
 
         if expanded {
-            // Folders first, then files — same order as the workspace root.
-            ForEach(visibleSubfolders(in: folder), id: \.self) { sub in
+            // md folders → empty folders (eye) → visible files → hidden files (eye).
+            ForEach(filteredFolders(workspace.markdownSubfolders(in: folder)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                               filter: filter, activeURL: activeURL,
-                              showHidden: showHidden,
+                              showHidden: showHidden, isEmptyFolder: false,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
+            }
+            if showHidden {
+                ForEach(filteredFolders(workspace.emptySubfolders(in: folder)), id: \.self) { sub in
+                    SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                                  filter: filter, activeURL: activeURL,
+                                  showHidden: showHidden, isEmptyFolder: true,
+                                  onOpen: onOpen, onOpenFolder: onOpenFolder)
+                }
             }
             ForEach(workspace.visibleMarkdown(in: folder).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { file in

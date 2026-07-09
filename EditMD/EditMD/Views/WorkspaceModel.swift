@@ -83,6 +83,30 @@ final class WorkspaceModel: ObservableObject {
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
+    /// Tree stats for `folder` (counts + direct md/empty child folders). Uses
+    /// `FolderStatsCache` keyed by path + `contentEpoch` so the sidebar and
+    /// folder card share one scan.
+    func treeStats(for folder: URL) -> FolderTreeStats {
+        let path = folder.standardizedFileURL.path
+        let epoch = contentEpoch
+        if let cached = FolderStatsCache.lookup(path: path, epoch: epoch) {
+            return cached
+        }
+        let stats = scanFolderTreeStats(at: folder.standardizedFileURL)
+        FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
+        return stats
+    }
+
+    /// Direct child folders that contain markdown somewhere in their tree.
+    func markdownSubfolders(in folder: URL) -> [URL] {
+        treeStats(for: folder).directMarkdownFolders
+    }
+
+    /// Direct child folders with no markdown (shown when sidebar eye is on).
+    func emptySubfolders(in folder: URL) -> [URL] {
+        treeStats(for: folder).directEmptyFolders
+    }
+
     func isExpanded(_ folder: URL) -> Bool {
         expandedFolders.contains(folder.standardizedFileURL.path)
     }

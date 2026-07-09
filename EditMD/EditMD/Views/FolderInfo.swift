@@ -70,6 +70,10 @@ func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
 struct FolderTreeStats: Equatable, Sendable {
     var markdownCount: Int
     var subfolderCount: Int
+    /// Direct child folders that contain markdown somewhere (main grid).
+    var directMarkdownFolders: [URL]
+    /// Direct child folders with no markdown in the tree (bottom section, like «Скрытые»).
+    var directEmptyFolders: [URL]
 }
 
 /// Synchronous post-order scan. Call off the main actor for large trees.
@@ -112,9 +116,45 @@ func scanFolderTreeStats(at root: URL,
         return (markdown, foldersWithMd, hasMarkdown)
     }
 
-    let result = walk(root.standardizedFileURL)
-    return FolderTreeStats(markdownCount: result.markdown,
-                           subfolderCount: result.foldersWithMd)
+    // Root pass: collect direct child folders that have markdown (for the grid).
+    let rootURL = root.standardizedFileURL
+    let items = (try? fileManager.contentsOfDirectory(
+        at: rootURL,
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsHiddenFiles])) ?? []
+    var markdown = 0
+    var foldersWithMd = 0
+    var directMarkdownFolders: [URL] = []
+    var directEmptyFolders: [URL] = []
+    for url in items {
+        if Task.isCancelled { break }
+        let vals = try? url.resourceValues(forKeys: keys)
+        let isDir = vals?.isDirectory ?? false
+        let isPackage = vals?.isPackage ?? false
+        if isDir && !isPackage {
+            let child = walk(url)
+            markdown += child.markdown
+            foldersWithMd += child.foldersWithMd
+            if child.hasMarkdown {
+                foldersWithMd += 1
+                directMarkdownFolders.append(url)
+            } else {
+                directEmptyFolders.append(url)
+            }
+        } else if mdExt.contains(url.pathExtension.lowercased()) {
+            markdown += 1
+        }
+    }
+    let byName: (URL, URL) -> Bool = {
+        $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent)
+            == .orderedAscending
+    }
+    directMarkdownFolders.sort(by: byName)
+    directEmptyFolders.sort(by: byName)
+    return FolderTreeStats(markdownCount: markdown,
+                           subfolderCount: foldersWithMd,
+                           directMarkdownFolders: directMarkdownFolders,
+                           directEmptyFolders: directEmptyFolders)
 }
 
 /// Path → (contentEpoch, stats). Invalidated when `WorkspaceModel.contentEpoch`
@@ -247,9 +287,6 @@ struct FolderInfoCard: View {
     @State private var statsLoading = true
     @State private var statsTask: Task<Void, Never>?
 
-    /// Shared leading inset for action strip + title/stats (one left edge).
-    private static let contentLeading: CGFloat = 32
-
     /// Preview H1 pixel size: body `fontSize` × `elements.h1.sizeScale`
     /// (same formula as CSS `h1 { font-size: Nem }` in `previewHTMLPage`).
     private var previewH1Size: CGFloat {
@@ -275,6 +312,11 @@ struct FolderInfoCard: View {
         (folderURL.path as NSString).abbreviatingWithTildeInPath
     }
 
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: FolderGridTile.width, maximum: FolderGridTile.width),
+                  spacing: 10)]
+    }
+
     var body: some View {
         // Top action strip shares SidebarChrome padding with Files/Outline so
         // both pills sit on one horizontal band across the split.
@@ -284,12 +326,11 @@ struct FolderInfoCard: View {
                 VStack(alignment: .leading, spacing: 16) {
                     header
                     // Future: git status strip (branch / dirty / pull·push) when git lands.
-                    stats
                     contentList
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: 520, alignment: .leading)
-                .padding(.horizontal, Self.contentLeading)
+                // Left (and right) field = Preview mode insetH.
+                .padding(.horizontal, contentLeading)
                 // Top matches first workspace row under the sidebar navigator.
                 .padding(.top, SidebarChrome.firstContentTop)
                 .padding(.bottom, 32)
@@ -338,18 +379,21 @@ struct FolderInfoCard: View {
         }
     }
 
-    // MARK: Action strip (same leading edge as title below)
+    // MARK: Action strip (buttons + compact tree counts)
 
     private var actionStrip: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .center, spacing: 6) {
             HStack(spacing: 0) {
                 iconButton("doc.badge.plus", "Новый файл", action: newFile)
+                pillSeparator
                 iconButton("folder.badge.plus", "Новая папка", action: newFolder)
+                pillSeparator
                 iconButton("arrow.up.right.square", "Показать в Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([folderURL])
                 }
                 if let home = homeDoc {
                     let isReadme = home.lastPathComponent.lowercased().hasPrefix("readme")
+                    pillSeparator
                     iconButton("book", isReadme ? "Открыть README" : "Открыть index") {
                         AppState.shared.openInMainWindow(home)
                     }
@@ -361,12 +405,65 @@ struct FolderInfoCard: View {
                 Capsule(style: .continuous)
                     .fill(Color(nsColor: SidebarChrome.wellColor))
             )
+            // Counts flush after the pill — whole group stays on the left.
+            compactStats
             Spacer(minLength: 0)
         }
-        // Same horizontal inset as header/stats — one left edge with the title.
-        .padding(.horizontal, Self.contentLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Align near first grid icon; slight left of pure rail so the pill isn’t too deep.
+        .padding(.leading, contentLeading + FolderGridTile.iconLeadingInset
+                 - FolderGridTile.actionStripNudge)
+        .padding(.trailing, contentLeading)
         .padding(.top, SidebarChrome.barPaddingTop)
         .padding(.bottom, SidebarChrome.barPaddingBottom)
+    }
+
+    /// Preview horizontal field (Settings ▸ Preview ▸ inset).
+    private var contentLeading: CGFloat { editorSettings.preview.insetH }
+
+    /// Full-tree counts on the action row — small secondary text so it fits.
+    private var compactStats: some View {
+        HStack(spacing: 2) {
+            if statsLoading {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            // No per-stat editMDHelp — AppKit tooltip views inflate spacing.
+            compactStat(systemImage: "doc.text",
+                        value: statsLoading ? "…" : "\(treeStats?.markdownCount ?? 0)")
+            Text("·")
+                .foregroundStyle(.quaternary)
+                .font(.system(size: 11))
+                .padding(.horizontal, 1)
+            compactStat(systemImage: "folder",
+                        value: statsLoading ? "…" : "\(treeStats?.subfolderCount ?? 0)")
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .fixedSize(horizontal: true, vertical: false)
+        .editMDHelp(statsLoading
+                    ? "Подсчитывается…"
+                    : "Во всём дереве: \(treeStats?.markdownCount ?? 0) .md, \(treeStats?.subfolderCount ?? 0) подпапок")
+    }
+
+    private func compactStat(systemImage: String, value: String) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .medium))
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+        }
+    }
+
+    /// Hairline between pill buttons — same as Files/Outline in the sidebar.
+    private var pillSeparator: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 3)
     }
 
     /// Same metrics as Files/Outline nav tabs; tooltip = gray AppKit plaque.
@@ -387,7 +484,10 @@ struct FolderInfoCard: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Align title folder with first grid icon. Large H1 symbols have extra
+        // optical padding on the left — nudge slightly left of pure geometry.
+        let iconRail = max(0, FolderGridTile.iconLeadingInset - FolderGridTile.headerOpticalNudge)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "folder.fill")
                     .font(.system(size: previewH1Size))
@@ -399,7 +499,7 @@ struct FolderInfoCard: View {
                     .truncationMode(.middle)
                     .textSelection(.enabled)
             }
-            // Click path → copy absolute path + short toast (no separate button).
+            // Path under the folder icon (same leading as the glyph), not under the title.
             Button(action: copyPath) {
                 Text(displayPath)
                     .font(.system(size: 12, design: .monospaced))
@@ -412,114 +512,97 @@ struct FolderInfoCard: View {
             .buttonStyle(.plain)
             .editMDHelp("Скопировать путь")
         }
+        .padding(.leading, iconRail)
     }
 
-    // MARK: Stats (full tree, async)
+    // MARK: Content grid (direct children + hidden section)
 
-    private var stats: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 16) {
-                statChip(
-                    value: statsLoading ? "…" : "\(treeStats?.markdownCount ?? 0)",
-                    label: ".md файлов")
-                statChip(
-                    value: statsLoading ? "…" : "\(treeStats?.subfolderCount ?? 0)",
-                    label: "подпапок")
-            }
-            if statsLoading {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Подсчитывается…")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    // MARK: Content list (direct children + hidden section)
-
-    /// Direct subfolders + visible md, then always-on «Скрытые» for hidden md
-    /// in this folder. Hide store is shared with the sidebar (relative paths).
+    /// Main grid: folders with md + visible files.
+    /// Bottom sections (like hidden files): «Пустые папки», then «Скрытые».
     private var contentList: some View {
-        // contentEpoch: re-read directory after New File/Folder.
         let _ = workspace.contentEpoch
-        let folders = workspace.subfolders(in: folderURL)
+        let folders = treeStats?.directMarkdownFolders ?? []
+        let emptyFolders = treeStats?.directEmptyFolders ?? []
         let visible = workspace.visibleMarkdown(in: folderURL)
         let hidden = workspace.hiddenMarkdown(in: folderURL)
-        let empty = folders.isEmpty && visible.isEmpty && hidden.isEmpty
+        let empty = !statsLoading
+            && folders.isEmpty && emptyFolders.isEmpty
+            && visible.isEmpty && hidden.isEmpty
 
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 12) {
             if empty {
                 Text("Нет файлов")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 8)
+                    .padding(.top, 4)
             } else {
-                ForEach(folders, id: \.self) { sub in
-                    FolderRow(name: sub.lastPathComponent) {
-                        AppState.shared.openInMainWindow(sub)
+                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
+                    ForEach(folders, id: \.self) { sub in
+                        folderTile(sub, dimmed: false)
                     }
-                }
-                ForEach(visible, id: \.self) { file in
-                    FileRow(name: file.lastPathComponent,
-                            isActive: false,
-                            trailing: .hide,
-                            onTap: { AppState.shared.openInMainWindow(file) },
-                            onTrailing: { workspace.hide(file) })
-                    .contextMenu {
-                        Button("Открыть в отдельном окне") {
-                            AppState.shared.openInSeparateWindow(file)
-                        }
-                        Button("Скрыть из списка") { workspace.hide(file) }
-                        Button("Показать в Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([file])
-                        }
-                    }
-                }
-                if !hidden.isEmpty {
-                    Text("СКРЫТЫЕ")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 12)
-                        .padding(.bottom, 2)
-                    ForEach(hidden, id: \.self) { file in
-                        FileRow(name: file.lastPathComponent,
-                                isActive: false,
-                                dimmed: true,
-                                trailing: .unhide,
-                                onTap: { AppState.shared.openInMainWindow(file) },
-                                onTrailing: { workspace.unhide(file) })
+                    ForEach(visible, id: \.self) { file in
+                        FolderGridTile(kind: .file, name: file.lastPathComponent,
+                                       dimmed: false, showHide: true, showUnhide: false,
+                                       onTap: { AppState.shared.openInMainWindow(file) },
+                                       onTrailing: { workspace.hide(file) })
                         .contextMenu {
-                            Button("Вернуть в список") { workspace.unhide(file) }
+                            Button("Открыть в отдельном окне") {
+                                AppState.shared.openInSeparateWindow(file)
+                            }
+                            Button("Скрыть из списка") { workspace.hide(file) }
                             Button("Показать в Finder") {
                                 NSWorkspace.shared.activateFileViewerSelecting([file])
                             }
                         }
                     }
                 }
+                if !emptyFolders.isEmpty {
+                    sectionHeader("ПУСТЫЕ ПАПКИ")
+                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
+                        ForEach(emptyFolders, id: \.self) { sub in
+                            folderTile(sub, dimmed: true)
+                        }
+                    }
+                }
+                if !hidden.isEmpty {
+                    sectionHeader("СКРЫТЫЕ")
+                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
+                        ForEach(hidden, id: \.self) { file in
+                            FolderGridTile(kind: .file, name: file.lastPathComponent,
+                                           dimmed: true, showHide: false, showUnhide: true,
+                                           onTap: { AppState.shared.openInMainWindow(file) },
+                                           onTrailing: { workspace.unhide(file) })
+                            .contextMenu {
+                                Button("Вернуть в список") { workspace.unhide(file) }
+                                Button("Показать в Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([file])
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        .padding(.top, 8)
+        .padding(.top, 4)
     }
 
-    private func statChip(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundStyle(statsLoading ? Color.secondary : Color.primary)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .bold))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 4)
+    }
+
+    private func folderTile(_ sub: URL, dimmed: Bool) -> some View {
+        FolderGridTile(kind: .folder, name: sub.lastPathComponent,
+                       dimmed: dimmed, showHide: false, showUnhide: false,
+                       onTap: { AppState.shared.openInMainWindow(sub) },
+                       onTrailing: {})
+        .contextMenu {
+            Button("Показать в Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([sub])
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
     }
 
     // MARK: Copy path + toast
@@ -581,5 +664,82 @@ struct FolderInfoCard: View {
         } catch {
             presentFolderError(error)
         }
+    }
+}
+
+// MARK: - Grid tile (folder info card)
+
+/// Fixed-width Finder-style cell: icon + label both centered in the tile
+/// (label centered under the icon). Header uses `iconLeadingInset` so its
+/// glyph lines up with the first tile’s icon.
+private struct FolderGridTile: View {
+    enum Kind { case folder, file }
+
+    static let width: CGFloat = 84
+    static let iconSize: CGFloat = 30
+
+    /// Leading inset of a grid icon inside its tile (icon is centered in `width`).
+    static var iconLeadingInset: CGFloat { max(0, (width - iconSize) / 2) }
+
+    /// Large H1 folder symbols sit optically right of a 30pt grid icon — pull header left.
+    static let headerOpticalNudge: CGFloat = 5
+    /// Action strip sits slightly left of the first-icon rail.
+    static let actionStripNudge: CGFloat = 6
+
+    let kind: Kind
+    let name: String
+    var dimmed = false
+    var showHide = false
+    var showUnhide = false
+    let onTap: () -> Void
+    var onTrailing: () -> Void = {}
+
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: kind == .folder ? "folder.fill" : "doc.text")
+                    .font(.system(size: Self.iconSize))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(kind == .folder ? Color.accentColor : Color.secondary)
+                    .opacity(dimmed ? 0.5 : 1)
+                    .frame(width: Self.width, height: Self.iconSize + 4)
+                if showUnhide || (showHide && hovering) {
+                    Button(action: onTrailing) {
+                        Image(systemName: showUnhide ? "eye" : "eye.slash")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(showUnhide ? Color.accentColor : Color.secondary)
+                            .padding(3)
+                            .background(
+                                Circle()
+                                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+                            )
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .editMDHelp(showUnhide ? "Вернуть в список" : "Скрыть из списка")
+                    .padding(2)
+                }
+            }
+            Text(name)
+                .font(.system(size: 11))
+                .foregroundStyle(dimmed ? Color.secondary : Color.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .truncationMode(.middle)
+                .frame(width: Self.width - 4, alignment: .center)
+        }
+        .frame(width: Self.width)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hovering
+                      ? Color(nsColor: .quaternaryLabelColor).opacity(0.14)
+                      : Color.clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture(perform: onTap)
+        .onHover { hovering = $0 }
     }
 }
