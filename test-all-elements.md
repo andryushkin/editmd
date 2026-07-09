@@ -65,11 +65,11 @@ Second line of indented code.
 - [ ] Checked task
 - [ ] Another unchecked task
 
-| Name    | Age | City     |
-|---------|-----|----------|
-| Alice   | 30  | London   |
-| Bob     | 25  | Paris    |
-| Charlie | 35  | New York |
+| Name | Age | City |
+| --- | --- | --- |
+| Alice | 30 | London |
+| Bob | 25 | Paris |
+| Charlie | 35 | New York |
 
 Text with <br> inline HTML tag.
 

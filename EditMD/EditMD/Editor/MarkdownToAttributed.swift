@@ -587,3 +587,142 @@ private final class VisualRenderer {
                          range: NSRange(location: start, length: out.length - start))
     }
 }
+
+// MARK: - Large-table cell inline rendering (display-only)
+
+/// Renders a GFM table cell's *inline* markdown as an attributed string for
+/// virtualized large-table drawing. Markers (`**`, `` ` ``, `[[…]]`, …) are
+/// stripped; styles match Visual mode (bold/italic/strike/code/link/wiki-link).
+///
+/// Display-only — never feeds serialization. The cell source stays raw markdown
+/// in the `.raw` island / editor overlay.
+func renderTableCellAttributed(_ markdown: String,
+                               baseFont: NSFont,
+                               textColor: NSColor,
+                               linkColor: NSColor,
+                               codeColor: NSColor,
+                               codeBackground: NSColor = NSColor(white: 0.5, alpha: 0.12),
+                               boldColor: NSColor? = nil) -> NSAttributedString {
+    let out = NSMutableAttributedString()
+    guard !markdown.isEmpty else { return out }
+
+    func font(for styles: MDInlineStyle) -> NSFont {
+        if styles.contains(.code) {
+            return NSFont.monospacedSystemFont(ofSize: max(9, baseFont.pointSize - 1),
+                                               weight: .regular)
+        }
+        var traits = baseFont.fontDescriptor.symbolicTraits
+        if styles.contains(.bold) { traits.insert(.bold) }
+        if styles.contains(.italic) { traits.insert(.italic) }
+        if traits != baseFont.fontDescriptor.symbolicTraits {
+            let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
+            if let f = NSFont(descriptor: descriptor, size: baseFont.pointSize) { return f }
+        }
+        return baseFont
+    }
+
+    func append(_ string: String, styles: MDInlineStyle, isLink: Bool) {
+        guard !string.isEmpty else { return }
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: font(for: styles),
+            .foregroundColor: textColor,
+        ]
+        if isLink {
+            attrs[.foregroundColor] = linkColor
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        } else if styles.contains(.code) {
+            attrs[.foregroundColor] = codeColor
+            attrs[.backgroundColor] = codeBackground
+        } else if styles.contains(.bold), let boldColor {
+            attrs[.foregroundColor] = boldColor
+        }
+        if styles.contains(.strike) {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        out.append(NSAttributedString(string: string, attributes: attrs))
+    }
+
+    func appendTextWithWikiLinks(_ text: String, styles: MDInlineStyle, isLink: Bool) {
+        let matches = scanWikiLinks(in: text)
+        guard !matches.isEmpty else {
+            append(text, styles: styles, isLink: isLink)
+            return
+        }
+        let ns = text as NSString
+        var cursor = 0
+        for m in matches {
+            if m.range.location > cursor {
+                append(ns.substring(with: NSRange(location: cursor,
+                                                  length: m.range.location - cursor)),
+                       styles: styles, isLink: isLink)
+            }
+            // Wiki-links look like links (Visual parity).
+            append(m.payload.displayText, styles: styles, isLink: true)
+            cursor = NSMaxRange(m.range)
+        }
+        if cursor < ns.length {
+            append(ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),
+                   styles: styles, isLink: isLink)
+        }
+    }
+
+    func walk(_ children: MarkupChildren, styles: MDInlineStyle, isLink: Bool) {
+        for child in children {
+            switch child {
+            case let text as Markdown.Text:
+                // Don't scan wiki-links inside code or already-linked text.
+                if styles.contains(.code) || isLink {
+                    append(text.string, styles: styles, isLink: isLink)
+                } else {
+                    appendTextWithWikiLinks(text.string, styles: styles, isLink: isLink)
+                }
+            case let strong as Strong:
+                walk(strong.children, styles: styles.union(.bold), isLink: isLink)
+            case let emphasis as Emphasis:
+                walk(emphasis.children, styles: styles.union(.italic), isLink: isLink)
+            case let strike as Strikethrough:
+                walk(strike.children, styles: styles.union(.strike), isLink: isLink)
+            case let code as InlineCode:
+                append(code.code, styles: styles.union(.code), isLink: isLink)
+            case let link as Markdown.Link:
+                walk(link.children, styles: styles, isLink: true)
+            case let image as Markdown.Image:
+                let alt = image.plainText
+                append(alt.isEmpty ? "□" : alt, styles: styles, isLink: isLink)
+            case is SoftBreak, is LineBreak:
+                append(" ", styles: styles, isLink: isLink)
+            case let html as InlineHTML:
+                append(html.rawHTML, styles: styles.union(.rawHTML), isLink: isLink)
+            default:
+                // Unknown inline — fall back to formatted text without markers when possible.
+                if !(child is BlockMarkup) {
+                    walk(child.children, styles: styles, isLink: isLink)
+                }
+            }
+        }
+    }
+
+    let doc = Document(parsing: markdown)
+    for child in doc.children {
+        if let paragraph = child as? Paragraph {
+            if out.length > 0 { append(" ", styles: [], isLink: false) }
+            walk(paragraph.children, styles: [], isLink: false)
+        } else if let text = child as? Markdown.Text {
+            if out.length > 0 { append(" ", styles: [], isLink: false) }
+            appendTextWithWikiLinks(text.string, styles: [], isLink: false)
+        } else {
+            // Unexpected block inside a cell — keep plain (no pipe re-introduction).
+            let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !plain.isEmpty {
+                if out.length > 0 { append(" ", styles: [], isLink: false) }
+                append(plain, styles: [], isLink: false)
+            }
+        }
+    }
+
+    // Parser edge case: empty document (e.g. only spaces) — show original trimmed.
+    if out.length == 0, !markdown.trimmingCharacters(in: .whitespaces).isEmpty {
+        append(markdown, styles: [], isLink: false)
+    }
+    return out
+}

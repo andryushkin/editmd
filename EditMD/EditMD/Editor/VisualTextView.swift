@@ -242,6 +242,7 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         func loadDocument() {
             guard let textView, let storage = textView.textStorage else { return }
+            textView.finishActiveTableEditing(commit: true)
             isLoadingDocument = true
             let rendered = renderMarkdownToAttributed(parent.document.content, style: visualStyle)
             storage.setAttributedString(rendered)
@@ -514,6 +515,77 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
             return NSRange(location: first.range.location,
                            length: NSMaxRange(last.range) - first.range.location)
+        }
+
+        private func tableIsland(at paragraphLocation: Int) -> (range: NSRange, grid: TableGrid)? {
+            guard let textView, let storage = textView.textStorage else { return nil }
+            let nsText = storage.string as NSString
+            guard nsText.length > 0 else { return nil }
+            let paragraph = nsText.paragraphRange(for: NSRange(location: min(paragraphLocation, nsText.length - 1),
+                                                               length: 0))
+            let block = block(at: paragraph, in: storage)
+            guard case .raw(let raw) = block.kind, let grid = parseGFMTable(raw) else { return nil }
+            return (paragraph, grid)
+        }
+
+        private func tableIslandDisplayText(_ grid: TableGrid) -> String {
+            var lines = serializeGFMTable(grid).components(separatedBy: "\n")
+            if lines.count >= 2 { lines.remove(at: 1) } // hide delimiter in Visual display
+            return lines.joined(separator: mdHardBreak)
+        }
+
+        private func replaceTableIsland(paragraph: NSRange, oldBlock: MDBlock, grid: TableGrid) -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            var block = oldBlock
+            block.kind = .raw(serializeGFMTable(grid))
+            let replacement = NSAttributedString(string: tableIslandDisplayText(grid) + "\n", attributes: [
+                .font: visualStyle.font(for: [], blockKind: block.kind),
+                .foregroundColor: NSColor.labelColor,
+                .mdBlock: block,
+            ])
+            guard textView.shouldChangeText(in: paragraph, replacementString: replacement.string) else {
+                return false
+            }
+            isMutating = true
+            storage.replaceCharacters(in: paragraph, with: replacement)
+            if replacement.length > 0 {
+                storage.addAttribute(.mdBlock, value: block,
+                                     range: NSRange(location: paragraph.location, length: replacement.length))
+            }
+            isMutating = false
+            textView.didChangeText()
+            afterMutation()
+            return true
+        }
+
+        @discardableResult
+        func updateTableIslandCell(paragraphLocation: Int, row: Int, column: Int, value: String) -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            guard let island = tableIsland(at: paragraphLocation) else { return false }
+            var grid = island.grid
+            grid.updateCell(row: row, column: column, value: value)
+            let oldBlock = block(at: island.range, in: storage)
+            return replaceTableIsland(paragraph: island.range, oldBlock: oldBlock, grid: grid)
+        }
+
+        @discardableResult
+        func insertTableIslandRow(paragraphLocation: Int, atBodyIndex bodyIndex: Int) -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            guard let island = tableIsland(at: paragraphLocation) else { return false }
+            var grid = island.grid
+            grid.insertRow(at: bodyIndex)
+            let oldBlock = block(at: island.range, in: storage)
+            return replaceTableIsland(paragraph: island.range, oldBlock: oldBlock, grid: grid)
+        }
+
+        @discardableResult
+        func deleteTableIslandRow(paragraphLocation: Int, atBodyIndex bodyIndex: Int) -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            guard let island = tableIsland(at: paragraphLocation) else { return false }
+            var grid = island.grid
+            guard grid.deleteRow(at: bodyIndex) else { return false }
+            let oldBlock = block(at: island.range, in: storage)
+            return replaceTableIsland(paragraph: island.range, oldBlock: oldBlock, grid: grid)
         }
 
         /// Places the cursor at the end of a cell's text.
@@ -1121,8 +1193,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             let cellPadding: CGFloat = 12   // 6pt on each side
             let minWidth: CGFloat = 44
             let maxWidth: CGFloat = 260
+            // Measure *rendered* inline markdown (not raw `**bold**` markers) so
+            // column widths match what drawTableRow actually paints.
             func measure(_ s: String, _ f: NSFont) -> CGFloat {
-                (s as NSString).size(withAttributes: [.font: f]).width
+                renderTableCellAttributed(s, baseFont: f,
+                                          textColor: .labelColor,
+                                          linkColor: .linkColor,
+                                          codeColor: .systemOrange).size().width
             }
             var widths = [CGFloat](repeating: minWidth, count: columns)
             for (c, header) in grid.headers.enumerated() where c < columns {
@@ -1558,6 +1635,58 @@ struct TableIslandEntry {
     let headerFont: NSFont
 }
 
+private final class TableCellEditorField: NSTextField {
+    var onCommit: ((String) -> Void)?
+    var onCancel: (() -> Void)?
+    var onMove: ((Bool) -> Void)?      // true: forward, false: backward
+    var onDeleteRow: (() -> Void)?
+    var onTextChange: ((String) -> Void)?
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+    }
+
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        onTextChange?(stringValue)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: // Esc
+            onCancel?()
+        case 48: // Tab
+            onCommit?(stringValue)
+            onMove?(!event.modifierFlags.contains(.shift))
+        case 51 where event.modifierFlags.contains(.command): // Cmd+Backspace
+            onDeleteRow?()
+        case 36, 76: // Enter/Return
+            onCommit?(stringValue)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
+private final class TableCellEditorCell: NSTextFieldCell {
+    var insets: NSSize = .zero
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        rect.insetBy(dx: insets.width, dy: insets.height)
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        rect.insetBy(dx: insets.width, dy: insets.height)
+    }
+
+    override func select(withFrame frame: NSRect, in controlView: NSView, editor textObj: NSText,
+                         delegate anObject: Any?, start selStart: Int, length selLength: Int) {
+        let rect = frame.insetBy(dx: insets.width, dy: insets.height)
+        super.select(withFrame: rect, in: controlView, editor: textObj,
+                     delegate: anObject, start: selStart, length: selLength)
+    }
+}
+
 final class VisualNSTextView: NSTextView {
     var theme: EditorTheme = .system
     var bulletEntries: [(range: NSRange, depth: Int)] = []
@@ -1567,12 +1696,22 @@ final class VisualNSTextView: NSTextView {
     var codePanelRanges: [NSRange] = []
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
-    var tableIslandEntries: [TableIslandEntry] = []
+    var tableIslandEntries: [TableIslandEntry] = [] {
+        didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
+    }
     var propertiesPanelRanges: [NSRange] = []
+    private var islandHorizontalOffsets: [Int: CGFloat] = [:]
+    private var focusedIslandCell: (paragraphLocation: Int, row: Int, column: Int)?
+    private var activeEditor: TableCellEditorField?
+    private var activeEditorCell: (paragraphLocation: Int, row: Int, column: Int)?
+    /// Cache of rendered cell attributed strings for the current island set
+    /// (invalidated when `tableIslandEntries` is reassigned).
+    private var tableCellAttrCache: [String: NSAttributedString] = [:]
 
     private var visualCoordinator: VisualMarkdownView.Coordinator? {
         delegate as? VisualMarkdownView.Coordinator
     }
+    private var editorSettings: VisualTableEditorSettings { EditorSettings.shared.visualTableEditor }
 
     // Paste always as plain text — outside rich content would corrupt the model.
     override func paste(_ sender: Any?) {
@@ -1581,6 +1720,26 @@ final class VisualNSTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if activeEditor != nil, let hit = tableCellHit(at: point) {
+            // Fast path: switch editor directly to another cell.
+            finishActiveTableEditing(commit: true)
+            focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+            _ = startEditingTableCell(paragraphLocation: hit.entry.range.location,
+                                      row: hit.row, column: hit.column)
+            return
+        }
+        if let editor = activeEditor,
+           !editor.frame.insetBy(dx: -editorSettings.editorCellInset, dy: -editorSettings.editorCellInset).contains(point) {
+            finishActiveTableEditing(commit: true)
+        }
+        if event.clickCount >= 2, startEditingTableCell(at: point) {
+            return
+        }
+        if let hit = tableCellHit(at: point) {
+            focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+        } else {
+            focusedIslandCell = nil
+        }
         if let paragraph = taskParagraph(at: point) {
             visualCoordinator?.toggleTaskDone(at: paragraph)
             return
@@ -1596,6 +1755,37 @@ final class VisualNSTextView: NSTextView {
             return
         }
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 120, beginEditingFocusedTableCell() { // F2
+            return
+        }
+        if (event.keyCode == 36 || event.keyCode == 76), beginEditingFocusedTableCell() {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hit = tableCellHit(at: point) else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let wantsHorizontal = event.modifierFlags.contains(.shift) || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        guard wantsHorizontal else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let key = hit.entry.range.location
+        let current = islandHorizontalOffsets[key] ?? 0
+        let maxOffset = max(0, (hit.entry.columnEdges.last ?? 0) - textContainerInset.width - (bounds.width - textContainerInset.width * 2))
+        let next = min(max(0, current + event.scrollingDeltaX + event.scrollingDeltaY), maxOffset)
+        if abs(next - current) > 0.5 {
+            islandHorizontalOffsets[key] = next
+            needsDisplay = true
+        }
     }
 
     private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {
@@ -1636,6 +1826,215 @@ final class VisualNSTextView: NSTextView {
         return nil
     }
 
+    private func tableCellHit(at point: NSPoint) -> (entry: TableIslandEntry, row: Int, column: Int, rect: NSRect)? {
+        guard let layoutManager else { return nil }
+        let totalLength = (string as NSString).length
+        for entry in tableIslandEntries {
+            guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { continue }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { continue }
+            let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let top = firstRect.minY + textContainerInset.height
+            let totalRows = entry.grid.rows.count + 1
+            let height = CGFloat(totalRows) * entry.rowHeight
+            let islandRect = NSRect(x: textContainerInset.width, y: top, width: bounds.width - textContainerInset.width * 2, height: height)
+            guard islandRect.contains(point) else { continue }
+            let offset = islandHorizontalOffsets[entry.range.location] ?? 0
+            let row = min(totalRows - 1, max(0, Int((point.y - top) / entry.rowHeight)))
+            let x = point.x + offset
+            var column = 0
+            while column + 1 < entry.columnEdges.count, x >= entry.columnEdges[column + 1] {
+                column += 1
+            }
+            column = min(max(0, column), entry.grid.columnCount - 1)
+            let left = entry.columnEdges[column] - offset
+            let right = entry.columnEdges[column + 1] - offset
+            let rect = NSRect(x: left, y: top + CGFloat(row) * entry.rowHeight, width: right - left, height: entry.rowHeight)
+            return (entry, row, column, rect)
+        }
+        return nil
+    }
+
+    private func beginEditingFocusedTableCell() -> Bool {
+        guard activeEditor == nil, let focus = focusedIslandCell else { return false }
+        return startEditingTableCell(paragraphLocation: focus.paragraphLocation, row: focus.row, column: focus.column)
+    }
+
+    private func startEditingTableCell(at point: NSPoint) -> Bool {
+        guard let hit = tableCellHit(at: point) else { return false }
+        focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+        return startEditingTableCell(paragraphLocation: hit.entry.range.location, row: hit.row, column: hit.column)
+    }
+
+    private func startEditingTableCell(paragraphLocation: Int, row: Int, column: Int) -> Bool {
+        if let current = activeEditorCell {
+            if current.paragraphLocation == paragraphLocation && current.row == row && current.column == column {
+                return true
+            }
+            finishActiveTableEditing(commit: true)
+        }
+        guard activeEditor == nil else { return false }
+        guard let entry = tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else { return false }
+        let offset = islandHorizontalOffsets[paragraphLocation] ?? 0
+        guard column >= 0, column < entry.grid.columnCount else { return false }
+        let totalRows = entry.grid.rows.count + 1
+        guard row >= 0, row < totalRows else { return false }
+        let cells = row == 0 ? entry.grid.headers : entry.grid.rows[row - 1]
+        let value = column < cells.count ? cells[column] : ""
+        guard let layoutManager else { return false }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return false }
+        let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        let top = firstRect.minY + textContainerInset.height
+        let left = entry.columnEdges[column] - offset
+        let right = entry.columnEdges[column + 1] - offset
+        let cellInset = editorSettings.editorCellInset
+        let cellFrame = NSRect(x: left + cellInset, y: top + CGFloat(row) * entry.rowHeight + cellInset,
+                               width: max(32, right - left - cellInset * 2),
+                               height: max(20, entry.rowHeight - cellInset * 2))
+        let frame = expandedEditorFrame(for: value, cellFrame: cellFrame, font: row == 0 ? entry.headerFont : entry.font)
+        let editor = TableCellEditorField(frame: frame)
+        let cell = TableCellEditorCell()
+        cell.insets = NSSize(width: editorSettings.editorTextInsetH, height: editorSettings.editorTextInsetV)
+        editor.cell = cell
+        editor.font = row == 0 ? entry.headerFont : entry.font
+        editor.isBezeled = false
+        editor.isBordered = false
+        editor.drawsBackground = true
+        editor.stringValue = value
+        editor.focusRingType = .none
+        editor.backgroundColor = editorSettings.editorBackgroundColor
+        editor.textColor = editorSettings.editorTextColor
+        editor.lineBreakMode = .byWordWrapping
+        editor.usesSingleLineMode = false
+        editor.onCommit = { [weak self] text in
+            guard let self else { return }
+            _ = self.visualCoordinator?.updateTableIslandCell(
+                paragraphLocation: paragraphLocation, row: row, column: column, value: text)
+            self.endCellEditing()
+            self.focusedIslandCell = (paragraphLocation, row, column)
+        }
+        editor.onCancel = { [weak self] in
+            self?.endCellEditing()
+        }
+        editor.onMove = { [weak self] forward in
+            guard let self else { return }
+            guard let current = self.focusedIslandCell,
+                  current.paragraphLocation == paragraphLocation else { return }
+            guard let currentEntry = self.tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else { return }
+            let rows = currentEntry.grid.rows.count + 1
+            if let next = nextTableCellPosition(row: row, column: column, columns: currentEntry.grid.columnCount,
+                                                rows: rows, forward: forward) {
+                self.focusedIslandCell = (paragraphLocation, next.row, next.column)
+                _ = self.startEditingTableCell(paragraphLocation: paragraphLocation, row: next.row, column: next.column)
+            } else if forward {
+                if self.visualCoordinator?.insertTableIslandRow(paragraphLocation: paragraphLocation,
+                                                                atBodyIndex: currentEntry.grid.rows.count) == true {
+                    let nextRow = rows
+                    self.focusedIslandCell = (paragraphLocation, nextRow, 0)
+                    _ = self.startEditingTableCell(paragraphLocation: paragraphLocation, row: nextRow, column: 0)
+                }
+            }
+        }
+        editor.onDeleteRow = { [weak self] in
+            guard let self else { return }
+            guard row > 0 else { return }
+            if self.visualCoordinator?.deleteTableIslandRow(paragraphLocation: paragraphLocation,
+                                                            atBodyIndex: row - 1) == true {
+                self.endCellEditing()
+                let nextRow = max(1, row - 1)
+                self.focusedIslandCell = (paragraphLocation, nextRow, column)
+            }
+        }
+        editor.onTextChange = { [weak self, weak editor] text in
+            guard let self, let editor else { return }
+            let resized = self.expandedEditorFrame(for: text, cellFrame: cellFrame,
+                                                   font: editor.font ?? NSFont.systemFont(ofSize: 13))
+            if editor.frame != resized {
+                editor.frame = resized
+            }
+        }
+        addSubview(editor)
+        activeEditor = editor
+        activeEditorCell = (paragraphLocation, row, column)
+        needsDisplay = true
+        window?.makeFirstResponder(editor)
+        editor.selectText(nil)
+        return true
+    }
+
+    private func expandedEditorFrame(for text: String, cellFrame: NSRect, font: NSFont) -> NSRect {
+        let visible = enclosingScrollView?.contentView.documentVisibleRect ?? bounds
+        let s = editorSettings
+        let margin = s.editorViewportMargin
+        let maxUsableWidth = max(220, visible.width - margin * 2)
+        let expandedWidth = min(max(cellFrame.width + s.editorWidthExtra, s.editorMinWidth),
+                                min(max(260, bounds.width * s.editorMaxWidthRatio), maxUsableWidth))
+        let minHeight = max(cellFrame.height + s.editorTextInsetV * 2, s.editorMinHeight)
+        let maxHeight = max(56, min(bounds.height * s.editorMaxHeightRatio, visible.height - margin * 2))
+        let measureRect = NSRect(x: 0, y: 0,
+                                 width: max(80, expandedWidth - (s.editorTextInsetH * 2 + 8)),
+                                 height: .greatestFiniteMagnitude)
+        let measured = (text as NSString).boundingRect(
+            with: measureRect.size,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let targetHeight = min(max(minHeight, ceil(measured.height) + s.editorHeightExtra), maxHeight)
+        var x = cellFrame.minX + s.editorXOffset
+        var y = cellFrame.midY - targetHeight / 2
+        let minX = visible.minX + margin
+        let maxX = visible.maxX - margin - expandedWidth
+        let minY = visible.minY + margin
+        let maxY = visible.maxY - margin - targetHeight
+        x = min(max(x, minX), max(minX, maxX))
+        y = min(max(y, minY), max(minY, maxY))
+        return NSRect(x: x,
+                      y: y,
+                      width: expandedWidth,
+                      height: targetHeight)
+    }
+
+    private func endCellEditing() {
+        activeEditor?.removeFromSuperview()
+        activeEditor = nil
+        activeEditorCell = nil
+        needsDisplay = true
+        window?.makeFirstResponder(self)
+    }
+
+    func finishActiveTableEditing(commit: Bool) {
+        guard let editor = activeEditor, let cell = activeEditorCell else { return }
+        if commit {
+            let currentValue = tableCellCurrentValue(paragraphLocation: cell.paragraphLocation,
+                                                     row: cell.row, column: cell.column)
+            if currentValue != editor.stringValue {
+                _ = visualCoordinator?.updateTableIslandCell(
+                    paragraphLocation: cell.paragraphLocation,
+                    row: cell.row,
+                    column: cell.column,
+                    value: editor.stringValue
+                )
+            }
+        }
+        endCellEditing()
+    }
+
+    private func tableCellCurrentValue(paragraphLocation: Int, row: Int, column: Int) -> String? {
+        guard let entry = tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else {
+            return nil
+        }
+        if row == 0 {
+            guard column >= 0, column < entry.grid.headers.count else { return nil }
+            return entry.grid.headers[column]
+        }
+        let bodyIndex = row - 1
+        guard bodyIndex >= 0, bodyIndex < entry.grid.rows.count else { return nil }
+        let cells = entry.grid.rows[bodyIndex]
+        guard column >= 0, column < cells.count else { return nil }
+        return cells[column]
+    }
+
     /// Rect of the drawn marker (bullet/checkbox/number) for a paragraph:
     /// in the indent margin, on the first line fragment.
     private func markerRect(forParagraph range: NSRange) -> NSRect? {
@@ -1660,6 +2059,10 @@ final class VisualNSTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        if activeEditor != nil {
+            editorSettings.overlayColor.setFill()
+            (enclosingScrollView?.contentView.documentVisibleRect ?? bounds).fill()
+        }
         guard let layoutManager else { return }
         let inset = textContainerInset
         let totalLength = (string as NSString).length
@@ -1798,8 +2201,9 @@ final class VisualNSTextView: NSTextView {
         let rowH = entry.rowHeight
         let grid = entry.grid
         let edges = entry.columnEdges
-        let left = edges.first ?? inset.width
-        let right = edges.last ?? inset.width
+        let horizontalOffset = islandHorizontalOffsets[entry.range.location] ?? 0
+        let left = (edges.first ?? inset.width) - horizontalOffset
+        let right = (edges.last ?? inset.width) - horizontalOffset
         let width = right - left
         let totalLines = grid.rows.count + 1   // header + data rows (no delimiter)
         let bottom = top + CGFloat(totalLines) * rowH
@@ -1818,12 +2222,14 @@ final class VisualNSTextView: NSTextView {
                 border.setFill()
                 NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
                 drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
-                             color: theme.textColor, edges: edges, alignments: grid.alignments)
+                             color: theme.textColor, edges: edges, alignments: grid.alignments,
+                             horizontalOffset: horizontalOffset)
             } else {
                 let dataIndex = i - 1
                 if dataIndex < grid.rows.count {
                     drawTableRow(grid.rows[dataIndex], in: rowRect, font: entry.font,
-                                 color: theme.textColor, edges: edges, alignments: grid.alignments)
+                                 color: theme.textColor, edges: edges, alignments: grid.alignments,
+                                 horizontalOffset: horizontalOffset)
                 }
             }
             border.setFill()
@@ -1836,17 +2242,21 @@ final class VisualNSTextView: NSTextView {
         if visBottom > visTop {
             border.setFill()
             for x in edges {
-                NSRect(x: x - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()
+                NSRect(x: x - horizontalOffset - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()
             }
         }
     }
 
     private func drawTableRow(_ cells: [String], in rowRect: NSRect, font: NSFont,
                               color: NSColor, edges: [CGFloat],
-                              alignments: [TableGrid.Alignment]) {
+                              alignments: [TableGrid.Alignment], horizontalOffset: CGFloat) {
         let columns = edges.count - 1
         let lineHeight = font.ascender - font.descender
         let textY = rowRect.minY + (rowRect.height - lineHeight) / 2
+        let elements = EditorSettings.shared.visual.elements
+        let linkColor = elements.link.color ?? theme.accentColor
+        let codeColor = elements.inlineCode.color ?? theme.inlineCodeColor
+        let boldColor = elements.bold.color
         for c in 0..<columns where c < cells.count {
             let text = cells[c]
             guard !text.isEmpty else { continue }
@@ -1859,10 +2269,41 @@ final class VisualNSTextView: NSTextView {
             case .center: para.alignment = .center
             case .trailing: para.alignment = .right
             }
-            let drawRect = NSRect(x: edges[c] + 6, y: textY, width: cellW - 12, height: lineHeight)
-            (text as NSString).draw(in: drawRect, withAttributes: [
-                .font: font, .foregroundColor: color, .paragraphStyle: para,
-            ])
+            let drawRect = NSRect(x: edges[c] - horizontalOffset + 6, y: textY,
+                                  width: cellW - 12, height: lineHeight)
+            let attr = attributedTableCell(text, font: font, textColor: color,
+                                           linkColor: linkColor, codeColor: codeColor,
+                                           boldColor: boldColor, paragraphStyle: para)
+            attr.draw(in: drawRect)
         }
+    }
+
+    /// Renders (and caches) a table-island cell's inline markdown for drawing.
+    private func attributedTableCell(_ markdown: String, font: NSFont,
+                                     textColor: NSColor, linkColor: NSColor,
+                                     codeColor: NSColor, boldColor: NSColor?,
+                                     paragraphStyle: NSParagraphStyle) -> NSAttributedString {
+        // Key omits colors that rarely change mid-scroll; theme changes rebuild
+        // `tableIslandEntries` and clear the cache via didSet.
+        let key = "\(font.fontName)|\(font.pointSize)|\(markdown)"
+        if let cached = tableCellAttrCache[key] {
+            // Paragraph style (alignment / truncate) is per-column — stamp on a copy.
+            let copy = NSMutableAttributedString(attributedString: cached)
+            copy.addAttribute(.paragraphStyle, value: paragraphStyle,
+                              range: NSRange(location: 0, length: copy.length))
+            return copy
+        }
+        let rendered = renderTableCellAttributed(markdown, baseFont: font,
+                                                 textColor: textColor,
+                                                 linkColor: linkColor,
+                                                 codeColor: codeColor,
+                                                 boldColor: boldColor)
+        tableCellAttrCache[key] = rendered
+        let copy = NSMutableAttributedString(attributedString: rendered)
+        if copy.length > 0 {
+            copy.addAttribute(.paragraphStyle, value: paragraphStyle,
+                              range: NSRange(location: 0, length: copy.length))
+        }
+        return copy
     }
 }

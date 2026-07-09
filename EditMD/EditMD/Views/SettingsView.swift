@@ -121,6 +121,42 @@ private struct ModeTab: View {
                                 value: $settings.visualSpacing.scale,
                                 range: VisualSpacingSettings.range, format: "%.2f×")
                 }
+                Section("Large table editor") {
+                    let v = $settings.visualTableEditor
+                    ColorOverrideRow(title: "Overlay color", hex: v.overlayColorHex,
+                                     fallback: NSColor(white: 0.5, alpha: 1))
+                    ValueSlider(title: "Overlay opacity", value: v.overlayOpacity,
+                                range: VisualTableEditorSettings.overlayOpacityRange,
+                                format: "%.2f")
+                    ColorOverrideRow(title: "Input background", hex: v.editorBackgroundHex,
+                                     fallback: .white)
+                    ColorOverrideRow(title: "Input text", hex: v.editorTextHex,
+                                     fallback: .labelColor)
+                    ValueSlider(title: "Text inset horizontal", value: v.editorTextInsetH,
+                                range: VisualTableEditorSettings.textInsetRange, format: "%.0f")
+                    ValueSlider(title: "Text inset vertical", value: v.editorTextInsetV,
+                                range: VisualTableEditorSettings.textInsetRange, format: "%.0f")
+                    ValueSlider(title: "Width extra", value: v.editorWidthExtra,
+                                range: VisualTableEditorSettings.widthExtraRange, format: "%.0f")
+                    ValueSlider(title: "Min width", value: v.editorMinWidth,
+                                range: VisualTableEditorSettings.minWidthRange, format: "%.0f")
+                    ValueSlider(title: "Max width ratio", value: v.editorMaxWidthRatio,
+                                range: VisualTableEditorSettings.maxWidthRatioRange,
+                                format: "%.2f")
+                    ValueSlider(title: "Min height", value: v.editorMinHeight,
+                                range: VisualTableEditorSettings.minHeightRange, format: "%.0f")
+                    ValueSlider(title: "Height extra", value: v.editorHeightExtra,
+                                range: VisualTableEditorSettings.heightExtraRange, format: "%.0f")
+                    ValueSlider(title: "Max height ratio", value: v.editorMaxHeightRatio,
+                                range: VisualTableEditorSettings.maxHeightRatioRange,
+                                format: "%.2f")
+                    ValueSlider(title: "Viewport margin", value: v.editorViewportMargin,
+                                range: VisualTableEditorSettings.viewportMarginRange, format: "%.0f")
+                    ValueSlider(title: "X offset", value: v.editorXOffset,
+                                range: VisualTableEditorSettings.offsetRange, format: "%.0f")
+                    ValueSlider(title: "Cell inset", value: v.editorCellInset,
+                                range: VisualTableEditorSettings.cellInsetRange, format: "%.0f")
+                }
             case .lineHeight:
                 Section("Typography") {
                     ValueSlider(title: "Line height", value: $settings.previewTypography.lineHeight,

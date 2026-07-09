@@ -17,6 +17,32 @@ struct TableGrid: Equatable {
     var alignments: [Alignment]
 
     var columnCount: Int { headers.count }
+
+    mutating func updateCell(row: Int, column: Int, value: String) {
+        guard column >= 0, column < columnCount else { return }
+        if row == 0 {
+            headers[column] = value
+            return
+        }
+        let bodyIndex = row - 1
+        guard bodyIndex >= 0, bodyIndex < rows.count else { return }
+        if rows[bodyIndex].count < columnCount {
+            rows[bodyIndex] += Array(repeating: "", count: columnCount - rows[bodyIndex].count)
+        }
+        rows[bodyIndex][column] = value
+    }
+
+    mutating func insertRow(at bodyIndex: Int) {
+        let index = max(0, min(bodyIndex, rows.count))
+        rows.insert(Array(repeating: "", count: columnCount), at: index)
+    }
+
+    @discardableResult
+    mutating func deleteRow(at bodyIndex: Int) -> Bool {
+        guard bodyIndex >= 0, bodyIndex < rows.count else { return false }
+        rows.remove(at: bodyIndex)
+        return true
+    }
 }
 
 /// Parses the verbatim text of a `.raw` island as a GFM pipe table. Returns
@@ -45,6 +71,54 @@ func parseGFMTable(_ raw: String) -> TableGrid? {
 
     let rows = lines.dropFirst(2).map { splitTableRow($0) }
     return TableGrid(headers: headers, rows: Array(rows), alignments: alignments)
+}
+
+/// Serializes an editable grid back to canonical GFM pipe-table markdown.
+/// Rows are padded/truncated to `headers.count`; alignment row is always emitted.
+func serializeGFMTable(_ grid: TableGrid) -> String {
+    guard !grid.headers.isEmpty else { return "" }
+    let columns = grid.columnCount
+
+    func normalized(_ row: [String]) -> [String] {
+        if row.count == columns { return row }
+        if row.count > columns { return Array(row.prefix(columns)) }
+        return row + Array(repeating: "", count: columns - row.count)
+    }
+
+    func escapeCell(_ cell: String) -> String {
+        var out = ""
+        for ch in cell {
+            if ch == "\\" { out += "\\\\"; continue }
+            if ch == "|" { out += "\\|"; continue }
+            out.append(ch)
+        }
+        return out
+    }
+
+    func line(_ row: [String]) -> String {
+        let escaped = normalized(row).map { escapeCell($0) }
+        return "| " + escaped.joined(separator: " | ") + " |"
+    }
+
+    func delimiter(_ alignment: TableGrid.Alignment) -> String {
+        switch alignment {
+        case .leading: return "---"
+        case .center: return ":-:"
+        case .trailing: return "--:"
+        }
+    }
+
+    var aligns = grid.alignments
+    if aligns.count < columns {
+        aligns += Array(repeating: .leading, count: columns - aligns.count)
+    } else if aligns.count > columns {
+        aligns = Array(aligns.prefix(columns))
+    }
+
+    var lines = [line(grid.headers),
+                 "| " + aligns.map(delimiter).joined(separator: " | ") + " |"]
+    lines += grid.rows.map(line)
+    return lines.joined(separator: "\n")
 }
 
 /// Splits one GFM table row into trimmed cells. Honors `\|` as a literal pipe

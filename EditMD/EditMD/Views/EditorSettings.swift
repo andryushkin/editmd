@@ -251,6 +251,74 @@ struct VisualSpacingSettings: Codable, Equatable {
     static let range: ClosedRange<CGFloat> = 0.5...2.0
 }
 
+/// Visual-mode large-table cell editor (overlay + input panel) tuning.
+/// All values are user-configurable from Settings ▸ Visual.
+struct VisualTableEditorSettings: Codable, Equatable {
+    var overlayColorHex: String?
+    var overlayOpacity: CGFloat
+    var editorBackgroundHex: String?
+    var editorTextHex: String?
+    var editorTextInsetH: CGFloat
+    var editorTextInsetV: CGFloat
+    var editorWidthExtra: CGFloat
+    var editorMinWidth: CGFloat
+    var editorMaxWidthRatio: CGFloat
+    var editorMinHeight: CGFloat
+    var editorHeightExtra: CGFloat
+    var editorMaxHeightRatio: CGFloat
+    var editorViewportMargin: CGFloat
+    var editorXOffset: CGFloat
+    var editorCellInset: CGFloat
+
+    init(overlayColorHex: String? = nil, overlayOpacity: CGFloat = 0.20,
+         editorBackgroundHex: String? = "#FFFFFF", editorTextHex: String? = nil,
+         editorTextInsetH: CGFloat = 8, editorTextInsetV: CGFloat = 6,
+         editorWidthExtra: CGFloat = 140, editorMinWidth: CGFloat = 240,
+         editorMaxWidthRatio: CGFloat = 0.75, editorMinHeight: CGFloat = 44,
+         editorHeightExtra: CGFloat = 18, editorMaxHeightRatio: CGFloat = 0.45,
+         editorViewportMargin: CGFloat = 8, editorXOffset: CGFloat = -8,
+         editorCellInset: CGFloat = 2) {
+        self.overlayColorHex = overlayColorHex
+        self.overlayOpacity = overlayOpacity
+        self.editorBackgroundHex = editorBackgroundHex
+        self.editorTextHex = editorTextHex
+        self.editorTextInsetH = editorTextInsetH
+        self.editorTextInsetV = editorTextInsetV
+        self.editorWidthExtra = editorWidthExtra
+        self.editorMinWidth = editorMinWidth
+        self.editorMaxWidthRatio = editorMaxWidthRatio
+        self.editorMinHeight = editorMinHeight
+        self.editorHeightExtra = editorHeightExtra
+        self.editorMaxHeightRatio = editorMaxHeightRatio
+        self.editorViewportMargin = editorViewportMargin
+        self.editorXOffset = editorXOffset
+        self.editorCellInset = editorCellInset
+    }
+
+    static let overlayOpacityRange: ClosedRange<CGFloat> = 0...0.7
+    static let textInsetRange: ClosedRange<CGFloat> = 0...24
+    static let widthExtraRange: ClosedRange<CGFloat> = 0...420
+    static let minWidthRange: ClosedRange<CGFloat> = 120...800
+    static let maxWidthRatioRange: ClosedRange<CGFloat> = 0.3...1.0
+    static let minHeightRange: ClosedRange<CGFloat> = 24...240
+    static let heightExtraRange: ClosedRange<CGFloat> = 0...180
+    static let maxHeightRatioRange: ClosedRange<CGFloat> = 0.2...0.9
+    static let viewportMarginRange: ClosedRange<CGFloat> = 0...48
+    static let offsetRange: ClosedRange<CGFloat> = -80...80
+    static let cellInsetRange: ClosedRange<CGFloat> = 0...16
+
+    var overlayColor: NSColor {
+        (overlayColorHex.flatMap(NSColor.init(hex:)) ?? NSColor(white: 0.5, alpha: 1))
+            .withAlphaComponent(overlayOpacity)
+    }
+    var editorBackgroundColor: NSColor {
+        editorBackgroundHex.flatMap(NSColor.init(hex:)) ?? .white
+    }
+    var editorTextColor: NSColor {
+        editorTextHex.flatMap(NSColor.init(hex:)) ?? .labelColor
+    }
+}
+
 /// Preview-only: CSS line-height (editor views use AppKit paragraph spacing
 /// instead, which isn't comparable to a line-height multiplier).
 struct PreviewTypographySettings: Codable, Equatable {
@@ -305,6 +373,9 @@ final class EditorSettings: ObservableObject {
     @Published var source: ModeSettings { didSet { persist(source, Keys.source) } }
     @Published var visual: ModeSettings { didSet { persist(visual, Keys.visual) } }
     @Published var visualSpacing: VisualSpacingSettings { didSet { persist(visualSpacing, Keys.visualSpacing) } }
+    @Published var visualTableEditor: VisualTableEditorSettings {
+        didSet { persist(visualTableEditor, Keys.visualTableEditor) }
+    }
     @Published var preview: ModeSettings { didSet { persist(preview, Keys.preview) } }
     @Published var previewTypography: PreviewTypographySettings { didSet { persist(previewTypography, Keys.previewTypography) } }
 
@@ -313,6 +384,7 @@ final class EditorSettings: ObservableObject {
         static let source = "editorSettings.source"
         static let visual = "editorSettings.visual"
         static let visualSpacing = "editorSettings.visualSpacing"
+        static let visualTableEditor = "editorSettings.visualTableEditor"
         static let preview = "editorSettings.preview"
         static let previewTypography = "editorSettings.previewTypography"
     }
@@ -324,6 +396,7 @@ final class EditorSettings: ObservableObject {
         visual = Self.load(Keys.visual) ?? ModeSettings(
             fontSize: 15, insetH: 48, insetV: 24, columnWidth: 0)
         visualSpacing = Self.load(Keys.visualSpacing) ?? VisualSpacingSettings(scale: 1.0)
+        visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
         preview = Self.load(Keys.preview) ?? ModeSettings(
             fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
@@ -349,6 +422,7 @@ final class EditorSettings: ObservableObject {
     func resetVisual() {
         visual = ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 0)
         visualSpacing = VisualSpacingSettings(scale: 1.0)
+        visualTableEditor = VisualTableEditorSettings()
     }
     func resetPreview() {
         preview = ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)

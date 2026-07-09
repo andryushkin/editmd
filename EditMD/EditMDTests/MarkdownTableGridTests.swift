@@ -162,4 +162,152 @@ final class MarkdownTableGridTests: XCTestCase {
         XCTAssertTrue(scanSourceTables("just text\nmore text\n").isEmpty)
         XCTAssertTrue(scanSourceTables("| a | b |\nno delimiter here").isEmpty)
     }
+
+    // MARK: editable grid + serialization
+
+    func testSerializePreservesAlignmentsAndEscapes() {
+        let grid = TableGrid(
+            headers: ["A", "B"],
+            rows: [["x|y", #"a\b"#]],
+            alignments: [.center, .trailing]
+        )
+        XCTAssertEqual(
+            serializeGFMTable(grid),
+            "| A | B |\n| :-: | --: |\n| x\\|y | a\\\\b |"
+        )
+    }
+
+    func testUpdateInsertDeleteRowFlow() {
+        var grid = TableGrid(
+            headers: ["A", "B"],
+            rows: [["1", "2"]],
+            alignments: [.leading, .leading]
+        )
+        grid.updateCell(row: 0, column: 1, value: "BB")
+        grid.updateCell(row: 1, column: 0, value: "11")
+        grid.insertRow(at: 1)
+        grid.updateCell(row: 2, column: 1, value: "tail")
+        XCTAssertEqual(grid.headers, ["A", "BB"])
+        XCTAssertEqual(grid.rows, [["11", "2"], ["", "tail"]])
+
+        XCTAssertTrue(grid.deleteRow(at: 0))
+        XCTAssertEqual(grid.rows, [["", "tail"]])
+        XCTAssertFalse(grid.deleteRow(at: 5))
+    }
+
+    func testGridParseSerializeRoundTrip() throws {
+        let raw = "| l | c | r |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |"
+        let grid = try XCTUnwrap(parseGFMTable(raw))
+        XCTAssertEqual(parseGFMTable(serializeGFMTable(grid)), grid)
+    }
+
+    func testEditFlowRoundTripKeepsAlignmentAndEscaping() throws {
+        var grid = try XCTUnwrap(parseGFMTable("| A | B |\n| :-- | --: |\n| 1 | 2 |"))
+        grid.updateCell(row: 1, column: 0, value: "x|y")
+        grid.insertRow(at: 1)
+        grid.updateCell(row: 2, column: 1, value: #"a\b"#)
+        let serialized = serializeGFMTable(grid)
+        XCTAssertEqual(serialized, "| A | B |\n| --- | --: |\n| x\\|y | 2 |\n|  | a\\\\b |")
+        let reparsed = try XCTUnwrap(parseGFMTable(serialized))
+        XCTAssertEqual(reparsed.alignments, [.leading, .trailing])
+        XCTAssertEqual(reparsed.rows, [["x|y", "2"], ["", #"a\b"#]])
+    }
+
+    func testParseSerializeLargeTablePerformance() {
+        var lines = ["| A | B | C |", "| --- | --- | --- |"]
+        for i in 0..<2000 {
+            lines.append("| \(i) | value-\(i) | \(i * 2) |")
+        }
+        let raw = lines.joined(separator: "\n")
+        measure {
+            guard let grid = parseGFMTable(raw) else {
+                XCTFail("expected table")
+                return
+            }
+            _ = serializeGFMTable(grid)
+        }
+    }
+
+    // MARK: renderTableCellAttributed (large-table Visual inline markdown)
+
+    private func cellAttr(_ md: String) -> NSAttributedString {
+        renderTableCellAttributed(md,
+                                  baseFont: .systemFont(ofSize: 14),
+                                  textColor: .labelColor,
+                                  linkColor: .linkColor,
+                                  codeColor: .systemOrange)
+    }
+
+    private func isBold(_ font: NSFont) -> Bool {
+        font.fontDescriptor.symbolicTraits.contains(.bold)
+    }
+
+    private func isItalic(_ font: NSFont) -> Bool {
+        font.fontDescriptor.symbolicTraits.contains(.italic)
+    }
+
+    func testCellRenderStripsBoldMarkers() {
+        let attr = cellAttr("**bold**")
+        XCTAssertEqual(attr.string, "bold")
+        let font = attr.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        XCTAssertNotNil(font)
+        XCTAssertTrue(isBold(font!), "expected bold font for **…**")
+    }
+
+    func testCellRenderItalicStrikeCode() {
+        let italic = cellAttr("*em*")
+        XCTAssertEqual(italic.string, "em")
+        XCTAssertTrue(isItalic(italic.attribute(.font, at: 0, effectiveRange: nil) as! NSFont))
+
+        let strike = cellAttr("~~gone~~")
+        XCTAssertEqual(strike.string, "gone")
+        let strikeStyle = strike.attribute(.strikethroughStyle, at: 0, effectiveRange: nil) as? Int
+        XCTAssertEqual(strikeStyle, NSUnderlineStyle.single.rawValue)
+
+        let code = cellAttr("`x`")
+        XCTAssertEqual(code.string, "x")
+        // Code: monospaced + tint + background (markers stripped).
+        let codeFont = code.attribute(.font, at: 0, effectiveRange: nil) as! NSFont
+        let mono = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        XCTAssertEqual(codeFont.pointSize, mono.pointSize)
+        XCTAssertEqual(codeFont.fontName, mono.fontName)
+        XCTAssertNotNil(code.attribute(.foregroundColor, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(code.attribute(.backgroundColor, at: 0, effectiveRange: nil))
+    }
+
+    func testCellRenderLinkAndWikiLink() {
+        let link = cellAttr("[label](https://example.com)")
+        XCTAssertEqual(link.string, "label")
+        let underline = link.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        XCTAssertEqual(underline, NSUnderlineStyle.single.rawValue)
+
+        let wiki = cellAttr("[[Note|alias]]")
+        XCTAssertEqual(wiki.string, "alias")
+        let wikiUnderline = wiki.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+        XCTAssertEqual(wikiUnderline, NSUnderlineStyle.single.rawValue)
+
+        let wikiBare = cellAttr("[[Target]]")
+        XCTAssertEqual(wikiBare.string, "Target")
+    }
+
+    func testCellRenderMixedAndPlain() {
+        let mixed = cellAttr("a **b** c")
+        XCTAssertEqual(mixed.string, "a b c")
+        // "b" run should be bold.
+        var boldRange = NSRange()
+        let fontAtB = mixed.attribute(.font, at: 2, effectiveRange: &boldRange) as? NSFont
+        XCTAssertTrue(isBold(fontAtB!))
+
+        let plain = cellAttr("just text")
+        XCTAssertEqual(plain.string, "just text")
+
+        let empty = cellAttr("")
+        XCTAssertEqual(empty.string, "")
+    }
+
+    func testCellRenderDoesNotLeakMarkersIntoPlainCells() {
+        // Escaped-looking content and partial markers stay literal when unparsed.
+        let partial = cellAttr("2 * 3 = 6")
+        XCTAssertEqual(partial.string, "2 * 3 = 6")
+    }
 }
