@@ -3,6 +3,75 @@ import XCTest
 
 final class GitCLITests: XCTestCase {
 
+    // MARK: - Suggested commit messages
+
+    func testSuggestedAddUntracked() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(fileName: "note.md", pathStatus: .untracked),
+            "Add note.md"
+        )
+    }
+
+    func testSuggestedDelete() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(fileName: "gone.md", pathStatus: .deleted),
+            "Delete gone.md"
+        )
+    }
+
+    func testSuggestedUpdatePlain() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(fileName: "a.md", pathStatus: .modified),
+            "Update a.md"
+        )
+    }
+
+    func testSuggestedUpdateWithSingleLine() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(
+                fileName: "a.md", pathStatus: .modified, dirtyLines: [12]),
+            "Update a.md (L12)"
+        )
+    }
+
+    func testSuggestedUpdateWithLineRange() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(
+                fileName: "a.md", pathStatus: .modified, dirtyLines: [12, 13, 14]),
+            "Update a.md (L12–14)"
+        )
+    }
+
+    func testSuggestedUpdateWithSparseLines() {
+        XCTAssertEqual(
+            GitCommitMessage.suggested(
+                fileName: "a.md", pathStatus: .modified, dirtyLines: [3, 9, 20, 21]),
+            "Update a.md (L3, L9, L20–21)"
+        )
+    }
+
+    func testFormatLineSpanCapsRanges() {
+        // 5 separate lines → 4 ranges + ellipsis
+        let span = GitCommitMessage.formatLineSpan([1, 3, 5, 7, 9])
+        XCTAssertEqual(span, "L1, L3, L5, L7, …")
+    }
+
+    func testParseUnifiedDiffNewLines() {
+        let diff = """
+        diff --git a/a.md b/a.md
+        --- a/a.md
+        +++ b/a.md
+        @@ -10,0 +11,2 @@
+        +hello
+        +world
+        @@ -20 +21 @@
+        -old
+        +new
+        """
+        let lines = GitCLI.parseUnifiedDiffNewLines(diff)
+        XCTAssertEqual(lines, [11, 12, 21])
+    }
+
     func testRelativePath() {
         let root = URL(fileURLWithPath: "/Users/me/repo", isDirectory: true)
         let file = URL(fileURLWithPath: "/Users/me/repo/docs/a.md")

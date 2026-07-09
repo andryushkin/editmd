@@ -59,6 +59,45 @@ enum GitCLI {
         return rel
     }
 
+    /// 1-based **new-side** line numbers touched in the worktree/index vs HEAD
+    /// for this path (`git diff -U0 HEAD -- path`). Empty if clean / untracked /
+    /// binary / unavailable. Used only for suggested commit messages.
+    static func changedLineNumbers(of file: URL) -> Set<Int> {
+        guard let root = repositoryRoot(containing: file) else { return [] }
+        let rel = relativePath(of: file, to: root)
+        guard !rel.isEmpty else { return [] }
+        // Include staged + unstaged against HEAD. `-U0` → hunk headers only.
+        guard let out = run(in: root, arguments: ["diff", "-U0", "HEAD", "--", rel]) else {
+            return []
+        }
+        return parseUnifiedDiffNewLines(out)
+    }
+
+    /// Parses `@@ -old[,n] +new[,n] @@` headers → set of new-file line numbers.
+    static func parseUnifiedDiffNewLines(_ diff: String) -> Set<Int> {
+        var result = Set<Int>()
+        // +start or +start,count  (count 0 = pure deletion — no new lines)
+        let pattern = #"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@"#
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = diff as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        re.enumerateMatches(in: diff, options: [], range: full) { match, _, _ in
+            guard let match, match.numberOfRanges >= 2 else { return }
+            let startStr = ns.substring(with: match.range(at: 1))
+            guard let start = Int(startStr), start > 0 else { return }
+            var count = 1
+            if match.numberOfRanges >= 3, match.range(at: 2).location != NSNotFound {
+                let cStr = ns.substring(with: match.range(at: 2))
+                count = Int(cStr) ?? 1
+            }
+            guard count > 0 else { return }
+            for i in 0..<count {
+                result.insert(start + i)
+            }
+        }
+        return result
+    }
+
     /// Working-tree / index status for a single path (`git status --porcelain`).
     enum PathStatus: Equatable, Sendable {
         case notInRepo

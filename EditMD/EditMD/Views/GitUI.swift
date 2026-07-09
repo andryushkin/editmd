@@ -87,6 +87,63 @@ enum GitFileStatus {
     }
 }
 
+// MARK: - Suggested commit message (short English, contextual)
+
+/// Builds a one-line default for the Commit sheet. Pure / testable.
+/// Examples: `Add note.md`, `Update note.md (L12–18)`, `Update a.md (L3, L9)`.
+enum GitCommitMessage {
+    /// Max separate ranges in the parenthetical (extra → `…`).
+    static let maxRanges = 4
+
+    static func suggested(
+        fileName: String,
+        pathStatus: GitCLI.PathStatus,
+        dirtyLines: Set<Int> = []
+    ) -> String {
+        let name = fileName.isEmpty ? "file" : fileName
+        switch pathStatus {
+        case .untracked:
+            return "Add \(name)"
+        case .deleted:
+            return "Delete \(name)"
+        case .modified, .clean, .notInRepo:
+            if let span = formatLineSpan(dirtyLines), !span.isEmpty {
+                return "Update \(name) (\(span))"
+            }
+            return "Update \(name)"
+        }
+    }
+
+    /// Collapses 1-based line numbers into `L3`, `L12–18`, `L3, L9, L20–22`.
+    static func formatLineSpan(_ lines: Set<Int>) -> String? {
+        let sorted = lines.filter { $0 > 0 }.sorted()
+        guard !sorted.isEmpty else { return nil }
+
+        var ranges: [(Int, Int)] = []
+        var start = sorted[0]
+        var end = sorted[0]
+        for n in sorted.dropFirst() {
+            if n == end + 1 {
+                end = n
+            } else {
+                ranges.append((start, end))
+                start = n
+                end = n
+            }
+        }
+        ranges.append((start, end))
+
+        let shown = ranges.prefix(maxRanges)
+        var parts: [String] = shown.map { s, e in
+            s == e ? "L\(s)" : "L\(s)–\(e)"
+        }
+        if ranges.count > maxRanges {
+            parts.append("…")
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
 // MARK: - Commit sheet (stage 4)
 
 struct GitCommitSheet: View {
@@ -137,12 +194,26 @@ struct GitCommitSheet: View {
         .padding(20)
         .frame(minWidth: 440, idealWidth: 480)
         .onAppear {
-            messageFocused = true
-            // Sensible default: file name without extension as stub (user edits).
-            if message.isEmpty {
-                message = ""
+            if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                message = suggestedMessage()
             }
+            messageFocused = true
         }
+    }
+
+    private func suggestedMessage() -> String {
+        let status = GitCLI.pathStatus(of: fileURL)
+        // Prefer session gutter marks (what the user just edited); fall back to
+        // git diff line numbers when marks are empty but the file is modified.
+        var dirty = LineChangeTracker.shared.dirtyLines(for: fileURL)
+        if dirty.isEmpty, status == .modified || status == .clean {
+            dirty = GitCLI.changedLineNumbers(of: fileURL)
+        }
+        return GitCommitMessage.suggested(
+            fileName: fileName,
+            pathStatus: status,
+            dirtyLines: dirty
+        )
     }
 
     private var commitBody: some View {
