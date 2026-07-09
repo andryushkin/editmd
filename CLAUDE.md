@@ -29,7 +29,7 @@
 - **v32 ✅** — **виртуальное выравнивание колонок таблиц в Source** (`.kern`, файл не меняется): `scanSourceTables` + kern-паддинг до целевой ширины колонки с капом (длинная ячейка → рваная строка). См. «## v32 — Complete» ниже
 - **v33 ✅** — \*\*YAML frontmatter «как в Obsidian» (Visual + Preview) + подсветка ``yaml во всех трёх режимах**: `Editor/Frontmatter.swift` (детект блока `---…---`, разбор свойств, YAML-токенайзер). swift-markdown frontmatter не знает (открывающий `---` = thematic break, закрывающий после тела = setext H2 → блок раздувался в заголовок). Frontmatter: Visual — read-only остров-карточка свойств (round-trip дословный через `.raw`), Preview — таблица свойств, **Source** — YAML-подсветка тела + приглушённые `---`-фенсы (перекрывает setext-mangle). ``yaml код-блоки — подсветка ключ/значение в Preview (HTML-спаны) и Source (`.codeBlockBody(language:)`), Visual остаётся моно. См. «## v33 — Complete» ниже
 - **v34 ✅** — **внешние правки открытого файла + GitHub-style diff** (app **0.34.3** = v34.1 gutter + v34.2 detect-commit + v34.3 commit/push): `DocumentRegistry` watch (`DispatchSource` + app-activate), clean → auto-reload + banner review, dirty → conflict (Keep Mine / Take Disk); unified diff sheet (NSTextView, Source-подсветка, wide). См. «## v34 — Complete» ниже
-- **v35 ✅** — **вкладка Git в сайдбаре** (app **0.35.0**): Commit/Push/Diff перенесены из status bar; workspace-scoped porcelain (только md внутри adopted folders); status bar = info (`branch · +N −M · ↑ahead`); unified diff sheet переиспользуется для HEAD→buffer/worktree. См. «## v35 — Complete» ниже
+- **v35 ✅** — **вкладка Git в сайдбаре** (app **0.35.1** = 0.35.0 tab + 0.35.1 perf): Commit/Push/Diff перенесены из status bar; workspace-scoped porcelain (только md внутри adopted folders); status bar = info (`branch · +N −M · ↑ahead`); unified diff sheet переиспользуется для HEAD→buffer/worktree. См. «## v35 — Complete» ниже
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. «## v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -143,23 +143,30 @@
 
 **Осталось:** frontmatter в Visual read-only (правка в Source) — редактируемые свойства-виджеты как в Obsidian Live Preview отложены; подсветка \`\`\`yaml в Visual (код-блоки там пока моно — Source+Preview уже есть); nested-map значения показываются плоско (`sub: v; sub2: v2`).
 
-## v35 — Complete (Git sidebar tab) — app **0.35.0**
+## v35 — Complete (Git sidebar tab) — app **0.35.1**
 
-Мотив: Commit/Push в status bar теснили инфо; нужен workspace-scoped обзор изменений (как Source Control), не full-repo IDE. Версия: `CFBundleShortVersionString` **0.35.0**, `CFBundleVersion` **350**.
+Мотив: Commit/Push в status bar теснили инфо; нужен workspace-scoped обзор изменений (как Source Control), не full-repo IDE. Версия: `CFBundleShortVersionString` **0.35.1**, `CFBundleVersion` **351** (0.35.0 feature → 0.35.1 perf).
 
 - **Navigator:** Files | Outline | **Git** (`arrow.triangle.branch`) в `WorkspaceSidebar`.
 - **`GitSidebar.swift`:** header (branch · ↑N/↓M · repo path · Refresh · Push); **Changed** = `git status --porcelain` ∩ workspace roots ∩ markdown only; **Open in editor** = open dirty buffers not already listed; per-row **Diff** (`+/-` icon) + **Commit**; empty states (no workspace / no repo / clean). Multi-repo → секция на root.
 - **`GitCLI`:** `porcelainStatus` / `parsePorcelainLine` / `headFileContents` / `workingTreeContents` (один status на repo, не per-file).
-- **`GitWorkspaceStatus`:** сбор snapshot + `diffSheetContent(for:)` (HEAD → buffer if open else worktree).
-- **Status bar:** info-only `GitStatusChip` — branch, **`+N −M`** (lineDiff vs HEAD, live while typing, debounce 250 ms), ↑ahead/↓behind; клик → sidebar Git. Commit/Push только в sidebar (+ File menu shortcuts).
+- **`GitWorkspaceStatus`:** `snapshotAsync` (Process off-main) + `diffSheetContent(for:)` (HEAD → buffer if open else worktree).
+- **Status bar:** info-only `GitStatusChip` — branch, **`+N −M`** (lineDiff vs HEAD), ↑ahead/↓behind; клик → sidebar Git. Commit/Push только в sidebar (+ File menu shortcuts).
 - **`UnifiedDiffSheet`:** обобщён через `DiffSheetContent` (external change + git sidebar).
 - **Тесты:** `GitCLITests` — porcelain parse, workspace md filter, HEAD/worktree contents.
+
+### v35.1 — perf (freeze fix)
+
+- **Typing ≠ full git:** `GitSnapshotRefresh.deltaOnly` обновляет только `+N −M` из **cached HEAD** (`GitHeadContentCache`); `status`/`branch`/`ahead` — только `.full` (open, focus, commit, becomeActive).
+- **Process off MainActor:** `Task.detached` для snapshot status bar + `GitWorkspaceStatus.snapshotAsync`.
+- **Sidebar:** на `lineChanges.revision` — patch dirty badges **без** `git status`; full porcelain debounce 600 ms.
+- **Huge files:** status-bar lineDiff cap ~8k lines (coarse estimate instead of hang).
 
 ### v35 — gotchas
 
 - **Только workspace markdown** — loose/outside workspace и `.swift`/прочее не в списке (паритет Files).
 - **Commit path-scoped** как v34.3 (`git add` + `commit -- path`); multi-file commit не делаем.
-- **Line delta в status bar** пропускает `git show`, если porcelain clean и нет unsaved/session marks.
+- **Line delta** кэширует `git show HEAD:path`; invalidate на commit / file switch / `gitRepositoryDidChange`.
 - **Diff sheet** предпочитает open buffer (в т.ч. unsaved) over disk — совпадает с «что закоммитится после Save».
 
 ## v34 — Complete (external disk reload + GitHub-style diff) — app **0.34.3**

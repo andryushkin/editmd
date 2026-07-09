@@ -165,9 +165,13 @@ struct ContentView: View {
                     documentContent: document.content,
                     onClose: {
                         showGitCommit = false
-                        refreshGitSnapshot()
+                        GitHeadContentCache.invalidate(url: url)
+                        refreshGitSnapshot(mode: .full, delayMs: 0)
                     },
-                    onCommitted: { refreshGitSnapshot() }
+                    onCommitted: {
+                        GitHeadContentCache.invalidate(url: url)
+                        refreshGitSnapshot(mode: .full, delayMs: 0)
+                    }
                 )
             } else {
                 Text("No file")
@@ -181,35 +185,59 @@ struct ContentView: View {
                 showExternalDiff = false
             }
         }
-        .onAppear { refreshGitSnapshot() }
-        .onChange(of: fileURL) { _ in refreshGitSnapshot() }
-        .onChange(of: lineChanges.revision) { _ in refreshGitSnapshot() }
-        // Live +/− vs HEAD while typing (line-mark revision only bumps when
-        // the dirty *set* changes, not on every keystroke on an already-dirty line).
-        .onChange(of: document.content) { _ in refreshGitSnapshot() }
-        .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { _ in
-            refreshGitSnapshot()
+        .onAppear { refreshGitSnapshot(mode: .full, delayMs: 0) }
+        .onChange(of: fileURL) { _ in
+            GitHeadContentCache.invalidate()
+            refreshGitSnapshot(mode: .full, delayMs: 0)
+        }
+        // Session marks only — no git Process (delta reuses cached HEAD).
+        .onChange(of: lineChanges.revision) { _ in
+            refreshGitSnapshot(mode: .deltaOnly, delayMs: 350)
+        }
+        // Typing: update +/− only; never re-run status/branch/ahead-behind.
+        .onChange(of: document.content) { _ in
+            refreshGitSnapshot(mode: .deltaOnly, delayMs: 450)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { note in
+            if let url = note.object as? URL {
+                GitHeadContentCache.invalidate(url: url)
+            } else {
+                GitHeadContentCache.invalidate()
+            }
+            refreshGitSnapshot(mode: .full, delayMs: 0)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshGitSnapshot()
+            // Meta may have changed in Terminal; keep debounce light.
+            refreshGitSnapshot(mode: .full, delayMs: 200)
         }
     }
 
-    private func refreshGitSnapshot() {
-        // Coalesce keystroke-driven mark updates so we don't spawn git on every char.
+    /// - Parameters:
+    ///   - mode: `.full` = git status/branch/ahead; `.deltaOnly` = +/− from cached HEAD + buffer.
+    ///   - delayMs: coalesce keystroke storms (delta) vs immediate meta refresh.
+    private func refreshGitSnapshot(mode: GitSnapshotRefresh = .full, delayMs: UInt64 = 250) {
         gitRefreshTask?.cancel()
         let url = fileURL
+        let buffer = document.content
+        let previous = gitSnapshot
         gitRefreshTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            if delayMs > 0 {
+                try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+            }
             guard !Task.isCancelled else { return }
-            gitSnapshot = GitFileStatus.snapshot(for: url)
+            let next = await GitFileStatus.snapshot(
+                for: url, buffer: buffer, previous: previous, mode: mode
+            )
+            guard !Task.isCancelled else { return }
+            gitSnapshot = next
         }
     }
 
     private func pushFocusedFile() {
         guard let url = fileURL else { return }
         GitPushConfirm.run(for: url)
-        refreshGitSnapshot()
+        GitHeadContentCache.invalidate(url: url)
+        refreshGitSnapshot(mode: .full, delayMs: 0)
     }
 
     // MARK: - External change banner actions

@@ -64,61 +64,187 @@ struct GitFileSnapshot: Equatable {
     }
 }
 
+/// How much work a status-bar refresh should do.
+enum GitSnapshotRefresh: Sendable {
+    /// `rev-parse` / status / branch / ahead-behind + line delta (file open, focus, commit).
+    case full
+    /// Reuse previous meta; only recompute `+`/`−` from buffer vs cached HEAD (typing).
+    case deltaOnly
+}
+
+/// Process-free HEAD blob cache — `git show` is expensive; typing only needs the blob once.
+enum GitHeadContentCache: Sendable {
+    /// Mutable map guarded by `lock` (`@unchecked Sendable` for Swift 6 globals).
+    private final class Box: @unchecked Sendable {
+        let lock = NSLock()
+        var map: [String: String] = [:]
+    }
+    private static let box = Box()
+
+    static func contents(of file: URL) -> String {
+        let path = file.standardizedFileURL.path
+        box.lock.lock()
+        if let hit = box.map[path] {
+            box.lock.unlock()
+            return hit
+        }
+        box.lock.unlock()
+        let value = GitCLI.headFileContents(of: file)
+        box.lock.lock()
+        box.map[path] = value
+        box.lock.unlock()
+        return value
+    }
+
+    static func invalidate(url: URL? = nil) {
+        box.lock.lock()
+        if let url {
+            box.map.removeValue(forKey: url.standardizedFileURL.path)
+        } else {
+            box.map.removeAll(keepingCapacity: false)
+        }
+        box.lock.unlock()
+    }
+}
+
 @MainActor
 enum GitFileStatus {
-    /// Blocking snapshot — call off the critical UI path or after edits settle.
+    /// Async snapshot: git Process work + Myers lineDiff never run on the main actor.
+    static func snapshot(
+        for url: URL?,
+        buffer: String?,
+        previous: GitFileSnapshot,
+        mode: GitSnapshotRefresh
+    ) async -> GitFileSnapshot {
+        guard let url else { return .empty }
+        let key = url.standardizedFileURL
+        guard GitCLI.gitExecutable != nil else { return .empty }
+
+        let sessionDirty = LineChangeTracker.shared.dirtyLines(for: key).count
+        let bufferDirty = DocumentRegistry.shared.isDirty(key)
+        // Prefer explicit buffer (caller passes live editor text); fall back to registry.
+        let afterText = buffer ?? DocumentRegistry.shared.contentIfOpen(key)
+
+        // Typing path: never spawn git status/branch — only +/− from cached HEAD.
+        // If we have no prior in-repo meta yet, do one full snapshot instead.
+        if mode == .deltaOnly, previous.inRepo {
+            let (added, removed) = await lineDeltaAsync(file: key, after: afterText)
+            var next = previous
+            next.sessionDirtyLines = sessionDirty
+            next.bufferDirty = bufferDirty
+            next.added = added
+            next.removed = removed
+            return next
+        }
+
+        return await fullSnapshot(key: key, after: afterText,
+                                  sessionDirty: sessionDirty, bufferDirty: bufferDirty)
+    }
+
+    /// Blocking convenience for tests / rare call sites (still avoids main if caller is off-main).
     static func snapshot(for url: URL?) -> GitFileSnapshot {
         guard let url else { return .empty }
         let key = url.standardizedFileURL
         guard GitCLI.gitExecutable != nil else { return .empty }
         let sessionDirty = LineChangeTracker.shared.dirtyLines(for: key).count
         let bufferDirty = DocumentRegistry.shared.isDirty(key)
-        guard GitCLI.repositoryRoot(containing: key) != nil else {
+        let after = DocumentRegistry.shared.contentIfOpen(key)
+        if GitCLI.repositoryRoot(containing: key) == nil {
             return GitFileSnapshot(
                 inRepo: false, pathStatus: .notInRepo, branch: nil,
                 ahead: nil, behind: nil,
-                sessionDirtyLines: sessionDirty,
-                bufferDirty: bufferDirty,
+                sessionDirtyLines: sessionDirty, bufferDirty: bufferDirty,
                 added: 0, removed: 0
             )
         }
         let status = GitCLI.pathStatus(of: key)
         let branch = GitCLI.currentBranch(containing: key)
         let ab = GitCLI.aheadBehind(containing: key)
-        // Skip full HEAD/buffer diff when porcelain is clean and the buffer
-        // matches HEAD (no session marks / unsaved) — avoids `git show` on
-        // every idle refresh of an untouched file.
         let delta: (Int, Int)
         if status == .clean && !bufferDirty && sessionDirty == 0 {
             delta = (0, 0)
         } else {
-            delta = lineDelta(for: key)
+            delta = lineDeltaSync(file: key, after: after)
         }
         return GitFileSnapshot(
-            inRepo: true,
-            pathStatus: status,
-            branch: branch,
-            ahead: ab?.ahead,
-            behind: ab?.behind,
-            sessionDirtyLines: sessionDirty,
-            bufferDirty: bufferDirty,
-            added: delta.0,
-            removed: delta.1
+            inRepo: true, pathStatus: status, branch: branch,
+            ahead: ab?.ahead, behind: ab?.behind,
+            sessionDirtyLines: sessionDirty, bufferDirty: bufferDirty,
+            added: delta.0, removed: delta.1
         )
     }
 
-    /// `+` / `−` line counts: HEAD vs open buffer (preferred) or worktree.
-    /// Same sides as the git-sidebar Diff sheet.
-    static func lineDelta(for file: URL) -> (added: Int, removed: Int) {
-        let before = GitCLI.headFileContents(of: file)
-        let after: String
-        if let open = DocumentRegistry.shared.contentIfOpen(file) {
-            after = open
+    private static func fullSnapshot(
+        key: URL,
+        after: String?,
+        sessionDirty: Int,
+        bufferDirty: Bool
+    ) async -> GitFileSnapshot {
+        // Capture for Sendable hop.
+        let path = key
+        let afterCopy = after
+        let sess = sessionDirty
+        let dirty = bufferDirty
+
+        return await Task.detached(priority: .utility) {
+            guard GitCLI.repositoryRoot(containing: path) != nil else {
+                return GitFileSnapshot(
+                    inRepo: false, pathStatus: .notInRepo, branch: nil,
+                    ahead: nil, behind: nil,
+                    sessionDirtyLines: sess, bufferDirty: dirty,
+                    added: 0, removed: 0
+                )
+            }
+            let status = GitCLI.pathStatus(of: path)
+            let branch = GitCLI.currentBranch(containing: path)
+            let ab = GitCLI.aheadBehind(containing: path)
+            let delta: (Int, Int)
+            if status == .clean && !dirty && sess == 0 {
+                delta = (0, 0)
+            } else {
+                delta = lineDeltaSync(file: path, after: afterCopy)
+            }
+            return GitFileSnapshot(
+                inRepo: true,
+                pathStatus: status,
+                branch: branch,
+                ahead: ab?.ahead,
+                behind: ab?.behind,
+                sessionDirtyLines: sess,
+                bufferDirty: dirty,
+                added: delta.0,
+                removed: delta.1
+            )
+        }.value
+    }
+
+    private static func lineDeltaAsync(file: URL, after: String?) async -> (Int, Int) {
+        let path = file
+        let afterCopy = after
+        return await Task.detached(priority: .utility) {
+            lineDeltaSync(file: path, after: afterCopy)
+        }.value
+    }
+
+    /// `+` / `−` vs cached HEAD (or empty for untracked). Pure CPU + optional one `git show`.
+    nonisolated static func lineDeltaSync(file: URL, after: String?) -> (added: Int, removed: Int) {
+        let before = GitHeadContentCache.contents(of: file)
+        let afterText: String
+        if let after {
+            afterText = after
         } else {
-            after = GitCLI.workingTreeContents(of: file) ?? ""
+            afterText = GitCLI.workingTreeContents(of: file) ?? ""
         }
-        if before == after { return (0, 0) }
-        let r = lineDiff(before: before, after: after)
+        if before == afterText { return (0, 0) }
+        // Status-bar only: skip full Myers on enormous buffers (freeze risk).
+        // Cap is tighter than TextDiff's 30k-line hard stop.
+        let beforeLines = splitDiffLines(before).count
+        let afterLines = splitDiffLines(afterText).count
+        if beforeLines + afterLines > 8_000 {
+            // Coarse: whole-file replace estimate, still better than hanging UI.
+            return (afterLines, beforeLines)
+        }
+        let r = lineDiff(before: before, after: afterText)
         return (r.added, r.removed)
     }
 }
@@ -532,11 +658,60 @@ struct GitWorkspaceSnapshot: Equatable, Sendable {
 enum GitWorkspaceStatus {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
 
+    /// Async: git Process on a utility queue; MainActor only for dirty flags.
+    static func snapshotAsync(
+        workspaceRoots: [URL],
+        openURLs: [URL]
+    ) async -> GitWorkspaceSnapshot {
+        // Snapshot dirty state on main, then leave.
+        var dirtySession: [URL: Int] = [:]
+        var dirtyBuffer: [URL: Bool] = [:]
+        for u in openURLs {
+            let k = u.standardizedFileURL
+            dirtySession[k] = LineChangeTracker.shared.dirtyLines(for: k).count
+            dirtyBuffer[k] = DocumentRegistry.shared.isDirty(k)
+        }
+        let roots = workspaceRoots.map { $0.standardizedFileURL }
+        let open = openURLs.map { $0.standardizedFileURL }
+
+        return await Task.detached(priority: .utility) {
+            snapshotOffMain(
+                workspaceRoots: roots,
+                openURLs: open,
+                sessionDirty: dirtySession,
+                bufferDirty: dirtyBuffer
+            )
+        }.value
+    }
+
     /// Build a snapshot from adopted workspace roots + currently open docs.
-    /// Uses one `git status` per repository (not per file).
+    /// Uses one `git status` per repository (not per file). Prefer `snapshotAsync`
+    /// from UI so Process work is not on the main actor.
     static func snapshot(
         workspaceRoots: [URL],
         openURLs: [URL] = DocumentRegistry.shared.openURLs
+    ) -> GitWorkspaceSnapshot {
+        var dirtySession: [URL: Int] = [:]
+        var dirtyBuffer: [URL: Bool] = [:]
+        for u in openURLs {
+            let k = u.standardizedFileURL
+            dirtySession[k] = LineChangeTracker.shared.dirtyLines(for: k).count
+            dirtyBuffer[k] = DocumentRegistry.shared.isDirty(k)
+        }
+        return snapshotOffMain(
+            workspaceRoots: workspaceRoots.map { $0.standardizedFileURL },
+            openURLs: openURLs.map { $0.standardizedFileURL },
+            sessionDirty: dirtySession,
+            bufferDirty: dirtyBuffer
+        )
+    }
+
+    /// Pure git + provided dirty maps (safe off MainActor).
+    nonisolated private static func snapshotOffMain(
+        workspaceRoots: [URL],
+        openURLs: [URL],
+        sessionDirty: [URL: Int],
+        bufferDirty: [URL: Bool]
     ) -> GitWorkspaceSnapshot {
         guard GitCLI.gitExecutable != nil else {
             return GitWorkspaceSnapshot(
@@ -544,7 +719,7 @@ enum GitWorkspaceStatus {
                 hasWorkspaces: !workspaceRoots.isEmpty
             )
         }
-        let roots = workspaceRoots.map { $0.standardizedFileURL }
+        let roots = workspaceRoots
         guard !roots.isEmpty else { return .empty }
 
         // Group workspace folders by their git root.
@@ -575,8 +750,8 @@ enum GitWorkspaceStatus {
                     url: key,
                     displayPath: display,
                     pathStatus: entry.status,
-                    sessionDirtyLines: LineChangeTracker.shared.dirtyLines(for: key).count,
-                    bufferDirty: DocumentRegistry.shared.isDirty(key)
+                    sessionDirtyLines: sessionDirty[key] ?? 0,
+                    bufferDirty: bufferDirty[key] ?? false
                 )
                 files.append(item)
                 changedURLs.insert(key)
@@ -598,13 +773,13 @@ enum GitWorkspaceStatus {
         // Open buffers: unsaved / session marks, in workspace, not already listed.
         var openDirty: [GitChangedFile] = []
         for open in openURLs {
-            let key = open.standardizedFileURL
+            let key = open
             guard !changedURLs.contains(key) else { continue }
             guard isMarkdown(key) else { continue }
             guard let ws = owningWorkspace(key, among: roots) else { continue }
-            let bufferDirty = DocumentRegistry.shared.isDirty(key)
-            let sessionLines = LineChangeTracker.shared.dirtyLines(for: key).count
-            guard bufferDirty || sessionLines > 0 else { continue }
+            let bufDirty = bufferDirty[key] ?? false
+            let sessionLines = sessionDirty[key] ?? 0
+            guard bufDirty || sessionLines > 0 else { continue }
             // Must be inside a git repo to be interesting here.
             guard let repo = GitCLI.repositoryRoot(containing: key) else { continue }
             let status = GitCLI.pathStatus(of: key)
@@ -613,7 +788,7 @@ enum GitWorkspaceStatus {
                 displayPath: displayPath(of: key, workspace: ws, repo: repo),
                 pathStatus: status == .notInRepo ? .clean : status,
                 sessionDirtyLines: sessionLines,
-                bufferDirty: bufferDirty
+                bufferDirty: bufDirty
             ))
         }
         openDirty.sort {
@@ -628,19 +803,20 @@ enum GitWorkspaceStatus {
         )
     }
 
-    private static func isMarkdown(_ url: URL) -> Bool {
-        markdownExtensions.contains(url.pathExtension.lowercased())
+    nonisolated private static func isMarkdown(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "md" || ext == "markdown" || ext == "textbundle"
     }
 
     /// Longest workspace prefix that contains `url`.
-    private static func owningWorkspace(_ url: URL, among workspaces: [URL]) -> URL? {
+    nonisolated private static func owningWorkspace(_ url: URL, among workspaces: [URL]) -> URL? {
         let path = url.standardizedFileURL.path
         return workspaces
             .filter { path == $0.path || path.hasPrefix($0.path + "/") }
             .max(by: { $0.path.count < $1.path.count })
     }
 
-    private static func displayPath(of file: URL, workspace: URL, repo: URL) -> String {
+    nonisolated private static func displayPath(of file: URL, workspace: URL, repo: URL) -> String {
         let relWS = GitCLI.relativePath(of: file, to: workspace)
         if !relWS.isEmpty { return relWS }
         return GitCLI.relativePath(of: file, to: repo)

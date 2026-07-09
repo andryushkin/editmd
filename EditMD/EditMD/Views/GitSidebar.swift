@@ -60,12 +60,14 @@ struct GitSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refresh(immediate: true) }
         .onChange(of: workspace.workspaces) { _ in refresh(immediate: true) }
-        .onChange(of: lineChanges.revision) { _ in refresh() }
+        // Do NOT re-run `git status` on every keystroke — only patch dirty badges.
+        .onChange(of: lineChanges.revision) { _ in patchOpenDirtyMarks() }
         .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { _ in
+            GitHeadContentCache.invalidate()
             refresh(immediate: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refresh()
+            refresh(immediate: false)
         }
         .sheet(isPresented: $showCommit) {
             if let url = commitURL {
@@ -372,22 +374,92 @@ struct GitSidebar: View {
         showDiff = true
     }
 
+    /// Cheap: update session/buffer badges without spawning git.
+    private func patchOpenDirtyMarks() {
+        guard !snapshot.sections.isEmpty || !snapshot.openDirty.isEmpty else { return }
+        let openURLs = DocumentRegistry.shared.openURLs
+        var sections = snapshot.sections
+        for si in sections.indices {
+            var files = sections[si].files
+            for fi in files.indices {
+                let u = files[fi].url
+                files[fi] = GitChangedFile(
+                    url: u,
+                    displayPath: files[fi].displayPath,
+                    pathStatus: files[fi].pathStatus,
+                    sessionDirtyLines: LineChangeTracker.shared.dirtyLines(for: u).count,
+                    bufferDirty: DocumentRegistry.shared.isDirty(u)
+                )
+            }
+            sections[si] = GitRepoSection(
+                root: sections[si].root,
+                branch: sections[si].branch,
+                ahead: sections[si].ahead,
+                behind: sections[si].behind,
+                files: files
+            )
+        }
+        // Rebuild open-dirty list from registry (still no git).
+        let changed = Set(sections.flatMap { $0.files.map(\.url) })
+        let roots = workspace.workspaces.map { $0.url.standardizedFileURL }
+        var openDirty: [GitChangedFile] = []
+        for open in openURLs {
+            let key = open.standardizedFileURL
+            guard !changed.contains(key) else { continue }
+            let bufferDirty = DocumentRegistry.shared.isDirty(key)
+            let sessionLines = LineChangeTracker.shared.dirtyLines(for: key).count
+            guard bufferDirty || sessionLines > 0 else { continue }
+            // Keep existing row metadata if present; else minimal.
+            if let existing = snapshot.openDirty.first(where: { $0.url == key }) {
+                openDirty.append(GitChangedFile(
+                    url: key,
+                    displayPath: existing.displayPath,
+                    pathStatus: existing.pathStatus,
+                    sessionDirtyLines: sessionLines,
+                    bufferDirty: bufferDirty
+                ))
+            } else if let ws = roots.first(where: {
+                key.path == $0.path || key.path.hasPrefix($0.path + "/")
+            }) {
+                let rel = GitCLI.relativePath(of: key, to: ws)
+                openDirty.append(GitChangedFile(
+                    url: key,
+                    displayPath: rel.isEmpty ? key.lastPathComponent : rel,
+                    pathStatus: .clean,
+                    sessionDirtyLines: sessionLines,
+                    bufferDirty: bufferDirty
+                ))
+            }
+        }
+        snapshot = GitWorkspaceSnapshot(
+            sections: sections,
+            openDirty: openDirty,
+            hasAnyRepo: snapshot.hasAnyRepo,
+            hasWorkspaces: snapshot.hasWorkspaces
+        )
+    }
+
     private func refresh(immediate: Bool = false) {
         refreshTask?.cancel()
         let roots = workspace.workspaces.map(\.url)
-        let delay: UInt64 = immediate ? 0 : 250_000_000
+        let open = DocumentRegistry.shared.openURLs
+        // Non-immediate: longer debounce so becomeActive storms don't thrash git.
+        let delay: UInt64 = immediate ? 0 : 600_000_000
         refreshTask = Task { @MainActor in
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
             }
             guard !Task.isCancelled else { return }
             isRefreshing = true
-            // Porcelain is one process per repo — fine on main with debounce.
-            let built = GitWorkspaceStatus.snapshot(
+            // Snapshot git Process off the main actor; re-enter only for UI state.
+            let built = await GitWorkspaceStatus.snapshotAsync(
                 workspaceRoots: roots,
-                openURLs: DocumentRegistry.shared.openURLs
+                openURLs: open
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                isRefreshing = false
+                return
+            }
             snapshot = built
             isRefreshing = false
         }
