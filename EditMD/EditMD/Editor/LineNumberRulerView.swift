@@ -113,6 +113,11 @@ final class LineNumberRulerView: NSRulerView {
         let yOffset = inset.height - visibleRect.origin.y
 
         var anchors: [Anchor] = []
+        // Running newline count — O(visible) total, not O(visible × doc)
+        // (the old per-fragment `pre.reduce` over the whole prefix pegged CPU
+        // on large Source files like Claude.md).
+        var lastHardLineStart = -1
+        var lastDisplayLine = 0
 
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
             fragmentRect, _, _, fragGlyphRange, _ in
@@ -139,11 +144,34 @@ final class LineNumberRulerView: NSRulerView {
             }
 
             let displayLine: Int
-            if hardLine.location == 0 {
+            if hardLine.location == lastHardLineStart {
+                displayLine = lastDisplayLine
+            } else if hardLine.location == 0 {
                 displayLine = 1
+                lastHardLineStart = 0
+                lastDisplayLine = 1
+            } else if hardLine.location > lastHardLineStart, lastHardLineStart >= 0 {
+                // Forward scan from previous hard line (common while scrolling down).
+                var dl = lastDisplayLine
+                var i = lastHardLineStart
+                while i < hardLine.location {
+                    if ns.character(at: i) == 0x0A { dl += 1 }
+                    i += 1
+                }
+                displayLine = dl
+                lastHardLineStart = hardLine.location
+                lastDisplayLine = dl
             } else {
-                let pre = ns.substring(with: NSRange(location: 0, length: hardLine.location))
-                displayLine = pre.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+                // Scrolled up / first fragment: count newlines in prefix once.
+                var dl = 1
+                var i = 0
+                while i < hardLine.location {
+                    if ns.character(at: i) == 0x0A { dl += 1 }
+                    i += 1
+                }
+                displayLine = dl
+                lastHardLineStart = hardLine.location
+                lastDisplayLine = dl
             }
             let srcLine = self.sourceLine(forDisplay: displayLine)
 
@@ -220,11 +248,31 @@ func sourceLineNumber(at utf16Offset: Int, in markdown: String) -> Int {
 
 /// For each Visual display paragraph (same order as hard `\n` lines in the
 /// visual buffer), the 1-based **source** line where that paragraph begins.
+/// Single forward scan — not one full-prefix walk per paragraph (that was O(n²)).
 func displayToSourceLineMap(paragraphRanges: [NSRange], markdown: String) -> [Int] {
     if paragraphRanges.isEmpty { return [] }
-    return paragraphRanges.map { range in
-        sourceLineNumber(at: range.location, in: markdown)
+    let ns = markdown as NSString
+    let n = ns.length
+    // Precompute source line at every character offset is too big; walk once
+    // in offset order (paragraphRanges are in document order).
+    var result: [Int] = []
+    result.reserveCapacity(paragraphRanges.count)
+    var line = 1
+    var cursor = 0
+    for range in paragraphRanges {
+        let loc = max(0, min(range.location, n))
+        if loc < cursor {
+            // Out-of-order: fall back (should not happen for real maps).
+            result.append(sourceLineNumber(at: loc, in: markdown))
+            continue
+        }
+        while cursor < loc {
+            if ns.character(at: cursor) == 0x0A { line += 1 }
+            cursor += 1
+        }
+        result.append(line)
     }
+    return result
 }
 
 // MARK: - Attach / refresh helpers

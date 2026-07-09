@@ -16,13 +16,22 @@ extension UTType {
 /// GFM table does not (the layout cost is super-linear in cell count).
 func markdownIsHeavy(_ content: String) -> Bool {
     let length = content.utf16.count
-    if length > 200_000 { return true }   // extreme size — plain regardless
+    // Large prose (Claude.md ~108K) still pegs Source lint (~0.8s) and
+    // per-keystroke highlight; treat as heavy so Source stays plain+fast.
+    if length > 100_000 { return true }
     if length < 40_000 { return false }   // comfortably small
-    // In between: heavy only when table-dominated (the NSTextTable trap).
+    // In between: heavy when table-dominated (the NSTextTable trap) or when
+    // line count is high enough that lint/gutter work hitches open.
     var rows = 0
+    var lines = 1
     var atLineStart = true
     for ch in content {
-        if ch == "\n" { atLineStart = true; continue }
+        if ch == "\n" {
+            lines += 1
+            if lines > 2_000 { return true }
+            atLineStart = true
+            continue
+        }
         guard atLineStart else { continue }
         if ch == " " || ch == "\t" { continue }   // skip leading indent
         atLineStart = false

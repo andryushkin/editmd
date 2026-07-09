@@ -17,13 +17,16 @@ final class LargeDocumentTests: XCTestCase {
 
     func testHugeDocumentIsHeavyBySize() {
         XCTAssertTrue(markdownIsHeavy(String(repeating: "x", count: 250_000)))
+        // Claude.md-class notes (~108K): skip Source lint/highlight.
+        XCTAssertTrue(markdownIsHeavy(String(repeating: "x", count: 110_000)))
     }
 
     func testMediumProseIsNotHeavy() {
-        // ~62K of prose, no tables → stays highlighted in Source.
-        let prose = String(repeating: "the quick brown fox jumps\n", count: 2400)
+        // ~50K prose, few hundred lines, no tables → stays highlighted in Source.
+        let line = String(repeating: "word ", count: 20) + "\n"  // ~100 chars
+        let prose = String(repeating: line, count: 500)          // ~50K, 500 lines
         XCTAssertGreaterThan(prose.utf16.count, 40_000)
-        XCTAssertLessThan(prose.utf16.count, 200_000)
+        XCTAssertLessThan(prose.utf16.count, 100_000)
         XCTAssertFalse(markdownIsHeavy(prose))
     }
 
@@ -31,7 +34,7 @@ final class LargeDocumentTests: XCTestCase {
         // ~60K dominated by table rows → heavy (plain Source).
         let table = String(repeating: "| aaaa | bbbb | cccc |\n", count: 2000)
         XCTAssertGreaterThan(table.utf16.count, 40_000)
-        XCTAssertLessThan(table.utf16.count, 200_000)
+        XCTAssertLessThan(table.utf16.count, 100_000)
         XCTAssertTrue(markdownIsHeavy(table))
     }
 

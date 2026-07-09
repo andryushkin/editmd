@@ -66,10 +66,26 @@ func makeMarkdownWrapper(content: String, assets: FileWrapper?, isTextBundle: Bo
 
 /// Reads a `.md`/`.markdown` file or `.textbundle` package from disk.
 /// textbundle is detected by extension or directory shape.
+///
+/// Plain files use `String(contentsOf:)` — `FileWrapper(.immediate)` walks
+/// xattrs/resource forks and is far too expensive on the hot disk-watch path
+/// (continuous `.attrib` events + FileWrapper was freezing the main thread
+/// when opening large notes like `Claude.md`).
 func loadMarkdownDocument(from url: URL) throws -> (content: String, assets: FileWrapper?) {
+    let ext = url.pathExtension.lowercased()
+    if ext == "textbundle" {
+        let wrapper = try FileWrapper(url: url, options: .immediate)
+        return try parseMarkdownWrapper(wrapper, isTextBundle: true)
+    }
+    // Regular file (or anything that isn't a package): cheap UTF-8 read.
+    var isDir: ObjCBool = false
+    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        return (text, nil)
+    }
+    // Directory-shaped / odd cases still go through FileWrapper.
     let wrapper = try FileWrapper(url: url, options: .immediate)
-    let isBundle = url.pathExtension.lowercased() == "textbundle" || wrapper.isDirectory
-    return try parseMarkdownWrapper(wrapper, isTextBundle: isBundle)
+    return try parseMarkdownWrapper(wrapper, isTextBundle: wrapper.isDirectory)
 }
 
 /// Atomically writes content (+ optional textbundle assets) to `url`. For an
@@ -147,6 +163,10 @@ final class DocumentRegistry {
         var hasOpenExternalNotice = false
         var fileWatch: DispatchSourceFileSystemObject?
         var fileDescriptor: Int32 = -1
+        /// Coalesces bursty FS events (Spotlight xattr, atomic rewrite, git).
+        var diskEventDebounce: Task<Void, Never>?
+        /// Accumulated `DispatchSource.FileSystemEvent` flags for the burst.
+        var pendingDiskFlags: DispatchSource.FileSystemEvent?
         init(url: URL, document: MarkdownDocument) {
             self.url = url
             self.document = document
@@ -181,7 +201,7 @@ final class DocumentRegistry {
             entry.refcount += 1
             // Another window opened the same file — still re-check disk in case
             // the live model is stale (watch may have missed a write).
-            syncFromDisk(entry)
+            syncFromDisk(entry, skipIfNotNewer: true)
             return entry.document
         }
         // Re-open within the session: same model + undo stack as last time.
@@ -192,7 +212,7 @@ final class DocumentRegistry {
             entry.knownModDate = cached.knownModDate
             entries[key] = entry
             if diskIsNewerThanKnown(entry) {
-                syncFromDisk(entry)
+                syncFromDisk(entry, skipIfNotNewer: true)
             }
             startWatching(entry)
             return cached.document
@@ -253,10 +273,13 @@ final class DocumentRegistry {
     }
 
     /// Public re-check for a single open file (window focus, tests).
+    /// Always attempts a content compare when the file exists — callers that
+    /// already know the disk changed (tests, explicit refresh) must not be
+    /// blocked by mtime resolution quirks. The watch path uses the mtime gate.
     @discardableResult
     func syncFromDiskIfNeeded(_ url: URL) -> Bool {
         guard let entry = entries[url.standardizedFileURL] else { return false }
-        return syncFromDisk(entry)
+        return syncFromDisk(entry, skipIfNotNewer: false)
     }
 
     /// Dismiss the banner for `url` without changing buffer or disk.
@@ -360,13 +383,27 @@ final class DocumentRegistry {
 
     private func syncAllOpenFromDisk() {
         for entry in entries.values {
-            syncFromDisk(entry)
+            // App became active: cheap mtime gate is enough (and necessary —
+            // re-reading every open buffer would hitch).
+            syncFromDisk(entry, skipIfNotNewer: true)
         }
     }
 
     /// Returns true when `document.content` was replaced from disk (clean path).
+    /// - Parameter skipIfNotNewer: when true (watch / become-active), skip the
+    ///   full read if mtime has not advanced — protects against FS event storms.
     @discardableResult
-    private func syncFromDisk(_ entry: Entry) -> Bool {
+    private func syncFromDisk(_ entry: Entry, skipIfNotNewer: Bool = true) -> Bool {
+        // Fast path: no newer mtime → skip the full read. Without this, every
+        // FS event re-read the whole file on the main thread and could peg the
+        // UI (Claude.md + continuous FS spam).
+        if skipIfNotNewer,
+           let diskDate = contentModificationDate(of: entry.url),
+           let known = entry.knownModDate,
+           diskDate <= known {
+            return false
+        }
+
         guard let loaded = try? loadMarkdownDocument(from: entry.url) else {
             rearmWatch(entry)
             return false
@@ -467,16 +504,20 @@ final class DocumentRegistry {
         let fd = open(entry.url.path, O_EVTONLY)
         guard fd >= 0 else { return }
         entry.fileDescriptor = fd
+        // Note: omit `.attrib` — Spotlight / xattr noise was firing continuous
+        // reloads. Content changes arrive as write/extend; atomic replace as
+        // rename/delete. App-activate still does a full mtime re-check.
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .extend, .attrib, .rename, .delete, .link, .revoke],
+            eventMask: [.write, .extend, .rename, .delete, .link, .revoke],
             queue: DispatchQueue.main
         )
-        source.setEventHandler { [weak self, weak entry] in
-            // Source is on the main queue; hop to MainActor for isolation.
+        source.setEventHandler { [weak self, weak entry, weak source] in
+            // Capture flags before hopping — `source.data` is only valid here.
+            let flags = source?.data ?? []
             Task { @MainActor in
                 guard let self, let entry else { return }
-                self.handleDiskEvent(entry)
+                self.handleDiskEvent(entry, flags: flags)
             }
         }
         source.setCancelHandler {
@@ -487,6 +528,8 @@ final class DocumentRegistry {
     }
 
     private func stopWatching(_ entry: Entry) {
+        entry.diskEventDebounce?.cancel()
+        entry.diskEventDebounce = nil
         entry.fileWatch?.cancel()
         entry.fileWatch = nil
         entry.fileDescriptor = -1
@@ -499,9 +542,31 @@ final class DocumentRegistry {
         startWatching(entry)
     }
 
-    private func handleDiskEvent(_ entry: Entry) {
-        // Atomic writers (ours and agents) replace the inode — always re-arm.
-        rearmWatch(entry)
-        syncFromDisk(entry)
+    private func handleDiskEvent(_ entry: Entry, flags: DispatchSource.FileSystemEvent) {
+        // Coalesce bursty events (atomic rewrite = delete+rename+write).
+        entry.diskEventDebounce?.cancel()
+        // OR-accumulate flags across the burst so a write+rename pair is seen.
+        let prior = entry.pendingDiskFlags ?? []
+        entry.pendingDiskFlags = prior.union(flags)
+        entry.diskEventDebounce = Task { [weak self, weak entry] in
+            try? await Task.sleep(nanoseconds: 80_000_000) // 80ms
+            guard !Task.isCancelled, let self, let entry,
+                  self.entries[entry.url] != nil else { return }
+            let burst = entry.pendingDiskFlags ?? []
+            entry.pendingDiskFlags = nil
+            // Only re-arm when the inode may be gone. Rearming on every write
+            // (close+open O_EVTONLY) generated more events → main-thread storm
+            // at >100% CPU even in Source (Claude.md).
+            let inodeMaybeReplaced = !burst.isDisjoint(with: [.rename, .delete, .revoke, .link])
+            if inodeMaybeReplaced {
+                self.rearmWatch(entry)
+            }
+            let applied = self.syncFromDisk(entry, skipIfNotNewer: true)
+            // Content changed via atomic replace often shows up as write on a
+            // new inode without rename flags — re-arm if we actually reloaded.
+            if applied, !inodeMaybeReplaced {
+                self.rearmWatch(entry)
+            }
+        }
     }
 }

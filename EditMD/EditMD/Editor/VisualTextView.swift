@@ -1591,11 +1591,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             storage.endEditing()
             isMutating = false
 
-            // Ensure paragraphSpacing (code-block margin) is laid out before the
-            // next draw — otherwise panels still paint against stale geometry.
-            if let lm = textView.layoutManager, let tc = textView.textContainer {
-                lm.ensureLayout(for: tc)
-            }
+            // Do NOT ensureLayout(for: whole container) here — on large docs
+            // (Claude.md ~100k) that forces full-document layout on every
+            // keystroke/presentation pass and freezes the UI. TextKit lays out
+            // as needed for display; code-panel clamp uses whatever fragments
+            // exist for the dirty rect.
 
             textView.bulletEntries = bullets
             textView.numberEntries = numbers
