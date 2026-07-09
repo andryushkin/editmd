@@ -233,6 +233,10 @@ final class MarkdownDocument: ReferenceFileDocument {
         guard previous != newContent else { return }
         content = newContent
         let um = undo.manager
+        // When `groupsByEvent` is false (tests / programmatic stacks), registerUndo
+        // requires an open group — otherwise NSUndoManager traps.
+        let needsGroup = !um.groupsByEvent && !um.isUndoing && !um.isRedoing
+        if needsGroup { um.beginUndoGrouping() }
         um.registerUndo(withTarget: self) { document in
             MainActor.assumeIsolated {
                 document.applyUndoableContent(previous, actionName: actionName)
@@ -241,5 +245,6 @@ final class MarkdownDocument: ReferenceFileDocument {
         if !actionName.isEmpty {
             um.setActionName(actionName)
         }
+        if needsGroup { um.endUndoGrouping() }
     }
 }

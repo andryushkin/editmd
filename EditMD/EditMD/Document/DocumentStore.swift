@@ -1,4 +1,6 @@
 import Foundation
+import Darwin
+import AppKit
 
 // Serialization + IO layer for markdown / textbundle files, extracted so that
 // both the DocumentGroup-era `MarkdownDocument` and the new `DocumentRegistry`
@@ -94,6 +96,12 @@ func writeMarkdownDocument(content: String, assets: FileWrapper?, to url: URL) t
 ///
 /// Autosave is debounced via `markDirty(_:)` (owner view on content change).
 /// Last `release` flushes dirty content to disk before parking the model.
+///
+/// **External disk changes** (another app / agent writing the open file) are
+/// picked up automatically: each live entry watches its path via
+/// `DispatchSource`, and `syncFromDiskIfNeeded` also runs on re-acquire from
+/// the session cache and when the app becomes active. Clean documents reload
+/// in place; dirty ones keep the user's unsaved buffer (no silent clobber).
 @MainActor
 final class DocumentRegistry {
 
@@ -104,7 +112,17 @@ final class DocumentRegistry {
 
     /// Internal (not private) so tests can spin up an isolated registry instead
     /// of mutating the shared singleton.
-    init() {}
+    init() {
+        // Belt-and-suspenders: FS events can miss on some volumes; re-check
+        // every open file when the user returns to EditMD.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.syncAllOpenFromDisk() }
+        }
+    }
 
     private final class Entry {
         let url: URL
@@ -112,6 +130,14 @@ final class DocumentRegistry {
         var refcount = 1
         var isDirty = false
         var autosaveTask: Task<Void, Never>?
+        /// Last known `contentModificationDate` — used to skip no-op reloads
+        /// and to ignore our own autosave writes when the event races.
+        var knownModDate: Date?
+        /// When true, the next `markDirty` is dropped (external reload just
+        /// updated `document.content`; that must not schedule autosave).
+        var suppressNextDirty = false
+        var fileWatch: DispatchSourceFileSystemObject?
+        var fileDescriptor: Int32 = -1
         init(url: URL, document: MarkdownDocument) {
             self.url = url
             self.document = document
@@ -121,7 +147,10 @@ final class DocumentRegistry {
     /// Windows currently showing the file (refcount > 0).
     private var entries: [URL: Entry] = [:]
     /// Recently released documents (undo history), most-recent first.
-    private var sessionCache: [(url: URL, document: MarkdownDocument)] = []
+    /// `knownModDate` is the last disk mtime we synced — on re-acquire we only
+    /// re-read the file when it is *newer* (agent edit while parked), so an
+    /// in-memory buffer that wasn't flushed is not clobbered by a stale disk.
+    private var sessionCache: [(url: URL, document: MarkdownDocument, knownModDate: Date?)] = []
     private let autosaveDelayNanos: UInt64 = 600_000_000
 
     /// URLs currently held by at least one window (used to detect "already open
@@ -136,18 +165,32 @@ final class DocumentRegistry {
         let key = url.standardizedFileURL
         if let entry = entries[key] {
             entry.refcount += 1
+            // Another window opened the same file — still re-check disk in case
+            // the live model is stale (watch may have missed a write).
+            syncFromDisk(entry)
             return entry.document
         }
         // Re-open within the session: same model + undo stack as last time.
+        // Reload from disk only when the file is newer than when we parked
+        // (external agent edit). Otherwise keep the cached buffer + undo.
         if let cached = takeFromSessionCache(key) {
-            entries[key] = Entry(url: key, document: cached)
-            return cached
+            let entry = Entry(url: key, document: cached.document)
+            entry.knownModDate = cached.knownModDate
+            entries[key] = entry
+            if diskIsNewerThanKnown(entry) {
+                syncFromDisk(entry)
+            }
+            startWatching(entry)
+            return cached.document
         }
         let (content, assets) = try loadMarkdownDocument(from: key)
         let document = MarkdownDocument()
         document.content = content
         document.assetsFileWrapper = assets
-        entries[key] = Entry(url: key, document: document)
+        let entry = Entry(url: key, document: document)
+        entry.knownModDate = contentModificationDate(of: key)
+        entries[key] = entry
+        startWatching(entry)
         return document
     }
 
@@ -161,14 +204,19 @@ final class DocumentRegistry {
         entry.autosaveTask?.cancel()
         entry.document.commitContentEdit()
         if entry.isDirty { try? flush(entry) }
+        stopWatching(entry)
         entries.removeValue(forKey: key)
-        parkInSessionCache(key, document: entry.document)
+        parkInSessionCache(key, document: entry.document, knownModDate: entry.knownModDate)
     }
 
     /// Marks the document dirty and (re)schedules a debounced autosave. The
     /// owning view calls this when `document.content` changes.
     func markDirty(_ url: URL) {
         guard let entry = entries[url.standardizedFileURL] else { return }
+        if entry.suppressNextDirty {
+            entry.suppressNextDirty = false
+            return
+        }
         entry.isDirty = true
         scheduleAutosave(entry)
     }
@@ -182,6 +230,14 @@ final class DocumentRegistry {
         try flush(entry)
     }
 
+    /// Public re-check for a single open file (window focus, tests). No-op when
+    /// the document is dirty or the on-disk mtime matches `knownModDate`.
+    @discardableResult
+    func syncFromDiskIfNeeded(_ url: URL) -> Bool {
+        guard let entry = entries[url.standardizedFileURL] else { return false }
+        return syncFromDisk(entry)
+    }
+
     /// Drops the session cache (tests / low-memory). Live window entries stay.
     func clearSessionCache() {
         sessionCache.removeAll()
@@ -189,15 +245,15 @@ final class DocumentRegistry {
 
     // MARK: Session cache (per-file undo across switches)
 
-    private func takeFromSessionCache(_ key: URL) -> MarkdownDocument? {
+    private func takeFromSessionCache(_ key: URL) -> (document: MarkdownDocument, knownModDate: Date?)? {
         guard let idx = sessionCache.firstIndex(where: { $0.url == key }) else { return nil }
-        let doc = sessionCache.remove(at: idx).document
-        return doc
+        let item = sessionCache.remove(at: idx)
+        return (item.document, item.knownModDate)
     }
 
-    private func parkInSessionCache(_ key: URL, document: MarkdownDocument) {
+    private func parkInSessionCache(_ key: URL, document: MarkdownDocument, knownModDate: Date?) {
         sessionCache.removeAll { $0.url == key }
-        sessionCache.insert((key, document), at: 0)
+        sessionCache.insert((key, document, knownModDate), at: 0)
         let limit = Self.sessionCacheLimit
         if sessionCache.count > limit {
             sessionCache.removeLast(sessionCache.count - limit)
@@ -219,5 +275,114 @@ final class DocumentRegistry {
                                   assets: entry.document.assetsFileWrapper,
                                   to: entry.url)
         entry.isDirty = false
+        // Remember our write so a racing FS event doesn't re-load the same bytes
+        // as an "external" change (and so mtime compares stay correct).
+        entry.knownModDate = contentModificationDate(of: entry.url)
+        // Atomic replace may invalidate the watched inode — re-arm.
+        rearmWatch(entry)
+    }
+
+    // MARK: - External disk sync
+
+    private func syncAllOpenFromDisk() {
+        for entry in entries.values {
+            syncFromDisk(entry)
+        }
+    }
+
+    /// Returns true when `document.content` was replaced from disk.
+    ///
+    /// Always reads the file and compares bytes — mtime alone is unreliable
+    /// (1s resolution, atomic replace races, agent writes in the same second).
+    /// Open-file count is small, so the cost is fine.
+    @discardableResult
+    private func syncFromDisk(_ entry: Entry) -> Bool {
+        // Never clobber unsaved edits. User can Save / discard explicitly later.
+        guard !entry.isDirty else { return false }
+        guard let loaded = try? loadMarkdownDocument(from: entry.url) else {
+            // File vanished or unreadable — leave the buffer; re-arm watch.
+            rearmWatch(entry)
+            return false
+        }
+        entry.knownModDate = contentModificationDate(of: entry.url)
+        guard loaded.content != entry.document.content
+                || !fileWrappersEqual(loaded.assets, entry.document.assetsFileWrapper) else {
+            return false
+        }
+        entry.document.commitContentEdit()
+        entry.suppressNextDirty = true
+        entry.document.content = loaded.content
+        entry.document.assetsFileWrapper = loaded.assets
+        entry.document.contentUndoManager.removeAllActions()
+        entry.isDirty = false
+        entry.autosaveTask?.cancel()
+        return true
+    }
+
+    private func contentModificationDate(of url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+    }
+
+    /// True when on-disk mtime is strictly newer than the last sync — used when
+    /// re-opening a session-cached document so we don't wipe an unflushed buffer.
+    private func diskIsNewerThanKnown(_ entry: Entry) -> Bool {
+        guard let diskDate = contentModificationDate(of: entry.url) else { return true }
+        guard let known = entry.knownModDate else { return true }
+        return diskDate > known
+    }
+
+    private func fileWrappersEqual(_ a: FileWrapper?, _ b: FileWrapper?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case (nil, _), (_, nil): return false
+        case let (a?, b?):
+            return a.regularFileContents == b.regularFileContents
+                && a.fileWrappers?.keys.sorted() == b.fileWrappers?.keys.sorted()
+        }
+    }
+
+    private func startWatching(_ entry: Entry) {
+        stopWatching(entry)
+        // O_EVTONLY: event-only fd (no read), standard for path watches on Darwin.
+        let fd = open(entry.url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        entry.fileDescriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib, .rename, .delete, .link, .revoke],
+            queue: DispatchQueue.main
+        )
+        source.setEventHandler { [weak self, weak entry] in
+            // Source is on the main queue; hop to MainActor for isolation.
+            Task { @MainActor in
+                guard let self, let entry else { return }
+                self.handleDiskEvent(entry)
+            }
+        }
+        source.setCancelHandler {
+            if fd >= 0 { close(fd) }
+        }
+        entry.fileWatch = source
+        source.resume()
+    }
+
+    private func stopWatching(_ entry: Entry) {
+        entry.fileWatch?.cancel()
+        entry.fileWatch = nil
+        entry.fileDescriptor = -1
+        // cancelHandler closes the fd.
+    }
+
+    private func rearmWatch(_ entry: Entry) {
+        // Only while a window still holds the file.
+        guard entries[entry.url] != nil, entry.refcount > 0 else { return }
+        startWatching(entry)
+    }
+
+    private func handleDiskEvent(_ entry: Entry) {
+        // Atomic writers (ours and agents) replace the inode — always re-arm.
+        rearmWatch(entry)
+        syncFromDisk(entry)
     }
 }

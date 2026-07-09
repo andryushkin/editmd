@@ -165,4 +165,95 @@ final class DocumentStoreTests: XCTestCase {
         registry.release(urlA)
         registry.release(urlB)
     }
+
+    @MainActor
+    func testRegistryReloadsExternalDiskChange() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("external.md")
+        try writeMarkdownDocument(content: "- [ ] one\n", assets: nil, to: url)
+
+        let doc = try registry.acquire(url)
+        XCTAssertEqual(doc.content, "- [ ] one\n")
+
+        // Agent / another app rewrites the open file on disk.
+        try writeMarkdownDocument(content: "- [x] one\n- [x] two\n", assets: nil, to: url)
+        // Bump mtime slightly in case the write is same-second as the original
+        // (some filesystems only store second resolution).
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: url.path)
+
+        XCTAssertTrue(registry.syncFromDiskIfNeeded(url),
+                      "clean document must pick up external rewrite")
+        XCTAssertEqual(doc.content, "- [x] one\n- [x] two\n")
+        XCTAssertFalse(registry.isDirty(url))
+
+        registry.release(url)
+    }
+
+    @MainActor
+    func testRegistryKeepsDirtyOverExternalDiskChange() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("conflict.md")
+        try writeMarkdownDocument(content: "disk-old", assets: nil, to: url)
+
+        let doc = try registry.acquire(url)
+        doc.content = "local-unsaved"
+        registry.markDirty(url)
+
+        try writeMarkdownDocument(content: "disk-new", assets: nil, to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: url.path)
+
+        XCTAssertFalse(registry.syncFromDiskIfNeeded(url),
+                       "dirty buffer must not be clobbered by external write")
+        XCTAssertEqual(doc.content, "local-unsaved")
+
+        registry.release(url)
+    }
+
+    @MainActor
+    func testRegistrySyncsSessionCacheOnReacquire() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("parked.md")
+        try writeMarkdownDocument(content: "v1", assets: nil, to: url)
+
+        let doc = try registry.acquire(url)
+        registry.release(url)   // parks in session cache
+        XCTAssertFalse(registry.isOpen(url))
+
+        // External edit while parked — bump mtime so the registry sees it as newer.
+        try writeMarkdownDocument(content: "v2-from-agent", assets: nil, to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: url.path)
+
+        let again = try registry.acquire(url)
+        XCTAssertTrue(again === doc, "session cache should still return the same instance")
+        XCTAssertEqual(again.content, "v2-from-agent",
+                       "re-acquire must reload if disk changed while parked")
+
+        registry.release(url)
+    }
+
+    @MainActor
+    func testRegistrySessionCacheKeepsUnflushedMemory() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("unflushed.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: url)
+
+        let doc = try registry.acquire(url)
+        // In-memory edit without markDirty (undo stack still tracks it) — disk stays "disk".
+        doc.contentUndoManager.groupsByEvent = false
+        doc.applyUndoableContent("memory", actionName: "Edit")
+        registry.release(url)
+
+        let again = try registry.acquire(url)
+        XCTAssertEqual(again.content, "memory",
+                       "stale disk must not clobber session-cached buffer")
+        XCTAssertTrue(again.contentUndoManager.canUndo)
+
+        registry.release(url)
+    }
 }
