@@ -245,6 +245,7 @@ struct SourceTextView: NSViewRepresentable {
             parent.document.content = tv.string
             isInternalUpdate = false
             parent.document.noteContentEdited()
+            DocumentRegistry.shared.noteUserEdit(parent.fileURL)
             LineChangeTracker.shared.noteContent(url: parent.fileURL, content: tv.string)
             updateStats()
             highlightSource()

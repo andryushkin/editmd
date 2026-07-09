@@ -135,11 +135,16 @@ final class DocumentRegistry {
         /// Last known `contentModificationDate` — used to skip no-op reloads
         /// and to ignore our own autosave writes when the event races.
         var knownModDate: Date?
-        /// When true, the next `markDirty` is dropped (external reload just
-        /// updated `document.content`; that must not schedule autosave).
-        var suppressNextDirty = false
+        /// After external apply / conflict: ignore `markDirty` from residual
+        /// `objectWillChange` (and don't autosave) until the user actually types.
+        /// A single `suppressNextDirty` was not enough — two publishes or a
+        /// follow-up autosave wiped the status chip and/or overwrote disk.
+        var holdAutosaveUntilUserEdit = false
         /// Disk content already announced as a conflict (avoid re-posting).
         var pendingConflictDiskContent: String?
+        /// Last external notice payload we posted (applied or conflict) — used
+        /// so we never auto-dismiss while the user still needs Diff stats.
+        var hasOpenExternalNotice = false
         var fileWatch: DispatchSourceFileSystemObject?
         var fileDescriptor: Int32 = -1
         init(url: URL, document: MarkdownDocument) {
@@ -217,10 +222,18 @@ final class DocumentRegistry {
     /// owning view calls this when `document.content` changes.
     func markDirty(_ url: URL) {
         guard let entry = entries[url.standardizedFileURL] else { return }
-        if entry.suppressNextDirty {
-            entry.suppressNextDirty = false
-            return
-        }
+        // Residual publishes after external reload / conflict must not
+        // re-dirty or schedule an autosave that races the status chip.
+        if entry.holdAutosaveUntilUserEdit { return }
+        entry.isDirty = true
+        scheduleAutosave(entry)
+    }
+
+    /// Call from editor typing paths so the next edits autosave again after
+    /// an external apply held the flag.
+    func noteUserEdit(_ url: URL?) {
+        guard let url, let entry = entries[url.standardizedFileURL] else { return }
+        entry.holdAutosaveUntilUserEdit = false
         entry.isDirty = true
         scheduleAutosave(entry)
     }
@@ -246,6 +259,7 @@ final class DocumentRegistry {
         ExternalChangeCenter.shared.dismiss(url)
         if let entry = entries[url.standardizedFileURL] {
             entry.pendingConflictDiskContent = nil
+            entry.hasOpenExternalNotice = false
         }
     }
 
@@ -254,10 +268,13 @@ final class DocumentRegistry {
         let key = url.standardizedFileURL
         guard let entry = entries[key] else { return }
         entry.autosaveTask?.cancel()
+        entry.holdAutosaveUntilUserEdit = false
         entry.document.commitContentEdit()
         try flush(entry)
         entry.pendingConflictDiskContent = nil
+        entry.hasOpenExternalNotice = false
         ExternalChangeCenter.shared.dismiss(key)
+        LineChangeTracker.shared.noteBaseline(url: key, content: entry.document.content)
     }
 
     /// Conflict or post-apply: replace the buffer with `content` from disk/notice.
@@ -265,15 +282,16 @@ final class DocumentRegistry {
         let key = url.standardizedFileURL
         guard let entry = entries[key] else { return }
         entry.document.commitContentEdit()
-        entry.suppressNextDirty = true
+        entry.holdAutosaveUntilUserEdit = true
+        entry.autosaveTask?.cancel()
         entry.document.content = content
         if let assets {
             entry.document.assetsFileWrapper = assets
         }
         entry.document.contentUndoManager.removeAllActions()
         entry.isDirty = false
-        entry.autosaveTask?.cancel()
         entry.pendingConflictDiskContent = nil
+        entry.hasOpenExternalNotice = false
         entry.knownModDate = contentModificationDate(of: key)
         // Persist so the next FS event doesn't look like another external write.
         try? flush(entry)
@@ -355,24 +373,26 @@ final class DocumentRegistry {
         entry.knownModDate = contentModificationDate(of: entry.url)
 
         guard contentChanged || assetsChanged else {
-            // Disk matches memory — clear a stale conflict notice if any.
-            if entry.pendingConflictDiskContent != nil {
-                entry.pendingConflictDiskContent = nil
-                ExternalChangeCenter.shared.dismiss(entry.url)
-            }
+            // Disk == memory: do NOT auto-dismiss an open notice. A follow-up
+            // FS event after reload used to clear the status chip immediately.
             return false
         }
 
         if entry.isDirty {
             // Conflict: keep the buffer, announce once per distinct disk payload.
             if !contentChanged {
-                // Only assets changed while dirty — still don't clobber text.
                 return false
             }
             if entry.pendingConflictDiskContent == disk {
                 return false
             }
+            // Critical: cancel pending autosave so we don't overwrite the
+            // external file with the old buffer a moment later (that also
+            // made the chip vanish when disk snapped back to mem).
+            entry.autosaveTask?.cancel()
+            entry.holdAutosaveUntilUserEdit = true
             entry.pendingConflictDiskContent = disk
+            entry.hasOpenExternalNotice = true
             let stats = lineDiff(before: mem, after: disk)
             ExternalChangeCenter.shared.post(ExternalChangeNotice(
                 url: entry.url,
@@ -385,20 +405,21 @@ final class DocumentRegistry {
             return false
         }
 
-        // Clean: auto-apply, then offer a review banner.
+        // Clean: auto-apply, then offer a review chip in the status bar.
         let before = mem
         entry.document.commitContentEdit()
-        entry.suppressNextDirty = true
+        entry.holdAutosaveUntilUserEdit = true
+        entry.autosaveTask?.cancel()
         entry.document.content = disk
         entry.document.assetsFileWrapper = loaded.assets
         entry.document.contentUndoManager.removeAllActions()
         entry.isDirty = false
-        entry.autosaveTask?.cancel()
         entry.pendingConflictDiskContent = nil
         // New session baseline after external reload — clear dirty-line marks.
         LineChangeTracker.shared.noteBaseline(url: entry.url, content: disk)
 
         if contentChanged {
+            entry.hasOpenExternalNotice = true
             let stats = lineDiff(before: before, after: disk)
             ExternalChangeCenter.shared.post(ExternalChangeNotice(
                 url: entry.url,

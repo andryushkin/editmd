@@ -370,6 +370,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             applyPresentation()
             syncToDocument()
             parent.document.noteContentEdited()
+            DocumentRegistry.shared.noteUserEdit(parent.fileURL)
             LineChangeTracker.shared.noteContent(url: parent.fileURL,
                                                  content: parent.document.content)
             updateStats()
