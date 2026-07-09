@@ -172,6 +172,14 @@
 
 **Осталось / не в v34:** 3-way merge UI; side-by-side diff; hunk-context only (±N around changes); scroll-to-first-change; FSEvents на workspace (wiki index всё ещё lazy, без FS watch).
 
+### v34.1 — Line gutter + session dirty marks (in progress / landed core)
+
+- **`GutterSettings`** (Settings ▸ General ▸ Line gutter): showLineNumbers, highlightChangedLines, showDirtyBulletsWhenNoNumbers, dirtyMarkColorHex.
+- **`LineChangeTracker`**: baseline on open / external apply; dirty = insert/replace lines vs baseline (`lineDiff`); session-only (quit clears); git-commit clear = next stage.
+- **Source / Visual**: `LineNumberRulerView` on NSScrollView vertical ruler; dirty number = bold+color or bullet when numbers off.
+- **Preview**: `SourceLineGutterRail` (source lines; scroll not yet locked to WKWebView).
+- **Git (planned stage 3+):** poll `git log -1 -- path` / `.git` mtime on activate → `clearMarks`; later Commit UI via `git` CLI (no auto-push).
+
 ## Project Structure
 
 ```

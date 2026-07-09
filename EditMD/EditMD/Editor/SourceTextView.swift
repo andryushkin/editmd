@@ -19,6 +19,8 @@ struct LintSummary {
 struct SourceTextView: NSViewRepresentable {
 
     let document: MarkdownDocument
+    /// For session dirty-line marks (nil = untitled).
+    var fileURL: URL? = nil
     /// Cursor continuity across modes (markdown offsets are native here).
     var positionStore: EditorPositionStore? = nil
     /// Reading-field insets from Settings ▸ Source. Passed explicitly so
@@ -101,6 +103,15 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.publishActions()
         coordinator.highlightSource()
         coordinator.scheduleLint(delaySeconds: 0)
+        coordinator.refreshGutter()
+        // Scroll/bounds → redraw line numbers.
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.scrollOrBoundsChanged(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         if let store = positionStore, let restoreOffset {
             store.markdownOffset = restoreOffset
@@ -158,6 +169,7 @@ struct SourceTextView: NSViewRepresentable {
                 coordinator.pendingExternalReload = true
             }
         }
+        coordinator.refreshGutter()
     }
 
     /// Horizontal via `textContainerInset` (column wrap). Vertical via the
@@ -227,9 +239,24 @@ struct SourceTextView: NSViewRepresentable {
             parent.document.content = tv.string
             isInternalUpdate = false
             parent.document.noteContentEdited()
+            LineChangeTracker.shared.noteContent(url: parent.fileURL, content: tv.string)
             updateStats()
             highlightSource()
             scheduleLint()
+            refreshGutter()
+        }
+
+        func refreshGutter() {
+            guard let textView else { return }
+            let settings = EditorSettings.shared.gutter
+            let dirty = LineChangeTracker.shared.dirtyLines(for: parent.fileURL)
+            textView.installOrUpdateLineNumberRuler(
+                fileURL: parent.fileURL, dirty: dirty, settings: settings)
+        }
+
+        @objc func scrollOrBoundsChanged(_ note: Notification) {
+            (textView?.enclosingScrollView?.verticalRulerView as? LineNumberRulerView)?
+                .needsDisplay = true
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -267,10 +294,13 @@ struct SourceTextView: NSViewRepresentable {
             isInternalUpdate = false
             let len = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
+            // Baseline already reset by DocumentRegistry; refresh marks display.
             updateStats()
             highlightSource()
             scheduleLint(delaySeconds: 0)
+            refreshGutter()
         }
+
 
         /// When a deferred external change is pending, apply it once the window
         /// regains focus (see updateNSView's background-window gate).
@@ -472,6 +502,7 @@ struct SourceTextView: NSViewRepresentable {
                     columnWidth: settings.columnWidth)
             }
             highlightSource()
+            refreshGutter()
             publishActions()
         }
 

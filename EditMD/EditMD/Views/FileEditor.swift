@@ -20,6 +20,8 @@ final class DocHost: ObservableObject {
             self.url = url
             self.document = doc
             self.registered = true
+            // Session dirty-line baseline = content at open.
+            LineChangeTracker.shared.noteBaseline(url: url, content: doc.content)
         } else {
             self.url = nil
             self.document = MarkdownDocument()

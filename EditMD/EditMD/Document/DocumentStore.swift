@@ -278,6 +278,7 @@ final class DocumentRegistry {
         // Persist so the next FS event doesn't look like another external write.
         try? flush(entry)
         ExternalChangeCenter.shared.dismiss(key)
+        LineChangeTracker.shared.noteBaseline(url: key, content: content)
     }
 
     /// After a clean auto-reload: restore the pre-reload snapshot and write it.
@@ -391,6 +392,8 @@ final class DocumentRegistry {
         entry.isDirty = false
         entry.autosaveTask?.cancel()
         entry.pendingConflictDiskContent = nil
+        // New session baseline after external reload — clear dirty-line marks.
+        LineChangeTracker.shared.noteBaseline(url: entry.url, content: disk)
 
         if contentChanged {
             let stats = lineDiff(before: before, after: disk)

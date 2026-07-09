@@ -18,6 +18,7 @@ struct ContentView: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
     @ObservedObject private var externalChanges = ExternalChangeCenter.shared
+    @ObservedObject private var lineChanges = LineChangeTracker.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -207,11 +208,17 @@ struct ContentView: View {
                               columnWidth: stripInset.column,
                               showVisualExtras: mode == .visual)
             if mode == .preview {
-                MarkdownPreviewView(document: document, fileURL: fileURL,
-                                    positionStore: positionStore,
-                                    onRequestEdit: { setEditorMode(.visual) },
-                                    toolbarActions: stripActions)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 0) {
+                    SourceLineGutterRail(
+                        content: document.content,
+                        dirtyLines: lineChanges.dirtyLines(for: fileURL),
+                        settings: editorSettings.gutter)
+                    MarkdownPreviewView(document: document, fileURL: fileURL,
+                                        positionStore: positionStore,
+                                        onRequestEdit: { setEditorMode(.visual) },
+                                        toolbarActions: stripActions)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 GeometryReader { geo in
                     HStack(spacing: 0) {
@@ -244,6 +251,7 @@ struct ContentView: View {
         case .source:
             SourceTextView(
                 document: document,
+                fileURL: fileURL,
                 positionStore: positionStore,
                 insetH: editorSettings.source.insetH,
                 insetV: editorSettings.source.insetV,

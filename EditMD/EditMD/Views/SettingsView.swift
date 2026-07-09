@@ -62,6 +62,19 @@ private struct GeneralTab: View {
                 Text("Off: a double-click in Finder loads the file into the main window. Sidebar clicks and File ▸ Open always use the main window; right-click a file to open it separately.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Line gutter") {
+                Toggle("Show line numbers", isOn: $settings.gutter.showLineNumbers)
+                Toggle("Highlight lines changed this session",
+                       isOn: $settings.gutter.highlightChangedLines)
+                Toggle("Show bullets on changed lines when numbers are off",
+                       isOn: $settings.gutter.showDirtyBulletsWhenNoNumbers)
+                ColorOverrideRow(title: "Changed-line mark",
+                                 hex: $settings.gutter.dirtyMarkColorHex,
+                                 fallback: settings.gutter.dirtyMarkNSColor)
+                Text("Marks compare to the text when the file was opened or last reloaded from disk. They clear when the app quits (session-only). Git commit clear comes next.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Reset Gutter to Defaults") { settings.resetGutter() }
+            }
             Section {
                 Button("Reset General to Defaults") { settings.resetGeneral() }
                 Button("Reset Everything…", role: .destructive) { settings.resetToDefaults() }

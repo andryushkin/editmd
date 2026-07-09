@@ -373,6 +373,55 @@ struct GeneralSettings: Codable, Equatable {
     }
 }
 
+// MARK: - Gutter (line numbers + session dirty marks)
+
+/// Line-number gutter and “changed since baseline” marks for Source / Visual /
+/// Preview. Marks are session-only (cleared on quit); baseline = open or
+/// external apply. Git commit clear is a later stage.
+struct GutterSettings: Codable, Equatable {
+    /// Show 1-based line numbers in the left gutter.
+    var showLineNumbers: Bool
+    /// When a line differs from the session baseline, style its number (or bullet).
+    var highlightChangedLines: Bool
+    /// If line numbers are off, still show a small bullet on dirty lines.
+    var showDirtyBulletsWhenNoNumbers: Bool
+    /// Optional override for dirty mark color (nil = system green).
+    var dirtyMarkColorHex: String?
+
+    init(showLineNumbers: Bool = true,
+         highlightChangedLines: Bool = true,
+         showDirtyBulletsWhenNoNumbers: Bool = true,
+         dirtyMarkColorHex: String? = nil) {
+        self.showLineNumbers = showLineNumbers
+        self.highlightChangedLines = highlightChangedLines
+        self.showDirtyBulletsWhenNoNumbers = showDirtyBulletsWhenNoNumbers
+        self.dirtyMarkColorHex = dirtyMarkColorHex
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        showLineNumbers = try c.decodeIfPresent(Bool.self, forKey: .showLineNumbers) ?? true
+        highlightChangedLines = try c.decodeIfPresent(Bool.self, forKey: .highlightChangedLines) ?? true
+        showDirtyBulletsWhenNoNumbers = try c.decodeIfPresent(Bool.self, forKey: .showDirtyBulletsWhenNoNumbers) ?? true
+        dirtyMarkColorHex = try c.decodeIfPresent(String.self, forKey: .dirtyMarkColorHex)
+    }
+
+    /// Resolved mark color (green by default).
+    var dirtyMarkNSColor: NSColor {
+        if let hex = dirtyMarkColorHex, let c = NSColor(hex: hex) { return c }
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(red: 0.35, green: 0.90, blue: 0.50, alpha: 1)
+                : NSColor(red: 0.10, green: 0.55, blue: 0.25, alpha: 1)
+        }
+    }
+
+    /// Whether the gutter strip should be visible at all.
+    var gutterVisible: Bool {
+        showLineNumbers || (highlightChangedLines && showDirtyBulletsWhenNoNumbers)
+    }
+}
+
 // MARK: - Settings store
 
 /// Single source of truth for editor appearance, persisted to UserDefaults
@@ -384,6 +433,7 @@ final class EditorSettings: ObservableObject {
     static let shared = EditorSettings()
 
     @Published var general: GeneralSettings { didSet { persist(general, Keys.general) } }
+    @Published var gutter: GutterSettings { didSet { persist(gutter, Keys.gutter) } }
     @Published var source: ModeSettings { didSet { persist(source, Keys.source) } }
     @Published var visual: ModeSettings { didSet { persist(visual, Keys.visual) } }
     @Published var visualSpacing: VisualSpacingSettings { didSet { persist(visualSpacing, Keys.visualSpacing) } }
@@ -395,6 +445,7 @@ final class EditorSettings: ObservableObject {
 
     private enum Keys {
         static let general = "editorSettings.general"
+        static let gutter = "editorSettings.gutter"
         static let source = "editorSettings.source"
         static let visual = "editorSettings.visual"
         static let visualSpacing = "editorSettings.visualSpacing"
@@ -405,6 +456,7 @@ final class EditorSettings: ObservableObject {
 
     private init() {
         general = Self.load(Keys.general) ?? GeneralSettings(themePreset: "github")
+        gutter = Self.load(Keys.gutter) ?? GutterSettings()
         source = Self.load(Keys.source) ?? ModeSettings(
             fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0)
         visual = Self.load(Keys.visual) ?? ModeSettings(
@@ -432,6 +484,7 @@ final class EditorSettings: ObservableObject {
     }
 
     func resetGeneral() { general = GeneralSettings(themePreset: general.themePreset) }
+    func resetGutter() { gutter = GutterSettings() }
     func resetSource() { source = ModeSettings(fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0) }
     func resetVisual() {
         visual = ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 0)
@@ -445,6 +498,7 @@ final class EditorSettings: ObservableObject {
 
     func resetToDefaults() {
         general = GeneralSettings(themePreset: "github")
+        resetGutter()
         resetSource(); resetVisual(); resetPreview()
     }
 
