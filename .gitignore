@@ -6,3 +6,4 @@ DerivedData/
 *.baseline
 .smotr-queue.json
 .smotr-agent.log
+.claude/
