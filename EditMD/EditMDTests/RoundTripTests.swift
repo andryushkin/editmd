@@ -11,8 +11,11 @@ final class RoundTripTests: XCTestCase {
 
     private func normalizedHTML(_ md: String) -> String {
         markdownHTMLBody(md)
-            // The serializer's <!-- --> list fence is semantically invisible.
+            // The serializer's <!-- --> list fence is semantically invisible
+            // (browser comment + empty raw-html wrapper around it).
             .replacingOccurrences(of: #"<!--[\s\S]*?-->"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"<div class="raw-html">\s*</div>"#, with: "",
+                                  options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
     }
@@ -38,6 +41,19 @@ final class RoundTripTests: XCTestCase {
 
     func testInlineStyles() {
         assertStable("Body with **bold** and *italic* and ~~strike~~.")
+    }
+
+    func testHighlight() {
+        assertStable("see ==important== note")
+        assertStable("==Plain ==~~text~~ paragraph")
+    }
+
+    func testAdjacentCodeBlocks() {
+        assertStable("```swift\nlet x = 1\n```\n\n```\nplain\n```\n\n```\nother\n```")
+    }
+
+    func testHTMLCommentListFence() {
+        assertStable("- a\n\n<!-- -->\n\n- b")
     }
 
     func testInlineCode() { assertStable("run `cmd` now") }

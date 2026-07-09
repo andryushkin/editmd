@@ -164,6 +164,36 @@ final class PreviewSelectionWrapTests: XCTestCase {
         XCTAssertFalse(html.contains("==hi=="), html)
     }
 
+    func testHighlightVisualRender() {
+        let attr = renderMarkdownToAttributed("x ==hi== y")
+        var found = false
+        attr.enumerateAttribute(.mdInline, in: NSRange(location: 0, length: attr.length)) { value, range, _ in
+            let styles = MDInlineStyle(rawValue: value as? Int ?? 0)
+            if styles.contains(.highlight) {
+                found = true
+                XCTAssertEqual((attr.string as NSString).substring(with: range), "hi")
+            }
+        }
+        XCTAssertTrue(found, "Visual render should stamp .highlight on ==…== inner text")
+        XCTAssertFalse(attr.string.contains("=="), "markers must not appear in display text")
+    }
+
+    func testHTMLCommentOnlyHelper() {
+        XCTAssertTrue(isHTMLCommentOnly("<!-- -->"))
+        XCTAssertTrue(isHTMLCommentOnly("<!-- a -->\n<!-- b -->"))
+        XCTAssertTrue(isHTMLCommentOnly("  <!-- x -->  "))
+        XCTAssertFalse(isHTMLCommentOnly("<div>x</div>"))
+        XCTAssertFalse(isHTMLCommentOnly("<!-- a -->visible"))
+    }
+
+    func testHTMLCommentIslandHasNoDisplayText() {
+        let attr = renderMarkdownToAttributed("- a\n\n<!-- -->\n\n- b")
+        XCTAssertFalse(attr.string.contains("<!--"),
+                       "comment fence must not paint as a monospaced island")
+        // Still round-trips via .raw on an empty paragraph.
+        XCTAssertEqual(serializeAttributedToMarkdown(attr), "- a\n\n<!-- -->\n\n- b")
+    }
+
     func testHTMLTagsSourceOffsets() {
         let html = markdownHTMLBody("hello")
         XCTAssertTrue(html.contains("data-md-lo=\"0\""), html)

@@ -231,7 +231,7 @@ private func escapeLeading(_ text: String, kind: MDBlock.Kind) -> String {
 // MARK: - Inline serialization
 
 private enum OpenMarker: Equatable {
-    case bold, italic, strike
+    case bold, italic, strike, highlight
     case link(String)
 
     var opener: String {
@@ -239,6 +239,7 @@ private enum OpenMarker: Equatable {
         case .bold: return "**"
         case .italic: return "*"
         case .strike: return "~~"
+        case .highlight: return "=="
         case .link: return "["
         }
     }
@@ -248,6 +249,7 @@ private enum OpenMarker: Equatable {
         case .bold: return "**"
         case .italic: return "*"
         case .strike: return "~~"
+        case .highlight: return "=="
         case .link(let dest): return "](\(formatDestination(dest)))"
         }
     }
@@ -294,6 +296,10 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
     func desiredMarkers(_ run: InlineRun) -> [OpenMarker] {
         var markers: [OpenMarker] = []
         if let link = run.link { markers.append(.link(link)) }
+        // Highlight is outermost among pure style markers so reparse sees
+        // `==…==` as one text run (bold/italic inside stay literal in the
+        // mark; `**==x==**` re-renders both bold and highlight).
+        if run.styles.contains(.highlight) { markers.append(.highlight) }
         if run.styles.contains(.bold) { markers.append(.bold) }
         if run.styles.contains(.italic) { markers.append(.italic) }
         if run.styles.contains(.strike) { markers.append(.strike) }

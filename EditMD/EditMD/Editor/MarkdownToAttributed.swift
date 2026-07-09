@@ -21,11 +21,13 @@ import Markdown
 
 struct MDInlineStyle: OptionSet, Hashable {
     let rawValue: Int
-    static let bold    = MDInlineStyle(rawValue: 1 << 0)
-    static let italic  = MDInlineStyle(rawValue: 1 << 1)
-    static let strike  = MDInlineStyle(rawValue: 1 << 2)
-    static let code    = MDInlineStyle(rawValue: 1 << 3)
-    static let rawHTML = MDInlineStyle(rawValue: 1 << 4)  // inline HTML: no escaping
+    static let bold      = MDInlineStyle(rawValue: 1 << 0)
+    static let italic    = MDInlineStyle(rawValue: 1 << 1)
+    static let strike    = MDInlineStyle(rawValue: 1 << 2)
+    static let code      = MDInlineStyle(rawValue: 1 << 3)
+    static let rawHTML   = MDInlineStyle(rawValue: 1 << 4)  // inline HTML: no escaping
+    /// Obsidian-style `==highlight==` (display-only markers; not GFM).
+    static let highlight = MDInlineStyle(rawValue: 1 << 5)
 }
 
 struct MDBlock: Equatable, Hashable {
@@ -95,6 +97,18 @@ extension NSAttributedString.Key {
 let mdHardBreak = "\u{2028}"
 /// Placeholder character for images and thematic breaks.
 let mdObjectChar = "\u{FFFC}"
+
+/// True when `html` is only HTML comments (and whitespace) — e.g. `<!-- -->`,
+/// used as a list-separator fence. Such blocks serialize via `.raw` but must not
+/// paint as monospaced islands in Visual.
+func isHTMLCommentOnly(_ html: String) -> Bool {
+    var s = html
+    while let start = s.range(of: "<!--"),
+          let end = s.range(of: "-->", range: start.upperBound..<s.endIndex) {
+        s.removeSubrange(start.lowerBound..<end.upperBound)
+    }
+    return s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
 
 // MARK: - Visual style (proportional font — Source stays monospaced)
 
@@ -464,6 +478,13 @@ private final class VisualRenderer {
             raw = block.format()
         }
         guard !raw.isEmpty else { return }
+        // HTML comments (incl. the serializer's `<!-- -->` list fence) are kept
+        // as `.raw` for round-trip but have no display text — Preview hides them
+        // the same way (browser treats `<!--…-->` as a real comment).
+        if block is HTMLBlock, isHTMLCommentOnly(raw) {
+            appendParagraph(makeBlock(.raw(raw), ctx)) { _ in }
+            return
+        }
         let display = raw.replacingOccurrences(of: "\n", with: mdHardBreak)
         appendParagraph(makeBlock(.raw(raw), ctx)) { b in
             self.appendText(display, block: b, styles: [], link: nil)
@@ -522,36 +543,75 @@ private final class VisualRenderer {
                                                                  link: link)))
     }
 
-    /// A Text node may contain `[[wiki-links]]`, which swift-markdown treats as
-    /// literal text. We split the run so each wiki-link becomes a marker-free
-    /// run carrying `.mdWikiLink` (shows alias/target; serializes back verbatim).
-    /// Scanning the SOURCE slice keeps escaped brackets (`\[`) from matching.
+    /// A Text node may contain `[[wiki-links]]` and `==highlight==`, which
+    /// swift-markdown treats as literal text. We split the run: wiki-links
+    /// become marker-free runs with `.mdWikiLink`; highlights become marker-free
+    /// runs with `.highlight` style.
+    ///
+    /// Wiki scan uses the SOURCE slice so escaped `\[` does not match. Highlight
+    /// scan (and plain display) use `text.string` — cmark has already resolved
+    /// escapes there; feeding source would leave literal backslashes and break
+    /// round-trip (`\_` → `\\_`).
     private func appendTextWithWikiLinks(_ text: Markdown.Text, block: MDBlock,
                                          styles: MDInlineStyle, link: String?) {
+        // Common path: no wiki-links → highlight on the unescaped string.
         guard let src = text.range else {
-            appendText(text.string, block: block, styles: styles, link: link); return
+            appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+            return
         }
         let loc = lineIdx.offset(src.lowerBound.line, src.lowerBound.column)
         let end = lineIdx.offset(src.upperBound.line, src.upperBound.column)
         guard end > loc, end <= nsSource.length else {
-            appendText(text.string, block: block, styles: styles, link: link); return
+            appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+            return
         }
         let source = nsSource.substring(with: NSRange(location: loc, length: end - loc))
         let matches = scanWikiLinks(in: source)
         guard !matches.isEmpty else {
-            appendText(text.string, block: block, styles: styles, link: link); return
+            appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+            return
         }
+        // Wiki present: split source for wiki ranges; plain gaps use source
+        // substrings (pre-existing wiki path). Highlights still run on gaps.
         let ns = source as NSString
         var cursor = 0
         for m in matches {
+            if m.range.location > cursor {
+                appendTextWithHighlights(
+                    ns.substring(with: NSRange(location: cursor,
+                                               length: m.range.location - cursor)),
+                    block: block, styles: styles, link: link)
+            }
+            var attrs = baseAttributes(block: block, styles: styles, link: link)
+            attrs[.mdWikiLink] = m.payload
+            out.append(NSAttributedString(string: m.payload.displayText, attributes: attrs))
+            cursor = NSMaxRange(m.range)
+        }
+        if cursor < ns.length {
+            appendTextWithHighlights(
+                ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),
+                block: block, styles: styles, link: link)
+        }
+    }
+
+    /// Splits `==inner==` out of a plain text run (Obsidian highlight). Markers
+    /// are dropped from display; inner text carries `.highlight` for yellow mark
+    /// styling and for serialize → `==…==`.
+    private func appendTextWithHighlights(_ string: String, block: MDBlock,
+                                          styles: MDInlineStyle, link: String?) {
+        let marks = scanHighlightMarks(in: string)
+        guard !marks.isEmpty else {
+            appendText(string, block: block, styles: styles, link: link); return
+        }
+        let ns = string as NSString
+        var cursor = 0
+        for m in marks {
             if m.range.location > cursor {
                 appendText(ns.substring(with: NSRange(location: cursor,
                                                       length: m.range.location - cursor)),
                            block: block, styles: styles, link: link)
             }
-            var attrs = baseAttributes(block: block, styles: styles, link: link)
-            attrs[.mdWikiLink] = m.payload
-            out.append(NSAttributedString(string: m.payload.displayText, attributes: attrs))
+            appendText(m.inner, block: block, styles: styles.union(.highlight), link: link)
             cursor = NSMaxRange(m.range)
         }
         if cursor < ns.length {

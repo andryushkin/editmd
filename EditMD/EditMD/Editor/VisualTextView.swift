@@ -957,7 +957,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                 editLink: { [weak self] in self?.editLink() },
                 toggleStrikethrough: { [weak self] in self?.toggleInlineStyle(.strike) },
                 toggleCodeSpan: { [weak self] in self?.toggleInlineStyle(.code) },
-                toggleHighlight: { [weak self] in self?.wrapSelectionMarkers("==") },
+                toggleHighlight: { [weak self] in self?.toggleInlineStyle(.highlight) },
                 setHeading: { [weak self] level in self?.setHeading(level) },
                 setBody: { [weak self] in self?.setBodyParagraph() },
                 toggleBulletList: { [weak self] in self?.toggleListKind(
@@ -994,52 +994,6 @@ struct VisualMarkdownView: NSViewRepresentable {
             let text = (textView.string as NSString).substring(with: range)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-        }
-
-        /// Insert/remove literal `==…==` around the selection (Obsidian highlight).
-        private func wrapSelectionMarkers(_ marker: String) {
-            guard let textView, let storage = textView.textStorage else { return }
-            let range = textView.selectedRange()
-            guard range.length > 0 else { NSSound.beep(); return }
-            let ns = storage.string as NSString
-            let openLen = (marker as NSString).length
-            if range.location >= openLen {
-                let before = ns.substring(with: NSRange(location: range.location - openLen,
-                                                        length: openLen))
-                let afterLoc = NSMaxRange(range)
-                let after = afterLoc + openLen <= ns.length
-                    ? ns.substring(with: NSRange(location: afterLoc, length: openLen)) : ""
-                if before == marker, after == marker {
-                    let full = NSRange(location: range.location - openLen,
-                                       length: range.length + openLen * 2)
-                    let inner = storage.attributedSubstring(from: range)
-                    guard textView.shouldChangeText(in: full, replacementString: inner.string)
-                    else { return }
-                    isMutating = true
-                    storage.replaceCharacters(in: full, with: inner)
-                    isMutating = false
-                    textView.didChangeText()
-                    afterMutation()
-                    textView.setSelectedRange(NSRange(location: full.location, length: range.length))
-                    return
-                }
-            }
-            let selected = storage.attributedSubstring(from: range)
-            let open = NSAttributedString(string: marker, attributes: textView.typingAttributes)
-            let close = NSAttributedString(string: marker, attributes: textView.typingAttributes)
-            let combined = NSMutableAttributedString()
-            combined.append(open)
-            combined.append(selected)
-            combined.append(close)
-            guard textView.shouldChangeText(in: range, replacementString: combined.string)
-            else { return }
-            isMutating = true
-            storage.replaceCharacters(in: range, with: combined)
-            isMutating = false
-            textView.didChangeText()
-            afterMutation()
-            textView.setSelectedRange(NSRange(location: range.location + openLen,
-                                              length: range.length))
         }
 
         private func setBodyParagraph() {
@@ -1437,6 +1391,36 @@ struct VisualMarkdownView: NSViewRepresentable {
             let theme = textView.theme
 
             let spacingScale = EditorSettings.shared.visualSpacing.scale
+            // Pre-scan: which paragraphs are first/last line of each code group,
+            // so margin can be applied in the same pass as other styles (a
+            // follow-up attribute write was easy to lose / override).
+            var codeGroupFirst = Set<Int>()  // paragraph.location
+            var codeGroupLast = Set<Int>()
+            var codeGroupsTmp: [Int: (first: Int, last: Int)] = [:]  // group → (firstLoc, lastLoc)
+            var scanLoc = 0
+            while scanLoc < nsText.length {
+                let para = nsText.paragraphRange(for: NSRange(location: scanLoc, length: 0))
+                defer { scanLoc = NSMaxRange(para) == scanLoc ? scanLoc + 1 : NSMaxRange(para) }
+                guard let block = storage.attribute(.mdBlock, at: para.location,
+                                                    effectiveRange: nil) as? MDBlock,
+                      case .codeBlock = block.kind else { continue }
+                if var ends = codeGroupsTmp[block.group] {
+                    ends.last = para.location
+                    codeGroupsTmp[block.group] = ends
+                } else {
+                    codeGroupsTmp[block.group] = (para.location, para.location)
+                }
+            }
+            for ends in codeGroupsTmp.values {
+                codeGroupFirst.insert(ends.first)
+                codeGroupLast.insert(ends.last)
+            }
+
+            // Margin = white between cards. Independent of panel padding.
+            // Must be large enough that even if pad steals ~6pt each side, a
+            // clear gap remains (and neighboring lines stay unpainted).
+            let codeBlockMargin: CGFloat = max(24, 24 * spacingScale)
+
             isMutating = true
             storage.beginEditing()
             var location = 0
@@ -1505,7 +1489,15 @@ struct VisualMarkdownView: NSViewRepresentable {
                     markerIndent = 24 + CGFloat(max(0, indent - 2) / 4) * 22
                 case .codeBlock:
                     markerIndent = 10
+                    // Tight lines inside one fence. Margin only on group edges.
                     style.paragraphSpacing = 0
+                    style.paragraphSpacingBefore = 0
+                    if codeGroupFirst.contains(paragraph.location), !isDocumentStart {
+                        style.paragraphSpacingBefore = codeBlockMargin
+                    }
+                    if codeGroupLast.contains(paragraph.location) {
+                        style.paragraphSpacing = codeBlockMargin
+                    }
                     let existing = codeGroups[blockValue.group]
                     codeGroups[blockValue.group] = existing.map { NSUnionRange($0, paragraph) } ?? paragraph
                 case .thematicBreak:
@@ -1594,9 +1586,16 @@ struct VisualMarkdownView: NSViewRepresentable {
                     }
                 }
             }
+
             attachImages(storage)
             storage.endEditing()
             isMutating = false
+
+            // Ensure paragraphSpacing (code-block margin) is laid out before the
+            // next draw — otherwise panels still paint against stale geometry.
+            if let lm = textView.layoutManager, let tc = textView.textContainer {
+                lm.ensureLayout(for: tc)
+            }
 
             textView.bulletEntries = bullets
             textView.numberEntries = numbers
@@ -1661,6 +1660,18 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
         }
 
+        /// Obsidian-style highlight fill — matches Preview `mark` CSS.
+        private static let highlightMarkColor = NSColor(name: nil) { appearance in
+            switch appearance.name {
+            case .darkAqua, .vibrantDark,
+                 .accessibilityHighContrastDarkAqua,
+                 .accessibilityHighContrastVibrantDark:
+                return NSColor(red: 1, green: 0.77, blue: 0, alpha: 0.35)
+            default:
+                return NSColor(red: 1, green: 0.83, blue: 0, alpha: 0.45)
+            }
+        }
+
         /// Strikethrough and colors are derived: .mdInline strike ∪ done-task
         /// paragraphs get strikethrough; links get link color + underline.
         private func applyDerivedInlineDecorations(_ storage: NSTextStorage,
@@ -1702,11 +1713,13 @@ struct VisualMarkdownView: NSViewRepresentable {
                         .foregroundColor: elements.link.color ?? theme.accentColor,
                         .underlineStyle: NSUnderlineStyle.single.rawValue,
                     ], range: range)
+                    storage.removeAttribute(.backgroundColor, range: range)
                 } else if attrs[.mdLink] != nil {
                     storage.addAttributes([
                         .foregroundColor: elements.link.color ?? theme.accentColor,
                         .underlineStyle: NSUnderlineStyle.single.rawValue,
                     ], range: range)
+                    storage.removeAttribute(.backgroundColor, range: range)
                 } else if isDone {
                     storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
                                          range: range)
@@ -1733,7 +1746,14 @@ struct VisualMarkdownView: NSViewRepresentable {
                     }
                     storage.addAttribute(.foregroundColor, value: color, range: range)
                     storage.removeAttribute(.underlineStyle, range: range)
-                    storage.removeAttribute(.backgroundColor, range: range)
+                    if styles.contains(.highlight) {
+                        // Match Preview `<mark>` (light / dark).
+                        storage.addAttribute(.backgroundColor,
+                                             value: Self.highlightMarkColor,
+                                             range: range)
+                    } else {
+                        storage.removeAttribute(.backgroundColor, range: range)
+                    }
                 }
             }
         }
@@ -2294,13 +2314,79 @@ final class VisualNSTextView: NSTextView {
             return union.isNull ? nil : union
         }
 
-        // Code panels
+        // Code panels.
+        // padding = gray around glyphs only (fixed).
+        // margin = enforced white gap between panel outer edges + clamp so a
+        // panel never paints over a neighboring (non-member) line fragment.
+        let codePanelPadding: CGFloat = 6
+        let codeBlockMargin: CGFloat = 12
+        var panelRects: [NSRect] = []
+        panelRects.reserveCapacity(codePanelRanges.count)
         for range in codePanelRanges {
-            guard let rectUnion = unionRect(for: range) else { continue }
-            let padded = rectUnion.insetBy(dx: 0, dy: -6)
-            guard padded.intersects(rect) else { continue }
-            theme.codeBlockBackground.setFill()
-            NSBezierPath(roundedRect: padded, xRadius: 6, yRadius: 6).fill()
+            guard var box = unionRect(for: range) else { continue }
+            // Internal padding around the text of THIS fence only.
+            box = box.insetBy(dx: 0, dy: -codePanelPadding)
+            // Clamp to neighbors outside the character range so pad cannot
+            // bleed onto the previous/next paragraph (quote, list, other code).
+            if range.location > 0 {
+                let prevIdx = range.location - 1
+                let prevGlyph = layoutManager.glyphRange(
+                    forCharacterRange: NSRange(location: prevIdx, length: 1),
+                    actualCharacterRange: nil)
+                if prevGlyph.location != NSNotFound {
+                    var prevFrag = NSRect.null
+                    layoutManager.enumerateLineFragments(forGlyphRange: prevGlyph) { fragment, _, _, _, _ in
+                        let r = NSRect(x: inset.width, y: fragment.minY + inset.height,
+                                       width: fullWidth, height: fragment.height)
+                        prevFrag = prevFrag.isNull ? r : prevFrag.union(r)
+                    }
+                    if !prevFrag.isNull {
+                        box.origin.y = max(box.minY, prevFrag.maxY + codeBlockMargin)
+                        box.size.height = max(0, box.maxY - box.minY)
+                    }
+                }
+            }
+            let after = NSMaxRange(range)
+            if after < totalLength {
+                let nextGlyph = layoutManager.glyphRange(
+                    forCharacterRange: NSRange(location: after, length: 1),
+                    actualCharacterRange: nil)
+                if nextGlyph.location != NSNotFound {
+                    var nextFrag = NSRect.null
+                    layoutManager.enumerateLineFragments(forGlyphRange: nextGlyph) { fragment, _, _, _, _ in
+                        let r = NSRect(x: inset.width, y: fragment.minY + inset.height,
+                                       width: fullWidth, height: fragment.height)
+                        nextFrag = nextFrag.isNull ? r : nextFrag.union(r)
+                    }
+                    if !nextFrag.isNull {
+                        let maxY = nextFrag.minY - codeBlockMargin
+                        if maxY < box.maxY {
+                            box.size.height = max(0, maxY - box.minY)
+                        }
+                    }
+                }
+            }
+            if box.height > 0 { panelRects.append(box) }
+        }
+        // Resolve panel–panel overlap (adjacent fences): keep margin between
+        // outer edges by shrinking into the gap, never by expanding gray.
+        panelRects.sort { $0.minY < $1.minY }
+        if panelRects.count > 1 {
+            for i in 1..<panelRects.count {
+                let prev = panelRects[i - 1]
+                var cur = panelRects[i]
+                let minTop = prev.maxY + codeBlockMargin
+                if cur.minY < minTop {
+                    let shrink = minTop - cur.minY
+                    cur.origin.y += shrink
+                    cur.size.height = max(0, cur.height - shrink)
+                    panelRects[i] = cur
+                }
+            }
+        }
+        theme.codeBlockBackground.setFill()
+        for box in panelRects where box.intersects(rect) && box.height > 1 {
+            NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
         }
 
         // Frontmatter properties cards (Obsidian-style metadata panel)
@@ -2326,14 +2412,29 @@ final class VisualNSTextView: NSTextView {
             }
         }
 
-        // Bullets
-        for (range, _) in bulletEntries {
+        // Bullets — depth cycles • (fill) / ◦ (stroke) / ▪ (square), like Source.
+        for (range, depth) in bulletEntries {
             guard let marker = markerRect(forParagraph: range) else { continue }
             let radius = marker.height * 0.18
             let center = NSPoint(x: marker.midX, y: marker.midY)
-            theme.accentColor.setFill()
-            NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius,
-                                        width: radius * 2, height: radius * 2)).fill()
+            let box = NSRect(x: center.x - radius, y: center.y - radius,
+                             width: radius * 2, height: radius * 2)
+            switch depth % 3 {
+            case 0:
+                theme.accentColor.setFill()
+                NSBezierPath(ovalIn: box).fill()
+            case 1:
+                theme.accentColor.setStroke()
+                let ring = NSBezierPath(ovalIn: box)
+                ring.lineWidth = max(1.25, radius * 0.35)
+                ring.stroke()
+            default:
+                theme.accentColor.setFill()
+                let side = radius * 1.7
+                let square = NSRect(x: center.x - side / 2, y: center.y - side / 2,
+                                    width: side, height: side)
+                NSBezierPath(rect: square).fill()
+            }
         }
 
         // Ordered numbers
