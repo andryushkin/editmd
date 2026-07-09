@@ -50,10 +50,45 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(names(model.visibleFiles(ws)), ["b.md", "sub.textbundle"])
         XCTAssertEqual(names(model.hiddenFilesList(ws)), ["a.md"])
         XCTAssertEqual(model.totalHiddenCount, 1)
+        XCTAssertEqual(model.hiddenFiles[ws.folderPath], ["a.md"])
 
         model.unhide(a, in: ws)
         XCTAssertEqual(names(model.visibleFiles(ws)), ["a.md", "b.md", "sub.textbundle"])
         XCTAssertEqual(model.totalHiddenCount, 0)
+    }
+
+    func testHideNestedRelativePath() throws {
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        let nested = dir.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let deep = nested.appendingPathComponent("deep.md")
+        try "x".write(to: deep, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(model.relativePath(of: deep, in: model.workspaces[0]), "nested/deep.md")
+        model.hide(deep)
+        XCTAssertTrue(model.isHidden(deep))
+        XCTAssertEqual(names(model.visibleMarkdown(in: nested)), [])
+        XCTAssertEqual(names(model.hiddenMarkdown(in: nested)), ["deep.md"])
+        XCTAssertEqual(model.hiddenFiles[model.workspaces[0].folderPath], ["nested/deep.md"])
+        XCTAssertEqual(model.totalHiddenCount, 1)
+
+        model.unhide(deep)
+        XCTAssertFalse(model.isHidden(deep))
+        XCTAssertEqual(names(model.visibleMarkdown(in: nested)), ["deep.md"])
+    }
+
+    func testWorkspaceOwningLongestPrefix() throws {
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        let nested = dir.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let deep = nested.appendingPathComponent("deep.md")
+        try "x".write(to: deep, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(model.workspaceOwning(deep)?.folderPath, dir.standardizedFileURL.path)
+        // File only in parent-of-workspace is not owned.
+        XCTAssertNil(model.workspaceOwning(dir.deletingLastPathComponent()))
     }
 
     func testHiddenPersistsAcrossInstances() {

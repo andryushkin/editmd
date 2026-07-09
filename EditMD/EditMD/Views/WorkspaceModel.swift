@@ -22,7 +22,8 @@ final class WorkspaceModel: ObservableObject {
 
     /// Adopted folders, always visible, collapsible.
     @Published var workspaces: [Workspace] { didSet { persist(workspaces, Keys.folders) } }
-    /// folderPath → hidden file names.
+    /// workspace root path → set of **relative paths** of hidden markdown files
+    /// (e.g. `note.md`, `sub/a.md`). Legacy entries without `/` are root basenames.
     @Published var hiddenFiles: [String: Set<String>] { didSet { persist(hiddenFiles, Keys.hidden) } }
     /// Pinned loose files (persist across launches), stored as paths.
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
@@ -93,18 +94,38 @@ final class WorkspaceModel: ObservableObject {
     }
 
     func visibleFiles(_ ws: Workspace) -> [URL] {
-        let hidden = hiddenFiles[ws.folderPath] ?? []
-        return markdownFiles(in: ws.url).filter { !hidden.contains($0.lastPathComponent) }
+        markdownFiles(in: ws.url).filter { !isHidden($0) }
     }
 
+    /// Direct markdown children of the workspace root that are hidden (sidebar review).
     func hiddenFilesList(_ ws: Workspace) -> [URL] {
-        let hidden = hiddenFiles[ws.folderPath] ?? []
-        return markdownFiles(in: ws.url).filter { hidden.contains($0.lastPathComponent) }
+        markdownFiles(in: ws.url).filter { isHidden($0) }
+    }
+
+    /// Direct visible markdown children of any folder (card + nested sidebar).
+    func visibleMarkdown(in folder: URL) -> [URL] {
+        markdownFiles(in: folder).filter { !isHidden($0) }
+    }
+
+    /// Direct hidden markdown children of any folder.
+    func hiddenMarkdown(in folder: URL) -> [URL] {
+        markdownFiles(in: folder).filter { isHidden($0) }
     }
 
     /// Count of hidden entries that still exist on disk (for the "N hidden" label).
     var totalHiddenCount: Int {
-        workspaces.reduce(0) { $0 + hiddenFilesList($1).count }
+        workspaces.reduce(0) { partial, ws in
+            partial + existingHiddenCount(in: ws)
+        }
+    }
+
+    /// Hidden relative paths under `ws` that still resolve to a file on disk.
+    func existingHiddenCount(in ws: Workspace) -> Int {
+        let set = hiddenFiles[ws.folderPath] ?? []
+        return set.reduce(0) { count, rel in
+            let url = ws.url.appendingPathComponent(rel)
+            return count + (FileManager.default.fileExists(atPath: url.path) ? 1 : 0)
+        }
     }
 
     // MARK: - Workspaces
@@ -204,18 +225,55 @@ final class WorkspaceModel: ObservableObject {
         return dest.standardizedFileURL
     }
 
-    // MARK: - Hide / unhide
+    // MARK: - Hide / unhide (relative paths from workspace root)
+
+    /// Longest-prefix workspace that contains `url` (file or directory).
+    func workspaceOwning(_ url: URL) -> Workspace? {
+        let path = url.standardizedFileURL.path
+        return workspaces
+            .filter { path == $0.folderPath || path.hasPrefix($0.folderPath + "/") }
+            .max(by: { $0.folderPath.count < $1.folderPath.count })
+    }
+
+    /// Path of `url` relative to `ws` root (`note.md`, `sub/a.md`), or nil.
+    func relativePath(of url: URL, in ws: Workspace) -> String? {
+        let base = ws.folderPath
+        let path = url.standardizedFileURL.path
+        if path == base { return nil }
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        return String(path.dropFirst(prefix.count))
+    }
+
+    func isHidden(_ url: URL) -> Bool {
+        guard let ws = workspaceOwning(url),
+              let rel = relativePath(of: url, in: ws) else { return false }
+        return hiddenFiles[ws.folderPath]?.contains(rel) == true
+    }
 
     func hide(_ url: URL, in ws: Workspace) {
+        guard let rel = relativePath(of: url, in: ws) else { return }
         var set = hiddenFiles[ws.folderPath] ?? []
-        set.insert(url.lastPathComponent)
+        set.insert(rel)
         hiddenFiles[ws.folderPath] = set
     }
 
     func unhide(_ url: URL, in ws: Workspace) {
+        guard let rel = relativePath(of: url, in: ws) else { return }
         guard var set = hiddenFiles[ws.folderPath] else { return }
-        set.remove(url.lastPathComponent)
+        set.remove(rel)
         if set.isEmpty { hiddenFiles[ws.folderPath] = nil } else { hiddenFiles[ws.folderPath] = set }
+    }
+
+    /// Resolve owning workspace and hide. No-op outside any workspace.
+    func hide(_ url: URL) {
+        guard let ws = workspaceOwning(url) else { return }
+        hide(url, in: ws)
+    }
+
+    func unhide(_ url: URL) {
+        guard let ws = workspaceOwning(url) else { return }
+        unhide(url, in: ws)
     }
 
     // MARK: - Loose files
@@ -224,12 +282,15 @@ final class WorkspaceModel: ObservableObject {
     /// "Открытые файлы". No-op for files that belong to an adopted folder.
     func noteOpened(_ url: URL) {
         let std = url.standardizedFileURL
-        guard workspaceContaining(std) == nil else { return }
+        // Nested files under a workspace root are also not "loose".
+        guard workspaceOwning(std) == nil else { return }
         guard !pinnedLoosePaths.contains(std.path),
               !looseFiles.contains(where: { $0.standardizedFileURL == std }) else { return }
         looseFiles.append(std)
     }
 
+    /// True only when the file's **parent** is exactly a workspace root
+    /// (legacy helper for root-level bookkeeping). Prefer `workspaceOwning` for hide.
     func workspaceContaining(_ url: URL) -> Workspace? {
         let parent = url.standardizedFileURL.deletingLastPathComponent().path
         return workspaces.first { $0.folderPath == parent }

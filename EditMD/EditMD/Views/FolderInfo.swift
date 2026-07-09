@@ -61,6 +61,78 @@ func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
     return nil
 }
 
+// MARK: - Recursive tree stats
+
+/// Full-tree counts under a folder (any depth). The root itself is not counted
+/// as a subfolder. A subfolder is counted only if its subtree contains at least
+/// one markdown file (empty / non-md folders are ignored). `.textbundle`
+/// packages count as markdown and are not descended into. Hidden items skipped.
+struct FolderTreeStats: Equatable, Sendable {
+    var markdownCount: Int
+    var subfolderCount: Int
+}
+
+/// Synchronous post-order scan. Call off the main actor for large trees.
+/// Checks `Task.isCancelled` so the UI can abandon a stale scan.
+func scanFolderTreeStats(at root: URL,
+                         fileManager: FileManager = .default) -> FolderTreeStats {
+    let mdExt: Set<String> = ["md", "markdown", "textbundle"]
+    let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey]
+
+    /// `hasMarkdown` — this directory's subtree has ≥1 md (not counting the
+    /// directory as a subfolder; callers count children that report true).
+    func walk(_ dir: URL) -> (markdown: Int, foldersWithMd: Int, hasMarkdown: Bool) {
+        if Task.isCancelled { return (0, 0, false) }
+        let items = (try? fileManager.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles])) ?? []
+        var markdown = 0
+        var foldersWithMd = 0
+        var hasMarkdown = false
+        for url in items {
+            if Task.isCancelled { break }
+            let vals = try? url.resourceValues(forKeys: keys)
+            let isDir = vals?.isDirectory ?? false
+            let isPackage = vals?.isPackage ?? false
+            if isDir && !isPackage {
+                let child = walk(url)
+                markdown += child.markdown
+                foldersWithMd += child.foldersWithMd
+                if child.hasMarkdown {
+                    // Count only subfolders that actually hold markdown somewhere.
+                    foldersWithMd += 1
+                    hasMarkdown = true
+                }
+            } else if mdExt.contains(url.pathExtension.lowercased()) {
+                markdown += 1
+                hasMarkdown = true
+            }
+        }
+        return (markdown, foldersWithMd, hasMarkdown)
+    }
+
+    let result = walk(root.standardizedFileURL)
+    return FolderTreeStats(markdownCount: result.markdown,
+                           subfolderCount: result.foldersWithMd)
+}
+
+/// Path → (contentEpoch, stats). Invalidated when `WorkspaceModel.contentEpoch`
+/// bumps (New File/Folder). Lookups require an epoch match.
+@MainActor
+enum FolderStatsCache {
+    private static var store: [String: (epoch: Int, stats: FolderTreeStats)] = [:]
+
+    static func lookup(path: String, epoch: Int) -> FolderTreeStats? {
+        guard let entry = store[path], entry.epoch == epoch else { return nil }
+        return entry.stats
+    }
+
+    static func store(path: String, epoch: Int, stats: FolderTreeStats) {
+        store[path] = (epoch, stats)
+    }
+}
+
 // MARK: - Name prompt (AppKit)
 
 @MainActor
@@ -171,6 +243,9 @@ struct FolderInfoCard: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @State private var showCopiedToast = false
     @State private var toastHideTask: Task<Void, Never>?
+    @State private var treeStats: FolderTreeStats?
+    @State private var statsLoading = true
+    @State private var statsTask: Task<Void, Never>?
 
     /// Shared leading inset for action strip + title/stats (one left edge).
     private static let contentLeading: CGFloat = 32
@@ -189,18 +264,6 @@ struct FolderInfoCard: View {
             return .custom(family, size: previewH1Size).weight(weight)
         }
         return .system(size: previewH1Size, weight: weight)
-    }
-
-    /// Direct markdown children + subfolders (non-recursive). Recomputed when
-    /// the model notes a filesystem change or the URL changes.
-    private var fileCount: Int {
-        _ = workspace.contentEpoch
-        return workspace.markdownFiles(in: folderURL).count
-    }
-
-    private var subfolderCount: Int {
-        _ = workspace.contentEpoch
-        return workspace.subfolders(in: folderURL).count
     }
 
     private var homeDoc: URL? {
@@ -222,6 +285,7 @@ struct FolderInfoCard: View {
                     header
                     // Future: git status strip (branch / dirty / pull·push) when git lands.
                     stats
+                    contentList
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: 520, alignment: .leading)
@@ -235,7 +299,43 @@ struct FolderInfoCard: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) { copiedToast }
-        .onDisappear { toastHideTask?.cancel() }
+        .onAppear { reloadTreeStats() }
+        .onChange(of: folderURL) { _ in reloadTreeStats() }
+        .onChange(of: workspace.contentEpoch) { _ in reloadTreeStats() }
+        .onDisappear {
+            toastHideTask?.cancel()
+            statsTask?.cancel()
+        }
+    }
+
+    /// Always async: cache hit paints immediately; miss shows «Подсчитывается…»
+    /// while a utility Task walks the tree (cancellable on folder/epoch change).
+    private func reloadTreeStats() {
+        let path = folderURL.standardizedFileURL.path
+        let epoch = workspace.contentEpoch
+        if let cached = FolderStatsCache.lookup(path: path, epoch: epoch) {
+            treeStats = cached
+            statsLoading = false
+            return
+        }
+        statsLoading = true
+        treeStats = nil
+        statsTask?.cancel()
+        let root = folderURL.standardizedFileURL
+        statsTask = Task {
+            let stats = await Task.detached(priority: .utility) {
+                scanFolderTreeStats(at: root)
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // Drop result if the card moved on (new folder / epoch).
+                guard path == folderURL.standardizedFileURL.path,
+                      epoch == workspace.contentEpoch else { return }
+                FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
+                treeStats = stats
+                statsLoading = false
+            }
+        }
     }
 
     // MARK: Action strip (same leading edge as title below)
@@ -314,19 +414,102 @@ struct FolderInfoCard: View {
         }
     }
 
-    // MARK: Stats
+    // MARK: Stats (full tree, async)
 
     private var stats: some View {
-        HStack(spacing: 16) {
-            statChip(value: "\(fileCount)", label: ".md файлов")
-            statChip(value: "\(subfolderCount)", label: "подпапок")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                statChip(
+                    value: statsLoading ? "…" : "\(treeStats?.markdownCount ?? 0)",
+                    label: ".md файлов")
+                statChip(
+                    value: statsLoading ? "…" : "\(treeStats?.subfolderCount ?? 0)",
+                    label: "подпапок")
+            }
+            if statsLoading {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Подсчитывается…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
+    }
+
+    // MARK: Content list (direct children + hidden section)
+
+    /// Direct subfolders + visible md, then always-on «Скрытые» for hidden md
+    /// in this folder. Hide store is shared with the sidebar (relative paths).
+    private var contentList: some View {
+        // contentEpoch: re-read directory after New File/Folder.
+        let _ = workspace.contentEpoch
+        let folders = workspace.subfolders(in: folderURL)
+        let visible = workspace.visibleMarkdown(in: folderURL)
+        let hidden = workspace.hiddenMarkdown(in: folderURL)
+        let empty = folders.isEmpty && visible.isEmpty && hidden.isEmpty
+
+        return VStack(alignment: .leading, spacing: 4) {
+            if empty {
+                Text("Нет файлов")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 8)
+            } else {
+                ForEach(folders, id: \.self) { sub in
+                    FolderRow(name: sub.lastPathComponent) {
+                        AppState.shared.openInMainWindow(sub)
+                    }
+                }
+                ForEach(visible, id: \.self) { file in
+                    FileRow(name: file.lastPathComponent,
+                            isActive: false,
+                            trailing: .hide,
+                            onTap: { AppState.shared.openInMainWindow(file) },
+                            onTrailing: { workspace.hide(file) })
+                    .contextMenu {
+                        Button("Открыть в отдельном окне") {
+                            AppState.shared.openInSeparateWindow(file)
+                        }
+                        Button("Скрыть из списка") { workspace.hide(file) }
+                        Button("Показать в Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([file])
+                        }
+                    }
+                }
+                if !hidden.isEmpty {
+                    Text("СКРЫТЫЕ")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, 2)
+                    ForEach(hidden, id: \.self) { file in
+                        FileRow(name: file.lastPathComponent,
+                                isActive: false,
+                                dimmed: true,
+                                trailing: .unhide,
+                                onTap: { AppState.shared.openInMainWindow(file) },
+                                onTrailing: { workspace.unhide(file) })
+                        .contextMenu {
+                            Button("Вернуть в список") { workspace.unhide(file) }
+                            Button("Показать в Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([file])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.top, 8)
     }
 
     private func statChip(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(statsLoading ? Color.secondary : Color.primary)
             Text(label)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

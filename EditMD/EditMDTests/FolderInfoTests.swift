@@ -71,6 +71,45 @@ final class FolderInfoTests: XCTestCase {
         try "x".write(to: dir.appendingPathComponent("note.md"), atomically: true, encoding: .utf8)
         XCTAssertNil(homeDocument(in: dir))
     }
+
+    // MARK: - Recursive tree stats
+
+    func testScanFolderTreeStatsRecursive() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-stats-\(UUID().uuidString)")
+        let nested = root.appendingPathComponent("a").appendingPathComponent("b")
+        let empty = root.appendingPathComponent("empty")
+        let onlyTxt = root.appendingPathComponent("txt-only")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: onlyTxt, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "1".write(to: root.appendingPathComponent("root.md"), atomically: true, encoding: .utf8)
+        try "2".write(to: nested.appendingPathComponent("deep.md"), atomically: true, encoding: .utf8)
+        try "t".write(to: root.appendingPathComponent("skip.txt"), atomically: true, encoding: .utf8)
+        try "t".write(to: onlyTxt.appendingPathComponent("x.txt"), atomically: true, encoding: .utf8)
+        // Package counts as one markdown file, not a subfolder to descend.
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("pack.textbundle"), withIntermediateDirectories: true)
+
+        let stats = scanFolderTreeStats(at: root)
+        // root.md + deep.md + pack.textbundle
+        XCTAssertEqual(stats.markdownCount, 3)
+        // a + a/b (have md in subtree). empty / txt-only / textbundle — not counted.
+        XCTAssertEqual(stats.subfolderCount, 2)
+    }
+
+    func testScanFolderTreeStatsEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-stats-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let stats = scanFolderTreeStats(at: root)
+        XCTAssertEqual(stats.markdownCount, 0)
+        XCTAssertEqual(stats.subfolderCount, 0)
+    }
 }
 
 @MainActor
