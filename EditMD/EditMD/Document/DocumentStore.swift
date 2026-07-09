@@ -100,8 +100,10 @@ func writeMarkdownDocument(content: String, assets: FileWrapper?, to url: URL) t
 /// **External disk changes** (another app / agent writing the open file) are
 /// picked up automatically: each live entry watches its path via
 /// `DispatchSource`, and `syncFromDiskIfNeeded` also runs on re-acquire from
-/// the session cache and when the app becomes active. Clean documents reload
-/// in place; dirty ones keep the user's unsaved buffer (no silent clobber).
+/// the session cache and when the app becomes active.
+///
+/// - **Clean** buffer → auto-reload + `ExternalChangeNotice.applied` (banner + Diff).
+/// - **Dirty** buffer → keep local text, post `.conflict` (Keep Mine / Take Disk).
 @MainActor
 final class DocumentRegistry {
 
@@ -136,6 +138,8 @@ final class DocumentRegistry {
         /// When true, the next `markDirty` is dropped (external reload just
         /// updated `document.content`; that must not schedule autosave).
         var suppressNextDirty = false
+        /// Disk content already announced as a conflict (avoid re-posting).
+        var pendingConflictDiskContent: String?
         var fileWatch: DispatchSourceFileSystemObject?
         var fileDescriptor: Int32 = -1
         init(url: URL, document: MarkdownDocument) {
@@ -230,12 +234,55 @@ final class DocumentRegistry {
         try flush(entry)
     }
 
-    /// Public re-check for a single open file (window focus, tests). No-op when
-    /// the document is dirty or the on-disk mtime matches `knownModDate`.
+    /// Public re-check for a single open file (window focus, tests).
     @discardableResult
     func syncFromDiskIfNeeded(_ url: URL) -> Bool {
         guard let entry = entries[url.standardizedFileURL] else { return false }
         return syncFromDisk(entry)
+    }
+
+    /// Dismiss the banner for `url` without changing buffer or disk.
+    func dismissExternalChange(_ url: URL) {
+        ExternalChangeCenter.shared.dismiss(url)
+        if let entry = entries[url.standardizedFileURL] {
+            entry.pendingConflictDiskContent = nil
+        }
+    }
+
+    /// Conflict: write the in-memory buffer over the external file.
+    func keepMineOverDisk(_ url: URL) throws {
+        let key = url.standardizedFileURL
+        guard let entry = entries[key] else { return }
+        entry.autosaveTask?.cancel()
+        entry.document.commitContentEdit()
+        try flush(entry)
+        entry.pendingConflictDiskContent = nil
+        ExternalChangeCenter.shared.dismiss(key)
+    }
+
+    /// Conflict or post-apply: replace the buffer with `content` from disk/notice.
+    func applyExternalContent(_ url: URL, content: String, assets: FileWrapper? = nil) {
+        let key = url.standardizedFileURL
+        guard let entry = entries[key] else { return }
+        entry.document.commitContentEdit()
+        entry.suppressNextDirty = true
+        entry.document.content = content
+        if let assets {
+            entry.document.assetsFileWrapper = assets
+        }
+        entry.document.contentUndoManager.removeAllActions()
+        entry.isDirty = false
+        entry.autosaveTask?.cancel()
+        entry.pendingConflictDiskContent = nil
+        entry.knownModDate = contentModificationDate(of: key)
+        // Persist so the next FS event doesn't look like another external write.
+        try? flush(entry)
+        ExternalChangeCenter.shared.dismiss(key)
+    }
+
+    /// After a clean auto-reload: restore the pre-reload snapshot and write it.
+    func revertAppliedExternalChange(_ url: URL, previousContent: String) {
+        applyExternalContent(url, content: previousContent)
     }
 
     /// Drops the session cache (tests / low-memory). Live window entries stay.
@@ -290,32 +337,72 @@ final class DocumentRegistry {
         }
     }
 
-    /// Returns true when `document.content` was replaced from disk.
-    ///
-    /// Always reads the file and compares bytes — mtime alone is unreliable
-    /// (1s resolution, atomic replace races, agent writes in the same second).
-    /// Open-file count is small, so the cost is fine.
+    /// Returns true when `document.content` was replaced from disk (clean path).
     @discardableResult
     private func syncFromDisk(_ entry: Entry) -> Bool {
-        // Never clobber unsaved edits. User can Save / discard explicitly later.
-        guard !entry.isDirty else { return false }
         guard let loaded = try? loadMarkdownDocument(from: entry.url) else {
-            // File vanished or unreadable — leave the buffer; re-arm watch.
             rearmWatch(entry)
             return false
         }
+        let disk = loaded.content
+        let mem = entry.document.content
+        let contentChanged = disk != mem
+        let assetsChanged = !fileWrappersEqual(loaded.assets, entry.document.assetsFileWrapper)
         entry.knownModDate = contentModificationDate(of: entry.url)
-        guard loaded.content != entry.document.content
-                || !fileWrappersEqual(loaded.assets, entry.document.assetsFileWrapper) else {
+
+        guard contentChanged || assetsChanged else {
+            // Disk matches memory — clear a stale conflict notice if any.
+            if entry.pendingConflictDiskContent != nil {
+                entry.pendingConflictDiskContent = nil
+                ExternalChangeCenter.shared.dismiss(entry.url)
+            }
             return false
         }
+
+        if entry.isDirty {
+            // Conflict: keep the buffer, announce once per distinct disk payload.
+            if !contentChanged {
+                // Only assets changed while dirty — still don't clobber text.
+                return false
+            }
+            if entry.pendingConflictDiskContent == disk {
+                return false
+            }
+            entry.pendingConflictDiskContent = disk
+            let stats = lineDiff(before: mem, after: disk)
+            ExternalChangeCenter.shared.post(ExternalChangeNotice(
+                url: entry.url,
+                before: mem,
+                after: disk,
+                kind: .conflict,
+                added: stats.added,
+                removed: stats.removed
+            ))
+            return false
+        }
+
+        // Clean: auto-apply, then offer a review banner.
+        let before = mem
         entry.document.commitContentEdit()
         entry.suppressNextDirty = true
-        entry.document.content = loaded.content
+        entry.document.content = disk
         entry.document.assetsFileWrapper = loaded.assets
         entry.document.contentUndoManager.removeAllActions()
         entry.isDirty = false
         entry.autosaveTask?.cancel()
+        entry.pendingConflictDiskContent = nil
+
+        if contentChanged {
+            let stats = lineDiff(before: before, after: disk)
+            ExternalChangeCenter.shared.post(ExternalChangeNotice(
+                url: entry.url,
+                before: before,
+                after: disk,
+                kind: .applied,
+                added: stats.added,
+                removed: stats.removed
+            ))
+        }
         return true
     }
 

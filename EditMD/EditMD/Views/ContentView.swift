@@ -17,6 +17,7 @@ struct ContentView: View {
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
+    @ObservedObject private var externalChanges = ExternalChangeCenter.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -25,6 +26,7 @@ struct ContentView: View {
     /// Shared Notes-style action strip (all three modes). Held in a ref box so
     /// rebinding closures does not trigger SwiftUI view updates.
     @State private var stripActions = EditorStripActions()
+    @State private var showExternalDiff = false
 
     private static let sidebarWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
@@ -126,6 +128,47 @@ struct ContentView: View {
         .onDisappear {
             document.commitContentEdit()
         }
+        .sheet(isPresented: $showExternalDiff) {
+            if let notice = externalChanges.notice(for: fileURL) {
+                UnifiedDiffSheet(notice: notice, onClose: { showExternalDiff = false })
+            } else {
+                // Notice dismissed while sheet was opening.
+                Text("No external change")
+                    .padding()
+                    .onAppear { showExternalDiff = false }
+            }
+        }
+        .onChange(of: externalChanges.notice(for: fileURL)?.id) { _ in
+            // Close the sheet if the notice goes away under us.
+            if externalChanges.notice(for: fileURL) == nil {
+                showExternalDiff = false
+            }
+        }
+    }
+
+    // MARK: - External change banner actions
+
+    private func handleExternalPrimary(_ notice: ExternalChangeNotice) {
+        showExternalDiff = false
+        switch notice.kind {
+        case .applied:
+            // Buffer already matches disk — just dismiss.
+            DocumentRegistry.shared.dismissExternalChange(notice.url)
+        case .conflict:
+            DocumentRegistry.shared.applyExternalContent(notice.url, content: notice.after)
+        }
+    }
+
+    private func handleExternalSecondary(_ notice: ExternalChangeNotice) {
+        showExternalDiff = false
+        switch notice.kind {
+        case .applied:
+            // Restore pre-reload text and write it back to disk.
+            DocumentRegistry.shared.revertAppliedExternalChange(
+                notice.url, previousContent: notice.before)
+        case .conflict:
+            try? DocumentRegistry.shared.keepMineOverDisk(notice.url)
+        }
     }
 
     // MARK: - Panes
@@ -150,6 +193,15 @@ struct ContentView: View {
 
     @ViewBuilder private var editorArea: some View {
         VStack(spacing: 0) {
+            if let notice = externalChanges.notice(for: fileURL) {
+                ExternalChangeBanner(
+                    notice: notice,
+                    onShowDiff: { showExternalDiff = true },
+                    onPrimary: { handleExternalPrimary(notice) },
+                    onSecondary: { handleExternalSecondary(notice) },
+                    onDismiss: { DocumentRegistry.shared.dismissExternalChange(notice.url) }
+                )
+            }
             EditorActionStrip(actions: stripActions,
                               insetH: stripInset.h,
                               columnWidth: stripInset.column,
