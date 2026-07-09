@@ -7,9 +7,17 @@ import SwiftUI
 /// changes, so typing re-parses ~200 ms after the last keystroke.
 struct OutlineSidebar: View {
     let content: String
+    /// Case-insensitive substring match on heading titles; empty = show all.
+    var filter: String = ""
     let onJump: (Int) -> Void
 
     @State private var items: [OutlineItem] = []
+
+    private var visibleItems: [OutlineItem] {
+        let q = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return items }
+        return items.filter { $0.title.localizedCaseInsensitiveContains(q) }
+    }
 
     var body: some View {
         ScrollView {
@@ -19,9 +27,15 @@ struct OutlineSidebar: View {
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 24)
+            } else if visibleItems.isEmpty {
+                Text("No matches")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 24)
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(items) { item in
+                    ForEach(visibleItems) { item in
                         OutlineRow(item: item) { onJump(item.markdownOffset) }
                     }
                 }
@@ -30,7 +44,7 @@ struct OutlineSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        // Background comes from WorkspaceSidebar (window chrome); no local fill.
         .task(id: content) {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }

@@ -1,10 +1,9 @@
 import SwiftUI
 import AppKit
 
-/// The left sidebar's Files tab: adopted workspace folders (always visible,
-/// collapsible) on top, loose Finder-opened files below; an eye toggle reveals
-/// hidden files with a restore action. The Outline tab reuses `OutlineSidebar`.
-/// Matches the reviewed mockup `docs/design/10_workspace_sidebar.html`.
+/// The left sidebar: Xcode-style icon toolbar switches Files / Outline;
+/// Files shows adopted workspace folders (collapsible tree) + loose
+/// Finder-opened files; Outline reuses `OutlineSidebar`.
 struct WorkspaceSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
     let outlineContent: String
@@ -16,83 +15,184 @@ struct WorkspaceSidebar: View {
 
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("sidebarShowHidden") private var showHidden = false
+    /// Bottom filter field — filters Files tree / Outline headings by name.
+    @State private var filterText = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Text("Files").tag("files")
-                Text("Outline").tag("outline")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            navigatorToolbar
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
 
             if tab == "files" {
                 filesTab
             } else {
-                OutlineSidebar(content: outlineContent, onJump: onJump)
+                OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
             }
+
+            // Xcode-style bottom strip: + · Filter · eye
+            bottomBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        // Match the window chrome (toolbar / titlebar), not the greyer
+        // under-page fill that made the sidebar look like a separate sheet.
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var filterQuery: String {
+        filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isFiltering: Bool { !filterQuery.isEmpty }
+
+    private func nameMatches(_ name: String) -> Bool {
+        !isFiltering || name.localizedCaseInsensitiveContains(filterQuery)
+    }
+
+    // MARK: - Navigator toolbar (Xcode-style)
+
+    /// Pill of icon buttons on a recessed gray well (like Xcode's navigator
+    /// strip / filter field). `controlBackgroundColor` is nearly identical to
+    /// `windowBackgroundColor`, so we paint an explicit adaptive fill.
+    private var navigatorToolbar: some View {
+        HStack(spacing: 0) {
+            navTabButton(id: "files",
+                         systemImage: "folder",
+                         help: "Files")
+            // Xcode-style hairline between navigator modes.
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1, height: 14)
+                .padding(.horizontal, 3)
+            navTabButton(id: "outline",
+                         systemImage: "list.bullet.indent",
+                         help: "Outline")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color(nsColor: Self.navigatorWellColor))
+        )
+    }
+
+    /// Solid well gray — light ≈ #E5E5EA, dark ≈ slightly lifted surface.
+    private static let navigatorWellColor = NSColor(name: nil) { appearance in
+        switch appearance.name {
+        case .darkAqua, .vibrantDark,
+             .accessibilityHighContrastDarkAqua,
+             .accessibilityHighContrastVibrantDark:
+            return NSColor(srgbRed: 0.24, green: 0.24, blue: 0.25, alpha: 1)
+        default:
+            return NSColor(srgbRed: 0.898, green: 0.898, blue: 0.918, alpha: 1)
+        }
+    }
+
+    private func navTabButton(id: String, systemImage: String, help: String) -> some View {
+        let selected = tab == id
+        return Button {
+            tab = id
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.7))
+                .frame(width: 28, height: 24)
+                .background(
+                    Circle()
+                        .fill(selected ? Color.accentColor : Color.clear)
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    // MARK: - Bottom bar (+ · Filter · eye)
+
+    private var bottomBar: some View {
+        HStack(spacing: 6) {
+            Menu {
+                Button("New Workspace…") { workspace.promptAddFolder() }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary.opacity(0.75))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22, height: 22)
+            .help("New Workspace…")
+
+            HStack(spacing: 5) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("Filter", text: $filterText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: Self.navigatorWellColor))
+            )
+
+            // Review mode: list hidden files so each can be un-hidden via its row eye.
+            let hidden = workspace.totalHiddenCount
+            Button { showHidden.toggle() } label: {
+                Image(systemName: showHidden ? "eye" : "eye.slash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(showHidden ? Color.accentColor : Color.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(hidden == 0 && !showHidden)
+            .opacity(hidden == 0 && !showHidden ? 0.35 : 1)
+            .help(showHidden
+                  ? "Скрыть снова (режим просмотра скрытых)"
+                  : (hidden > 0
+                     ? "Показать скрытые (\(hidden)) — затем глаз у файла вернёт его в список"
+                     : "Нет скрытых файлов"))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Files tab
 
-    private var filesTab: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 2) {
-                let hidden = workspace.totalHiddenCount
-                if hidden > 0 {
-                    Text("\(hidden) hidden")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                if hidden > 0 {
-                    Button { showHidden.toggle() } label: {
-                        Image(systemName: showHidden ? "eye" : "eye.slash")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(showHidden ? Color.accentColor : Color.secondary)
-                    .help(showHidden ? "Спрятать скрытые" : "Показать скрытые")
-                }
-                Button { workspace.promptAddFolder() } label: {
-                    Image(systemName: "folder.badge.plus")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Open Folder… (⇧⌘O)")
-            }
-            .font(.system(size: 12))
-            .padding(.horizontal, 10)
-            .padding(.bottom, 4)
+    private var filteredLoose: [URL] {
+        workspace.looseFilesToShow.filter { nameMatches($0.lastPathComponent) }
+    }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    if workspace.workspaces.isEmpty && workspace.looseFilesToShow.isEmpty {
-                        emptyState
-                    }
-                    ForEach(workspace.workspaces) { ws in
-                        workspaceGroup(ws)
-                    }
-                    if !workspace.looseFilesToShow.isEmpty {
-                        Rectangle()
-                            .fill(Color(nsColor: .separatorColor))
-                            .frame(height: 1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                        sectionHeader("Открытые файлы")
-                        ForEach(workspace.looseFilesToShow, id: \.self) { url in
-                            looseRow(url)
-                        }
+    private var filesTab: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 1) {
+                if workspace.workspaces.isEmpty && workspace.looseFilesToShow.isEmpty {
+                    emptyState
+                }
+                ForEach(workspace.workspaces) { ws in
+                    workspaceGroup(ws)
+                }
+                if !filteredLoose.isEmpty {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(height: 1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                    sectionHeader("Открытые файлы")
+                    ForEach(filteredLoose, id: \.self) { url in
+                        looseRow(url)
                     }
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 4)
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
         }
     }
 
@@ -123,11 +223,11 @@ struct WorkspaceSidebar: View {
 
     @ViewBuilder private func workspaceGroup(_ ws: WorkspaceModel.Workspace) -> some View {
         Button { workspace.toggleCollapsed(ws) } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: SidebarTree.rowSpacing) {
                 Image(systemName: ws.collapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.tertiary)
-                    .frame(width: 10)
+                    .frame(width: SidebarTree.chevronWidth)
                 Image(systemName: "folder")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -151,28 +251,42 @@ struct WorkspaceSidebar: View {
         }
 
         if !ws.collapsed {
-            ForEach(workspace.visibleFiles(ws), id: \.self) { url in
+            // Folders first, then root files (Finder / VS Code order).
+            ForEach(filteredSubfolders(in: ws.url), id: \.self) { sub in
+                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                              filter: filterQuery, activeURL: activeURL, onOpen: onOpen)
+            }
+            ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
+                    id: \.self) { url in
                 fileRow(url, in: ws, hidden: false)
             }
             if showHidden {
-                ForEach(workspace.hiddenFilesList(ws), id: \.self) { url in
+                ForEach(workspace.hiddenFilesList(ws).filter { nameMatches($0.lastPathComponent) },
+                        id: \.self) { url in
                     fileRow(url, in: ws, hidden: true)
                 }
-            }
-            // Nested subfolders as a lazy, collapsible tree.
-            ForEach(workspace.subfolders(in: ws.url), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
-                              activeURL: activeURL, onOpen: onOpen)
             }
         }
     }
 
+    /// Folders whose name matches the filter, or that are expanded (children may match).
+    private func filteredSubfolders(in folder: URL) -> [URL] {
+        workspace.subfolders(in: folder).filter { sub in
+            !isFiltering
+                || nameMatches(sub.lastPathComponent)
+                || workspace.isExpanded(sub)
+        }
+    }
+
     private func fileRow(_ url: URL, in ws: WorkspaceModel.Workspace, hidden: Bool) -> some View {
+        // depth 1 = same column as root subfolders (chevron slot reserved).
+        // Visible → eye.slash hides. Hidden (only listed in review mode) → eye unhides.
         FileRow(name: url.lastPathComponent,
                 subtitle: nil,
                 isActive: isActive(url),
                 dimmed: hidden,
-                trailing: hidden ? .restore : .hide,
+                depth: 1,
+                trailing: hidden ? .unhide : .hide,
                 onTap: { onOpen(url) },
                 onTrailing: { hidden ? workspace.unhide(url, in: ws) : workspace.hide(url, in: ws) })
         .contextMenu {
@@ -219,6 +333,16 @@ struct WorkspaceSidebar: View {
     }
 }
 
+// MARK: - Tree layout
+
+/// Shared metrics so folder headers and file rows at the same depth line up:
+/// leading indent → fixed chevron column (real or empty) → icon → name.
+private enum SidebarTree {
+    static let indentStep: CGFloat = 14
+    static let chevronWidth: CGFloat = 10
+    static let rowSpacing: CGFloat = 6
+}
+
 // MARK: - Subfolder tree node
 
 /// One node of the lazy subfolder tree: a disclosure header (chevron + folder)
@@ -229,20 +353,36 @@ private struct SubfolderNode: View {
     @ObservedObject var workspace: WorkspaceModel
     let folder: URL
     let depth: Int
+    /// Empty = no filter. Same rules as the root: name match, or expanded so
+    /// matching children stay reachable without a full recursive scan.
+    let filter: String
     let activeURL: URL?
     let onOpen: (URL) -> Void
 
-    private var indent: CGFloat { CGFloat(depth) * 14 }
+    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep }
+    private var isFiltering: Bool { !filter.isEmpty }
+
+    private func nameMatches(_ name: String) -> Bool {
+        !isFiltering || name.localizedCaseInsensitiveContains(filter)
+    }
+
+    private func visibleSubfolders(in folder: URL) -> [URL] {
+        workspace.subfolders(in: folder).filter { sub in
+            !isFiltering
+                || nameMatches(sub.lastPathComponent)
+                || workspace.isExpanded(sub)
+        }
+    }
 
     var body: some View {
         let expanded = workspace.isExpanded(folder)
         Button { workspace.toggleExpanded(folder) } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: SidebarTree.rowSpacing) {
                 if indent > 0 { Spacer().frame(width: indent) }
                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.tertiary)
-                    .frame(width: 10)
+                    .frame(width: SidebarTree.chevronWidth)
                 Image(systemName: expanded ? "folder.fill" : "folder")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -265,14 +405,16 @@ private struct SubfolderNode: View {
         }
 
         if expanded {
-            ForEach(workspace.subfolders(in: folder), id: \.self) { sub in
+            // Folders first, then files — same order as the workspace root.
+            ForEach(visibleSubfolders(in: folder), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
-                              activeURL: activeURL, onOpen: onOpen)
+                              filter: filter, activeURL: activeURL, onOpen: onOpen)
             }
-            ForEach(workspace.markdownFiles(in: folder), id: \.self) { file in
+            ForEach(workspace.markdownFiles(in: folder).filter { nameMatches($0.lastPathComponent) },
+                    id: \.self) { file in
                 FileRow(name: file.lastPathComponent,
                         isActive: file.standardizedFileURL == activeURL?.standardizedFileURL,
-                        indent: indent + 14,
+                        depth: depth + 1,
                         trailing: .none,
                         onTap: { onOpen(file) })
                     .contextMenu {
@@ -291,32 +433,49 @@ private struct SubfolderNode: View {
 // MARK: - Row
 
 /// One file row: doc icon, name (+ optional path subtitle), active tint, hover
-/// wash, and a trailing action (hide / restore / pin). The row is a tappable
+/// wash, and a trailing action (hide / unhide / pin). The row is a tappable
 /// surface; the trailing control is a real button that consumes its own taps.
+///
+/// `depth > 0` places the row in the folder tree: leading indent + empty chevron
+/// slot so the doc icon lines up with folder icons at the same depth.
+/// `depth == 0` is for loose / non-tree rows (no chevron column).
 private struct FileRow: View {
-    enum Trailing: Equatable { case hide, restore, pin(Bool), none }
+    /// Per-row trailing control.
+    /// - `hide`: eye.slash on hover → remove from normal list
+    /// - `unhide`: eye always visible (review mode) → return to list
+    enum Trailing: Equatable { case hide, unhide, pin(Bool), none }
 
     let name: String
     var subtitle: String?
     let isActive: Bool
+    /// Hidden file shown in review mode — soften label, keep eye button crisp.
     var dimmed = false
-    var indent: CGFloat = 0
+    var depth: Int = 0
     let trailing: Trailing
     let onTap: () -> Void
     var onTrailing: () -> Void = {}
 
     @State private var hovering = false
 
+    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep }
+
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: SidebarTree.rowSpacing) {
             if indent > 0 { Spacer().frame(width: indent) }
+            // Reserve the chevron column so file icons align with folder icons.
+            if depth > 0 {
+                Color.clear.frame(width: SidebarTree.chevronWidth, height: 1)
+            }
             Image(systemName: "doc.text")
                 .font(.system(size: 12))
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+                .opacity(dimmed ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name)
                     .font(.system(size: 12.5, weight: isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
+                    .foregroundStyle(isActive
+                                     ? AnyShapeStyle(Color.accentColor)
+                                     : (dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let subtitle {
@@ -338,7 +497,6 @@ private struct FileRow: View {
                       ? AnyShapeStyle(Color.accentColor.opacity(0.14))
                       : (hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
         )
-        .opacity(dimmed ? 0.5 : 1)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
@@ -348,26 +506,30 @@ private struct FileRow: View {
     @ViewBuilder private var trailingButton: some View {
         switch trailing {
         case .hide:
-            if hovering { iconButton("eye.slash", "Скрыть из списка") }
-        case .restore:
-            iconButton("arrow.uturn.left", "Вернуть в список")
+            // Only on hover — keep the normal list clean.
+            if hovering {
+                iconButton("eye.slash", "Скрыть из списка", accent: false)
+            }
+        case .unhide:
+            // Always on: this is how you restore a file after bottom-eye review.
+            iconButton("eye", "Вернуть в список", accent: true)
         case .pin(let pinned):
             if pinned || hovering {
                 iconButton(pinned ? "pin.fill" : "pin",
-                           pinned ? "Открепить" : "Закрепить")
-                    .foregroundStyle(pinned ? Color.accentColor : Color.secondary)
+                           pinned ? "Открепить" : "Закрепить",
+                           accent: pinned)
             }
         case .none:
             EmptyView()
         }
     }
 
-    private func iconButton(_ systemName: String, _ help: String) -> some View {
+    private func iconButton(_ systemName: String, _ help: String, accent: Bool) -> some View {
         Button(action: onTrailing) {
-            Image(systemName: systemName).font(.system(size: 11))
+            Image(systemName: systemName).font(.system(size: 11, weight: .medium))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(accent ? Color.accentColor : Color.secondary)
         .help(help)
     }
 }
