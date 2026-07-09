@@ -35,6 +35,7 @@ func markdownHTMLBody(_ text: String,
                       imageResolver: ((String) -> String?)? = nil) -> String {
     var source = text
     var prefix = ""
+    var baseOffset = 0
     // YAML frontmatter isn't part of the markdown grammar — strip it and render
     // it as an Obsidian-style properties table, so it doesn't mangle into a
     // thematic break + setext heading.
@@ -42,10 +43,15 @@ func markdownHTMLBody(_ text: String,
         let ns = text as NSString
         let props = parseFrontmatterProperties(ns.substring(with: fm.body))
         if !props.isEmpty { prefix = frontmatterTableHTML(props) }
-        source = ns.substring(from: NSMaxRange(fm.full))
+        baseOffset = NSMaxRange(fm.full)
+        source = ns.substring(from: baseOffset)
     }
     let document = Document(parsing: source)
-    var visitor = HTMLBodyVisitor(imageResolver: imageResolver)
+    // LineIndex maps AST SourceRanges → UTF-16 offsets in `source`; baseOffset
+    // rebases them into the original document (for Preview toolbar wrap).
+    var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
+                                  lineIdx: LineIndex(source),
+                                  baseOffset: baseOffset)
     visitor.visit(document)
     return prefix + visitor.result
 }
@@ -104,13 +110,30 @@ private func yamlCSSClass(_ kind: YAMLTokenKind) -> String? {
 private struct HTMLBodyVisitor: MarkupWalker {
     var result = ""
     let imageResolver: ((String) -> String?)?
+    let lineIdx: LineIndex
+    /// Added to every AST-derived offset so ranges land in the original
+    /// document when frontmatter was stripped before parsing.
+    let baseOffset: Int
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
     private var inTableHead = false
 
-    init(imageResolver: ((String) -> String?)?) {
+    init(imageResolver: ((String) -> String?)?,
+         lineIdx: LineIndex,
+         baseOffset: Int) {
         self.imageResolver = imageResolver
+        self.lineIdx = lineIdx
+        self.baseOffset = baseOffset
+    }
+
+    /// UTF-16 NSRange in the original markdown for a markup node's SourceRange.
+    private func mdNSRange(for markup: some Markup) -> NSRange? {
+        guard let src = markup.range else { return nil }
+        let loc = lineIdx.offset(src.lowerBound.line, src.lowerBound.column)
+        let end = lineIdx.offset(src.upperBound.line, src.upperBound.column)
+        guard end >= loc else { return nil }
+        return NSRange(location: loc + baseOffset, length: end - loc)
     }
 
     // MARK: Block elements
@@ -247,31 +270,100 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     mutating func visitText(_ text: Text) {
         let s = text.string
-        let matches = scanWikiLinks(in: s)
-        guard !matches.isEmpty else { result += htmlEscapeBreakingUnderscores(s); return }
+        // Tag runs with source offsets so the Preview toolbar can wrap the
+        // real selection (not the first plain-text match in the file).
+        let base = mdNSRange(for: text)?.location
+        result += Self.inlineDecoratedHTML(s, sourceBase: base)
+    }
+
+    /// Wiki-links first, then `==highlight==` in the remaining plain segments.
+    /// When `sourceBase` is set, each run is wrapped in a `data-md-lo/hi` span
+    /// (UTF-16 offsets into the original markdown).
+    static func inlineDecoratedHTML(_ s: String, sourceBase: Int?) -> String {
+        let wiki = scanWikiLinks(in: s)
+        guard !wiki.isEmpty else { return highlightDecoratedHTML(s, sourceBase: sourceBase) }
         let ns = s as NSString
+        var out = ""
         var cursor = 0
-        for m in matches {
+        for m in wiki {
             if m.range.location > cursor {
-                result += htmlEscapeBreakingUnderscores(
-                    ns.substring(with: NSRange(location: cursor,
-                                               length: m.range.location - cursor)))
+                let sub = ns.substring(with: NSRange(location: cursor,
+                                                     length: m.range.location - cursor))
+                let base = sourceBase.map { $0 + cursor }
+                out += highlightDecoratedHTML(sub, sourceBase: base)
             }
-            result += Self.wikiLinkHTML(m.payload)
+            let wBase = sourceBase.map { $0 + m.range.location }
+            out += wikiLinkHTML(m.payload, sourceBase: wBase, utf16Length: m.range.length)
             cursor = NSMaxRange(m.range)
         }
         if cursor < ns.length {
-            result += htmlEscapeBreakingUnderscores(
-                ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)))
+            let sub = ns.substring(with: NSRange(location: cursor, length: ns.length - cursor))
+            let base = sourceBase.map { $0 + cursor }
+            out += highlightDecoratedHTML(sub, sourceBase: base)
         }
+        return out
+    }
+
+    /// Renders `==inner==` as `<mark>`; plain runs stay escaped. Tagged when
+    /// `sourceBase` is known (inner of a mark uses the content range, not the
+    /// `==` fences — so toggle-unwrap finds the surrounding markers).
+    static func highlightDecoratedHTML(_ s: String, sourceBase: Int?) -> String {
+        let marks = scanHighlightMarks(in: s)
+        let ns = s as NSString
+        guard !marks.isEmpty else {
+            return mdTagged(htmlEscapeBreakingUnderscores(s),
+                            lo: sourceBase, length: ns.length)
+        }
+        var out = ""
+        var cursor = 0
+        for m in marks {
+            if m.range.location > cursor {
+                let len = m.range.location - cursor
+                out += mdTagged(
+                    htmlEscapeBreakingUnderscores(
+                        ns.substring(with: NSRange(location: cursor, length: len))),
+                    lo: sourceBase.map { $0 + cursor },
+                    length: len)
+            }
+            // Inner content only (between == … ==).
+            let innerLo = m.range.location + 2
+            let innerLen = (m.inner as NSString).length
+            out += mdTagged(htmlEscapeBreakingUnderscores(m.inner),
+                            lo: sourceBase.map { $0 + innerLo },
+                            length: innerLen,
+                            tag: "mark")
+            cursor = NSMaxRange(m.range)
+        }
+        if cursor < ns.length {
+            let len = ns.length - cursor
+            out += mdTagged(
+                htmlEscapeBreakingUnderscores(
+                    ns.substring(with: NSRange(location: cursor, length: len))),
+                lo: sourceBase.map { $0 + cursor },
+                length: len)
+        }
+        return out
+    }
+
+    /// Wraps already-escaped HTML in a source-offset tag when `lo` is known.
+    static func mdTagged(_ escapedHTML: String, lo: Int?, length: Int,
+                         tag: String = "span") -> String {
+        guard let lo, length > 0, !escapedHTML.isEmpty else { return escapedHTML }
+        let hi = lo + length
+        return "<\(tag) data-md-lo=\"\(lo)\" data-md-hi=\"\(hi)\">\(escapedHTML)</\(tag)>"
     }
 
     /// A wiki-link as an anchor carrying resolution metadata in data-attributes;
-    /// the preview's JS turns a click into a `wikiLinkClick` message (v-next).
-    static func wikiLinkHTML(_ p: MDWikiLinkPayload) -> String {
+    /// the preview's JS turns a click into a `wikiLinkClick` message.
+    static func wikiLinkHTML(_ p: MDWikiLinkPayload,
+                             sourceBase: Int? = nil,
+                             utf16Length: Int = 0) -> String {
         var a = "<a class=\"wikilink\" data-wiki-target=\"\(htmlAttributeEscape(p.target))\""
         if let h = p.heading { a += " data-wiki-heading=\"\(htmlAttributeEscape(h))\"" }
         if let b = p.blockID { a += " data-wiki-block=\"\(htmlAttributeEscape(b))\"" }
+        if let sourceBase, utf16Length > 0 {
+            a += " data-md-lo=\"\(sourceBase)\" data-md-hi=\"\(sourceBase + utf16Length)\""
+        }
         a += ">\(htmlEscapeBreakingUnderscores(p.displayText))</a>"
         return a
     }
@@ -295,7 +387,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
-        result += "<code>\(htmlEscape(inlineCode.code))</code>"
+        // data-md-code: toolbar wrap refuses selections inside code spans.
+        result += "<code data-md-code=\"1\">\(htmlEscape(inlineCode.code))</code>"
     }
 
     mutating func visitLink(_ link: Link) {
@@ -434,6 +527,15 @@ func previewHTMLPage(markdown: String,
     tbody tr:nth-child(odd) { background: rgba(128,128,128,0.07); }
     img { max-width: 100%; }
     del { opacity: 0.6; }
+    mark {
+        background: rgba(255, 212, 0, 0.45);
+        color: inherit;
+        border-radius: 2px;
+        padding: 0 0.12em;
+    }
+    @media (prefers-color-scheme: dark) {
+        mark { background: rgba(255, 196, 0, 0.35); }
+    }
     /* Obsidian-style frontmatter properties */
     table.frontmatter {
         display: table; width: 100%; border-collapse: collapse;

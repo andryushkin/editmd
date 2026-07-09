@@ -125,7 +125,8 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         let textView = VisualNSTextView()
         textView.isRichText = true
-        textView.allowsUndo = true
+        // Document-scoped undo — survives mode switches (see MarkdownDocument).
+        textView.allowsUndo = false
         textView.usesFontPanel = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -355,6 +356,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             runAutoformat()
             applyPresentation()
             syncToDocument()
+            parent.document.noteContentEdited()
             updateStats()
         }
 
@@ -374,6 +376,8 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange,
                       replacementString: String?) -> Bool {
+            // Capture document baseline before any mutation (incl. table row ops).
+            parent.document.beginContentEdit()
             guard !isProgrammaticTableEdit, let storage = view.textStorage else { return true }
             let nsText = storage.string as NSString
             guard nsText.length > 0 else { return true }

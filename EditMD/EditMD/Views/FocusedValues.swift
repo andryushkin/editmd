@@ -54,6 +54,16 @@ struct SplitPreviewKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+struct DocumentUndoActionsKey: FocusedValueKey {
+    typealias Value = DocumentUndoActions
+}
+
+/// Edit ▸ Undo / Redo for the focused document (document-scoped stack).
+struct DocumentUndoActions {
+    var undo: () -> Void
+    var redo: () -> Void
+}
+
 extension FocusedValues {
     var formatActions: FormatActions? {
         get { self[FormatActionsKey.self] }
@@ -84,5 +94,11 @@ extension FocusedValues {
     var splitPreview: Binding<Bool>? {
         get { self[SplitPreviewKey.self] }
         set { self[SplitPreviewKey.self] = newValue }
+    }
+
+    /// Document-scoped undo (survives mode switches). Edit ▸ Undo/Redo + ⌘Z.
+    var documentUndoActions: DocumentUndoActions? {
+        get { self[DocumentUndoActionsKey.self] }
+        set { self[DocumentUndoActionsKey.self] = newValue }
     }
 }

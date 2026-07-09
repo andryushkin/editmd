@@ -41,7 +41,9 @@ struct SourceTextView: NSViewRepresentable {
         // renders. The document's source of truth is still the plain `.string`;
         // paste is forced to plain text so external rich content can't leak in.
         textView.isRichText = true
-        textView.allowsUndo = true
+        // Document-scoped undo (MarkdownDocument.contentUndoManager) — not the
+        // view-local stack, so ⌘Z survives mode switches.
+        textView.allowsUndo = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
@@ -159,11 +161,20 @@ struct SourceTextView: NSViewRepresentable {
 
         // MARK: NSTextViewDelegate
 
+        func textView(_ textView: NSTextView,
+                      shouldChangeTextIn affectedCharRange: NSRange,
+                      replacementString: String?) -> Bool {
+            parent.document.beginContentEdit()
+            return true
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
+            guard !isInternalUpdate else { return }
             isInternalUpdate = true
             parent.document.content = tv.string
             isInternalUpdate = false
+            parent.document.noteContentEdited()
             updateStats()
             highlightSource()
             scheduleLint()
@@ -199,7 +210,9 @@ struct SourceTextView: NSViewRepresentable {
             guard let textView else { return }
             pendingExternalReload = false
             let sel = textView.selectedRange()
+            isInternalUpdate = true
             textView.string = parent.document.content
+            isInternalUpdate = false
             let len = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(location: min(sel.location, len), length: 0))
             updateStats()

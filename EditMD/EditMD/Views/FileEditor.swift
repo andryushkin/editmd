@@ -3,10 +3,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// Owns the `MarkdownDocument` for one window, resolved from `DocumentRegistry`
-/// so several windows on the same file share one model + save path. Tied to
-/// SwiftUI view identity: `.id(url)` on the host makes SwiftUI recreate the
-/// `DocHost` when the file changes, which acquires the new document and releases
-/// the old one (a clean editor per file, no stale undo).
+/// so several windows on the same file share one model + save path + undo stack.
+/// Tied to SwiftUI view identity: `.id(url)` recreates the `DocHost` on file
+/// change → acquire new / release old. Released docs stay in the registry's
+/// session cache so switching files keeps independent ⌘Z histories.
 @MainActor
 final class DocHost: ObservableObject {
     let document: MarkdownDocument
@@ -37,8 +37,16 @@ final class DocHost: ObservableObject {
 
     deinit {
         // deinit is nonisolated; hop to the main actor to balance acquire.
-        if let url, registered {
-            Task { @MainActor in DocumentRegistry.shared.release(url) }
+        // Capture document so we can flush typing coalescing onto its undo stack
+        // before parking it in the session cache.
+        let doc = document
+        let fileURL = url
+        let wasRegistered = registered
+        Task { @MainActor in
+            doc.commitContentEdit()
+            if let fileURL, wasRegistered {
+                DocumentRegistry.shared.release(fileURL)
+            }
         }
     }
 }

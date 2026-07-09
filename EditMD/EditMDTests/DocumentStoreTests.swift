@@ -120,9 +120,49 @@ final class DocumentStoreTests: XCTestCase {
         let doc = try registry.acquire(url)
         doc.content = "unsaved edit"
         registry.markDirty(url)
-        registry.release(url)   // last release flushes before dropping the model
+        registry.release(url)   // last release flushes; model parks in session cache
 
         XCTAssertFalse(registry.isOpen(url))
         XCTAssertEqual(try loadMarkdownDocument(from: url).content, "unsaved edit")
+    }
+
+    @MainActor
+    func testRegistryKeepsPerFileUndoAcrossSwitch() throws {
+        let registry = DocumentRegistry()
+        let urlA = tmp.appendingPathComponent("a.md")
+        let urlB = tmp.appendingPathComponent("b.md")
+        try writeMarkdownDocument(content: "A0", assets: nil, to: urlA)
+        try writeMarkdownDocument(content: "B0", assets: nil, to: urlB)
+
+        let a = try registry.acquire(urlA)
+        a.contentUndoManager.groupsByEvent = false
+        a.applyUndoableContent("A1", actionName: "Edit A")
+        XCTAssertTrue(a.contentUndoManager.canUndo)
+        registry.release(urlA)   // switch away — not open, but session-cached
+        XCTAssertFalse(registry.isOpen(urlA))
+
+        let b = try registry.acquire(urlB)
+        b.contentUndoManager.groupsByEvent = false
+        b.applyUndoableContent("B1", actionName: "Edit B")
+        registry.release(urlB)
+
+        // Re-open A: same instance, independent undo stack still has the edit.
+        let a2 = try registry.acquire(urlA)
+        XCTAssertTrue(a2 === a, "session cache must return the same document")
+        XCTAssertEqual(a2.content, "A1")
+        XCTAssertTrue(a2.contentUndoManager.canUndo)
+        a2.contentUndoManager.undo()
+        XCTAssertEqual(a2.content, "A0")
+
+        // B's history is separate.
+        let b2 = try registry.acquire(urlB)
+        XCTAssertTrue(b2 === b)
+        XCTAssertEqual(b2.content, "B1")
+        XCTAssertTrue(b2.contentUndoManager.canUndo)
+        b2.contentUndoManager.undo()
+        XCTAssertEqual(b2.content, "B0")
+
+        registry.release(urlA)
+        registry.release(urlB)
     }
 }

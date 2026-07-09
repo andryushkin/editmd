@@ -7,7 +7,7 @@ struct ContentView: View {
     /// Lite (separate) windows pass false to suppress the workspace sidebar.
     var allowsSidebar: Bool = true
 
-    @AppStorage("editorMode") private var storedMode: String = EditorMode.visual.rawValue
+    @AppStorage("editorMode") private var storedMode: String = EditorMode.preview.rawValue
     /// Sidebar (document outline) show/hide + width, persisted like the mode.
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
@@ -22,11 +22,13 @@ struct ContentView: View {
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
     @State private var positionStore = EditorPositionStore()
+    /// Full Preview mode action strip (highlight / strike / copy).
+    @StateObject private var previewToolbar = PreviewToolbarActions()
 
     private static let sidebarWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
 
-    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .visual }
+    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
 
     /// The active theme: the Settings window's preset plus its color
     /// overrides. Single source of truth — the toolbar's Theme menu and the
@@ -48,8 +50,8 @@ struct ContentView: View {
 
     private var modeBinding: Binding<EditorMode> {
         Binding(
-            get: { EditorMode(rawValue: storedMode) ?? .visual },
-            set: { storedMode = $0.rawValue }
+            get: { EditorMode(rawValue: storedMode) ?? .preview },
+            set: { setEditorMode($0) }
         )
     }
 
@@ -61,9 +63,17 @@ struct ContentView: View {
             get: { splitPreview },
             set: { on in
                 splitPreview = on
-                if on, mode == .preview { storedMode = EditorMode.visual.rawValue }
+                if on, mode == .preview { setEditorMode(.visual) }
             }
         )
+    }
+
+    /// Switch editor mode after flushing any coalesced typing onto the
+    /// document undo stack (so ⌘Z still works after Source↔Visual↔Preview).
+    private func setEditorMode(_ newMode: EditorMode) {
+        guard newMode != mode else { return }
+        document.commitContentEdit()
+        storedMode = newMode.rawValue
     }
 
     var body: some View {
@@ -102,6 +112,13 @@ struct ContentView: View {
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
         .focusedSceneValue(\.splitPreview, splitBinding)
+        .focusedSceneValue(\.documentUndoActions, DocumentUndoActions(
+            undo: { document.performUndo() },
+            redo: { document.performRedo() }
+        ))
+        .onDisappear {
+            document.commitContentEdit()
+        }
     }
 
     // MARK: - Panes
@@ -114,9 +131,16 @@ struct ContentView: View {
     /// cursor/undo survive.
     @ViewBuilder private var editorArea: some View {
         if mode == .preview {
-            MarkdownPreviewView(document: document, fileURL: fileURL,
-                                positionStore: positionStore,
-                                onRequestEdit: { storedMode = EditorMode.visual.rawValue })
+            // Action strip above the page — same capsule chrome as folder info.
+            VStack(spacing: 0) {
+                PreviewActionStrip(actions: previewToolbar)
+                MarkdownPreviewView(document: document, fileURL: fileURL,
+                                    positionStore: positionStore,
+                                    onRequestEdit: { setEditorMode(.visual) },
+                                    toolbarActions: previewToolbar)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Color(nsColor: .windowBackgroundColor))
         } else {
             GeometryReader { geo in
                 HStack(spacing: 0) {
@@ -209,7 +233,7 @@ struct ContentView: View {
         ToolbarItemGroup(placement: .navigation) {
             ForEach(EditorMode.allCases) { candidate in
                 Button {
-                    storedMode = candidate.rawValue
+                    setEditorMode(candidate)
                 } label: {
                     Label(candidate.title,
                           systemImage: mode == candidate

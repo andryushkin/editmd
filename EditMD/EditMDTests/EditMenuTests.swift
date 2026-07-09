@@ -48,4 +48,45 @@ final class MarkdownDocumentTests: XCTestCase {
     func testUTTypeTextBundleExists() {
         XCTAssertEqual(UTType.textBundle.identifier, "org.textbundle.package")
     }
+
+    func testApplyUndoableContentUndoAndRedo() {
+        let doc = MarkdownDocument()
+        doc.content = "hello"
+        doc.contentUndoManager.groupsByEvent = false
+
+        doc.applyUndoableContent("~~hello~~", actionName: "Strikethrough")
+        XCTAssertEqual(doc.content, "~~hello~~")
+        XCTAssertTrue(doc.contentUndoManager.canUndo)
+        XCTAssertFalse(doc.contentUndoManager.canRedo)
+
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "hello")
+        XCTAssertTrue(doc.contentUndoManager.canRedo)
+
+        doc.contentUndoManager.redo()
+        XCTAssertEqual(doc.content, "~~hello~~")
+    }
+
+    func testApplyUndoableContentNoOpWhenUnchanged() {
+        let doc = MarkdownDocument()
+        doc.content = "same"
+        doc.contentUndoManager.groupsByEvent = false
+        doc.applyUndoableContent("same", actionName: "X")
+        XCTAssertFalse(doc.contentUndoManager.canUndo)
+    }
+
+    func testTypingCheckpointSurvivesAsDocumentUndo() {
+        let doc = MarkdownDocument()
+        doc.content = "hi"
+        doc.contentUndoManager.groupsByEvent = false
+
+        doc.beginContentEdit()
+        doc.content = "hi!"
+        doc.commitContentEdit(actionName: "Typing")
+
+        XCTAssertEqual(doc.content, "hi!")
+        XCTAssertTrue(doc.contentUndoManager.canUndo)
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "hi")
+    }
 }

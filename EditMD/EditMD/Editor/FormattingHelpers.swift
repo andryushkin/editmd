@@ -132,3 +132,83 @@ func fenceLines(_ lines: String) -> String {
     if hadTrailingNewline { body.removeLast() }
     return "```\n" + body + "\n```" + (hadTrailingNewline ? "\n" : "")
 }
+
+// MARK: - Preview selection wrap (highlight / strikethrough)
+
+/// Toggles `open…close` around an exact UTF-16 `range` in `markdown`.
+/// If the range is already wrapped with those markers, removes them; otherwise
+/// inserts the markers. Used by the Preview toolbar once the page reports
+/// `data-md-lo`/`data-md-hi` offsets for the selection.
+func toggleWrapAtRange(in markdown: String,
+                       range: NSRange,
+                       open: String,
+                       close: String) -> String? {
+    guard range.length > 0, !open.isEmpty, !close.isEmpty else { return nil }
+    let ns = markdown as NSString
+    guard range.location >= 0, NSMaxRange(range) <= ns.length else { return nil }
+    let openLen = (open as NSString).length
+    let closeLen = (close as NSString).length
+    let selected = ns.substring(with: range)
+
+    let beforeStart = range.location - openLen
+    let afterStart = NSMaxRange(range)
+    let hasOpen = beforeStart >= 0
+        && ns.substring(with: NSRange(location: beforeStart, length: openLen)) == open
+    let hasClose = afterStart + closeLen <= ns.length
+        && ns.substring(with: NSRange(location: afterStart, length: closeLen)) == close
+
+    if hasOpen && hasClose {
+        let full = NSRange(location: beforeStart,
+                           length: openLen + range.length + closeLen)
+        return ns.replacingCharacters(in: full, with: selected)
+    }
+    return ns.replacingCharacters(in: range, with: open + selected + close)
+}
+
+// MARK: - ==highlight== (Obsidian-style; Preview render)
+
+/// One `==inner==` span in a text run. `range` covers the full markers;
+/// `inner` is the display text between them.
+struct HighlightMarkMatch: Equatable {
+    let range: NSRange
+    let inner: String
+}
+
+/// Scans single-line Obsidian-style highlights (`==text==`). Empty inners and
+/// multiline spans are ignored. Non-overlapping, left-to-right.
+func scanHighlightMarks(in text: String) -> [HighlightMarkMatch] {
+    let ns = text as NSString
+    let len = ns.length
+    guard len >= 4 else { return [] }
+    var matches: [HighlightMarkMatch] = []
+    var i = 0
+    while i < len - 3 {
+        let c0 = ns.character(at: i)
+        let c1 = ns.character(at: i + 1)
+        if c0 == 0x3D && c1 == 0x3D { // ==
+            var j = i + 2
+            var found: NSRange?
+            while j + 1 < len {
+                let cj = ns.character(at: j)
+                if cj == 0x0A || cj == 0x0D { break } // single-line only
+                if cj == 0x3D && ns.character(at: j + 1) == 0x3D {
+                    let innerLen = j - (i + 2)
+                    if innerLen > 0 {
+                        found = NSRange(location: i, length: (j + 2) - i)
+                    }
+                    break
+                }
+                j += 1
+            }
+            if let found {
+                let inner = ns.substring(with: NSRange(location: found.location + 2,
+                                                       length: found.length - 4))
+                matches.append(HighlightMarkMatch(range: found, inner: inner))
+                i = NSMaxRange(found)
+                continue
+            }
+        }
+        i += 1
+    }
+    return matches
+}

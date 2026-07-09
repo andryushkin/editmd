@@ -100,6 +100,77 @@ final class ToggleTaskListItemTests: XCTestCase {
     }
 }
 
+// MARK: - Preview selection wrap + ==highlight== scan
+
+final class PreviewSelectionWrapTests: XCTestCase {
+
+    func testWrapsExactRange() {
+        let md = "hello world hello"
+        // Second "hello" only — not the first occurrence.
+        let r = NSRange(location: 12, length: 5)
+        XCTAssertEqual(
+            toggleWrapAtRange(in: md, range: r, open: "~~", close: "~~"),
+            "hello world ~~hello~~"
+        )
+    }
+
+    func testUnwrapsWhenAlreadyMarked() {
+        let md = "~~hello~~ world"
+        let r = NSRange(location: 2, length: 5) // "hello" inside ~~
+        XCTAssertEqual(
+            toggleWrapAtRange(in: md, range: r, open: "~~", close: "~~"),
+            "hello world"
+        )
+    }
+
+    func testHighlightMarkers() {
+        let md = "see ==important== note"
+        let r = NSRange(location: 6, length: 9) // "important"
+        XCTAssertEqual(
+            toggleWrapAtRange(in: md, range: r, open: "==", close: "=="),
+            "see important note"
+        )
+        let plain = "see important note"
+        let r2 = (plain as NSString).range(of: "important")
+        XCTAssertEqual(
+            toggleWrapAtRange(in: plain, range: r2, open: "==", close: "=="),
+            "see ==important== note"
+        )
+    }
+
+    func testEmptyOrOutOfBoundsReturnsNil() {
+        XCTAssertNil(toggleWrapAtRange(in: "abc", range: NSRange(location: 0, length: 0),
+                                       open: "~~", close: "~~"))
+        XCTAssertNil(toggleWrapAtRange(in: "abc", range: NSRange(location: 0, length: 10),
+                                       open: "~~", close: "~~"))
+    }
+
+    func testScanHighlightMarks() {
+        let marks = scanHighlightMarks(in: "a ==b== c ==d==")
+        XCTAssertEqual(marks.count, 2)
+        XCTAssertEqual(marks[0].inner, "b")
+        XCTAssertEqual(marks[1].inner, "d")
+    }
+
+    func testScanHighlightSkipsEmptyAndMultiline() {
+        XCTAssertTrue(scanHighlightMarks(in: "====").isEmpty)
+        XCTAssertTrue(scanHighlightMarks(in: "==a\nb==").isEmpty)
+    }
+
+    func testHighlightHTML() {
+        let html = markdownHTMLBody("x ==hi== y")
+        XCTAssertTrue(html.contains("<mark"), html)
+        XCTAssertTrue(html.contains(">hi</mark>"), html)
+        XCTAssertFalse(html.contains("==hi=="), html)
+    }
+
+    func testHTMLTagsSourceOffsets() {
+        let html = markdownHTMLBody("hello")
+        XCTAssertTrue(html.contains("data-md-lo=\"0\""), html)
+        XCTAssertTrue(html.contains("data-md-hi=\"5\""), html)
+    }
+}
+
 // MARK: - wordAndCharCount
 
 final class WordAndCharCountTests: XCTestCase {

@@ -82,20 +82,25 @@ func writeMarkdownDocument(content: String, assets: FileWrapper?, to url: URL) t
 
 // MARK: - DocumentRegistry
 
-/// One in-memory `MarkdownDocument` per file URL, reference-counted. Every open
-/// (Finder routing, sidebar click, "open in separate window") resolves its
-/// document HERE instead of constructing its own — so the same file shown in
-/// several windows shares one model, one `content`, one save path (no lost
-/// writes). Replaces the document-lifecycle layer DocumentGroup used to run.
+/// One in-memory `MarkdownDocument` per file URL, reference-counted for open
+/// windows. Every open (Finder, sidebar, lite window) resolves its document
+/// HERE so the same file in several windows shares one model, one `content`,
+/// one save path, and one **undo stack**.
 ///
-/// Autosave is debounced and driven explicitly via `markDirty(_:)` (the owner
-/// view calls it when `document.content` changes) — the registry stays free of
-/// Combine subscriptions so it composes cleanly under Swift 6 strict
-/// concurrency. `release` flushes any pending change before dropping the model.
+/// When the last window leaves a file the model is **not discarded** — it goes
+/// into a session LRU cache so switching A → B → A keeps independent ⌘Z
+/// histories. `isOpen` only reflects windows that currently hold a refcount
+/// (the "already open elsewhere" modal).
+///
+/// Autosave is debounced via `markDirty(_:)` (owner view on content change).
+/// Last `release` flushes dirty content to disk before parking the model.
 @MainActor
 final class DocumentRegistry {
 
     static let shared = DocumentRegistry()
+
+    /// How many recently closed documents keep their undo stack in memory.
+    static let sessionCacheLimit = 24
 
     /// Internal (not private) so tests can spin up an isolated registry instead
     /// of mutating the shared singleton.
@@ -113,7 +118,10 @@ final class DocumentRegistry {
         }
     }
 
+    /// Windows currently showing the file (refcount > 0).
     private var entries: [URL: Entry] = [:]
+    /// Recently released documents (undo history), most-recent first.
+    private var sessionCache: [(url: URL, document: MarkdownDocument)] = []
     private let autosaveDelayNanos: UInt64 = 600_000_000
 
     /// URLs currently held by at least one window (used to detect "already open
@@ -122,14 +130,18 @@ final class DocumentRegistry {
     func isOpen(_ url: URL) -> Bool { entries[url.standardizedFileURL] != nil }
     func isDirty(_ url: URL) -> Bool { entries[url.standardizedFileURL]?.isDirty ?? false }
 
-    /// Returns the shared document for `url`, loading it from disk on the first
-    /// acquire and bumping the refcount on subsequent ones. Balance with
-    /// `release`.
+    /// Returns the shared document for `url`: live entry → session cache → disk.
+    /// Balance with `release`.
     func acquire(_ url: URL) throws -> MarkdownDocument {
         let key = url.standardizedFileURL
         if let entry = entries[key] {
             entry.refcount += 1
             return entry.document
+        }
+        // Re-open within the session: same model + undo stack as last time.
+        if let cached = takeFromSessionCache(key) {
+            entries[key] = Entry(url: key, document: cached)
+            return cached
         }
         let (content, assets) = try loadMarkdownDocument(from: key)
         let document = MarkdownDocument()
@@ -139,16 +151,18 @@ final class DocumentRegistry {
         return document
     }
 
-    /// Balances `acquire`. On the last release any pending change is flushed and
-    /// the model dropped.
+    /// Balances `acquire`. On the last release: flush dirty, then park the
+    /// document in the session cache (keeps per-file undo). Not in `isOpen`.
     func release(_ url: URL) {
         let key = url.standardizedFileURL
         guard let entry = entries[key] else { return }
         entry.refcount -= 1
         guard entry.refcount <= 0 else { return }
         entry.autosaveTask?.cancel()
+        entry.document.commitContentEdit()
         if entry.isDirty { try? flush(entry) }
         entries.removeValue(forKey: key)
+        parkInSessionCache(key, document: entry.document)
     }
 
     /// Marks the document dirty and (re)schedules a debounced autosave. The
@@ -164,7 +178,30 @@ final class DocumentRegistry {
     func saveNow(_ url: URL) throws {
         guard let entry = entries[url.standardizedFileURL] else { return }
         entry.autosaveTask?.cancel()
+        entry.document.commitContentEdit()
         try flush(entry)
+    }
+
+    /// Drops the session cache (tests / low-memory). Live window entries stay.
+    func clearSessionCache() {
+        sessionCache.removeAll()
+    }
+
+    // MARK: Session cache (per-file undo across switches)
+
+    private func takeFromSessionCache(_ key: URL) -> MarkdownDocument? {
+        guard let idx = sessionCache.firstIndex(where: { $0.url == key }) else { return nil }
+        let doc = sessionCache.remove(at: idx).document
+        return doc
+    }
+
+    private func parkInSessionCache(_ key: URL, document: MarkdownDocument) {
+        sessionCache.removeAll { $0.url == key }
+        sessionCache.insert((key, document), at: 0)
+        let limit = Self.sessionCacheLimit
+        if sessionCache.count > limit {
+            sessionCache.removeLast(sessionCache.count - limit)
+        }
     }
 
     private func scheduleAutosave(_ entry: Entry) {

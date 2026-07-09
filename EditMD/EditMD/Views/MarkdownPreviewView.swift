@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import WebKit
 
 /// Read-only rendered preview: full-window in Preview mode, or the right
@@ -16,6 +17,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
     var positionStore: EditorPositionStore? = nil
     /// Full-preview mode only: Return switches back to editing (FSNotes).
     var onRequestEdit: (() -> Void)? = nil
+    /// Optional toolbar bridge (full Preview mode). Coordinator installs
+    /// copy / highlight / strikethrough closures on make + update.
+    var toolbarActions: PreviewToolbarActions? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -29,17 +33,86 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                   name: "taskToggle")
         userContentController.add(WikiLinkClickHandler(coordinator: coordinator),
                                   name: "wikiLinkClick")
+        userContentController.add(PreviewSelectionHandler(coordinator: coordinator),
+                                  name: "previewSelection")
+        // Cache selection + source offsets (data-md-lo/hi). Keep last non-empty
+        // so a click on the action strip doesn't wipe the range before wrap runs.
+        let selectionScript = WKUserScript(
+            source: """
+            (function () {
+              function mdEl(node) {
+                var n = node;
+                if (n && n.nodeType === 3) n = n.parentElement;
+                while (n && n !== document.body) {
+                  if (n.getAttribute && n.hasAttribute('data-md-lo')) return n;
+                  if (n.getAttribute && n.getAttribute('data-md-code') === '1') return n;
+                  n = n.parentElement;
+                }
+                return null;
+              }
+              function utf16OffsetIn(el, targetNode, targetOffset) {
+                if (targetNode === el) return targetOffset;
+                var count = 0;
+                var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+                var n;
+                while ((n = walker.nextNode())) {
+                  if (n === targetNode) return count + targetOffset;
+                  count += n.nodeValue.length;
+                }
+                return count;
+              }
+              function report() {
+                try {
+                  var sel = window.getSelection();
+                  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                    window.webkit.messageHandlers.previewSelection.postMessage({text: ''});
+                    return;
+                  }
+                  var range = sel.getRangeAt(0);
+                  var text = sel.toString();
+                  var a = mdEl(range.startContainer);
+                  var b = mdEl(range.endContainer);
+                  if (!a || !b || a !== b || a.getAttribute('data-md-code') === '1') {
+                    window.webkit.messageHandlers.previewSelection.postMessage({
+                      text: text, start: -1, end: -1
+                    });
+                    return;
+                  }
+                  var lo = parseInt(a.getAttribute('data-md-lo'), 10);
+                  if (isNaN(lo)) {
+                    window.webkit.messageHandlers.previewSelection.postMessage({
+                      text: text, start: -1, end: -1
+                    });
+                    return;
+                  }
+                  var start = lo + utf16OffsetIn(a, range.startContainer, range.startOffset);
+                  var end = lo + utf16OffsetIn(a, range.endContainer, range.endOffset);
+                  if (end < start) { var t = start; start = end; end = t; }
+                  window.webkit.messageHandlers.previewSelection.postMessage({
+                    text: text, start: start, end: end
+                  });
+                } catch (e) {}
+              }
+              document.addEventListener('selectionchange', report);
+            })();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        userContentController.addUserScript(selectionScript)
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = userContentController
 
         let webView = PreviewWebView(frame: .zero, configuration: configuration)
         webView.onReturnKey = onRequestEdit
+        webView.documentForUndo = document
         webView.navigationDelegate = coordinator
         webView.underPageBackgroundColor = .textBackgroundColor
         coordinator.webView = webView
         coordinator.positionStore = positionStore
         coordinator.document = document
         coordinator.fileURL = fileURL
+        coordinator.bindToolbar(toolbarActions)
         coordinator.rerender = { [weak coordinator] in
             guard let coordinator else { return }
             coordinator.lastRenderedContent = nil
@@ -80,7 +153,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.document = document
+        coordinator.fileURL = fileURL
+        coordinator.bindToolbar(toolbarActions)
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
+        (webView as? PreviewWebView)?.documentForUndo = document
         guard coordinator.lastRenderedContent != document.content else { return }
         // Debounce: every updateNSView during typing cancels the pending
         // render, so the reload fires ~250 ms after the last keystroke.
@@ -172,6 +248,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var webView: WKWebView?
+        weak var toolbarActions: PreviewToolbarActions?
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
         var fileURL: URL?
@@ -186,9 +263,29 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var pendingScrollFraction: Double?
         /// Pixel scroll captured before a live reload, restored in didFinish.
         var pendingScrollY: Double?
+        /// Last usable selection from the page. Empty selectionchange events
+        /// do NOT clear this (strip click collapses the WebKit selection).
+        var cachedSelection: String = ""
+        /// UTF-16 range in the markdown source (`data-md-lo`…`data-md-hi`).
+        /// `-1` means offsets unknown (copy still works; wrap beeps).
+        var cachedStart: Int = -1
+        var cachedEnd: Int = -1
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        /// Installs strip callbacks on the shared actions object (if any).
+        func bindToolbar(_ actions: PreviewToolbarActions?) {
+            toolbarActions = actions
+            guard let actions else { return }
+            actions.copySelection = { [weak self] in self?.copySelection() }
+            actions.toggleHighlight = { [weak self] in
+                self?.toggleWrap(open: "==", close: "==")
+            }
+            actions.toggleStrikethrough = { [weak self] in
+                self?.toggleWrap(open: "~~", close: "~~")
+            }
         }
 
         @objc func settingsDidChange() {
@@ -203,13 +300,65 @@ struct MarkdownPreviewView: NSViewRepresentable {
             guard let document,
                   let toggled = toggleTaskListItem(in: document.content, index: index)
             else { return }
-            document.content = toggled
+            document.commitContentEdit()
+            document.applyUndoableContent(toggled, actionName: "Toggle Task")
         }
 
         /// A wiki-link was clicked in the page: resolve its target and open the
         /// file (relative to this document's folder).
         func openWikiLink(target: String) {
             navigateToWikiLink(target: target, from: fileURL)
+        }
+
+        /// Accepts a non-empty selection (and optional source offsets). Empty
+        /// updates are ignored so toolbar clicks keep the last range.
+        func updateCachedSelection(text: String, start: Int, end: Int) {
+            guard !text.isEmpty else { return }
+            cachedSelection = text
+            if start >= 0, end > start {
+                cachedStart = start
+                cachedEnd = end
+            } else {
+                cachedStart = -1
+                cachedEnd = -1
+            }
+        }
+
+        /// Copy the current page selection (cached — strip click clears WebKit
+        /// selection). Beeps when nothing is selected.
+        func copySelection() {
+            let text = cachedSelection
+            guard !text.isEmpty else { NSSound.beep(); return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// Wrap / unwrap the selected source range with markers (`==` / `~~`).
+        /// Uses exact UTF-16 offsets from `data-md-lo/hi` — never a whole-file
+        /// plain-text search (that only "inserted symbols" at the wrong place).
+        func toggleWrap(open: String, close: String) {
+            guard let document else { NSSound.beep(); return }
+            guard cachedStart >= 0, cachedEnd > cachedStart else {
+                NSSound.beep()
+                return
+            }
+            let range = NSRange(location: cachedStart, length: cachedEnd - cachedStart)
+            let ns = document.content as NSString
+            guard NSMaxRange(range) <= ns.length else { NSSound.beep(); return }
+            // Soft check: DOM text should match the source slice (entities /
+            // soft breaks can diverge — still wrap the range if lengths match).
+            guard let next = toggleWrapAtRange(in: document.content, range: range,
+                                              open: open, close: close)
+            else {
+                NSSound.beep()
+                return
+            }
+            cachedSelection = ""
+            cachedStart = -1
+            cachedEnd = -1
+            let actionName = open == "==" ? "Highlight" : "Strikethrough"
+            document.commitContentEdit()
+            document.applyUndoableContent(next, actionName: actionName)
         }
 
         /// Outline-sidebar jump: scroll to the offset's proportional position
@@ -265,6 +414,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
 /// editor is already on screen.
 final class PreviewWebView: WKWebView {
     var onReturnKey: (() -> Void)?
+    /// Document for ⌘Z / ⌘⇧Z while the web view is first responder.
+    weak var documentForUndo: MarkdownDocument?
+
+    override var undoManager: UndoManager? {
+        documentForUndo?.contentUndoManager ?? super.undoManager
+    }
 
     override func keyDown(with event: NSEvent) {
         // 36 = Return, 76 = keypad Enter
@@ -273,6 +428,14 @@ final class PreviewWebView: WKWebView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        documentForUndo?.performUndo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        documentForUndo?.performRedo()
     }
 }
 
@@ -308,5 +471,36 @@ private final class WikiLinkClickHandler: NSObject, WKScriptMessageHandler {
         guard let body = message.body as? [String: Any],
               let target = body["target"] as? String, !target.isEmpty else { return }
         coordinator?.openWikiLink(target: target)
+    }
+}
+
+/// Streams `selectionchange` payloads `{text, start?, end?}` into the
+/// coordinator so toolbar actions still see the range after the strip steals
+/// focus.
+@MainActor
+private final class PreviewSelectionHandler: NSObject, WKScriptMessageHandler {
+    weak var coordinator: MarkdownPreviewView.Coordinator?
+
+    init(coordinator: MarkdownPreviewView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        if let body = message.body as? [String: Any] {
+            let text = body["text"] as? String ?? ""
+            let start = (body["start"] as? NSNumber)?.intValue
+                ?? (body["start"] as? Int)
+                ?? -1
+            let end = (body["end"] as? NSNumber)?.intValue
+                ?? (body["end"] as? Int)
+                ?? -1
+            coordinator?.updateCachedSelection(text: text, start: start, end: end)
+            return
+        }
+        // Legacy plain-string messages — text only, no offsets.
+        if let text = message.body as? String {
+            coordinator?.updateCachedSelection(text: text, start: -1, end: -1)
+        }
     }
 }

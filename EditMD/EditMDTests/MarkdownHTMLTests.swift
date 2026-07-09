@@ -19,7 +19,9 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testInlineCodeIsEscaped() {
         let html = markdownHTMLBody("Use `a < b` here")
-        XCTAssertTrue(html.contains("<code>a &lt; b</code>"), html)
+        XCTAssertTrue(html.contains("a &lt; b"), html)
+        XCTAssertTrue(html.contains("<code"), html)
+        XCTAssertTrue(html.contains("data-md-code=\"1\""), html)
     }
 
     func testLinkHrefIsAttributeEscaped() {
@@ -31,26 +33,34 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testHeadingKeepsInlineFormatting() {
         let html = markdownHTMLBody("## Hello **world**")
-        XCTAssertTrue(html.contains("<h2>Hello <strong>world</strong></h2>"), html)
+        XCTAssertTrue(html.contains("<h2>"), html)
+        XCTAssertTrue(html.contains("<strong>"), html)
+        XCTAssertTrue(html.contains("world"), html)
+        // Text runs carry data-md-lo/hi for Preview toolbar mapping.
+        XCTAssertTrue(html.contains("data-md-lo="), html)
     }
 
     func testTaskListCheckboxes() {
         let html = markdownHTMLBody("- [x] done\n- [ ] todo")
-        XCTAssertTrue(html.contains("<li class=\"task\"><input type=\"checkbox\" disabled checked> done"), html)
-        XCTAssertTrue(html.contains("<li class=\"task\"><input type=\"checkbox\" disabled> todo"), html)
+        XCTAssertTrue(html.contains("<li class=\"task\"><input type=\"checkbox\" disabled checked>"), html)
+        XCTAssertTrue(html.contains("<li class=\"task\"><input type=\"checkbox\" disabled>"), html)
+        XCTAssertTrue(html.contains("done"), html)
+        XCTAssertTrue(html.contains("todo"), html)
     }
 
     func testTableAlignmentAndCells() {
         let md = "| a | b |\n|:-:|--:|\n| 1 | 2 |"
         let html = markdownHTMLBody(md)
-        XCTAssertTrue(html.contains("<th align=\"center\">a</th>"), html)
-        XCTAssertTrue(html.contains("<th align=\"right\">b</th>"), html)
-        XCTAssertTrue(html.contains("<td align=\"center\">1</td>"), html)
+        XCTAssertTrue(html.contains("<th align=\"center\">"), html)
+        XCTAssertTrue(html.contains("<th align=\"right\">"), html)
+        XCTAssertTrue(html.contains("<td align=\"center\">"), html)
+        XCTAssertTrue(html.contains(">a<") || html.contains(">a</"), html)
     }
 
     func testStrikethrough() {
         let html = markdownHTMLBody("~~gone~~")
-        XCTAssertTrue(html.contains("<del>gone</del>"), html)
+        XCTAssertTrue(html.contains("<del>"), html)
+        XCTAssertTrue(html.contains("gone"), html)
     }
 
     func testOrderedListStartIndex() {
@@ -81,7 +91,8 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageWrapsBody() {
         let page = previewHTMLPage(markdown: "# Title", fontSize: 14)
         XCTAssertTrue(page.contains("<!DOCTYPE html>"), page)
-        XCTAssertTrue(page.contains("<h1>Title</h1>"), page)
+        XCTAssertTrue(page.contains("<h1>"), page)
+        XCTAssertTrue(page.contains("Title"), page)
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
     }
 
@@ -110,7 +121,9 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testWikiLinkRendersAsAnchor() {
         let html = markdownHTMLBody("See [[Note|Shown]] here")
-        XCTAssertTrue(html.contains("<a class=\"wikilink\" data-wiki-target=\"Note\">Shown</a>"), html)
+        XCTAssertTrue(html.contains("class=\"wikilink\""), html)
+        XCTAssertTrue(html.contains("data-wiki-target=\"Note\""), html)
+        XCTAssertTrue(html.contains("Shown"), html)
         XCTAssertFalse(html.contains("[["), html)
     }
 
@@ -127,7 +140,8 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testWikiLinkNotDetectedInCode() {
         let html = markdownHTMLBody("`[[Note]]`")
-        XCTAssertTrue(html.contains("<code>[[Note]]</code>"), html)
+        XCTAssertTrue(html.contains("[[Note]]"), html)
+        XCTAssertTrue(html.contains("<code"), html)
         XCTAssertFalse(html.contains("wikilink"), html)
     }
 
@@ -142,7 +156,8 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testUnderscoreBreakNotInInlineCode() {
         let html = markdownHTMLBody("`snake_case_id`")
-        XCTAssertTrue(html.contains("<code>snake_case_id</code>"), html)
+        XCTAssertTrue(html.contains("snake_case_id"), html)
+        XCTAssertTrue(html.contains("<code"), html)
         XCTAssertFalse(html.contains("<wbr>"), html)
     }
 

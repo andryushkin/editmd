@@ -41,7 +41,11 @@ final class AppState: ObservableObject {
     // MARK: Routing
 
     /// Routes a file opened from Finder per the Lite-mode setting.
+    /// Always starts in Preview — Finder/Dock opens are read-first; mode
+    /// switches still persist for subsequent in-app opens (sidebar, wiki, etc.).
     func handleOpen(_ url: URL) {
+        // Same key as ContentView's `@AppStorage("editorMode")`.
+        UserDefaults.standard.set(EditorMode.preview.rawValue, forKey: "editorMode")
         // Finder only delivers files (and packages); folders come from the sidebar.
         if EditorSettings.shared.general.liteMode {
             openInSeparateWindow(url)

@@ -11,6 +11,7 @@ struct EditMDApp: App {
     @FocusedValue(\.sidebarVisible) var sidebarVisible
     @FocusedValue(\.splitPreview) var splitPreview
     @FocusedValue(\.documentActions) var documentActions
+    @FocusedValue(\.documentUndoActions) var documentUndoActions
 
     @StateObject private var history = DocumentHistory.shared
 
@@ -73,15 +74,19 @@ struct EditMDApp: App {
             }
 
             CommandGroup(replacing: .undoRedo) {
+                // Document-scoped stack (not NSTextView) so undo survives
+                // Source ↔ Visual ↔ Preview.
                 Button("Undo") {
-                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                    documentUndoActions?.undo()
                 }
                 .keyboardShortcut("z")
+                .disabled(documentUndoActions == nil)
 
                 Button("Redo") {
-                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                    documentUndoActions?.redo()
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(documentUndoActions == nil)
             }
 
             CommandGroup(replacing: .pasteboard) {
