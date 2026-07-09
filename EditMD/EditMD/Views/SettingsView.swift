@@ -103,7 +103,10 @@ private struct ModeTab: View {
             }
             Section("Margins") {
                 ValueSlider(title: "Horizontal", value: m.insetH, range: ModeSettings.insetRange)
+                // Top/bottom inset of the reading field (under the action strip).
                 ValueSlider(title: "Vertical", value: m.insetV, range: ModeSettings.insetRange)
+                Text("Vertical is the gap under the formatting strip (and above the bottom of the page).")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Reading column") {
                 Toggle("Limit column width", isOn: columnEnabled)
@@ -265,22 +268,61 @@ private struct ModeTab: View {
 // MARK: - Reusable controls
 
 /// Numeric font-size control: a text field for exact entry plus a stepper.
+///
+/// Uses a local string draft instead of `TextField(value:format:)`. The
+/// format-style field was unreliable here: Settings re-renders on every
+/// `@Published` write (including nested ModeSettings projections), which
+/// rebuilds the `Double` bridge binding and aborts in-progress edits — the
+/// field looked dead or snapped back. Draft text only commits on Submit /
+/// focus loss; the stepper still writes `value` directly.
 private struct FontSizeStepper: View {
     let title: String
     @Binding var value: CGFloat
     var range = ModeSettings.fontSizeRange
 
+    @State private var draft: String = ""
+    @FocusState private var isFocused: Bool
+
     var body: some View {
         HStack {
             Text(title)
             Spacer()
-            TextField("", value: doubleBinding($value), format: .number)
+            TextField("", text: $draft)
                 .frame(width: 60)
                 .multilineTextAlignment(.trailing)
                 .textFieldStyle(.roundedBorder)
+                .focused($isFocused)
+                .onSubmit { commitDraft() }
             Stepper("", value: $value, in: range, step: 1).labelsHidden()
             Text("pt").foregroundStyle(.secondary)
         }
+        .onAppear { draft = Self.format(value) }
+        // macOS 13 deployment: single-parameter onChange (two-param needs 14+).
+        .onChange(of: value) { new in
+            // Keep the field in sync with the stepper / external writes, but
+            // don't clobber text the user is mid-edit.
+            if !isFocused { draft = Self.format(new) }
+        }
+        .onChange(of: isFocused) { focused in
+            if !focused { commitDraft() }
+        }
+    }
+
+    private func commitDraft() {
+        let normalized = draft
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let parsed = Double(normalized) else {
+            draft = Self.format(value)
+            return
+        }
+        let clamped = min(range.upperBound, max(range.lowerBound, CGFloat(parsed.rounded())))
+        value = clamped
+        draft = Self.format(clamped)
+    }
+
+    private static func format(_ v: CGFloat) -> String {
+        String(format: "%.0f", v)
     }
 }
 

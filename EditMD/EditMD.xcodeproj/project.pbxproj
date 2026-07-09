@@ -22,6 +22,7 @@
 		29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */; };
 		2B3D81A455822ED02A0164B2 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 2DE5E72B6D910282961D4DE5 /* Markdown */; };
 		2DC3DD70D9EABD4B0A3F79BB /* AttributedToMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */; };
+		306320E68714D8C69F0D62A8 /* icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 5DE049C40EE9A0CB2F09BFBF /* icon.png */; };
 		33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */; };
 		35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD84F80960334B09CB707FA /* OutlineSidebar.swift */; };
 		36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */; };
@@ -35,6 +36,7 @@
 		7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7515C3219FEEA448EFDED1F9 /* AppState.swift */; };
 		72C6BA1720506EAE368C880C /* EditorMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76CFD41043AC7BDE423F87F1 /* EditorMode.swift */; };
 		73515EE18917982E12613A05 /* MarkdownTableGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */; };
+		745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E846D593359014AA812A9A3 /* AppIcon.icns */; };
 		75ED2C4FF8872DD52EDB4BD2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92161BAEF22CB4D7970B98F1 /* ContentView.swift */; };
 		84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */; };
 		88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */; };
@@ -55,6 +57,7 @@
 		D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */; };
 		DA424E58D0274B4EB89F9151 /* DocumentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */; };
 		DB490D4FE279C4551AFF0CAA /* MarkdownHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */; };
+		DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */; };
 		E2830B1049758784FCE6E3D8 /* DocumentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */; };
 		E7C7AFCDD89E1CBC12830916 /* DocumentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D121A56408289D8F49E90D /* DocumentStore.swift */; };
 		E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FF3BD17201E239817B79BA /* EditMDApp.swift */; };
@@ -89,6 +92,7 @@
 		52D121A56408289D8F49E90D /* DocumentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStore.swift; sourceTree = "<group>"; };
 		55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighterTests.swift; sourceTree = "<group>"; };
 		56FF3BD17201E239817B79BA /* EditMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMDApp.swift; sourceTree = "<group>"; };
+		5DE049C40EE9A0CB2F09BFBF /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedToMarkdown.swift; sourceTree = "<group>"; };
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
 		6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTML.swift; sourceTree = "<group>"; };
@@ -97,6 +101,7 @@
 		73443608878228D727F6A239 /* MarkdownHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighter.swift; sourceTree = "<group>"; };
 		7515C3219FEEA448EFDED1F9 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		76CFD41043AC7BDE423F87F1 /* EditorMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorMode.swift; sourceTree = "<group>"; };
+		7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkResolverTests.swift; sourceTree = "<group>"; };
 		801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		82D8BF400E9D538C51E10B8F /* EditMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EditMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -106,6 +111,7 @@
 		902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundTripTests.swift; sourceTree = "<group>"; };
 		92161BAEF22CB4D7970B98F1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
+		9E846D593359014AA812A9A3 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
 		AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistory.swift; sourceTree = "<group>"; };
 		AC8AD07144B2A6466FF2484C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -207,6 +213,7 @@
 				AC8AD07144B2A6466FF2484C /* SettingsView.swift */,
 				B8507D994F9CAE5DEB23B585 /* SidebarRows.swift */,
 				0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */,
+				7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */,
 				AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */,
 				3A6510639C139A366128A045 /* WorkspaceModel.swift */,
 				801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */,
@@ -269,6 +276,8 @@
 		E604879BA5B11DF3CA7650BF /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				9E846D593359014AA812A9A3 /* AppIcon.icns */,
+				5DE049C40EE9A0CB2F09BFBF /* icon.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -281,6 +290,7 @@
 			buildConfigurationList = A8E4A7CAE2C1F6AF58CA373F /* Build configuration list for PBXNativeTarget "EditMD" */;
 			buildPhases = (
 				2F30CE9651E41CA03F8098FB /* Sources */,
+				0123A7349D5EFE829048ACE6 /* Resources */,
 				3A5F6828D0E4DC808334D2FE /* Frameworks */,
 			);
 			buildRules = (
@@ -353,6 +363,18 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		0123A7349D5EFE829048ACE6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */,
+				306320E68714D8C69F0D62A8 /* icon.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		2C4DBF1892EC458D036BE01B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -412,6 +434,7 @@
 				3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */,
 				99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */,
 				88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */,
+				DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */,
 				C106C0911196133FE31E1962 /* WikiLink.swift in Sources */,
 				103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */,
 				07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */,
@@ -598,6 +621,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
+				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -620,6 +644,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
+				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

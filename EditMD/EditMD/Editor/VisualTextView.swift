@@ -1412,10 +1412,16 @@ struct VisualMarkdownView: NSViewRepresentable {
                 var markerIndent: CGFloat = 0
                 var isTableIsland = false
                 var isFrontmatter = false
+                // Document-leading block: top gap is `textContainerInset.height`
+                // (Settings ▸ Vertical). Extra paragraphSpacingBefore here would
+                // stack on insetV and make Vertical look broken at 0.
+                let isDocumentStart = paragraph.location == 0
 
                 switch blockValue.kind {
                 case .heading(let level):
-                    style.paragraphSpacingBefore = (level <= 2 ? 14 : 10) * spacingScale
+                    style.paragraphSpacingBefore = isDocumentStart
+                        ? 0
+                        : (level <= 2 ? 14 : 10) * spacingScale
                     style.paragraphSpacing = 8 * spacingScale
                     if level <= 2 { headingDividers.append(paragraph) }
                 case .bulletItem(let depth):
@@ -1512,7 +1518,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                     } else if frontmatterRange(in: rawText) != nil {
                         // Frontmatter properties card: a subtle panel (drawn in
                         // drawBackground) with colored keys (colorYAMLIsland).
-                        style.paragraphSpacingBefore = 4 * spacingScale
+                        // Leading frontmatter sits flush under the strip via insetV.
+                        style.paragraphSpacingBefore = isDocumentStart ? 0 : 4 * spacingScale
                         style.paragraphSpacing = 12 * spacingScale
                         markerIndent = 14
                         propertiesPanels.append(paragraph)

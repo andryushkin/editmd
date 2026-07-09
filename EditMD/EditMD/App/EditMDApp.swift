@@ -44,7 +44,7 @@ struct EditMDApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New") {
-                    AppState.shared.openInMainWindow(nil)
+                    AppState.shared.openUntitled()
                 }
                 .keyboardShortcut("n")
 
@@ -57,6 +57,12 @@ struct EditMDApp: App {
                     WorkspaceModel.shared.promptAddFolder()
                 }
                 .keyboardShortcut("o", modifiers: [.shift, .command])
+
+                Divider()
+
+                Button("Welcome") {
+                    AppState.shared.showWelcome()
+                }
             }
 
             CommandGroup(replacing: .saveItem) {

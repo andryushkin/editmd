@@ -21,6 +21,12 @@ struct SourceTextView: NSViewRepresentable {
     let document: MarkdownDocument
     /// Cursor continuity across modes (markdown offsets are native here).
     var positionStore: EditorPositionStore? = nil
+    /// Reading-field insets from Settings ▸ Source. Passed explicitly so
+    /// SwiftUI calls `updateNSView` when the user drags Vertical/Horizontal
+    /// (otherwise only a debounced notification refreshed them).
+    var insetH: CGFloat = EditorSettings.shared.source.insetH
+    var insetV: CGFloat = EditorSettings.shared.source.insetV
+    var columnWidth: CGFloat = EditorSettings.shared.source.columnWidth
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
     var onLintUpdate: ((LintSummary) -> Void)? = nil
@@ -35,6 +41,11 @@ struct SourceTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        // Match the text view so the vertical contentInsets band (Settings ▸
+        // Vertical) is the same white/dark page color, not window chrome.
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.automaticallyAdjustsContentInsets = false
 
         let textView = SourceNSTextView()
         // Rich text so per-element highlighting (heading size/weight, colors)
@@ -56,9 +67,16 @@ struct SourceTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        // Unbounded growth — without this, vertical inset/contentInsets can
+        // clip or refuse to reflow when Settings ▸ Vertical changes.
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        textView.textContainer?.containerSize = NSSize(
+            width: 0, height: CGFloat.greatestFiniteMagnitude)
         // Large documents: lay out only the ranges TextKit needs, not the whole
         // storage up front (Apple's recommended big-document win).
         textView.layoutManager?.allowsNonContiguousLayout = true
@@ -67,6 +85,8 @@ struct SourceTextView: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
 
         scrollView.documentView = textView
+        Self.applyReadingInsets(textView: textView, scrollView: scrollView,
+                                insetH: insetH, insetV: insetV, columnWidth: columnWidth)
 
         let coordinator = context.coordinator
         coordinator.textView = textView
@@ -125,7 +145,8 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.parent = self
 
         guard let textView = coordinator.textView else { return }
-        textView.textContainerInset = EditorSettings.shared.source.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        Self.applyReadingInsets(textView: textView, scrollView: scrollView,
+                                insetH: insetH, insetV: insetV, columnWidth: columnWidth)
 
         // External change (Revert, or another window editing the shared
         // document). A background window defers the reload until it becomes key
@@ -137,6 +158,37 @@ struct SourceTextView: NSViewRepresentable {
                 coordinator.pendingExternalReload = true
             }
         }
+    }
+
+    /// Horizontal via `textContainerInset` (column wrap). Vertical via the
+    /// scroll view's `contentInsets` so the strip→text gap tracks Settings ▸
+    /// Vertical immediately — `textContainerInset.height` alone often kept
+    /// stale line-fragment origins until a window resize.
+    fileprivate static func applyReadingInsets(textView: NSTextView,
+                                               scrollView: NSScrollView,
+                                               insetH: CGFloat,
+                                               insetV: CGFloat,
+                                               columnWidth: CGFloat) {
+        let width = scrollView.contentView.bounds.width
+        var mode = EditorSettings.shared.source
+        mode.insetH = insetH
+        mode.insetV = insetV
+        mode.columnWidth = columnWidth
+        let inset = mode.textContainerInset(forWidth: width)
+
+        textView.textContainerInset = NSSize(width: inset.width, height: 0)
+        scrollView.automaticallyAdjustsContentInsets = false
+        let v = inset.height
+        let current = scrollView.contentInsets
+        if current.top != v || current.bottom != v || current.left != 0 || current.right != 0 {
+            scrollView.contentInsets = NSEdgeInsets(top: v, left: 0, bottom: v, right: 0)
+        }
+        scrollView.backgroundColor = textView.backgroundColor ?? .textBackgroundColor
+
+        if let tc = textView.textContainer {
+            textView.layoutManager?.textContainerChangedGeometry(tc)
+        }
+        textView.needsDisplay = true
     }
 
     // MARK: - Coordinator
@@ -413,8 +465,12 @@ struct SourceTextView: NSViewRepresentable {
             let settings = EditorSettings.shared.source
             textView.font = settings.resolvedFont(defaultMono: true)
             textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
-            textView.textContainerInset = settings.textContainerInset(
-                forWidth: textView.enclosingScrollView?.contentView.bounds.width ?? 0)
+            if let scrollView = textView.enclosingScrollView {
+                SourceTextView.applyReadingInsets(
+                    textView: textView, scrollView: scrollView,
+                    insetH: settings.insetH, insetV: settings.insetV,
+                    columnWidth: settings.columnWidth)
+            }
             highlightSource()
             publishActions()
         }

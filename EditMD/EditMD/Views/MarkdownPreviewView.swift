@@ -182,6 +182,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             markdown: content,
             fontSize: settings.fontSize,
             insetH: settings.insetH,
+            insetV: settings.insetV,
             lineHeight: EditorSettings.shared.previewTypography.lineHeight,
             columnWidth: settings.columnWidth,
             fontFamily: settings.cssFontFamily,

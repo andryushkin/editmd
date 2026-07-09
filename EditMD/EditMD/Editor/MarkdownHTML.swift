@@ -435,11 +435,15 @@ private struct HTMLBodyVisitor: MarkupWalker {
 /// the app's light/dark toggle without reloading.
 ///
 /// Typography mirrors the editor (FSNotes' getPreviewStyle idea): the body
-/// uses the editor's exact font size and the page's left inset matches the
-/// editor's `textContainerInset`, so toggling edit↔preview doesn't jump.
+/// uses the editor's exact font size and page padding matches the editor's
+/// `textContainerInset` (`insetH` / `insetV`), so toggling edit↔preview
+/// doesn't jump. Top gap under the action strip is controlled by Vertical
+/// margin in Settings — not a hardcoded 24px.
 func previewHTMLPage(markdown: String,
                      fontSize: CGFloat,
                      insetH: CGFloat = 32,
+                     /// Top (and minimum bottom) page padding — Settings ▸ Vertical.
+                     insetV: CGFloat = 24,
                      lineHeight: CGFloat = 1.6,
                      /// A centered reading column; `0` disables it (full width,
                      /// left-aligned to `insetH` — matches the editor's inset
@@ -457,6 +461,11 @@ func previewHTMLPage(markdown: String,
     let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
     let margin = columnWidth > 0 ? "0 auto" : "0"
     let bodyColor = textColorHex ?? "CanvasText"
+    // Bottom keeps a comfortable scroll pad when Vertical is small; top is
+    // exactly insetV so the strip→title gap matches Source/Visual.
+    let padTop = Int(insetV.rounded())
+    let padBottom = Int(max(64, insetV).rounded())
+    let padH = Int(insetH.rounded())
 
     // Per-element rules generated from ElementStyles — appended after the base
     // rules so they win. Heading size uses `em` (= the scale), matching how
@@ -489,9 +498,12 @@ func previewHTMLPage(markdown: String,
     body {
         font: \(fontWeight) \(Int(fontSize))px/\(numstr(lineHeight)) \(fontFamily);
         background: Canvas; color: \(bodyColor);
-        max-width: \(maxWidth); margin: \(margin); padding: 24px \(Int(insetH))px 64px;
+        max-width: \(maxWidth); margin: \(margin); padding: \(padTop)px \(padH)px \(padBottom)px;
         word-wrap: break-word;
     }
+    /* First block must not add extra top margin on top of body padding —
+       otherwise Settings ▸ Vertical never reaches zero under the action strip. */
+    body > :first-child { margin-top: 0; }
     h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
     h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
     h4 { font-size: 1em; } h5 { font-size: 0.875em; } h6 { font-size: 0.85em; opacity: 0.7; }

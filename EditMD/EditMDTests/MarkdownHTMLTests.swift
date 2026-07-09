@@ -96,6 +96,18 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
     }
 
+    func testPreviewPageUsesVerticalInsetForTopPadding() {
+        let page = previewHTMLPage(markdown: "# Title", fontSize: 14, insetH: 40, insetV: 8)
+        // Top padding must track Settings ▸ Vertical (was a hardcoded 24px).
+        XCTAssertTrue(page.contains("padding: 8px 40px "), page)
+        XCTAssertTrue(page.contains("body > :first-child { margin-top: 0; }"), page)
+    }
+
+    func testPreviewPageZeroVerticalInset() {
+        let page = previewHTMLPage(markdown: "hi", fontSize: 14, insetH: 12, insetV: 0)
+        XCTAssertTrue(page.contains("padding: 0px 12px "), page)
+    }
+
     func testPreviewPageEmbedsFontWeightAndFamily() {
         let page = previewHTMLPage(markdown: "text", fontSize: 16,
                                    fontFamily: "\"Menlo\", monospace", fontWeight: 500)

@@ -30,6 +30,8 @@ targets:
         PRODUCT_NAME: EditMD
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
+        # App icon: EditMD/Resources/AppIcon.icns (from docs/img/icon.png master)
+        INFOPLIST_KEY_CFBundleIconFile: AppIcon
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""

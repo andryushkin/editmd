@@ -193,6 +193,9 @@ struct ContentView: View {
             SourceTextView(
                 document: document,
                 positionStore: positionStore,
+                insetH: editorSettings.source.insetH,
+                insetV: editorSettings.source.insetV,
+                columnWidth: editorSettings.source.columnWidth,
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
                 onFormatActions: { actions in
                     formatActions = actions

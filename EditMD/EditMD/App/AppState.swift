@@ -18,14 +18,24 @@ final class AppState: ObservableObject {
 
     static let shared = AppState()
 
-    /// Active path of the main window. `nil` = untitled scratch.
-    /// A directory URL shows the folder info card; a file URL opens the editor.
+    /// Active path of the main window.
+    /// - file URL → editor
+    /// - directory URL → folder info card
+    /// - `nil` + `isUntitled == false` → welcome home
+    /// - `nil` + `isUntitled == true` → empty scratch (File ▸ New)
     @Published var currentURL: URL?
+
+    /// When `currentURL` is `nil`, distinguishes welcome home from an untitled
+    /// scratch document. Cold launch starts on welcome (`false`).
+    @Published var isUntitled: Bool = false
 
     private var openWindow: OpenWindowAction?
     private var pendingSeparateURLs: [URL] = []
 
     private init() {}
+
+    /// Main pane is the app welcome (not a document / folder).
+    var isWelcome: Bool { currentURL == nil && !isUntitled }
 
     // MARK: Scene wiring
 
@@ -54,17 +64,38 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Loads `url` (or a blank scratch when `nil`) into the main window,
-    /// bringing it to the front. Directories open the folder info card;
-    /// files open the editor. Records the visit for Back/Forward.
+    /// Shows the welcome home screen in the main window (cold-start default;
+    /// also reachable via View ▸ Welcome when we add it later).
+    func showWelcome() {
+        isUntitled = false
+        currentURL = nil
+        openWindow?(id: WindowID.main)
+    }
+
+    /// Empty untitled markdown in the main window (File ▸ New).
+    func openUntitled() {
+        isUntitled = true
+        currentURL = nil
+        openWindow?(id: WindowID.main)
+    }
+
+    /// Loads `url` into the main window, bringing it to the front.
+    /// Directories open the folder info card; files open the editor.
+    /// Pass `nil` only to return to welcome — prefer `openUntitled()` for New.
     func openInMainWindow(_ url: URL?) {
         let std = url?.standardizedFileURL
-        currentURL = std
         if let std {
+            isUntitled = false
+            currentURL = std
             if !Self.isFolder(std) {
                 WorkspaceModel.shared.noteOpened(std)
             }
             DocumentHistory.shared.recordVisit(std)
+        } else {
+            // Explicit nil → welcome (not a scratch). Callers that want New
+            // use `openUntitled()`.
+            isUntitled = false
+            currentURL = nil
         }
         openWindow?(id: WindowID.main)
     }

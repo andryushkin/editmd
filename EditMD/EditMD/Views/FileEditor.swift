@@ -94,20 +94,24 @@ struct FileEditor: View {
     }
 }
 
-/// The single main workspace window. Shows whatever `AppState.currentURL` points
-/// at — a file (editor) or a directory (folder info card). Changing that reloads
-/// the center pane in place (`.id`). Hands the window action to `AppState` on
-/// appear so AppKit-side callers can drive windows.
+/// The single main workspace window. Shows whatever `AppState` points at —
+/// welcome home, a file (editor), or a directory (folder info card). Changing
+/// that reloads the center pane in place (`.id`). Hands the window action to
+/// `AppState` on appear so AppKit-side callers can drive windows.
 struct MainWindowView: View {
     @ObservedObject private var appState = AppState.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
-            if let url = appState.currentURL, AppState.isFolder(url) {
+            if appState.isWelcome {
+                WelcomeHost()
+                    .id("·welcome·")
+            } else if let url = appState.currentURL, AppState.isFolder(url) {
                 FolderInfoHost(folderURL: url)
                     .id("folder:" + url.absoluteString)
             } else {
+                // File URL, or nil + isUntitled → scratch editor.
                 FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
                     .id(appState.currentURL?.absoluteString ?? "·untitled·")
             }
