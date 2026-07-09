@@ -15,6 +15,7 @@
 		0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */; };
 		103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */; };
 		1336942C491650E720695632 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD07144B2A6466FF2484C /* SettingsView.swift */; };
+		14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4840BC0DD8B410D784453BC /* GitSidebar.swift */; };
 		173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */; };
 		193F11852B92E034FAC48D21 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */; };
 		1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75D9EDD5F391199A959F85D /* GitCLITests.swift */; };
@@ -124,6 +125,7 @@
 		924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTrackerTests.swift; sourceTree = "<group>"; };
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9E846D593359014AA812A9A3 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		A4840BC0DD8B410D784453BC /* GitSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSidebar.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
 		AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistory.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */,
 				299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */,
 				F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */,
+				A4840BC0DD8B410D784453BC /* GitSidebar.swift */,
 				57F65113867F0DDDF47D9686 /* GitUI.swift */,
 				437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */,
 				BAD84F80960334B09CB707FA /* OutlineSidebar.swift */,
@@ -452,6 +455,7 @@
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */,
 				515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */,
+				14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */,
 				EB1794B535F9012AA920A33C /* GitUI.swift in Sources */,
 				3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */,
 				9CC198A0ED4AB95AD970D7DF /* LineNumberRulerView.swift in Sources */,
@@ -654,7 +658,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 350;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -664,7 +668,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.34.0;
+				MARKETING_VERSION = 0.35.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -679,7 +683,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 350;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -689,7 +693,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.34.0;
+				MARKETING_VERSION = 0.35.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

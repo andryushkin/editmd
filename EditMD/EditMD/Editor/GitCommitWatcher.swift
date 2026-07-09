@@ -121,18 +121,68 @@ enum GitCLI {
         }
         let line = out.trimmingCharacters(in: .whitespacesAndNewlines)
         if line.isEmpty { return .clean }
-        // Porcelain: XY PATH  or  ?? PATH  or  R  old -> new
-        let code: String
-        if line.hasPrefix("??") {
-            return .untracked
+        if let parsed = parsePorcelainLine(line) {
+            return parsed.status
         }
-        if line.count >= 2 {
-            code = String(line.prefix(2))
-        } else {
-            return .modified
-        }
-        if code.contains("D") { return .deleted }
         return .modified
+    }
+
+    /// One path from `git status --porcelain=v1`.
+    struct PorcelainEntry: Equatable, Sendable {
+        /// Path relative to the repository root (POSIX).
+        let relativePath: String
+        let status: PathStatus
+    }
+
+    /// Full working-tree porcelain list for `root` (one `git status` call).
+    static func porcelainStatus(in root: URL) -> [PorcelainEntry] {
+        guard let out = run(in: root, arguments: ["status", "--porcelain=v1", "-uall"]) else {
+            return []
+        }
+        var result: [PorcelainEntry] = []
+        for raw in out.split(whereSeparator: \.isNewline) {
+            let line = String(raw)
+            guard let parsed = parsePorcelainLine(line) else { continue }
+            result.append(PorcelainEntry(relativePath: parsed.path, status: parsed.status))
+        }
+        return result
+    }
+
+    /// Parses a single porcelain v1 line → status + path (rename → new path).
+    /// Internal/testable. Returns nil for empty/malformed lines.
+    static func parsePorcelainLine(_ line: String) -> (status: PathStatus, path: String)? {
+        guard line.count >= 3 else { return nil }
+        let xy = String(line.prefix(2))
+        var rest = String(line.dropFirst(3)) // skip "XY "
+        // Rename/copy: `R  old -> new` or `R  "old" -> "new"`.
+        if xy.contains("R") || xy.contains("C"), let arrow = rest.range(of: " -> ") {
+            rest = String(rest[arrow.upperBound...])
+        }
+        rest = unquotePorcelainPath(rest)
+        guard !rest.isEmpty else { return nil }
+        let status: PathStatus
+        if xy == "??" {
+            status = .untracked
+        } else if xy.contains("D") {
+            status = .deleted
+        } else {
+            status = .modified
+        }
+        return (status, rest)
+    }
+
+    /// Strip C-style quotes from porcelain paths (`"a b.md"` → `a b.md`).
+    static func unquotePorcelainPath(_ path: String) -> String {
+        var s = path.trimmingCharacters(in: .whitespaces)
+        guard s.hasPrefix("\""), s.hasSuffix("\""), s.count >= 2 else { return s }
+        s = String(s.dropFirst().dropLast())
+        // Minimal unescapes git uses in quoted paths.
+        s = s.replacingOccurrences(of: "\\\\", with: "\\")
+        s = s.replacingOccurrences(of: "\\\"", with: "\"")
+        s = s.replacingOccurrences(of: "\\t", with: "\t")
+        s = s.replacingOccurrences(of: "\\n", with: "\n")
+        s = s.replacingOccurrences(of: "\\r", with: "\r")
+        return s
     }
 
     /// Current branch short name, or nil (detached / no repo).
@@ -141,6 +191,25 @@ enum GitCLI {
         let name = run(in: root, arguments: ["branch", "--show-current"])?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (name?.isEmpty == false) ? name : nil
+    }
+
+    /// Blob text of `file` at `HEAD`, or empty when untracked / missing / binary fail.
+    /// Used for the git-sidebar unified diff (HEAD → working tree / buffer).
+    static func headFileContents(of file: URL) -> String {
+        guard let root = repositoryRoot(containing: file) else { return "" }
+        let rel = relativePath(of: file, to: root)
+        guard !rel.isEmpty else { return "" }
+        // `git show HEAD:path` exits non-zero when the path is not in HEAD.
+        guard let out = run(in: root, arguments: ["show", "HEAD:\(rel)"]) else {
+            return ""
+        }
+        return out
+    }
+
+    /// Working-tree file text (UTF-8). Nil if missing/unreadable (e.g. deleted).
+    static func workingTreeContents(of file: URL) -> String? {
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return try? String(contentsOf: file, encoding: .utf8)
     }
 
     /// Commits on this branch not yet pushed (`ahead`), and remote not yet pulled (`behind`).

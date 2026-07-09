@@ -8,7 +8,7 @@
 - **Visual** — WYSIWYG на attributed-модели: маркеров в тексте нет, семантика в кастомных атрибутах, пропорциональный шрифт, таблицы NSTextTable, картинки, синхронная сериализация в markdown — `VisualTextView.swift`
 - **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS) — `MarkdownPreviewView.swift`
 
-Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift` (File-меню теперь ручное — DocumentGroup его больше не даёт). **Файловый сайдбар** (⌃⌘S, кастомный HStack-сплит + divider) — вкладки **Files/Outline**: Files = несколько workspace-папок (скрытые файлы, пины) + «Открытые файлы», клик = замена файла в окне; Outline = заголовки документа (`WorkspaceSidebar.swift` + `OutlineSidebar.swift`, `WorkspaceModel.swift`). **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
+Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift` (File-меню теперь ручное — DocumentGroup его больше не даёт). **Файловый сайдбар** (⌃⌘S, кастомный HStack-сплит + divider) — вкладки **Files/Outline/Git**: Files = несколько workspace-папок (скрытые файлы, пины) + «Открытые файлы», клик = замена файла в окне; Outline = заголовки документа; Git = workspace-scoped status + Commit/Push/Diff (`WorkspaceSidebar.swift` + `GitSidebar.swift` + `OutlineSidebar.swift`, `WorkspaceModel.swift`). **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
 
 ## Roadmap трёх режимов (принят 2026-07-06)
 
@@ -29,6 +29,7 @@
 - **v32 ✅** — **виртуальное выравнивание колонок таблиц в Source** (`.kern`, файл не меняется): `scanSourceTables` + kern-паддинг до целевой ширины колонки с капом (длинная ячейка → рваная строка). См. «## v32 — Complete» ниже
 - **v33 ✅** — \*\*YAML frontmatter «как в Obsidian» (Visual + Preview) + подсветка ``yaml во всех трёх режимах**: `Editor/Frontmatter.swift` (детект блока `---…---`, разбор свойств, YAML-токенайзер). swift-markdown frontmatter не знает (открывающий `---` = thematic break, закрывающий после тела = setext H2 → блок раздувался в заголовок). Frontmatter: Visual — read-only остров-карточка свойств (round-trip дословный через `.raw`), Preview — таблица свойств, **Source** — YAML-подсветка тела + приглушённые `---`-фенсы (перекрывает setext-mangle). ``yaml код-блоки — подсветка ключ/значение в Preview (HTML-спаны) и Source (`.codeBlockBody(language:)`), Visual остаётся моно. См. «## v33 — Complete» ниже
 - **v34 ✅** — **внешние правки открытого файла + GitHub-style diff** (app **0.34.3** = v34.1 gutter + v34.2 detect-commit + v34.3 commit/push): `DocumentRegistry` watch (`DispatchSource` + app-activate), clean → auto-reload + banner review, dirty → conflict (Keep Mine / Take Disk); unified diff sheet (NSTextView, Source-подсветка, wide). См. «## v34 — Complete» ниже
+- **v35 ✅** — **вкладка Git в сайдбаре** (app **0.35.0**): Commit/Push/Diff перенесены из status bar; workspace-scoped porcelain (только md внутри adopted folders); status bar = info (`branch · +N −M · ↑ahead`); unified diff sheet переиспользуется для HEAD→buffer/worktree. См. «## v35 — Complete» ниже
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. «## v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -142,6 +143,25 @@
 
 **Осталось:** frontmatter в Visual read-only (правка в Source) — редактируемые свойства-виджеты как в Obsidian Live Preview отложены; подсветка \`\`\`yaml в Visual (код-блоки там пока моно — Source+Preview уже есть); nested-map значения показываются плоско (`sub: v; sub2: v2`).
 
+## v35 — Complete (Git sidebar tab) — app **0.35.0**
+
+Мотив: Commit/Push в status bar теснили инфо; нужен workspace-scoped обзор изменений (как Source Control), не full-repo IDE. Версия: `CFBundleShortVersionString` **0.35.0**, `CFBundleVersion` **350**.
+
+- **Navigator:** Files | Outline | **Git** (`arrow.triangle.branch`) в `WorkspaceSidebar`.
+- **`GitSidebar.swift`:** header (branch · ↑N/↓M · repo path · Refresh · Push); **Changed** = `git status --porcelain` ∩ workspace roots ∩ markdown only; **Open in editor** = open dirty buffers not already listed; per-row **Diff** (`+/-` icon) + **Commit**; empty states (no workspace / no repo / clean). Multi-repo → секция на root.
+- **`GitCLI`:** `porcelainStatus` / `parsePorcelainLine` / `headFileContents` / `workingTreeContents` (один status на repo, не per-file).
+- **`GitWorkspaceStatus`:** сбор snapshot + `diffSheetContent(for:)` (HEAD → buffer if open else worktree).
+- **Status bar:** info-only `GitStatusChip` — branch, **`+N −M`** (lineDiff vs HEAD, live while typing, debounce 250 ms), ↑ahead/↓behind; клик → sidebar Git. Commit/Push только в sidebar (+ File menu shortcuts).
+- **`UnifiedDiffSheet`:** обобщён через `DiffSheetContent` (external change + git sidebar).
+- **Тесты:** `GitCLITests` — porcelain parse, workspace md filter, HEAD/worktree contents.
+
+### v35 — gotchas
+
+- **Только workspace markdown** — loose/outside workspace и `.swift`/прочее не в списке (паритет Files).
+- **Commit path-scoped** как v34.3 (`git add` + `commit -- path`); multi-file commit не делаем.
+- **Line delta в status bar** пропускает `git show`, если porcelain clean и нет unsaved/session marks.
+- **Diff sheet** предпочитает open buffer (в т.ч. unsaved) over disk — совпадает с «что закоммитится после Save».
+
 ## v34 — Complete (external disk reload + GitHub-style diff) — app **0.34.3**
 
 Мотив: агент/другой app пишет в `.md`, который уже открыт в EditMD — раньше `DocumentRegistry` держал stale buffer (перечитывал только при acquire). Нужен auto-reload + понятный review «что приехало», и conflict path, если есть несохранённые правки. Версия приложения: `CFBundleShortVersionString` **0.34.3**, `CFBundleVersion` **343** (v34.0 reload/diff → v34.1 gutter → v34.2 detect-commit → v34.3 commit/push + suggested messages).
@@ -189,7 +209,7 @@
 ### v34.3 — Commit this file + Push (stages 4–5) ✅
 
 - **`GitCLI` writes**: `pathStatus` (porcelain), `stage` (`git add -- path`), `commit(file:message:)` (add + `commit -m -- path` only this file), `push`, `currentBranch`, `aheadBehind`, `runDetailed` (stdout/stderr/exit).
-- **UI** (`Views/GitUI.swift`): `GitCommitSheet` (message → save → commit → clear/re-anchor marks; then optional Push); `GitPushConfirm` (NSAlert then `git push`, system credential helper / SSH — no passwords in-app); `GitStatusChip` in status bar (branch · status · ↑N · Commit · Push).
+- **UI** (`Views/GitUI.swift`): `GitCommitSheet` (message → save → commit → clear/re-anchor marks; then optional Push); `GitPushConfirm` (NSAlert then `git push`, system credential helper / SSH — no passwords in-app); `GitStatusChip` in status bar (v34: branch · status · ↑N · Commit · Push; **v35:** actions moved to Git sidebar, chip is info-only + `+N −M`).
 - **File menu**: Commit File… (⌥⌘K), Push… (⇧⌥⌘P) via `DocumentActions.presentCommit/presentPush` from `ContentView`.
 - **After commit**: `LineChangeTracker.noteBaseline` + `GitCommitWatcher.noteCommitted` so gutter marks do not return on the next keystroke.
 - **Tests**: temp-repo `GitCLITests` (stage+commit, empty message, clean noop, other files untouched).
@@ -205,7 +225,7 @@ editmd/
         ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
         ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave)
         ├── Editor/     SourceTextView.swift (Source: подсветка + линт; `makeSourceHighlightedString` shared), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift, MarkdownOutline.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift, MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift, Frontmatter.swift, MarkdownTableGrid.swift, WikiLink.swift, TextDiff.swift, LineChangeTracker.swift, LineNumberRulerView.swift, GitCommitWatcher.swift (`GitCLI` + detect-commit)
-        └── Views/      ContentView.swift (layout + external-change chip + git chip), FileEditor.swift (DocHost + MainWindowView), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
+        └── Views/      ContentView.swift (layout + external-change chip + git info chip), FileEditor.swift (DocHost + MainWindowView), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip + workspace git snapshot), GitSidebar.swift (Git navigator tab), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap

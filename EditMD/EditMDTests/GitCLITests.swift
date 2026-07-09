@@ -201,6 +201,95 @@ final class GitCLITests: XCTestCase {
         XCTAssertEqual(GitCLI.pathStatus(of: tmp), .notInRepo)
     }
 
+    // MARK: - Porcelain parsing
+
+    func testParsePorcelainModified() {
+        let p = GitCLI.parsePorcelainLine(" M notes/a.md")
+        XCTAssertEqual(p?.status, .modified)
+        XCTAssertEqual(p?.path, "notes/a.md")
+    }
+
+    func testParsePorcelainUntracked() {
+        let p = GitCLI.parsePorcelainLine("?? inbox/new.md")
+        XCTAssertEqual(p?.status, .untracked)
+        XCTAssertEqual(p?.path, "inbox/new.md")
+    }
+
+    func testParsePorcelainDeleted() {
+        let p = GitCLI.parsePorcelainLine(" D old.md")
+        XCTAssertEqual(p?.status, .deleted)
+        XCTAssertEqual(p?.path, "old.md")
+    }
+
+    func testParsePorcelainRenameUsesNewPath() {
+        let p = GitCLI.parsePorcelainLine("R  old.md -> new.md")
+        XCTAssertEqual(p?.status, .modified)
+        XCTAssertEqual(p?.path, "new.md")
+    }
+
+    func testParsePorcelainQuotedPath() {
+        let p = GitCLI.parsePorcelainLine(" M \"has space.md\"")
+        XCTAssertEqual(p?.status, .modified)
+        XCTAssertEqual(p?.path, "has space.md")
+    }
+
+    func testHeadFileContentsUntrackedIsEmpty() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("fresh.md")
+        try "hello\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(GitCLI.pathStatus(of: file), .untracked)
+        XCTAssertEqual(GitCLI.headFileContents(of: file), "")
+        XCTAssertEqual(GitCLI.workingTreeContents(of: file), "hello\n")
+    }
+
+    func testHeadFileContentsAfterCommit() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("tracked.md")
+        try "v1\n".write(to: file, atomically: true, encoding: .utf8)
+        let committed = GitCLI.commit(file: file, message: "add")
+        guard case .success = committed else {
+            return XCTFail("commit failed: \(committed)")
+        }
+        XCTAssertEqual(GitCLI.headFileContents(of: file), "v1\n")
+        try "v2\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(GitCLI.headFileContents(of: file), "v1\n")
+        XCTAssertEqual(GitCLI.workingTreeContents(of: file), "v2\n")
+    }
+
+    @MainActor
+    func testPorcelainStatusFiltersToWorkspaceMarkdown() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let ws = repo.appendingPathComponent("vault", isDirectory: true)
+        try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+        let md = ws.appendingPathComponent("note.md")
+        let outside = repo.appendingPathComponent("root.md")
+        let swift = ws.appendingPathComponent("x.swift")
+        try "a\n".write(to: md, atomically: true, encoding: .utf8)
+        try "b\n".write(to: outside, atomically: true, encoding: .utf8)
+        try "c\n".write(to: swift, atomically: true, encoding: .utf8)
+
+        let snap = GitWorkspaceStatus.snapshot(workspaceRoots: [ws], openURLs: [])
+        XCTAssertTrue(snap.hasAnyRepo)
+        XCTAssertEqual(snap.sections.count, 1)
+        let paths = snap.sections[0].files.map(\.displayPath)
+        XCTAssertEqual(paths, ["note.md"])
+        XCTAssertFalse(paths.contains("root.md"))
+        XCTAssertFalse(paths.contains { $0.hasSuffix(".swift") })
+    }
+
     // MARK: - Helpers
 
     private func makeTempRepo() throws -> URL {

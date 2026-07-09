@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// The left sidebar: Xcode-style icon toolbar switches Files / Outline;
+/// The left sidebar: Xcode-style icon toolbar switches Files / Outline / Git;
 /// Files shows adopted workspace folders (collapsible tree) + loose
-/// Finder-opened files; Outline reuses `OutlineSidebar`.
+/// Finder-opened files; Outline reuses `OutlineSidebar`; Git is
+/// workspace-scoped status + Commit/Push.
 struct WorkspaceSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
     let outlineContent: String
@@ -18,7 +19,7 @@ struct WorkspaceSidebar: View {
 
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("sidebarShowHidden") private var showHidden = false
-    /// Bottom filter field — filters Files tree / Outline headings by name.
+    /// Bottom filter field — filters Files tree / Outline headings / Git paths.
     @State private var filterText = ""
 
     var body: some View {
@@ -28,10 +29,20 @@ struct WorkspaceSidebar: View {
                 .padding(.top, SidebarChrome.barPaddingTop)
                 .padding(.bottom, SidebarChrome.barPaddingBottom)
 
-            if tab == "files" {
-                filesTab
-            } else {
-                OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
+            Group {
+                switch tab {
+                case "outline":
+                    OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
+                case "git":
+                    GitSidebar(
+                        workspace: workspace,
+                        activeURL: activeURL,
+                        filter: filterText,
+                        onOpen: onOpen
+                    )
+                default:
+                    filesTab
+                }
             }
 
             // Xcode-style bottom strip: + · Filter · eye
@@ -63,14 +74,14 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "files",
                          systemImage: "folder",
                          help: "Files")
-            // Xcode-style hairline between navigator modes.
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: 1, height: 14)
-                .padding(.horizontal, 3)
+            navDivider
             navTabButton(id: "outline",
                          systemImage: "list.bullet.indent",
                          help: "Outline")
+            navDivider
+            navTabButton(id: "git",
+                         systemImage: "arrow.triangle.branch",
+                         help: "Git")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 5)
@@ -79,6 +90,14 @@ struct WorkspaceSidebar: View {
             Capsule(style: .continuous)
                 .fill(Color(nsColor: SidebarChrome.wellColor))
         )
+    }
+
+    /// Xcode-style hairline between navigator modes.
+    private var navDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 3)
     }
 
     private func navTabButton(id: String, systemImage: String, help: String) -> some View {
@@ -134,21 +153,23 @@ struct WorkspaceSidebar: View {
                     .fill(Color(nsColor: SidebarChrome.wellColor))
             )
 
-            // Review mode: hidden files + empty (no-md) folders.
-            let hidden = workspace.totalHiddenCount
-            Button { showHidden.toggle() } label: {
-                Image(systemName: showHidden ? "eye" : "eye.slash")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(showHidden ? Color.accentColor : Color.secondary)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+            // Review mode: hidden files + empty (no-md) folders (Files tab only).
+            if tab == "files" {
+                let hidden = workspace.totalHiddenCount
+                Button { showHidden.toggle() } label: {
+                    Image(systemName: showHidden ? "eye" : "eye.slash")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(showHidden ? Color.accentColor : Color.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .editMDHelp(showHidden
+                      ? "Скрыть снова (скрытые файлы и пустые папки)"
+                      : (hidden > 0
+                         ? "Показать скрытые файлы (\(hidden)) и пустые папки"
+                         : "Показать скрытые файлы и пустые папки"))
             }
-            .buttonStyle(.plain)
-            .editMDHelp(showHidden
-                  ? "Скрыть снова (скрытые файлы и пустые папки)"
-                  : (hidden > 0
-                     ? "Показать скрытые файлы (\(hidden)) и пустые папки"
-                     : "Показать скрытые файлы и пустые папки"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

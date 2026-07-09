@@ -15,11 +15,18 @@ struct GitFileSnapshot: Equatable {
     var sessionDirtyLines: Int
     /// Document buffer dirty (unsaved).
     var bufferDirty: Bool
+    /// Line-level `+` / `−` vs HEAD (open buffer if any, else worktree).
+    var added: Int
+    var removed: Int
 
     static let empty = GitFileSnapshot(
         inRepo: false, pathStatus: .notInRepo, branch: nil,
-        ahead: nil, behind: nil, sessionDirtyLines: 0, bufferDirty: false
+        ahead: nil, behind: nil, sessionDirtyLines: 0, bufferDirty: false,
+        added: 0, removed: 0
     )
+
+    /// True when there is something to show as green/red counts.
+    var hasLineDelta: Bool { added > 0 || removed > 0 }
 
     var canCommit: Bool {
         guard inRepo else { return false }
@@ -64,26 +71,55 @@ enum GitFileStatus {
         guard let url else { return .empty }
         let key = url.standardizedFileURL
         guard GitCLI.gitExecutable != nil else { return .empty }
+        let sessionDirty = LineChangeTracker.shared.dirtyLines(for: key).count
+        let bufferDirty = DocumentRegistry.shared.isDirty(key)
         guard GitCLI.repositoryRoot(containing: key) != nil else {
             return GitFileSnapshot(
                 inRepo: false, pathStatus: .notInRepo, branch: nil,
                 ahead: nil, behind: nil,
-                sessionDirtyLines: LineChangeTracker.shared.dirtyLines(for: key).count,
-                bufferDirty: DocumentRegistry.shared.isDirty(key)
+                sessionDirtyLines: sessionDirty,
+                bufferDirty: bufferDirty,
+                added: 0, removed: 0
             )
         }
         let status = GitCLI.pathStatus(of: key)
         let branch = GitCLI.currentBranch(containing: key)
         let ab = GitCLI.aheadBehind(containing: key)
+        // Skip full HEAD/buffer diff when porcelain is clean and the buffer
+        // matches HEAD (no session marks / unsaved) — avoids `git show` on
+        // every idle refresh of an untouched file.
+        let delta: (Int, Int)
+        if status == .clean && !bufferDirty && sessionDirty == 0 {
+            delta = (0, 0)
+        } else {
+            delta = lineDelta(for: key)
+        }
         return GitFileSnapshot(
             inRepo: true,
             pathStatus: status,
             branch: branch,
             ahead: ab?.ahead,
             behind: ab?.behind,
-            sessionDirtyLines: LineChangeTracker.shared.dirtyLines(for: key).count,
-            bufferDirty: DocumentRegistry.shared.isDirty(key)
+            sessionDirtyLines: sessionDirty,
+            bufferDirty: bufferDirty,
+            added: delta.0,
+            removed: delta.1
         )
+    }
+
+    /// `+` / `−` line counts: HEAD vs open buffer (preferred) or worktree.
+    /// Same sides as the git-sidebar Diff sheet.
+    static func lineDelta(for file: URL) -> (added: Int, removed: Int) {
+        let before = GitCLI.headFileContents(of: file)
+        let after: String
+        if let open = DocumentRegistry.shared.contentIfOpen(file) {
+            after = open
+        } else {
+            after = GitCLI.workingTreeContents(of: file) ?? ""
+        }
+        if before == after { return (0, 0) }
+        let r = lineDiff(before: before, after: after)
+        return (r.added, r.removed)
     }
 }
 
@@ -430,16 +466,225 @@ enum GitPushConfirm {
     }
 }
 
-// MARK: - Status-bar chip
+// MARK: - Workspace git snapshot (sidebar)
+
+/// One changed markdown file under a workspace root.
+struct GitChangedFile: Equatable, Identifiable, Sendable {
+    var id: URL { url }
+    let url: URL
+    /// Display path relative to the owning workspace folder when possible.
+    let displayPath: String
+    let pathStatus: GitCLI.PathStatus
+    let sessionDirtyLines: Int
+    let bufferDirty: Bool
+
+    var statusBadge: String {
+        switch pathStatus {
+        case .untracked: return "?"
+        case .deleted: return "D"
+        case .modified, .clean, .notInRepo: return "M"
+        }
+    }
+
+    var canCommit: Bool {
+        switch pathStatus {
+        case .modified, .untracked, .deleted: return true
+        case .clean: return bufferDirty || sessionDirtyLines > 0
+        case .notInRepo: return false
+        }
+    }
+}
+
+/// Changed files grouped by git repository root.
+struct GitRepoSection: Equatable, Identifiable, Sendable {
+    var id: String { root.path }
+    let root: URL
+    let branch: String?
+    let ahead: Int?
+    let behind: Int?
+    let files: [GitChangedFile]
+
+    var shortRoot: String {
+        (root.path as NSString).abbreviatingWithTildeInPath
+    }
+}
+
+/// Workspace-scoped git overview for the Git sidebar tab.
+struct GitWorkspaceSnapshot: Equatable, Sendable {
+    /// Distinct repos that own at least one workspace folder.
+    let sections: [GitRepoSection]
+    /// Open editor buffers that are dirty but not already listed in `sections`.
+    let openDirty: [GitChangedFile]
+    /// At least one workspace folder sits inside a git work tree.
+    let hasAnyRepo: Bool
+    /// Workspace list was empty when built.
+    let hasWorkspaces: Bool
+
+    static let empty = GitWorkspaceSnapshot(
+        sections: [], openDirty: [], hasAnyRepo: false, hasWorkspaces: false
+    )
+
+    var changedCount: Int { sections.reduce(0) { $0 + $1.files.count } }
+    var isClean: Bool { hasAnyRepo && changedCount == 0 && openDirty.isEmpty }
+}
+
+@MainActor
+enum GitWorkspaceStatus {
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
+
+    /// Build a snapshot from adopted workspace roots + currently open docs.
+    /// Uses one `git status` per repository (not per file).
+    static func snapshot(
+        workspaceRoots: [URL],
+        openURLs: [URL] = DocumentRegistry.shared.openURLs
+    ) -> GitWorkspaceSnapshot {
+        guard GitCLI.gitExecutable != nil else {
+            return GitWorkspaceSnapshot(
+                sections: [], openDirty: [], hasAnyRepo: false,
+                hasWorkspaces: !workspaceRoots.isEmpty
+            )
+        }
+        let roots = workspaceRoots.map { $0.standardizedFileURL }
+        guard !roots.isEmpty else { return .empty }
+
+        // Group workspace folders by their git root.
+        var workspacesByRepo: [URL: [URL]] = [:]
+        var hasAnyRepo = false
+        for ws in roots {
+            guard let repo = GitCLI.repositoryRoot(containing: ws) else { continue }
+            hasAnyRepo = true
+            workspacesByRepo[repo, default: []].append(ws)
+        }
+
+        var sections: [GitRepoSection] = []
+        var changedURLs = Set<URL>()
+
+        for (repo, workspaces) in workspacesByRepo.sorted(by: { $0.key.path < $1.key.path }) {
+            let branch = GitCLI.currentBranch(containing: repo)
+            let ab = GitCLI.aheadBehind(containing: repo)
+            let entries = GitCLI.porcelainStatus(in: repo)
+            var files: [GitChangedFile] = []
+
+            for entry in entries {
+                let fileURL = repo.appendingPathComponent(entry.relativePath).standardizedFileURL
+                guard isMarkdown(fileURL) else { continue }
+                guard let ws = owningWorkspace(fileURL, among: workspaces) else { continue }
+                let display = displayPath(of: fileURL, workspace: ws, repo: repo)
+                let key = fileURL
+                let item = GitChangedFile(
+                    url: key,
+                    displayPath: display,
+                    pathStatus: entry.status,
+                    sessionDirtyLines: LineChangeTracker.shared.dirtyLines(for: key).count,
+                    bufferDirty: DocumentRegistry.shared.isDirty(key)
+                )
+                files.append(item)
+                changedURLs.insert(key)
+            }
+
+            files.sort {
+                $0.displayPath.localizedCaseInsensitiveCompare($1.displayPath) == .orderedAscending
+            }
+
+            sections.append(GitRepoSection(
+                root: repo,
+                branch: branch,
+                ahead: ab?.ahead,
+                behind: ab?.behind,
+                files: files
+            ))
+        }
+
+        // Open buffers: unsaved / session marks, in workspace, not already listed.
+        var openDirty: [GitChangedFile] = []
+        for open in openURLs {
+            let key = open.standardizedFileURL
+            guard !changedURLs.contains(key) else { continue }
+            guard isMarkdown(key) else { continue }
+            guard let ws = owningWorkspace(key, among: roots) else { continue }
+            let bufferDirty = DocumentRegistry.shared.isDirty(key)
+            let sessionLines = LineChangeTracker.shared.dirtyLines(for: key).count
+            guard bufferDirty || sessionLines > 0 else { continue }
+            // Must be inside a git repo to be interesting here.
+            guard let repo = GitCLI.repositoryRoot(containing: key) else { continue }
+            let status = GitCLI.pathStatus(of: key)
+            openDirty.append(GitChangedFile(
+                url: key,
+                displayPath: displayPath(of: key, workspace: ws, repo: repo),
+                pathStatus: status == .notInRepo ? .clean : status,
+                sessionDirtyLines: sessionLines,
+                bufferDirty: bufferDirty
+            ))
+        }
+        openDirty.sort {
+            $0.displayPath.localizedCaseInsensitiveCompare($1.displayPath) == .orderedAscending
+        }
+
+        return GitWorkspaceSnapshot(
+            sections: sections,
+            openDirty: openDirty,
+            hasAnyRepo: hasAnyRepo,
+            hasWorkspaces: true
+        )
+    }
+
+    private static func isMarkdown(_ url: URL) -> Bool {
+        markdownExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Longest workspace prefix that contains `url`.
+    private static func owningWorkspace(_ url: URL, among workspaces: [URL]) -> URL? {
+        let path = url.standardizedFileURL.path
+        return workspaces
+            .filter { path == $0.path || path.hasPrefix($0.path + "/") }
+            .max(by: { $0.path.count < $1.path.count })
+    }
+
+    private static func displayPath(of file: URL, workspace: URL, repo: URL) -> String {
+        let relWS = GitCLI.relativePath(of: file, to: workspace)
+        if !relWS.isEmpty { return relWS }
+        return GitCLI.relativePath(of: file, to: repo)
+    }
+
+    /// Before/after for the unified diff sheet (git sidebar).
+    /// HEAD blob vs open buffer (if any) else working tree; deleted → empty after.
+    static func diffSheetContent(for file: URL) -> DiffSheetContent {
+        let before = GitCLI.headFileContents(of: file)
+        let after: String
+        let sideLabel: String
+        if let open = DocumentRegistry.shared.contentIfOpen(file) {
+            after = open
+            sideLabel = DocumentRegistry.shared.isDirty(file)
+                ? "HEAD → buffer (unsaved)"
+                : "HEAD → buffer"
+        } else {
+            after = GitCLI.workingTreeContents(of: file) ?? ""
+            switch GitCLI.pathStatus(of: file) {
+            case .untracked: sideLabel = "new file"
+            case .deleted: sideLabel = "HEAD → deleted"
+            default: sideLabel = "HEAD → working tree"
+            }
+        }
+        return DiffSheetContent(
+            title: "Git diff",
+            fileName: file.lastPathComponent,
+            sideLabel: sideLabel,
+            before: before,
+            after: after
+        )
+    }
+}
+
+// MARK: - Status-bar label (info only; actions live in the Git sidebar)
 
 struct GitStatusChip: View {
     let snapshot: GitFileSnapshot
-    let onCommit: () -> Void
-    let onPush: () -> Void
+    /// Optional: open the Git sidebar tab (status bar is display-only).
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "cylinder.split.1x2")
+        let label = HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
 
@@ -450,10 +695,24 @@ struct GitStatusChip: View {
                     .lineLimit(1)
             }
 
-            if !snapshot.statusCaption.isEmpty, snapshot.statusCaption != "clean" {
+            // Prefer concrete +N/−M over the word "modified" when we have them.
+            if snapshot.hasLineDelta {
+                DiffStatsLabel(
+                    added: snapshot.added,
+                    removed: snapshot.removed,
+                    font: .system(size: 11, design: .monospaced)
+                )
+            } else if !snapshot.statusCaption.isEmpty, snapshot.statusCaption != "clean" {
                 Text(snapshot.statusCaption)
                     .font(.system(size: 11))
                     .foregroundStyle(snapshot.pathStatus == .clean ? Color.secondary : Color.orange)
+            }
+
+            // Unsaved with no line delta yet (e.g. whitespace-only) still tip.
+            if snapshot.bufferDirty, !snapshot.hasLineDelta {
+                Text("unsaved")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
             }
 
             if let ahead = snapshot.ahead, ahead > 0 {
@@ -463,23 +722,27 @@ struct GitStatusChip: View {
                     .help("\(ahead) commit(s) to push")
             }
 
-            if snapshot.canCommit {
-                Button("Commit", action: onCommit)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-                    .help("Commit this file…")
-            }
-
-            if snapshot.inRepo {
-                Button("Push", action: onPush)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: snapshot.canPush && (snapshot.ahead ?? 1) > 0 ? .medium : .regular))
-                    .foregroundStyle(
-                        (snapshot.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary
-                    )
-                    .help("Push to remote…")
+            if let behind = snapshot.behind, behind > 0 {
+                Text("↓\(behind)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .help("\(behind) commit(s) to pull")
             }
         }
+        if let onTap {
+            Button(action: onTap) { label }
+                .buttonStyle(.plain)
+                .help(statusBarHelp)
+        } else {
+            label
+        }
+    }
+
+    private var statusBarHelp: String {
+        var parts: [String] = ["Show Git sidebar"]
+        if snapshot.hasLineDelta {
+            parts.append("lines vs HEAD: +\(snapshot.added) −\(snapshot.removed)")
+        }
+        return parts.joined(separator: " · ")
     }
 }

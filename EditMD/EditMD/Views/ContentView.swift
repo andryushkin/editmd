@@ -15,6 +15,7 @@ struct ContentView: View {
     /// Sidebar (document outline) show/hide + width, persisted like the mode.
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
+    @AppStorage("sidebarTab") private var sidebarTab = "files"
     /// Editor+preview split: on = the edit pane (Source/Visual) plus a live
     /// Preview pane side by side; `splitFraction` is the edit pane's share.
     @AppStorage("splitPreview") private var splitPreview = false
@@ -183,6 +184,9 @@ struct ContentView: View {
         .onAppear { refreshGitSnapshot() }
         .onChange(of: fileURL) { _ in refreshGitSnapshot() }
         .onChange(of: lineChanges.revision) { _ in refreshGitSnapshot() }
+        // Live +/− vs HEAD while typing (line-mark revision only bumps when
+        // the dirty *set* changes, not on every keystroke on an already-dirty line).
+        .onChange(of: document.content) { _ in refreshGitSnapshot() }
         .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { _ in
             refreshGitSnapshot()
         }
@@ -509,13 +513,13 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.quaternary)
             }
-            // Git: commit this file / push (stages 4–5).
+            // Git: info only (Commit / Push live in the Git sidebar tab).
             if gitSnapshot.inRepo {
-                GitStatusChip(
-                    snapshot: gitSnapshot,
-                    onCommit: { showGitCommit = true },
-                    onPush: { pushFocusedFile() }
-                )
+                GitStatusChip(snapshot: gitSnapshot) {
+                    guard allowsSidebar else { return }
+                    sidebarVisible = true
+                    sidebarTab = "git"
+                }
                 Text("·")
                     .font(.system(size: 11))
                     .foregroundStyle(.quaternary)

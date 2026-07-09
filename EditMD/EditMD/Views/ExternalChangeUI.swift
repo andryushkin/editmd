@@ -163,21 +163,49 @@ typealias ExternalChangeBanner = ExternalChangeStatusChip
 
 // MARK: - Unified diff sheet
 
+/// Payload for the shared unified-diff sheet (external change, git sidebar, …).
+struct DiffSheetContent: Equatable, Sendable {
+    var title: String
+    var fileName: String
+    /// Right-side chip, e.g. `HEAD → working tree` or `mine → disk`.
+    var sideLabel: String
+    var before: String
+    var after: String
+
+    var stats: LineDiffResult { lineDiff(before: before, after: after) }
+}
+
 struct UnifiedDiffSheet: View {
-    let notice: ExternalChangeNotice
+    let content: DiffSheetContent
     let onClose: () -> Void
 
-    private var result: LineDiffResult {
-        lineDiff(before: notice.before, after: notice.after)
+    /// External-change banner (v34).
+    init(notice: ExternalChangeNotice, onClose: @escaping () -> Void) {
+        self.content = DiffSheetContent(
+            title: notice.kind == .conflict ? "Conflict diff" : "External change",
+            fileName: notice.fileName,
+            sideLabel: notice.kind == .conflict ? "mine → disk" : "before → after",
+            before: notice.before,
+            after: notice.after
+        )
+        self.onClose = onClose
     }
+
+    /// Generic before/after (git sidebar, etc.).
+    init(content: DiffSheetContent, onClose: @escaping () -> Void) {
+        self.content = content
+        self.onClose = onClose
+    }
+
+    private var result: LineDiffResult { content.stats }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             DiffTextRepresentable(lines: result.lines,
-                                  before: notice.before,
-                                  after: notice.after)
+                                  before: content.before,
+                                  after: content.after)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             footer
@@ -189,18 +217,18 @@ struct UnifiedDiffSheet: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(notice.kind == .conflict ? "Conflict diff" : "External change")
+                Text(content.title)
                     .font(.headline)
                 HStack(spacing: 8) {
-                    Text(notice.fileName)
+                    Text(content.fileName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    DiffStatsLabel(added: notice.added, removed: notice.removed,
+                    DiffStatsLabel(added: result.added, removed: result.removed,
                                    font: .system(size: 12, design: .monospaced))
                 }
             }
             Spacer()
-            Text(notice.kind == .conflict ? "mine → disk" : "before → after")
+            Text(content.sideLabel)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
