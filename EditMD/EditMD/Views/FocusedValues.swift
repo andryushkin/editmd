@@ -35,14 +35,20 @@ struct FormatActions {
     var formulaStub: (() -> Void)? = nil
 }
 
-/// Save/Save As for the focused window's document. Published by ContentView so
-/// the manual File menu (which replaced DocumentGroup's built-in one) can act on
+/// Save/Save As (+ git commit/push) for the focused window's document.
+/// Published by FileEditor / ContentView so the manual File menu can act on
 /// whichever window is key.
 struct DocumentActions {
     var save: () -> Void
     var saveAs: () -> Void
     /// false = untitled (Save falls back to a save panel).
     var hasURL: Bool
+    /// Open the Commit-this-file sheet (stage 4). Nil when not in a git repo.
+    var presentCommit: (() -> Void)? = nil
+    /// Confirm + `git push` (stage 5). Nil when not in a git repo.
+    var presentPush: (() -> Void)? = nil
+    var canCommit: Bool = false
+    var canPush: Bool = false
 }
 
 struct DocumentActionsKey: FocusedValueKey {

@@ -69,6 +69,7 @@
 		E2830B1049758784FCE6E3D8 /* DocumentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */; };
 		E7C7AFCDD89E1CBC12830916 /* DocumentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D121A56408289D8F49E90D /* DocumentStore.swift */; };
 		E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FF3BD17201E239817B79BA /* EditMDApp.swift */; };
+		EB1794B535F9012AA920A33C /* GitUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57F65113867F0DDDF47D9686 /* GitUI.swift */; };
 		F01D7B266D913201DAA10D4E /* EditorActionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA09CFB97A06931314CAEC0 /* EditorActionStrip.swift */; };
 		FC3186EAE0C45CF6A7A4EFAC /* MarkdownHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */; };
 /* End PBXBuildFile section */
@@ -100,6 +101,7 @@
 		52D121A56408289D8F49E90D /* DocumentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStore.swift; sourceTree = "<group>"; };
 		55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighterTests.swift; sourceTree = "<group>"; };
 		56FF3BD17201E239817B79BA /* EditMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMDApp.swift; sourceTree = "<group>"; };
+		57F65113867F0DDDF47D9686 /* GitUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitUI.swift; sourceTree = "<group>"; };
 		5DE049C40EE9A0CB2F09BFBF /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedToMarkdown.swift; sourceTree = "<group>"; };
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
@@ -229,6 +231,7 @@
 				8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */,
 				299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */,
 				F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */,
+				57F65113867F0DDDF47D9686 /* GitUI.swift */,
 				437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */,
 				BAD84F80960334B09CB707FA /* OutlineSidebar.swift */,
 				AC8AD07144B2A6466FF2484C /* SettingsView.swift */,
@@ -449,6 +452,7 @@
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */,
 				515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */,
+				EB1794B535F9012AA920A33C /* GitUI.swift in Sources */,
 				3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */,
 				9CC198A0ED4AB95AD970D7DF /* LineNumberRulerView.swift in Sources */,
 				36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */,

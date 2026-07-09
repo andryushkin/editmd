@@ -68,15 +68,20 @@ struct FileEditor: View {
     }
 
     var body: some View {
-        ContentView(document: host.document, fileURL: host.url, allowsSidebar: allowsSidebar)
+        ContentView(
+            document: host.document,
+            fileURL: host.url,
+            allowsSidebar: allowsSidebar,
+            isMain: isMain,
+            onSave: save,
+            onSaveAs: saveAs
+        )
             .background(WindowAccessor { window in
                 window.representedURL = host.url
                 window.title = host.url?.lastPathComponent ?? "Untitled"
             })
             // Every content change marks the document dirty → debounced autosave.
             .onReceive(host.document.objectWillChange) { _ in host.markDirty() }
-            .focusedSceneValue(\.documentActions, DocumentActions(
-                save: save, saveAs: saveAs, hasURL: host.url != nil))
     }
 
     private func save() {

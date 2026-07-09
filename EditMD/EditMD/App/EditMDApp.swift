@@ -77,6 +77,20 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.shift, .command])
                 .disabled(documentActions == nil)
+
+                Divider()
+
+                Button("Commit File…") {
+                    documentActions?.presentCommit?()
+                }
+                .keyboardShortcut("k", modifiers: [.command, .option])
+                .disabled(documentActions?.presentCommit == nil)
+
+                Button("Push…") {
+                    documentActions?.presentPush?()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option, .shift])
+                .disabled(documentActions?.presentPush == nil)
             }
 
             CommandGroup(replacing: .undoRedo) {

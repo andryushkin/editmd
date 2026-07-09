@@ -182,10 +182,17 @@
 
 ### v34.2 — Git detect-commit → clear dirty marks ✅
 
-- **`GitCLI`**: `/usr/bin/git` read-only (`rev-parse --show-toplevel`, `log -1 --format=%H -- path`).
-- **`GitCommitWatcher`**: seeds hash on open; on `didBecomeActive` + after document flush re-checks all tracked paths; if hash **changed** → `LineChangeTracker.clearMarks` + `.lineChangeMarksDidChange` (gutter refresh).
+- **`GitCLI`**: path-scoped git (`rev-parse`, `log -1 --format=%H -- path`).
+- **`GitCommitWatcher`**: seeds hash on open; on `didBecomeActive` + after document flush re-checks all tracked paths; if hash **changed** → re-anchor session marks (`noteBaseline` with open buffer, else `clearMarks`) + `.lineChangeMarksDidChange`.
 - Any commit that touches the path counts (Terminal / other app / hooks) — not only EditMD-made commits.
-- **Still planned:** stage 4 Commit UI, stage 5 Push.
+
+### v34.3 — Commit this file + Push (stages 4–5) ✅
+
+- **`GitCLI` writes**: `pathStatus` (porcelain), `stage` (`git add -- path`), `commit(file:message:)` (add + `commit -m -- path` only this file), `push`, `currentBranch`, `aheadBehind`, `runDetailed` (stdout/stderr/exit).
+- **UI** (`Views/GitUI.swift`): `GitCommitSheet` (message → save → commit → clear/re-anchor marks; then optional Push); `GitPushConfirm` (NSAlert then `git push`, system credential helper / SSH — no passwords in-app); `GitStatusChip` in status bar (branch · status · ↑N · Commit · Push).
+- **File menu**: Commit File… (⌥⌘K), Push… (⇧⌥⌘P) via `DocumentActions.presentCommit/presentPush` from `ContentView`.
+- **After commit**: `LineChangeTracker.noteBaseline` + `GitCommitWatcher.noteCommitted` so gutter marks do not return on the next keystroke.
+- **Tests**: temp-repo `GitCLITests` (stage+commit, empty message, clean noop, other files untouched).
 
 ## Project Structure
 
@@ -197,8 +204,8 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
         ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave)
-        ├── Editor/     SourceTextView.swift (Source: подсветка + линт; `makeSourceHighlightedString` shared), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift (LineIndex + collectSpans), MarkdownOutline.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift, MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift, Frontmatter.swift, MarkdownTableGrid.swift, WikiLink.swift, TextDiff.swift (lineDiff / splitDiffLines)
-        └── Views/      ContentView.swift (layout + external-change banner), FileEditor.swift (DocHost + MainWindowView), ExternalChangeUI.swift (banner + unified diff sheet + ExternalChangeCenter), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
+        ├── Editor/     SourceTextView.swift (Source: подсветка + линт; `makeSourceHighlightedString` shared), VisualTextView.swift (Visual: WYSIWYG), MarkdownHighlighter.swift, MarkdownOutline.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift, MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift, Frontmatter.swift, MarkdownTableGrid.swift, WikiLink.swift, TextDiff.swift, LineChangeTracker.swift, LineNumberRulerView.swift, GitCommitWatcher.swift (`GitCLI` + detect-commit)
+        └── Views/      ContentView.swift (layout + external-change chip + git chip), FileEditor.swift (DocHost + MainWindowView), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap

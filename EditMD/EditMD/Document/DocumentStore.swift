@@ -168,6 +168,11 @@ final class DocumentRegistry {
     func isOpen(_ url: URL) -> Bool { entries[url.standardizedFileURL] != nil }
     func isDirty(_ url: URL) -> Bool { entries[url.standardizedFileURL]?.isDirty ?? false }
 
+    /// In-memory buffer for an open (refcount > 0) document, if any.
+    func contentIfOpen(_ url: URL) -> String? {
+        entries[url.standardizedFileURL]?.document.content
+    }
+
     /// Returns the shared document for `url`: live entry → session cache → disk.
     /// Balance with `release`.
     func acquire(_ url: URL) throws -> MarkdownDocument {

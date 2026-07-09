@@ -6,6 +6,10 @@ struct ContentView: View {
     let fileURL: URL?
     /// Lite (separate) windows pass false to suppress the workspace sidebar.
     var allowsSidebar: Bool = true
+    /// Main workspace window (Save As re-opens in place).
+    var isMain: Bool = true
+    var onSave: () -> Void = {}
+    var onSaveAs: () -> Void = {}
 
     @AppStorage("editorMode") private var storedMode: String = EditorMode.preview.rawValue
     /// Sidebar (document outline) show/hide + width, persisted like the mode.
@@ -18,6 +22,7 @@ struct ContentView: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
     @ObservedObject private var externalChanges = ExternalChangeCenter.shared
+    @ObservedObject private var lineChanges = LineChangeTracker.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -27,6 +32,9 @@ struct ContentView: View {
     /// rebinding closures does not trigger SwiftUI view updates.
     @State private var stripActions = EditorStripActions()
     @State private var showExternalDiff = false
+    @State private var showGitCommit = false
+    @State private var gitSnapshot = GitFileSnapshot.empty
+    @State private var gitRefreshTask: Task<Void, Never>?
 
     private static let sidebarWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
@@ -125,6 +133,17 @@ struct ContentView: View {
             undo: { document.performUndo() },
             redo: { document.performRedo() }
         ))
+        .focusedSceneValue(\.documentActions, DocumentActions(
+            save: onSave,
+            saveAs: onSaveAs,
+            hasURL: fileURL != nil,
+            presentCommit: (fileURL != nil && gitSnapshot.inRepo)
+                ? { showGitCommit = true } : nil,
+            presentPush: (fileURL != nil && gitSnapshot.inRepo)
+                ? { pushFocusedFile() } : nil,
+            canCommit: gitSnapshot.canCommit,
+            canPush: gitSnapshot.canPush
+        ))
         .onDisappear {
             document.commitContentEdit()
         }
@@ -138,12 +157,55 @@ struct ContentView: View {
                     .onAppear { showExternalDiff = false }
             }
         }
+        .sheet(isPresented: $showGitCommit) {
+            if let url = fileURL {
+                GitCommitSheet(
+                    fileURL: url,
+                    documentContent: document.content,
+                    onClose: {
+                        showGitCommit = false
+                        refreshGitSnapshot()
+                    },
+                    onCommitted: { refreshGitSnapshot() }
+                )
+            } else {
+                Text("No file")
+                    .padding()
+                    .onAppear { showGitCommit = false }
+            }
+        }
         .onChange(of: externalChanges.notice(for: fileURL)?.id) { _ in
             // Close the sheet if the notice goes away under us.
             if externalChanges.notice(for: fileURL) == nil {
                 showExternalDiff = false
             }
         }
+        .onAppear { refreshGitSnapshot() }
+        .onChange(of: fileURL) { _ in refreshGitSnapshot() }
+        .onChange(of: lineChanges.revision) { _ in refreshGitSnapshot() }
+        .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { _ in
+            refreshGitSnapshot()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshGitSnapshot()
+        }
+    }
+
+    private func refreshGitSnapshot() {
+        // Coalesce keystroke-driven mark updates so we don't spawn git on every char.
+        gitRefreshTask?.cancel()
+        let url = fileURL
+        gitRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            gitSnapshot = GitFileStatus.snapshot(for: url)
+        }
+    }
+
+    private func pushFocusedFile() {
+        guard let url = fileURL else { return }
+        GitPushConfirm.run(for: url)
+        refreshGitSnapshot()
     }
 
     // MARK: - External change banner actions
@@ -442,6 +504,17 @@ struct ContentView: View {
                     onPrimary: { handleExternalPrimary(notice) },
                     onSecondary: { handleExternalSecondary(notice) },
                     onDismiss: { DocumentRegistry.shared.dismissExternalChange(notice.url) }
+                )
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.quaternary)
+            }
+            // Git: commit this file / push (stages 4–5).
+            if gitSnapshot.inRepo {
+                GitStatusChip(
+                    snapshot: gitSnapshot,
+                    onCommit: { showGitCommit = true },
+                    onPush: { pushFocusedFile() }
                 )
                 Text("·")
                     .font(.system(size: 11))
