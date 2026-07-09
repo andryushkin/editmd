@@ -178,6 +178,15 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let baseDir = assetBaseDir
         let settings = EditorSettings.shared.preview
         let general = EditorSettings.shared.general
+        let g = EditorSettings.shared.gutter
+        let dirtyHex = g.dirtyMarkColorHex ?? g.dirtyMarkNSColor.hexString
+        let gutter = PreviewGutterOptions(
+            showLineNumbers: g.showLineNumbers,
+            highlightChangedLines: g.highlightChangedLines,
+            showDirtyBulletsWhenNoNumbers: g.showDirtyBulletsWhenNoNumbers,
+            dirtyLines: LineChangeTracker.shared.dirtyLines(for: fileURL),
+            dirtyMarkColorHex: dirtyHex
+        )
         let html = previewHTMLPage(
             markdown: content,
             fontSize: settings.fontSize,
@@ -190,6 +199,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             elements: settings.elements,
             textColorHex: general.textColorHex,
             accentColorHex: general.accentColorHex,
+            gutter: gutter,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }
         )
 

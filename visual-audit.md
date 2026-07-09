@@ -1,9 +1,9 @@
 # Визуальный аудит EditMD — три режима (v34 / app 0.34.0)
 
-Статус по **коду** (не ручной light/dark-прогон).  
+Статус по **коду** (не ручной light/dark-прогон).\
 `[x]` = реализовано и ожидаемо работает · `[ ]` = gap / не сделано · `[~]` = частично (см. примечание).
 
-**Файл для smoke:** `test-all-elements.md`  
+**Файл для smoke:** `test-all-elements.md`\
 **Дополнительно:** vault-карточка с YAML + `[[wiki]]`, heavy-таблица.
 
 ---
@@ -28,7 +28,7 @@
 - [x] H1–H6: размер/вес/цвет (строка целиком, включая `# `)
 - [x] Bold / italic / strike / inline-code / link text
 - [x] Wiki-links `[[Note]]` / `[[Note|alias]]` (inner accent, syntax secondary)
-- [x] `` ```yaml `` / `` ```yml ``: токены ключ/число/bool/null/коммент
+- [x] ```` ```yaml ```` / ```` ```yml ````: токены ключ/число/bool/null/коммент
 - [x] YAML frontmatter: не setext-H2; тело yaml; фенсы приглушены
 - [x] Таблицы: виртуальный `.kern` (пайпы в столбик, файл не меняется)
 - [x] Длинная ячейка > cap: рваная строка, остальные колонки держат ширину
@@ -57,17 +57,17 @@
 - [x] Bold / italic / strike / inline-code без маркеров
 - [x] Ссылки + Cmd+click → браузер
 - [x] Списки: буллиты / номера / чекбоксы в марджине
-- [~] Вложенность: indent по depth есть; **форма буллита одна** на все depth (не •/◦/▪)
+- \[\~\] Вложенность: indent по depth есть; **форма буллита одна** на все depth (не •/◦/▪)
 - [x] Цитаты: полосы + indent по глубине
 - [x] Код-блоки: панель + mono
-- [ ] `` ```yaml `` в Visual: токен-цвета (есть в Source/Preview; Visual — mono)
+- [ ] ```` ```yaml ```` в Visual: токен-цвета (есть в Source/Preview; Visual — mono)
 - [x] `---` — горизонтальная линия
 - [x] HTML-остров mono, read-only; удаление целиком — ок
 - [x] Setext → нормальная форма ATX при round-trip
 
 ### Таблицы
 
-**Малые (≤ ~400 ячеек) — NSTextTable**
+**Малые (≤ \~400 ячеек) — NSTextTable**
 
 - [x] Грид, шапка, выравнивания
 - [x] Редактирование ячеек; Tab / Shift+Tab
@@ -84,8 +84,8 @@
 
 ### Картинки / wiki / frontmatter
 
-- [x] Local image (.md рядом / textbundle), cap ~420pt
-- [~] Missing / remote → placeholder `photo` (**async remote load — нет**)
+- [x] Local image (.md рядом / textbundle), cap \~420pt
+- \[\~\] Missing / remote → placeholder `photo` (**async remote load — нет**)
 - [x] `[[Note]]` / `[[Note|alias]]` display + Cmd+click → файл
 - [ ] Unresolved wiki: другой цвет (сейчас как валидная + beep)
 - [x] Frontmatter: read-only карточка свойств (YAML colors)
@@ -115,7 +115,7 @@
 
 - [x] Заголовки, inline, списки, цитаты, HR
 - [x] Таблицы (HTML)
-- [x] Код-блоки + `` ```yaml `` токены
+- [x] Код-блоки + ```` ```yaml ```` токены
 - [x] Local images (data-URI); remote как URL
 - [x] Frontmatter → таблица свойств
 - [x] Wiki-links → клик открывает файл
@@ -152,7 +152,7 @@
 - [x] Files / Outline (⌃⌘S); клик = replace в main window
 - [x] Outline jump → offset (Source/Visual/Preview)
 - [x] Wiki-link → main window (bias на папку документа)
-- [x] Back / Forward ⌘[ / ⌘]
+- [x] Back / Forward ⌘\[ / ⌘\]
 - [ ] `[[Note#heading]]` / `#^block` — scroll после открытия (файл открывается, fragment игнор)
 - [ ] `[[` autocomplete
 
@@ -163,14 +163,14 @@
 Код адаптивный (dynamic NSColor / `color-scheme`). **Ручной** pixel-check не прогонялся этой сессией:
 
 | Область | Light | Dark |
-|---------|:-----:|:----:|
-| Source: heading/code/link | [~] | [~] |
-| Source: lint underlines | [~] | [~] |
-| Visual: quote / code / table | [~] | [~] |
-| Visual: wiki + links | [~] | [~] |
-| Preview: body + code + FM | [~] | [~] |
-| Preview: `<mark>` | [~] | [~] |
-| Selection / caret contrast | [~] | [~] |
+| --- | :-: | :-: |
+| Source: heading/code/link | \[\~\] | \[\~\] |
+| Source: lint underlines | \[\~\] | \[\~\] |
+| Visual: quote / code / table | \[\~\] | \[\~\] |
+| Visual: wiki + links | \[\~\] | \[\~\] |
+| Preview: body + code + FM | \[\~\] | \[\~\] |
+| Preview: `<mark>` | \[\~\] | \[\~\] |
+| Selection / caret contrast | \[\~\] | \[\~\] |
 
 `[~]` = реализовано в коде (adaptive colors); глазами light+dark не верифицировано.
 
@@ -179,7 +179,7 @@
 ## Known gaps (открытые)
 
 | Gap | Где | Статус |
-|-----|-----|--------|
+| --- | --- | --- |
 | `==highlight==` display style | Visual, Source | Preview only |
 | Unresolved wiki style | все режимы | beep, цвет как у валидной |
 | Remote images async | Visual | placeholder |
@@ -200,12 +200,12 @@
 ## Сводка
 
 | Область | Готово | Частично | Gaps |
-|---------|:------:|:--------:|:----:|
-| Режимы / split / курсор | ✓ | | |
+| --- | :-: | :-: | :-: |
+| Режимы / split / курсор | ✓ |  |  |
 | Source подсветка + линт + kern | ✓ | heavy=plain | highlight `==` |
 | Visual базовый WYSIWYG | ✓ | bullets depth | yaml code, remote img |
 | Visual таблицы (small + large) | ✓ | H-scroll ✓ | cell wrap |
 | Wiki / frontmatter | ✓ | unresolved style | #heading scroll |
-| Preview | ✓ | | find, unresolved style |
-| Темы / Settings | ✓ | | |
-| Light/dark pixel-pass | | code only | ручной прогон |
+| Preview | ✓ |  | find, unresolved style |
+| Темы / Settings | ✓ |  |  |
+| Light/dark pixel-pass |  | code only | ручной прогон |

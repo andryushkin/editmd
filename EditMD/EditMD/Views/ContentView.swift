@@ -18,7 +18,6 @@ struct ContentView: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
     @ObservedObject private var externalChanges = ExternalChangeCenter.shared
-    @ObservedObject private var lineChanges = LineChangeTracker.shared
     @State private var wordCount = 0
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
@@ -194,31 +193,18 @@ struct ContentView: View {
 
     @ViewBuilder private var editorArea: some View {
         VStack(spacing: 0) {
-            if let notice = externalChanges.notice(for: fileURL) {
-                ExternalChangeBanner(
-                    notice: notice,
-                    onShowDiff: { showExternalDiff = true },
-                    onPrimary: { handleExternalPrimary(notice) },
-                    onSecondary: { handleExternalSecondary(notice) },
-                    onDismiss: { DocumentRegistry.shared.dismissExternalChange(notice.url) }
-                )
-            }
             EditorActionStrip(actions: stripActions,
                               insetH: stripInset.h,
                               columnWidth: stripInset.column,
                               showVisualExtras: mode == .visual)
             if mode == .preview {
-                HStack(spacing: 0) {
-                    SourceLineGutterRail(
-                        content: document.content,
-                        dirtyLines: lineChanges.dirtyLines(for: fileURL),
-                        settings: editorSettings.gutter)
-                    MarkdownPreviewView(document: document, fileURL: fileURL,
-                                        positionStore: positionStore,
-                                        onRequestEdit: { setEditorMode(.visual) },
-                                        toolbarActions: stripActions)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                // Line numbers / dirty marks are baked into the HTML (`data-ln`)
+                // so they scroll with the page — no separate rail to sync.
+                MarkdownPreviewView(document: document, fileURL: fileURL,
+                                    positionStore: positionStore,
+                                    onRequestEdit: { setEditorMode(.visual) },
+                                    toolbarActions: stripActions)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geo in
                     HStack(spacing: 0) {
@@ -428,7 +414,7 @@ struct ContentView: View {
         let (words, chars) = mode == .preview
             ? wordAndCharCount(in: document.content)
             : (wordCount, charCount)
-        return HStack {
+        return HStack(spacing: 10) {
             if mode == .source, let summary = lintSummary,
                summary.errorCount + summary.warningCount > 0 {
                 Button {
@@ -447,7 +433,20 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .editMDHelp("Jump to the next issue")
             }
-            Spacer()
+            Spacer(minLength: 8)
+            // External disk change — compact chip left of word count.
+            if let notice = externalChanges.notice(for: fileURL) {
+                ExternalChangeStatusChip(
+                    notice: notice,
+                    onShowDiff: { showExternalDiff = true },
+                    onPrimary: { handleExternalPrimary(notice) },
+                    onSecondary: { handleExternalSecondary(notice) },
+                    onDismiss: { DocumentRegistry.shared.dismissExternalChange(notice.url) }
+                )
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.quaternary)
+            }
             Text("\(words) words  \(chars) chars")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

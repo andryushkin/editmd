@@ -95,9 +95,11 @@ struct DiffStatsLabel: View {
     }
 }
 
-// MARK: - Banner (all editor modes)
+// MARK: - Status-bar chip (bottom-right, next to word count)
 
-struct ExternalChangeBanner: View {
+/// Compact external-change control for the status bar — same row as
+/// “N words · M chars”, right-aligned. Full unified diff still opens as a sheet.
+struct ExternalChangeStatusChip: View {
     let notice: ExternalChangeNotice
     let onShowDiff: () -> Void
     let onPrimary: () -> Void
@@ -105,79 +107,59 @@ struct ExternalChangeBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 6) {
             Image(systemName: notice.kind == .conflict
                   ? "exclamationmark.triangle.fill"
-                  : "arrow.down.doc.fill")
-                .foregroundStyle(notice.kind == .conflict ? Color.orange : Color.accentColor)
-                .help(notice.kind == .conflict
-                      ? "Local edits conflict with a newer file on disk"
-                      : "File was updated on disk and reloaded")
+                  : "arrow.triangle.2.circlepath")
+                .font(.system(size: 10))
+                .foregroundStyle(notice.kind == .conflict ? Color.orange : Color.secondary)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                DiffStatsLabel(added: notice.added, removed: notice.removed)
-            }
+            DiffStatsLabel(added: notice.added, removed: notice.removed,
+                           font: .system(size: 11, design: .monospaced))
 
-            Spacer(minLength: 8)
-
+            // Primary actions as plain text buttons — matches status-bar density.
             Button("Diff", action: onShowDiff)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentColor)
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+                .help("Show unified diff (⌘⇧D)")
 
             if notice.kind == .conflict {
-                Button("Keep Mine", action: onSecondary)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Write this buffer to disk, discarding the external version")
-                Button("Take Disk", action: onPrimary)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .help("Replace the buffer with the file on disk")
+                Button("Mine", action: onSecondary)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .help("Keep my buffer (write to disk)")
+                Button("Disk", action: onPrimary)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .help("Take file from disk")
             } else {
                 Button("Revert", action: onSecondary)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Restore the text from before the external reload")
-                Button("OK", action: onPrimary)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .help("Restore pre-reload text")
             }
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
             .help("Dismiss")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(bannerBackground)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
-    }
-
-    private var title: String {
-        switch notice.kind {
-        case .applied:
-            return "Updated from disk — \(notice.fileName)"
-        case .conflict:
-            return "Conflict with disk — \(notice.fileName)"
-        }
-    }
-
-    private var bannerBackground: some View {
-        (notice.kind == .conflict
-            ? Color.orange.opacity(0.12)
-            : Color.accentColor.opacity(0.10))
+        .help(notice.kind == .conflict
+              ? "Conflict with disk for \(notice.fileName)"
+              : "Reloaded from disk — \(notice.fileName)")
     }
 }
+
+/// Legacy name kept so call sites can migrate gradually.
+typealias ExternalChangeBanner = ExternalChangeStatusChip
 
 // MARK: - Unified diff sheet
 

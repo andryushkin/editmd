@@ -28,30 +28,74 @@ func htmlEscapeBreakingUnderscores(_ s: String) -> String {
     htmlEscape(s).replacingOccurrences(of: "_", with: "_<wbr>")
 }
 
+/// Options for embedding source-line markers in Preview HTML (`data-ln`).
+struct PreviewGutterOptions: Equatable {
+    var showLineNumbers: Bool = false
+    var highlightChangedLines: Bool = false
+    var showDirtyBulletsWhenNoNumbers: Bool = false
+    var dirtyLines: Set<Int> = []
+    /// Hex color for dirty marks (e.g. `#1a8f3c`); empty → CSS default green.
+    var dirtyMarkColorHex: String = ""
+
+    var isVisible: Bool {
+        showLineNumbers || (highlightChangedLines && showDirtyBulletsWhenNoNumbers)
+    }
+
+    /// Numbers for every marked block vs bullets only on dirty lines.
+    var modeClass: String {
+        if showLineNumbers { return "gutter-numbers" }
+        if highlightChangedLines && showDirtyBulletsWhenNoNumbers { return "gutter-bullets" }
+        return ""
+    }
+
+    static let off = PreviewGutterOptions()
+}
+
 /// Renders markdown to an HTML body fragment.
 /// `imageResolver` may replace an image's `src` (e.g. with a data: URI for
 /// local files); returning nil keeps the original source.
 func markdownHTMLBody(_ text: String,
-                      imageResolver: ((String) -> String?)? = nil) -> String {
+                      imageResolver: ((String) -> String?)? = nil,
+                      gutter: PreviewGutterOptions = .off) -> String {
     var source = text
     var prefix = ""
     var baseOffset = 0
+    var lineBase = 0
     // YAML frontmatter isn't part of the markdown grammar — strip it and render
     // it as an Obsidian-style properties table, so it doesn't mangle into a
     // thematic break + setext heading.
     if let fm = frontmatterRange(in: text) {
         let ns = text as NSString
         let props = parseFrontmatterProperties(ns.substring(with: fm.body))
-        if !props.isEmpty { prefix = frontmatterTableHTML(props) }
+        if !props.isEmpty {
+            let fmLine = 1
+            let dirty = gutter.highlightChangedLines && gutter.dirtyLines.contains(fmLine)
+            let wantMark = gutter.showLineNumbers
+                || (dirty && gutter.showDirtyBulletsWhenNoNumbers)
+            var fmAttrs = ""
+            if wantMark { fmAttrs += " data-ln=\"\(fmLine)\"" }
+            if dirty { fmAttrs += " class=\"ln-dirty\"" }
+            let table = frontmatterTableHTML(props)
+            // Inject attrs onto the opening <table>
+            if table.hasPrefix("<table") {
+                let afterTable = table.index(table.startIndex, offsetBy: 6)
+                prefix = "<table\(fmAttrs)" + table[afterTable...]
+            } else {
+                prefix = table
+            }
+        }
         baseOffset = NSMaxRange(fm.full)
         source = ns.substring(from: baseOffset)
+        lineBase = ns.substring(to: baseOffset).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
     }
     let document = Document(parsing: source)
     // LineIndex maps AST SourceRanges → UTF-16 offsets in `source`; baseOffset
     // rebases them into the original document (for Preview toolbar wrap).
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
                                   lineIdx: LineIndex(source),
-                                  baseOffset: baseOffset)
+                                  baseOffset: baseOffset,
+                                  lineBase: lineBase,
+                                  gutter: gutter)
     visitor.visit(document)
     return prefix + visitor.result
 }
@@ -114,6 +158,9 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// Added to every AST-derived offset so ranges land in the original
     /// document when frontmatter was stripped before parsing.
     let baseOffset: Int
+    /// Newlines before the parsed `source` in the original document.
+    let lineBase: Int
+    let gutter: PreviewGutterOptions
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
@@ -121,10 +168,14 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     init(imageResolver: ((String) -> String?)?,
          lineIdx: LineIndex,
-         baseOffset: Int) {
+         baseOffset: Int,
+         lineBase: Int = 0,
+         gutter: PreviewGutterOptions = .off) {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
         self.baseOffset = baseOffset
+        self.lineBase = lineBase
+        self.gutter = gutter
     }
 
     /// UTF-16 NSRange in the original markdown for a markup node's SourceRange.
@@ -136,32 +187,62 @@ private struct HTMLBodyVisitor: MarkupWalker {
         return NSRange(location: loc + baseOffset, length: end - loc)
     }
 
+    /// 1-based line in the **original** markdown (frontmatter-aware).
+    private func sourceLine(of markup: some Markup) -> Int? {
+        guard let src = markup.range else { return nil }
+        return lineBase + src.lowerBound.line
+    }
+
+    /// Opens a block tag with optional `data-ln` / `ln-dirty` for the Preview gutter.
+    private mutating func openBlock(_ tag: String, _ markup: some Markup,
+                                    classes: [String] = [],
+                                    extraAttrs: String = "") {
+        var cls = classes
+        var attrs = extraAttrs
+        if let line = sourceLine(of: markup) {
+            let isDirty = gutter.highlightChangedLines && gutter.dirtyLines.contains(line)
+            let wantMark = gutter.showLineNumbers
+                || (isDirty && gutter.showDirtyBulletsWhenNoNumbers)
+            if wantMark {
+                attrs += " data-ln=\"\(line)\""
+            }
+            if isDirty {
+                cls.append("ln-dirty")
+            }
+        }
+        let classAttr = cls.isEmpty ? "" : " class=\"\(cls.joined(separator: " "))\""
+        result += "<\(tag)\(classAttr)\(attrs)>"
+    }
+
     // MARK: Block elements
 
     mutating func visitParagraph(_ paragraph: Paragraph) {
-        result += "<p>"
+        openBlock("p", paragraph)
         descendInto(paragraph)
         result += "</p>\n"
     }
 
     mutating func visitHeading(_ heading: Heading) {
-        result += "<h\(heading.level)>"
+        openBlock("h\(heading.level)", heading)
         descendInto(heading)
         result += "</h\(heading.level)>\n"
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
+        // No data-ln on the wrapper — children (p / nested quote) carry source lines.
+        // Otherwise the same line number appears twice (wrapper + first child).
         result += "<blockquote>\n"
         descendInto(blockQuote)
         result += "</blockquote>\n"
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
+        openBlock("pre", codeBlock)
         let language = codeBlock.language ?? ""
         if !language.isEmpty {
-            result += "<pre><code class=\"language-\(htmlAttributeEscape(language))\">"
+            result += "<code class=\"language-\(htmlAttributeEscape(language))\">"
         } else {
-            result += "<pre><code>"
+            result += "<code>"
         }
         let lower = language.lowercased()
         if lower == "yaml" || lower == "yml" {
@@ -173,14 +254,19 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
-        result += "<hr>\n"
+        openBlock("hr", thematicBreak)  // void element: <hr data-ln="…">
+        result += "\n"
     }
 
     mutating func visitHTMLBlock(_ html: HTMLBlock) {
+        // Raw HTML: wrap so the gutter can still mark the starting line.
+        openBlock("div", html, classes: ["raw-html"])
         result += html.rawHTML
+        result += "</div>\n"
     }
 
     mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
+        // data-ln only on <li>, not the list wrapper (avoids duplicate numbers).
         result += "<ul>\n"
         descendInto(unorderedList)
         result += "</ul>\n"
@@ -198,11 +284,12 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     mutating func visitListItem(_ listItem: ListItem) {
         if let checkbox = listItem.checkbox {
-            result += "<li class=\"task\"><input type=\"checkbox\" disabled"
+            openBlock("li", listItem, classes: ["task"])
+            result += "<input type=\"checkbox\" disabled"
             if checkbox == .checked { result += " checked" }
             result += "> "
         } else {
-            result += "<li>"
+            openBlock("li", listItem)
         }
         // Unwrap the item's first paragraph (GitHub-style tight rendering) —
         // a block-level <p> would push content below the checkbox/bullet.
@@ -218,7 +305,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
     // MARK: Tables
 
     mutating func visitTable(_ table: Table) {
-        result += "<table>\n"
+        openBlock("table", table)
+        result += "\n"
         tableColumnAlignments = table.columnAlignments
         descendInto(table)
         tableColumnAlignments = nil
@@ -456,8 +544,9 @@ func previewHTMLPage(markdown: String,
                      /// adaptive system colors (Canvas/CanvasText/LinkText).
                      textColorHex: String? = nil,
                      accentColorHex: String? = nil,
+                     gutter: PreviewGutterOptions = .off,
                      imageResolver: ((String) -> String?)? = nil) -> String {
-    let body = markdownHTMLBody(markdown, imageResolver: imageResolver)
+    let body = markdownHTMLBody(markdown, imageResolver: imageResolver, gutter: gutter)
     let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
     let margin = columnWidth > 0 ? "0 auto" : "0"
     let bodyColor = textColorHex ?? "CanvasText"
@@ -466,6 +555,14 @@ func previewHTMLPage(markdown: String,
     let padTop = Int(insetV.rounded())
     let padBottom = Int(max(64, insetV).rounded())
     let padH = Int(insetH.rounded())
+    let gutterOn = gutter.isVisible
+    // Same digit size as Source/Visual ruler (`GutterTypography.fontSize`).
+    let lnFontPx = Int(GutterTypography.fontSize.rounded())
+    let lnColPx = max(28, lnFontPx * max(2, String(max(99, gutter.dirtyLines.max() ?? 999)).count) + 10)
+    let dirtyColor = gutter.dirtyMarkColorHex.isEmpty ? "#1a8f3c" : gutter.dirtyMarkColorHex
+    let bodyGutterClass = gutterOn ? " class=\"\(gutter.modeClass)\"" : ""
+    // Extra left padding so numbers never sit on the text column.
+    let padHLeft = gutterOn ? padH + lnColPx + 6 : padH
 
     // Per-element rules generated from ElementStyles — appended after the base
     // rules so they win. Heading size uses `em` (= the scale), matching how
@@ -493,13 +590,63 @@ func previewHTMLPage(markdown: String,
     <head>
     <meta charset="utf-8">
     <style>
-    :root { color-scheme: light dark; }
+    :root {
+        color-scheme: light dark;
+        --ln-dirty: \(dirtyColor);
+        --ln-col: \(lnColPx)px;
+        --ln-size: \(lnFontPx)px;
+    }
     * { box-sizing: border-box; }
     body {
         font: \(fontWeight) \(Int(fontSize))px/\(numstr(lineHeight)) \(fontFamily);
         background: Canvas; color: \(bodyColor);
-        max-width: \(maxWidth); margin: \(margin); padding: \(padTop)px \(padH)px \(padBottom)px;
+        max-width: \(maxWidth); margin: \(margin); padding: \(padTop)px \(padH)px \(padBottom)px \(padHLeft)px;
         word-wrap: break-word;
+        position: relative;
+    }
+    /* Integrated source-line gutter in the left padding. Fixed small mono size
+       (not 1em) so headings don't blow up the numbers. */
+    [data-ln] { position: relative; }
+    [data-ln]::before {
+        position: absolute;
+        top: 0.2em;
+        right: calc(100% + 0.65em);
+        width: var(--ln-col);
+        text-align: right;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: var(--ln-size);
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
+        color: rgba(128,128,128,0.7);
+        line-height: 1.2;
+        user-select: none;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+    /* Headings: pin number to the first text line, not the block center. */
+    h1[data-ln]::before, h2[data-ln]::before, h3[data-ln]::before,
+    h4[data-ln]::before, h5[data-ln]::before, h6[data-ln]::before {
+        top: 0.35em;
+        font-size: var(--ln-size);
+        font-weight: 400;
+    }
+    body.gutter-numbers [data-ln]::before { content: attr(data-ln); }
+    body.gutter-bullets [data-ln].ln-dirty::before {
+        content: "●";
+        color: var(--ln-dirty);
+        font-size: calc(var(--ln-size) * 0.7);
+    }
+    body.gutter-bullets [data-ln]:not(.ln-dirty)::before { content: none; }
+    [data-ln].ln-dirty::before {
+        color: var(--ln-dirty);
+        font-weight: 700;
+    }
+    /* List items are indented — pull the number further left into the gutter. */
+    li[data-ln]::before {
+        right: calc(100% + 0.65em + 1.5em);
+    }
+    li.task[data-ln]::before {
+        right: calc(100% + 0.65em + 0.2em);
     }
     /* First block must not add extra top margin on top of body padding —
        otherwise Settings ▸ Vertical never reaches zero under the action strip. */
@@ -585,7 +732,7 @@ func previewHTMLPage(markdown: String,
     }
     \(elementCSS)</style>
     </head>
-    <body>
+    <body\(bodyGutterClass)>
     \(body)
     <script>
     // Interactive task checkboxes (FSNotes' HandlerCheckbox idea): the body

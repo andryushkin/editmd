@@ -103,5 +103,11 @@ final class LineChangeTracker: ObservableObject {
         return dirty
     }
 
-    private func bump() { revision &+= 1 }
+    /// Never publish during an in-flight SwiftUI body / AppKit layout pass
+    /// (`noteContent` can run from `textDidChange` mid-update).
+    private func bump() {
+        DispatchQueue.main.async { [weak self] in
+            self?.revision &+= 1
+        }
+    }
 }

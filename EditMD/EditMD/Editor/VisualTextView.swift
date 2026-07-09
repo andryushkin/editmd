@@ -371,52 +371,27 @@ struct VisualMarkdownView: NSViewRepresentable {
             refreshGutter()
         }
 
-        /// Visual display lines: number hard lines; dirty if any mapped source line is dirty.
+        /// Visual gutter shows **source** line numbers (via paragraph→md map), not 1…N of the WYSIWYG buffer.
         func refreshGutter() {
             guard let textView else { return }
             let settings = EditorSettings.shared.gutter
+            let md = parent.document.content
             let sourceDirty = LineChangeTracker.shared.dirtyLines(for: parent.fileURL)
-            let displayDirty = Self.mapSourceDirtyToDisplay(
-                sourceDirty: sourceDirty,
-                paragraphRanges: lastParagraphRanges,
-                markdown: parent.document.content)
+            let map = displayToSourceLineMap(paragraphRanges: lastParagraphRanges, markdown: md)
+            let font = EditorSettings.shared.visual.resolvedFont(defaultMono: false)
+            let sourceLines = max(1, splitDiffLines(md).count)
             textView.installOrUpdateLineNumberRuler(
-                fileURL: parent.fileURL, dirty: displayDirty, settings: settings)
+                fileURL: parent.fileURL,
+                dirtySourceLines: sourceDirty,
+                settings: settings,
+                bodyFont: font,
+                displayToSourceLine: map,
+                sourceLineCountHint: sourceLines)
         }
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             (textView?.enclosingScrollView?.verticalRulerView as? LineNumberRulerView)?
                 .needsDisplay = true
-        }
-
-        /// Marks a display paragraph (1-based) dirty if any source line it covers is dirty.
-        static func mapSourceDirtyToDisplay(sourceDirty: Set<Int>,
-                                            paragraphRanges: [NSRange],
-                                            markdown: String) -> Set<Int> {
-            guard !sourceDirty.isEmpty else { return [] }
-            if paragraphRanges.isEmpty {
-                // Fallback: same indices as source (best-effort).
-                return sourceDirty
-            }
-            let ns = markdown as NSString
-            var result = Set<Int>()
-            for (i, range) in paragraphRanges.enumerated() {
-                let start = max(0, min(range.location, ns.length))
-                let end = max(start, min(NSMaxRange(range), ns.length))
-                var startLine = 1
-                if start > 0 {
-                    let pre = ns.substring(with: NSRange(location: 0, length: start))
-                    startLine = pre.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-                }
-                let segment = ns.substring(with: NSRange(location: start, length: end - start))
-                let extraNewlines = segment.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-                let endLine = startLine + extraNewlines
-                for l in startLine...endLine where sourceDirty.contains(l) {
-                    result.insert(i + 1)
-                    break
-                }
-            }
-            return result
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

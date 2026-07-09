@@ -1,10 +1,10 @@
-# Heading 1
+# **Heading 1**
 
 ## Heading 2
 
 ### Heading 3
 
-#### Heading 4
+#### Heading 40
 
 ##### Heading 5
 
@@ -16,7 +16,7 @@
 
 Underscore variants: **bold** and *italic* and ***bold italic***.
 
-This has ~~strikethrough~~ ~~text ~~and `inline code` too.
+This has ~~strikethrough~~ \~\~text \~\~and `inline code` too.
 
 Here is a [link](https://example.com) and an ![image](photo.png) in the same line.
 
@@ -99,17 +99,15 @@ Mixed: **bold with `code` inside** and *italic with [link](url) inside*.
 
 ## External change probe
 
-This section was **appended by an agent** to exercise EditMD’s disk-watch
-banner + GitHub-style unified diff (Source / Visual / Preview).
+This section was **appended by an agent** to exercise EditMD’s disk-watch banner + GitHub-style unified diff (Source / Visual / Preview).
 
 ### Round 5 checklist
 
 1. Banner: **+N** green, **-M** red
-2. Sheet ≥ ~1200pt wide, tight left margin
+2. Sheet ≥ \~1200pt wide, tight left margin
 3. Body uses Source highlighting (headings/bold/links)
 4. `+` / `-` lines with green/red row tint
 
 End of test document.
 
-> **Round 5 external write** — open the file first, then watch the banner.
-> Round 6 external write at 23:16:21
+> **Round 5 external write** — open the file first, then watch the banner. Round 6 external write at 23:16:21
