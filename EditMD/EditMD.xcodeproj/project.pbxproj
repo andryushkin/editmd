@@ -49,12 +49,14 @@
 		73515EE18917982E12613A05 /* MarkdownTableGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */; };
 		745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E846D593359014AA812A9A3 /* AppIcon.icns */; };
 		75ED2C4FF8872DD52EDB4BD2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92161BAEF22CB4D7970B98F1 /* ContentView.swift */; };
+		7657AD7D127CE8651A55E0B5 /* ReviewMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */; };
 		79823E36D01FEE90C02A01C1 /* ClaudeIDEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8BD79FED04D5B6B2FC2C55 /* ClaudeIDEService.swift */; };
 		84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */; };
 		84CF1A4445DEF3DA95260487 /* ClaudeIDEUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */; };
 		84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */; };
 		88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */; };
 		8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */; };
+		8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11113E961095021DD99965B /* ReviewMarksTests.swift */; };
 		9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */; };
 		95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */; };
 		99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */; };
@@ -148,6 +150,7 @@
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9E5DD70CA3310989A4D190EF /* IDELockFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFile.swift; sourceTree = "<group>"; };
 		9E846D593359014AA812A9A3 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		A11113E961095021DD99965B /* ReviewMarksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewMarksTests.swift; sourceTree = "<group>"; };
 		A4840BC0DD8B410D784453BC /* GitSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSidebar.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
@@ -185,6 +188,7 @@
 		F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTextView.swift; sourceTree = "<group>"; };
 		F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfo.swift; sourceTree = "<group>"; };
 		FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocol.swift; sourceTree = "<group>"; };
+		FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewMarks.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -236,6 +240,7 @@
 				4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */,
 				07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */,
 				20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */,
+				FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */,
 				F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */,
 				B07A13AEA492FEA0C2B1942F /* TextDiff.swift */,
 				C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */,
@@ -349,6 +354,7 @@
 				37CE31BE8D22A8531D232CB8 /* MarkdownOutlineTests.swift */,
 				E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */,
 				557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */,
+				A11113E961095021DD99965B /* ReviewMarksTests.swift */,
 				902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */,
 				749088093E0AF04AA2B75E48 /* TextDiffTests.swift */,
 				DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */,
@@ -484,6 +490,7 @@
 				5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */,
 				CEE95797B45754B164DD2E4A /* MarkdownOutlineTests.swift in Sources */,
 				84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */,
+				8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */,
 				33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */,
 				9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */,
 				173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */,
@@ -537,6 +544,7 @@
 				73515EE18917982E12613A05 /* MarkdownTableGrid.swift in Sources */,
 				BBD7230A06F923D8C34F074B /* MarkdownToAttributed.swift in Sources */,
 				35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */,
+				7657AD7D127CE8651A55E0B5 /* ReviewMarks.swift in Sources */,
 				1336942C491650E720695632 /* SettingsView.swift in Sources */,
 				38A47C74B7F33C780835BC54 /* SidebarRows.swift in Sources */,
 				3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */,
