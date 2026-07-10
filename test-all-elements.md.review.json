@@ -2,12 +2,12 @@
   "marks" : [
     {
       "id" : "m1783718977659f2t9",
-      "mts" : 1783718977659,
+      "mts" : 1783720826268,
       "note" : "привет",
       "prefix" : "",
       "quote" : "# **Heading 1**",
       "start" : 0,
-      "status" : "open",
+      "status" : "resolved",
       "thread" : [
 
       ],
@@ -27,7 +27,21 @@
       ],
       "ts" : 1783719031925,
       "type" : "comment"
+    },
+    {
+      "id" : "m1783720823217u0c9",
+      "mts" : 1783720823217,
+      "note" : "заголовок 3",
+      "prefix" : "# **Heading 1**\n## ",
+      "quote" : "Heading 2",
+      "start" : 19,
+      "status" : "open",
+      "thread" : [
+
+      ],
+      "ts" : 1783720823217,
+      "type" : "comment"
     }
   ],
-  "rev" : 2
+  "rev" : 4
 }

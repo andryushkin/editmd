@@ -28,8 +28,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
         PRODUCT_NAME: EditMD
-        MARKETING_VERSION: "0.37.0"
-        CURRENT_PROJECT_VERSION: "370"
+        MARKETING_VERSION: "0.38.0"
+        CURRENT_PROJECT_VERSION: "380"
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
         # App icon: EditMD/Resources/AppIcon.icns (from docs/img/icon.png master)
@@ -58,6 +58,25 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
 
+  # Thin CLI for the control socket (v38). Shares pure protocol sources with the app.
+  editmdctl:
+    type: tool
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - editmdctl
+      - path: EditMD/Integration/ControlProtocol.swift
+      - path: EditMD/Integration/MCPProtocol.swift
+    settings:
+      base:
+        PRODUCT_NAME: editmdctl
+        PRODUCT_BUNDLE_IDENTIFIER: com.editmd.ctl
+        SWIFT_VERSION: "6.2"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        # Protocol files only need Foundation; MCPProtocol is pure JSON codec.
+        GENERATE_INFOPLIST_FILE: YES
+
 # Схема генерируется здесь же — раньше её автосоздавал Xcode в xcuserdata,
 # и любой `xcodegen generate` её терял (xcodebuild: "does not contain a scheme").
 schemes:
@@ -65,6 +84,7 @@ schemes:
     build:
       targets:
         EditMD: all
+        editmdctl: all
     run:
       config: Debug
     test:
@@ -76,3 +96,11 @@ schemes:
       config: Release
     archive:
       config: Release
+
+  editmdctl:
+    build:
+      targets:
+        editmdctl: all
+    run:
+      config: Debug
+

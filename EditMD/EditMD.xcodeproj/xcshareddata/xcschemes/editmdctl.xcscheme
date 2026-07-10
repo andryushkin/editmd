@@ -15,20 +15,6 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "A83F4158108B6E92D2C81AB7"
-               BuildableName = "EditMD.app"
-               BlueprintName = "EditMD"
-               ReferencedContainer = "container:EditMD.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "EF945607E0482C672E8FC2F9"
                BuildableName = "editmdctl"
                BlueprintName = "editmdctl"
@@ -46,27 +32,14 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "A83F4158108B6E92D2C81AB7"
-            BuildableName = "EditMD.app"
-            BlueprintName = "EditMD"
+            BlueprintIdentifier = "EF945607E0482C672E8FC2F9"
+            BuildableName = "editmdctl"
+            BlueprintName = "editmdctl"
             ReferencedContainer = "container:EditMD.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "F633B8F3635FA091ACD8CA76"
-               BuildableName = "EditMDTests.xctest"
-               BlueprintName = "EditMDTests"
-               ReferencedContainer = "container:EditMD.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -82,9 +55,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "A83F4158108B6E92D2C81AB7"
-            BuildableName = "EditMD.app"
-            BlueprintName = "EditMD"
+            BlueprintIdentifier = "EF945607E0482C672E8FC2F9"
+            BuildableName = "editmdctl"
+            BlueprintName = "editmdctl"
             ReferencedContainer = "container:EditMD.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -101,14 +74,12 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "A83F4158108B6E92D2C81AB7"
-            BuildableName = "EditMD.app"
-            BlueprintName = "EditMD"
+            BlueprintIdentifier = "EF945607E0482C672E8FC2F9"
+            BuildableName = "editmdctl"
+            BlueprintName = "editmdctl"
             ReferencedContainer = "container:EditMD.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-      </CommandLineArguments>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

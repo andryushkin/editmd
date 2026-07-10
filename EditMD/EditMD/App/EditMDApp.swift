@@ -218,6 +218,12 @@ struct EditMDApp: App {
                 Divider()
             }
 
+            CommandGroup(after: .help) {
+                Button("Install Agent Skill…") {
+                    SkillInstaller.installWithUI()
+                }
+            }
+
             CommandMenu("Format") {
                 Button("Bigger") {
                     actions?.makeFontBigger()
@@ -326,3 +332,5 @@ struct EditMDApp: App {
         }
     }
 }
+
+

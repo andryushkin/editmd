@@ -225,6 +225,16 @@ struct ContentView: View {
             // -pr`, or the smotr web view) — pick up new replies / suggestions.
             if isMain { ReviewModel.shared.reload() }
         }
+        // editmdctl open/reveal → jump to markdown offset in this window.
+        .onReceive(NotificationCenter.default.publisher(for: .editMDControlJump)) { note in
+            guard isMain,
+                  let offset = note.userInfo?["offset"] as? Int else { return }
+            if let url = note.userInfo?["url"] as? URL,
+               url.standardizedFileURL != fileURL?.standardizedFileURL {
+                return
+            }
+            positionStore.requestJump(toMarkdownOffset: offset)
+        }
     }
 
     /// - Parameters:

@@ -35,6 +35,7 @@
 - **v35** — вкладка Git в сайдбаре, workspace-scoped status, perf-фиксы (app 0.35.1)
 - **v36** — интеграция с Claude Code, фаза 1: локальный WS/MCP-сервер (`/ide`), 12 IDE-tools, `openDiff` с Accept/Reject (app 0.36.0)
 - **v37** — метки-треды smotr-style: sidecar + вкладка Review + подсветка якорей + очередь/агент (app 0.37.0)
+- **v38** — `editmdctl` + unix-socket control channel + skill installer (app 0.38.0)
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. `docs/HISTORY.md`, «v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -65,6 +66,8 @@
 - **Подсветка якорей — temporary layout-manager attrs** (фон), не storage: документ/undo чисты; lint владеет underline/toolTip, review — только `backgroundColor`, чтобы не затирать друг друга (v37).
 - **Очередь/агент — диск и Process вне main** — `ReviewQueue.writeQueue` + `ReviewAgentRunner` в `Task.detached`; auto-spawn opt-in (`claudeReviewAutoSpawn`, default off) (v37).
 - **Accept suggest = тот же путь, что openDiff Accept** — `DocumentRegistry.applyAgentEdit` (v34-safe); якорь пропал → `needs-rebase`, не «примерно туда» (v37).
+- **Control socket всегда on (кроме XCTest)** — `~/Library/Application Support/EditMD/control.sock` (0600); override `EDITMD_CONTROL_SOCK`. Клиент-хендлер не на main; router — `DispatchQueue.main.sync` (v38).
+- **Ревью-метки: primary = Preview** (wash + selection + jump); Source/Visual вторичны (v37.1).
 
 ## Project Structure
 
@@ -76,7 +79,7 @@ editmd/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
         ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave, applyAgentEdit)
-        ├── Integration/ Claude Code IDE-канал (v36): MCPProtocol.swift (JSON-RPC 2.0), ClaudeIDEServer.swift (actor: NWListener+WebSocket, loopback, auth-header; + ClaudeIDERouter), IDELockFile.swift (~/.claude/ide/<port>.lock), ClaudeIDETools.swift (12 tools + IDEEditorContext), ClaudeIDEBridge.swift (@MainActor фасад + LiveEditorContext), DiffApprovalController.swift (blocking openDiff), ClaudeIDEService.swift (жизненный цикл, notifications)
+        ├── Integration/ Claude Code IDE (v36) + control (v38): MCPProtocol, ClaudeIDEServer/Tools/Bridge/Service, IDELockFile, DiffApprovalController; ControlProtocol/Router/Server/Service (unix socket JSON-lines), SkillInstaller
         ├── Editor/     SourceTextView.swift (Source: подсветка + линт + review-wash; `makeSourceHighlightedString` shared), VisualTextView.swift (Visual: ядро — wrapper + Coordinator: delegate, таблицы, Enter/Tab, sync) + VisualCoordinatorFormat.swift (format-действия) + VisualCoordinatorPresentation.swift (presentation-проход: шрифты/цвета/декорации из md.*-атрибутов) + VisualNSTextView.swift (drawn markers + table-island cell editor), ReviewMarks.swift (smotr sidecar model + IO + anchors), ReviewHighlight.swift (temporary wash), ReviewQueue.swift (`.smotr-queue.json` + agent runner), MarkdownHighlighter.swift, MarkdownOutline.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift, MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift, Frontmatter.swift, MarkdownTableGrid.swift, WikiLink.swift, TextDiff.swift, LineChangeTracker.swift, LineNumberRulerView.swift, GitCommitWatcher.swift (`GitCLI` + detect-commit)
         └── Views/      ContentView.swift (layout + external-change chip + git info chip + Claude chip), FileEditor.swift (DocHost + MainWindowView), ClaudeIDEUI.swift (diff-sheet Accept/Reject + чип подключения), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip + workspace git snapshot), GitSidebar.swift (Git navigator tab), ReviewModel.swift + ReviewSidebar.swift (метки-треды + ➤ очередь), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
     EditMDTests/
@@ -95,12 +98,14 @@ editmd/
         ├── ClaudeIDEServerTests.swift      # 8 кейсов: НАСТОЯЩИЙ WS-клиент — upgrade с токеном / отказ без него, счётчик клиентов, notification без ответа
         ├── ClaudeIDEToolsTests.swift       # 40 кейсов: 12 tools против фейкового редактора + позиционная арифметика + reveal-диапазоны
         ├── DiffApprovalControllerTests.swift  # 12 кейсов: continuation ровно один раз (accept/reject/close/disconnect/timeout/повторный openDiff), Accept через реестр
-        └── ReviewMarksTests.swift          # 31 кейс: smotr fidelity, якоря, rev-guard, suggest, queue, round-trip фикстур
-    scripts/ide-smoke/ide_smoke.py  # интеграционный smoke: имитирует /ide (discovery → auth → handshake → все tools); --open-diff = блокирующий diff
-docs/HISTORY.md  # история версий v1–v37: детали релизов + per-version gotchas
-docs/research/claude-code-integration.md  # спека IDE-протокола + фазы 2–3 (метки smotr, editmdctl)
-docs/plan-claude-code-integration.md  # операционный план фаз 1–3
-visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
+        ├── ReviewMarksTests.swift          # 31 кейс: smotr fidelity, якоря, rev-guard, suggest, queue, round-trip фикстур
+        └── ControlChannelTests.swift       # 10 кейсов: codec, skill installer, socket ping/unknown
+    editmdctl/                  # CLI target (v38): JSON-lines client for control.sock
+    scripts/ide-smoke/ide_smoke.py  # интеграционный smoke: имитирует /ide
+docs/HISTORY.md  # история версий v1–v38
+docs/research/claude-code-integration.md  # спека фаз 1–3
+docs/plan-claude-code-integration.md  # операционный план
+visual-audit.md
 ```
 
 ## Build

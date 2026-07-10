@@ -159,12 +159,14 @@ final class ReviewModel: ObservableObject {
     // MARK: Mutations
 
     /// Creates a mark from a previously captured anchor (snapshot taken when the
-    /// compose form opened).
-    func addMark(anchor: CapturedAnchor, type: ReviewMarkType, note: String) {
+    /// compose form opened). Returns the new mark's id.
+    @discardableResult
+    func addMark(anchor: CapturedAnchor, type: ReviewMarkType, note: String) -> String {
         let mark = ReviewMark(type: type, quote: anchor.quote, prefix: anchor.prefix,
                               start: anchor.start, note: note)
         doc.upsert(mark)
         persist()
+        return mark.id
     }
 
     func reply(to id: String, text: String) {

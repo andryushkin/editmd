@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and drop a lock file into the developer's own `~/.claude/ide`.
         if !Self.isRunningUnitTests {
             ClaudeIDEService.shared.activate()
+            // Always-on control socket for `editmdctl` (v38). Not under XCTest —
+            // would clobber the developer's Application Support socket.
+            ControlService.shared.activate()
         }
     }
 
@@ -26,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The lock file must not outlive the process — a stale one makes the
         // CLI dial a dead port on the next `/ide`.
         ClaudeIDEService.shared.stopBeforeTerminate()
+        ControlService.shared.stopBeforeTerminate()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

@@ -855,3 +855,23 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Preview selection → `ClaudeIDEBridge` (offsets `data-md-lo/hi`, multi-span, text fallback) → Review ▸ +.
 - `window.applyReviewMarks` + CSS wash по типам; `window.scrollToMdOffset` для jump из карточки (fraction fallback).
 - `latestNonEmpty` в bridge — focus hop на + не съедает якорь (Visual/Preview).
+
+## v38 — Complete (editmdctl + control socket + skill) — app **0.38.0**
+
+Мотив: Claude (и скрипты) должны управлять EditMD **без** `/ide` — open file, mode, marks, status. Паттерн agterm: unix-socket + thin CLI + skill. Версия **0.38.0** / build **380**.
+
+- **`ControlProtocol.swift`** — JSON-lines `{id,cmd,args}` → `{id,ok,data|error}`; `ControlSocket.defaultPath` = `~/Library/Application Support/EditMD/control.sock` (override `EDITMD_CONTROL_SOCK`).
+- **`ControlRouter`** (@MainActor): `ping`, `status`, `open` (`--line`/`--heading`), `reveal`, `mode`, `marks.list` / `marks.add`, `diff.show` (buffer vs disk via `lineDiff`).
+- **`ControlServer`** — BSD `AF_UNIX` listen; accept off-main; dispatch `main.sync` → router; socket file `0600`.
+- **`ControlService`** — start at launch (skipped under XCTest); stop + unlink on terminate.
+- **`editmdctl`** — CLI target in `project.yml`; human output or `--json`.
+- **`SkillInstaller`** + `Resources/skills/editmd/SKILL.md`; Help ▸ Install Agent Skill… (confirm + diff on update; optional Codex sibling).
+- Jump from control: `.editMDControlJump` → `EditorPositionStore.requestJump` in main `ContentView`.
+- **Тесты:** `ControlChannelTests` (10) — codec, skill install idempotent, live socket ping/unknown (client off main to avoid deadlock).
+
+### v38 — gotchas
+
+- **Client I/O never on the main thread in-process** — server `main.sync` for router; a main-thread client deadlocks (XCTest must use background client). External `editmdctl` process is fine.
+- **Socket file leftover after crash** — unbound on start (unlink); terminate removes it. XCTest does not touch the user path.
+- **`editmdctl` on PATH** — not auto-installed; build the `editmdctl` scheme / copy from DerivedData. Skill documents this.
+- **`diff.show` ≠ git** — buffer vs on-disk content only.
