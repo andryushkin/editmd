@@ -112,13 +112,18 @@ final class ReviewModel: ObservableObject {
         let start: Int
     }
 
-    /// Snapshots the current editor selection, or nil when nothing is selected
-    /// in the active file. Called on "+", not during rendering.
+    /// Snapshots the editor selection for a new mark. Uses the live selection
+    /// or the bridge's last non-empty snapshot (so clicking Review ▸ + after a
+    /// Visual selection still works when AppKit collapses the caret on focus
+    /// change). Called on "+", not during rendering.
     func captureSelectionAnchor() -> CapturedAnchor? {
-        guard let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
-              sel.url == fileURL,
+        guard let fileURL,
+              let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
+              sel.url.standardizedFileURL == fileURL.standardizedFileURL,
+              sel.range.length > 0,
               let r = Range(sel.range, in: sel.markdown) else { return nil }
         let a = ReviewSidecar.captureAnchor(in: sel.markdown, range: r)
+        guard !a.quote.isEmpty else { return nil }
         return CapturedAnchor(quote: a.quote, prefix: a.prefix, start: a.start)
     }
 

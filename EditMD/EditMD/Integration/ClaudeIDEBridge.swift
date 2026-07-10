@@ -51,8 +51,14 @@ final class ClaudeIDEBridge: ObservableObject {
     /// Once the debounce settles, the latest selection is kept materialized
     /// (positions + selected text) and `latestRaw` is dropped — its document
     /// string would otherwise pin a stale full-document copy after edits
-    /// diverge the COW storage.
+    /// diverge the COW storage. Still used by `getLatestSelection`.
     private var latestMaterialized: IDESelection?
+    /// Last non-empty selection kept for review-mark capture (v37). Clicking
+    /// Review ▸ + moves first-responder out of the NSTextView; AppKit often
+    /// collapses the selection to a caret *before* the button action runs, so
+    /// `raw` is already empty. This snapshot survives that focus hop until the
+    /// active file changes or a new non-empty selection replaces it.
+    private var latestNonEmpty: RawSelection?
     private var selectionNotifyTask: Task<Void, Never>?
 
     private var pendingReveal: (url: URL, range: NSRange, requestedAt: Date)?
@@ -72,6 +78,12 @@ final class ClaudeIDEBridge: ObservableObject {
             raw = nil
             if hasSelection { hasSelection = false }
         }
+        // Drop review/Claude caches that belong to another file.
+        if latestNonEmpty?.url != activeURL {
+            latestNonEmpty = nil
+            latestRaw = nil
+            latestMaterialized = nil
+        }
     }
 
     // MARK: Selection
@@ -89,7 +101,10 @@ final class ClaudeIDEBridge: ObservableObject {
                                      markdown: markdown)
         raw = selection
         let nonEmpty = markdownRange.length > 0
-        if nonEmpty { latestRaw = selection }
+        if nonEmpty {
+            latestRaw = selection
+            latestNonEmpty = selection
+        }
         if hasSelection != nonEmpty { hasSelection = nonEmpty }
         guard nonEmpty else { return }
 
@@ -113,13 +128,20 @@ final class ClaudeIDEBridge: ObservableObject {
         latestRaw.map(Self.materialize) ?? latestMaterialized
     }
 
-    /// The current *non-empty* selection in source coordinates, for creating a
-    /// review mark (phase 2). Unlike `currentSelection`, review needs the raw
-    /// markdown string + `NSRange` to capture a `quote`/`prefix`/`start` anchor.
-    /// Returns nil when there is no selected text.
+    /// Non-empty selection in source coordinates for creating a review mark
+    /// (v37). Prefers the live selection; if the caret already collapsed
+    /// (typical when the user clicked Review ▸ +), falls back to the last
+    /// non-empty snapshot for the active file.
     func reviewSelectionSource() -> ReviewSelectionSource? {
-        guard let raw, raw.range.length > 0 else { return nil }
-        return ReviewSelectionSource(url: raw.url, range: raw.range, markdown: raw.markdown)
+        if let raw, raw.range.length > 0 {
+            return ReviewSelectionSource(url: raw.url, range: raw.range,
+                                         markdown: raw.markdown)
+        }
+        guard let snap = latestNonEmpty, snap.range.length > 0 else { return nil }
+        // Don't attach a mark to file A using a leftover selection from file B.
+        if let activeURL, snap.url != activeURL { return nil }
+        return ReviewSelectionSource(url: snap.url, range: snap.range,
+                                     markdown: snap.markdown)
     }
 
     private nonisolated static func materialize(_ selection: RawSelection) -> IDESelection {

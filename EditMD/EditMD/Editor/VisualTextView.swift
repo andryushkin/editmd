@@ -356,13 +356,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             noteSelectionForClaude(selection: selection, mappedStart: start)
         }
 
-        /// `selection_changed` is specified in markdown-source coordinates, so
-        /// both ends go through the paragraph map — never the display text.
-        /// `mappedStart` reuses storeCursor's scan (the map is O(offset) per
-        /// call); only a non-empty selection pays for mapping its end.
+        /// Selection for Claude IDE *and* review-mark anchors (v37). Both ends
+        /// go through the paragraph map — never the display text. Always stored
+        /// on the bridge (review needs it even when no `/ide` client is
+        /// attached); MCP `selection_changed` no-ops when nobody is connected.
+        /// `mappedStart` reuses storeCursor's scan; only a non-empty selection
+        /// pays for mapping its end.
         private func noteSelectionForClaude(selection: NSRange, mappedStart: Int) {
-            // Integration off → no server, nobody to serve: skip the end map.
-            guard ClaudeIDEService.shared.state.port != nil else { return }
             let end = selection.length == 0
                 ? mappedStart
                 : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? mappedStart)
