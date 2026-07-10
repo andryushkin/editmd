@@ -15,6 +15,15 @@ extension Notification.Name {
     static let claudeIDERevealRequested = Notification.Name("editmd.claudeIDE.reveal")
 }
 
+/// A non-empty selection in markdown-source coordinates, used to anchor a new
+/// review mark (phase 2). Value type so it crosses actor hops freely.
+struct ReviewSelectionSource: Sendable {
+    let url: URL
+    /// Range in **markdown source** coordinates (Visual maps via the v22 map).
+    let range: NSRange
+    let markdown: String
+}
+
 @MainActor
 final class ClaudeIDEBridge: ObservableObject {
 
@@ -102,6 +111,15 @@ final class ClaudeIDEBridge: ObservableObject {
     var currentSelection: IDESelection? { raw.map(Self.materialize) }
     var latestSelection: IDESelection? {
         latestRaw.map(Self.materialize) ?? latestMaterialized
+    }
+
+    /// The current *non-empty* selection in source coordinates, for creating a
+    /// review mark (phase 2). Unlike `currentSelection`, review needs the raw
+    /// markdown string + `NSRange` to capture a `quote`/`prefix`/`start` anchor.
+    /// Returns nil when there is no selected text.
+    func reviewSelectionSource() -> ReviewSelectionSource? {
+        guard let raw, raw.range.length > 0 else { return nil }
+        return ReviewSelectionSource(url: raw.url, range: raw.range, markdown: raw.markdown)
     }
 
     private nonisolated static func materialize(_ selection: RawSelection) -> IDESelection {

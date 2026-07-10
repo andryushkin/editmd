@@ -17,6 +17,7 @@ struct WorkspaceSidebar: View {
     let onOpenFolder: (URL) -> Void
     let onJump: (Int) -> Void
 
+    @ObservedObject private var review = ReviewModel.shared
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("sidebarShowHidden") private var showHidden = false
     /// Bottom filter field — filters Files tree / Outline headings / Git paths.
@@ -40,6 +41,8 @@ struct WorkspaceSidebar: View {
                         filter: filterText,
                         onOpen: onOpen
                     )
+                case "review":
+                    ReviewSidebar(review: review, filter: filterText, onJump: onJump)
                 default:
                     filesTab
                 }
@@ -82,6 +85,11 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "git",
                          systemImage: "arrow.triangle.branch",
                          help: "Git")
+            navDivider
+            navTabButton(id: "review",
+                         systemImage: "text.bubble",
+                         help: "Review",
+                         badge: review.openCount)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 5)
@@ -100,7 +108,8 @@ struct WorkspaceSidebar: View {
             .padding(.horizontal, 3)
     }
 
-    private func navTabButton(id: String, systemImage: String, help: String) -> some View {
+    private func navTabButton(id: String, systemImage: String, help: String,
+                              badge: Int = 0) -> some View {
         let selected = tab == id
         return Button {
             tab = id
@@ -114,10 +123,18 @@ struct WorkspaceSidebar: View {
                     Circle()
                         .fill(selected ? Color.accentColor : Color.clear)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 && !selected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 1, y: -1)
+                    }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .editMDHelp(help)
+        .editMDHelp(badge > 0 ? "\(help) · \(badge) открытых" : help)
     }
 
     // MARK: - Bottom bar (+ · Filter · eye)

@@ -186,12 +186,18 @@ struct ContentView: View {
         }
         .onAppear {
             refreshGitSnapshot(mode: .full, delayMs: 0)
-            if isMain { ClaudeIDEBridge.shared.setActiveURL(fileURL) }
+            if isMain {
+                ClaudeIDEBridge.shared.setActiveURL(fileURL)
+                ReviewModel.shared.setActiveFile(fileURL, text: document.content)
+            }
         }
         .onChange(of: fileURL) { _ in
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
-            if isMain { ClaudeIDEBridge.shared.setActiveURL(fileURL) }
+            if isMain {
+                ClaudeIDEBridge.shared.setActiveURL(fileURL)
+                ReviewModel.shared.setActiveFile(fileURL, text: document.content)
+            }
         }
         // Session marks only — no git Process (delta reuses cached HEAD).
         .onChange(of: lineChanges.revision) { _ in
@@ -200,6 +206,9 @@ struct ContentView: View {
         // Typing: update +/− only; never re-run status/branch/ahead-behind.
         .onChange(of: document.content) { _ in
             refreshGitSnapshot(mode: .deltaOnly, delayMs: 450)
+            // Keep review anchors resolving against the live buffer (cheap: a
+            // String assignment; recompute only happens while the tab is shown).
+            if isMain { ReviewModel.shared.setActiveFile(fileURL, text: document.content) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { note in
             if let url = note.object as? URL {
@@ -212,6 +221,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Meta may have changed in Terminal; keep debounce light.
             refreshGitSnapshot(mode: .full, delayMs: 200)
+            // The sidecar may have been rewritten out-of-band (Claude `/smotr
+            // -pr`, or the smotr web view) — pick up new replies / suggestions.
+            if isMain { ReviewModel.shared.reload() }
         }
     }
 
