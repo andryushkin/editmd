@@ -14,6 +14,9 @@ struct ReviewSidebar: View {
     @State private var composing = false
     @State private var composeType: ReviewMarkType = .comment
     @State private var composeNote = ""
+    /// Selection snapshot taken when the form opened (nil = nothing was
+    /// selected). Held so typing the note doesn't lose the anchor.
+    @State private var pendingAnchor: ReviewModel.CapturedAnchor?
 
     private var filterQuery: String {
         filter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,35 +44,47 @@ struct ReviewSidebar: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Picker("", selection: $review.statusFilter) {
-                ForEach(ReviewModel.StatusFilter.allCases, id: \.self) {
-                    Text($0.label).tag($0)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .fixedSize()
-
+            statusFilterMenu
             typeFilterMenu
-
             Spacer(minLength: 0)
-
-            Button {
-                composing.toggle()
-            } label: {
+            Button { toggleCompose() } label: {
                 Image(systemName: composing ? "xmark" : "plus")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!composing && !review.canAddMark)
-            .editMDHelp(review.canAddMark
-                        ? "Добавить метку из выделения"
-                        : "Выдели текст в редакторе, чтобы поставить метку")
+            .editMDHelp("Добавить метку из выделения")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    // Menus (with an explicit frame, no `.fixedSize()`) — the proven pattern in
+    // this sidebar. A `.fixedSize()` Picker/Menu here sends NSHostingView into a
+    // layout↔render cycle inside the animated sidebar column.
+    private var statusFilterMenu: some View {
+        Menu {
+            ForEach(ReviewModel.StatusFilter.allCases, id: \.self) { f in
+                Button { review.statusFilter = f } label: {
+                    if review.statusFilter == f {
+                        Label(f.label, systemImage: "checkmark")
+                    } else {
+                        Text(f.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(review.statusFilter.label)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 92, alignment: .leading)
     }
 
     private var typeFilterMenu: some View {
@@ -77,9 +92,7 @@ struct ReviewSidebar: View {
             Button("Все типы") { review.typeFilter = nil }
             Divider()
             ForEach(ReviewMarkType.allCases.filter { $0 != .suggest }, id: \.self) { t in
-                Button {
-                    review.typeFilter = t
-                } label: {
+                Button { review.typeFilter = t } label: {
                     Label(t.label, systemImage: t.glyph)
                 }
             }
@@ -87,56 +100,91 @@ struct ReviewSidebar: View {
             Image(systemName: review.typeFilter?.glyph ?? "line.3.horizontal.decrease.circle")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(review.typeFilter == nil ? Color.secondary : Color.accentColor)
+                .frame(width: 22, height: 22)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
+        .frame(width: 22, height: 22)
         .editMDHelp("Фильтр по типу")
     }
 
     // MARK: Compose
 
-    private var composeForm: some View {
+    @ViewBuilder private var composeForm: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Picker("", selection: $composeType) {
-                ForEach(ReviewMarkType.allCases.filter { $0 != .suggest }, id: \.self) { t in
-                    Label(t.label, systemImage: t.glyph).tag(t)
+            if let anchor = pendingAnchor {
+                HStack(spacing: 4) {
+                    Rectangle().fill(Color.accentColor.opacity(0.5)).frame(width: 2)
+                    Text(anchor.quote)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
 
-            TextEditor(text: $composeNote)
-                .font(.system(size: 12))
-                .frame(height: 48)
-                .overlay(RoundedRectangle(cornerRadius: 5)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                Menu {
+                    ForEach(ReviewMarkType.allCases.filter { $0 != .suggest }, id: \.self) { t in
+                        Button { composeType = t } label: { Label(t.label, systemImage: t.glyph) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: composeType.glyph)
+                        Text(composeType.label)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(height: 20)
 
-            HStack {
-                Spacer()
-                Button("Отмена") { cancelCompose() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                Button("Поставить") { saveCompose() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(!review.canAddMark)
+                TextEditor(text: $composeNote)
+                    .font(.system(size: 12))
+                    .frame(height: 48)
+                    .scrollContentBackground(.hidden)
+                    .overlay(RoundedRectangle(cornerRadius: 5)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+
+                HStack {
+                    Spacer()
+                    Button("Отмена") { cancelCompose() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    Button("Поставить") { saveCompose() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
+                .font(.system(size: 11))
+            } else {
+                Label("Выдели текст в редакторе (режим Source), затем нажми + ещё раз",
+                      systemImage: "hand.point.up.left")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 11))
         }
         .padding(8)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
     }
 
-    private func saveCompose() {
-        if review.addMarkFromSelection(type: composeType, note: composeNote) {
+    private func toggleCompose() {
+        if composing {
             cancelCompose()
+        } else {
+            pendingAnchor = review.captureSelectionAnchor()
+            composing = true
         }
+    }
+
+    private func saveCompose() {
+        guard let anchor = pendingAnchor else { return }
+        review.addMark(anchor: anchor, type: composeType, note: composeNote)
+        cancelCompose()
     }
 
     private func cancelCompose() {
         composing = false
         composeNote = ""
+        pendingAnchor = nil
     }
 
     // MARK: List

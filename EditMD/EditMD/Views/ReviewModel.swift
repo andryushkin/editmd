@@ -88,10 +88,23 @@ final class ReviewModel: ObservableObject {
 
     var openCount: Int { doc.openCount }
 
-    /// True while the current selection can seed a new mark.
-    var canAddMark: Bool {
-        guard let sel = ClaudeIDEBridge.shared.reviewSelectionSource() else { return false }
-        return sel.url == fileURL
+    /// An anchor snapshotted from the editor selection at the instant the
+    /// compose form opens. Captured once — not re-read while the user types the
+    /// note, so moving focus into the text field can't clear it.
+    struct CapturedAnchor: Equatable {
+        let quote: String
+        let prefix: String
+        let start: Int
+    }
+
+    /// Snapshots the current editor selection, or nil when nothing is selected
+    /// in the active file. Called on "+", not during rendering.
+    func captureSelectionAnchor() -> CapturedAnchor? {
+        guard let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
+              sel.url == fileURL,
+              let r = Range(sel.range, in: sel.markdown) else { return nil }
+        let a = ReviewSidecar.captureAnchor(in: sel.markdown, range: r)
+        return CapturedAnchor(quote: a.quote, prefix: a.prefix, start: a.start)
     }
 
     /// Resolved anchor ranges for the active buffer (for highlighting / jump).
@@ -102,19 +115,13 @@ final class ReviewModel: ObservableObject {
 
     // MARK: Mutations
 
-    /// Creates a mark from the current editor selection. Returns false when
-    /// there is nothing selected (caller keeps the compose form open).
-    @discardableResult
-    func addMarkFromSelection(type: ReviewMarkType, note: String) -> Bool {
-        guard let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
-              sel.url == fileURL,
-              let r = Range(sel.range, in: sel.markdown) else { return false }
-        let a = ReviewSidecar.captureAnchor(in: sel.markdown, range: r)
-        let mark = ReviewMark(type: type, quote: a.quote, prefix: a.prefix,
-                              start: a.start, note: note)
+    /// Creates a mark from a previously captured anchor (snapshot taken when the
+    /// compose form opened).
+    func addMark(anchor: CapturedAnchor, type: ReviewMarkType, note: String) {
+        let mark = ReviewMark(type: type, quote: anchor.quote, prefix: anchor.prefix,
+                              start: anchor.start, note: note)
         doc.upsert(mark)
         persist()
-        return true
     }
 
     func reply(to id: String, text: String) {
