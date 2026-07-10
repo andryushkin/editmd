@@ -17,6 +17,11 @@ final class LineChangeTracker: ObservableObject {
 
     private var baseline: [URL: String] = [:]
     private var dirty: [URL: Set<Int>] = [:]
+    /// Pending debounced recompute per file (large buffers only).
+    private var recomputeTasks: [URL: Task<Void, Never>] = [:]
+
+    /// Above this combined size the per-keystroke diff moves off-main + debounced.
+    private static let inlineDiffLimit = 32_768
 
     private init() {}
 
@@ -25,10 +30,6 @@ final class LineChangeTracker: ObservableObject {
     func dirtyLines(for url: URL?) -> Set<Int> {
         guard let url else { return [] }
         return dirty[url.standardizedFileURL] ?? []
-    }
-
-    func isDirty(line: Int, url: URL?) -> Bool {
-        dirtyLines(for: url).contains(line)
     }
 
     /// Files with a session baseline (open / recently edited).
@@ -42,13 +43,16 @@ final class LineChangeTracker: ObservableObject {
     func noteBaseline(url: URL?, content: String) {
         guard let url else { return }
         let key = url.standardizedFileURL
+        cancelRecompute(key)
         baseline[key] = content
         dirty[key] = []
         bump()
         GitCommitWatcher.shared.noteOpened(url: key)
     }
 
-    /// User typed or paste: recompute dirty vs baseline.
+    /// User typed or paste: recompute dirty vs baseline. Small buffers diff
+    /// inline; large ones are debounced and diffed off the main actor — a full
+    /// Myers line diff per keystroke on main hitched typing in big files.
     func noteContent(url: URL?, content: String) {
         guard let url else { return }
         let key = url.standardizedFileURL
@@ -59,10 +63,22 @@ final class LineChangeTracker: ObservableObject {
             bump()
             return
         }
-        let next = Self.dirtyLineNumbers(baseline: base, current: content)
-        if dirty[key] != next {
-            dirty[key] = next
-            bump()
+        cancelRecompute(key)
+        if base.utf16.count + content.utf16.count <= Self.inlineDiffLimit {
+            applyDirty(Self.dirtyLineNumbers(baseline: base, current: content), for: key)
+            return
+        }
+        recomputeTasks[key] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let next = await Task.detached(priority: .utility) {
+                LineChangeTracker.dirtyLineNumbers(baseline: base, current: content)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            // Baseline moved while diffing (external reload / commit) — stale.
+            guard self.baseline[key] == base else { return }
+            self.recomputeTasks[key] = nil
+            self.applyDirty(next, for: key)
         }
     }
 
@@ -70,6 +86,7 @@ final class LineChangeTracker: ObservableObject {
     func clearMarks(url: URL?) {
         guard let url else { return }
         let key = url.standardizedFileURL
+        cancelRecompute(key)
         if dirty[key]?.isEmpty == false {
             dirty[key] = []
             bump()
@@ -80,23 +97,30 @@ final class LineChangeTracker: ObservableObject {
     func forget(url: URL?) {
         guard let url else { return }
         let key = url.standardizedFileURL
+        cancelRecompute(key)
         baseline.removeValue(forKey: key)
         dirty.removeValue(forKey: key)
         GitCommitWatcher.shared.forget(url: key)
         bump()
     }
 
-    func clearAll() {
-        baseline.removeAll()
-        dirty.removeAll()
-        bump()
+    private func cancelRecompute(_ key: URL) {
+        recomputeTasks[key]?.cancel()
+        recomputeTasks[key] = nil
+    }
+
+    private func applyDirty(_ next: Set<Int>, for key: URL) {
+        if dirty[key] != next {
+            dirty[key] = next
+            bump()
+        }
     }
 
     // MARK: - Pure recompute
 
     /// Current-document line numbers (1-based) that are inserts or replacements
-    /// relative to baseline (LCS line diff).
-    static func dirtyLineNumbers(baseline: String, current: String) -> Set<Int> {
+    /// relative to baseline (LCS line diff). Pure — callable off the main actor.
+    nonisolated static func dirtyLineNumbers(baseline: String, current: String) -> Set<Int> {
         if baseline == current { return [] }
         let result = lineDiff(before: baseline, after: current)
         var dirty = Set<Int>()

@@ -162,7 +162,6 @@ struct ContentView: View {
             if let url = fileURL {
                 GitCommitSheet(
                     fileURL: url,
-                    documentContent: document.content,
                     onClose: {
                         showGitCommit = false
                         GitHeadContentCache.invalidate(url: url)
@@ -235,9 +234,9 @@ struct ContentView: View {
 
     private func pushFocusedFile() {
         guard let url = fileURL else { return }
+        // Off-main; a successful push posts .gitRepositoryDidChange, which the
+        // onReceive above turns into invalidate + full snapshot refresh.
         GitPushConfirm.run(for: url)
-        GitHeadContentCache.invalidate(url: url)
-        refreshGitSnapshot(mode: .full, delayMs: 0)
     }
 
     // MARK: - External change banner actions

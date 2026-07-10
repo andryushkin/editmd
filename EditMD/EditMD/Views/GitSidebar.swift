@@ -73,7 +73,6 @@ struct GitSidebar: View {
             if let url = commitURL {
                 GitCommitSheet(
                     fileURL: url,
-                    documentContent: DocumentRegistry.shared.contentIfOpen(url) ?? "",
                     onClose: {
                         showCommit = false
                         commitURL = nil
@@ -370,8 +369,12 @@ struct GitSidebar: View {
     }
 
     private func presentDiff(_ url: URL) {
-        diffContent = GitWorkspaceStatus.diffSheetContent(for: url)
-        showDiff = true
+        Task { @MainActor in
+            // git show runs off-main; open the sheet when content is ready.
+            let content = await GitWorkspaceStatus.diffSheetContent(for: url)
+            diffContent = content
+            showDiff = true
+        }
     }
 
     /// Cheap: update session/buffer badges without spawning git.
@@ -466,8 +469,8 @@ struct GitSidebar: View {
     }
 
     private func pushRepo(_ root: URL) {
-        // Push is blocking (credential helper); same path as File menu.
+        // Push runs off-main; a successful push posts .gitRepositoryDidChange,
+        // which already triggers refresh(immediate:) above.
         GitPushConfirm.run(for: root)
-        refresh(immediate: true)
     }
 }

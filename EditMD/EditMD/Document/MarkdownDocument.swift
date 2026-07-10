@@ -205,12 +205,18 @@ final class MarkdownDocument: ReferenceFileDocument {
         guard baseline != content else { return }
         // Content is already at the new value — register restore only.
         let um = undo.manager
+        // When `groupsByEvent` is false (tests / programmatic stacks), registerUndo
+        // requires an open group — otherwise NSUndoManager traps (same guard as
+        // `applyUndoableContent`).
+        let needsGroup = !um.groupsByEvent && !um.isUndoing && !um.isRedoing
+        if needsGroup { um.beginUndoGrouping() }
         um.registerUndo(withTarget: self) { document in
             MainActor.assumeIsolated {
                 document.applyUndoableContent(baseline, actionName: actionName)
             }
         }
         um.setActionName(actionName)
+        if needsGroup { um.endUndoGrouping() }
     }
 
     /// Edit ▸ Undo — flush coalesced typing first so the last keystrokes aren't lost.

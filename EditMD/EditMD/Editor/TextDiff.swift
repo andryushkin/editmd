@@ -25,6 +25,14 @@ struct LineDiffResult: Equatable, Sendable {
     var isEmpty: Bool { added == 0 && removed == 0 }
 }
 
+/// `splitDiffLines(text).count` without allocating per-line Strings — for
+/// hot paths that only need the count (gutter width, size caps).
+func countDiffLines(_ text: String) -> Int {
+    var count = 1
+    for byte in text.utf8 where byte == 0x0A { count += 1 }
+    return count
+}
+
 /// Splits on `\n` keeping empty trailing segments so `"a\n"` ≠ `"a"`.
 func splitDiffLines(_ text: String) -> [String] {
     if text.isEmpty { return [""] }

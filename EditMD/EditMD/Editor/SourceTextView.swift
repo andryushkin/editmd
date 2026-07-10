@@ -259,7 +259,7 @@ struct SourceTextView: NSViewRepresentable {
             // Source: display line ≡ source line (identity map).
             let dirty = LineChangeTracker.shared.dirtyLines(for: parent.fileURL)
             let font = EditorSettings.shared.source.resolvedFont(defaultMono: true)
-            let sourceLines = max(1, splitDiffLines(parent.document.content).count)
+            let sourceLines = max(1, countDiffLines(parent.document.content))
             textView.installOrUpdateLineNumberRuler(
                 fileURL: parent.fileURL,
                 dirtySourceLines: dirty,

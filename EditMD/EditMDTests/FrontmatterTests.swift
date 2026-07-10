@@ -121,7 +121,10 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertTrue(html.contains("table class=\"frontmatter\""), html)
         XCTAssertTrue(html.contains("<td class=\"fm-key\">title</td>"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule
-        XCTAssertTrue(html.contains("<h1>H</h1>"), html)
+        // Heading text is wrapped in a click-to-edit source span (<h1><span
+        // data-md-lo…>H</span></h1>) — match structurally, not literally.
+        XCTAssertNotNil(html.range(of: #"<h1>(<span[^>]*>)?H(</span>)?</h1>"#,
+                                   options: .regularExpression), html)
     }
 
     func testFrontmatterListRendersChips() {

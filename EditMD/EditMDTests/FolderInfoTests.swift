@@ -144,7 +144,7 @@ final class FolderCreateWorkspaceTests: XCTestCase {
         let file = try model.createMarkdownFile(named: "Hello", in: dir)
         XCTAssertEqual(file.lastPathComponent, "Hello.md")
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
-        XCTAssertEqual(model.markdownFiles(in: dir).map(\.lastPathComponent), ["Hello.md"])
+        XCTAssertEqual(model.primeFolderListing(dir).map(\.lastPathComponent), ["Hello.md"])
 
         let sub = try model.createSubfolder(named: "Nested", in: dir)
         // Parent is a workspace root → expandWorkspace (collapsed flag), not

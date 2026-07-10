@@ -49,20 +49,83 @@ final class WorkspaceModel: ObservableObject {
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
         expandedFolders = Self.load(defaults, Keys.expanded) ?? []
+        // Folder contents may change in Finder/Terminal while EditMD is in the
+        // background — re-validate listings lazily on return (selector-based:
+        // the block API's @Sendable closure clashes with @MainActor).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil)
+    }
+
+    @objc private func appDidBecomeActive() {
+        noteFilesystemChange()
     }
 
     // MARK: - Folder scan
 
-    private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
+    nonisolated private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
+
+    /// path → (epoch, direct md children). Views read listings through this
+    /// cache: a single blocked `contentsOfDirectory` (TCC arbitration, dead
+    /// network mount, huge directory) used to freeze the whole app because the
+    /// sidebar listed folders synchronously in its SwiftUI body.
+    private var folderListings: [String: (epoch: Int, files: [URL])] = [:]
+    private var listingScansInFlight = Set<String>()
 
     /// Direct markdown children of a folder (flat, non-recursive), name-sorted.
+    /// Non-blocking, stale-while-revalidate: a cache miss returns [] and fills
+    /// off the main actor; an out-of-epoch hit is served as-is while a refresh
+    /// runs (no flicker on `contentEpoch` bumps).
     func markdownFiles(in folder: URL) -> [URL] {
+        let key = folder.standardizedFileURL
+        let path = key.path
+        if let hit = folderListings[path] {
+            if hit.epoch != contentEpoch {
+                scheduleListingScan(path: path, folder: key, epoch: contentEpoch)
+            }
+            return hit.files
+        }
+        scheduleListingScan(path: path, folder: key, epoch: contentEpoch)
+        return []
+    }
+
+    /// Synchronous list + cache fill — for tests and explicit refresh paths
+    /// that need the result immediately.
+    @discardableResult
+    func primeFolderListing(_ folder: URL) -> [URL] {
+        let key = folder.standardizedFileURL
+        let files = Self.listMarkdownFiles(in: key)
+        folderListings[key.path] = (contentEpoch, files)
+        return files
+    }
+
+    private func scheduleListingScan(path: String, folder: URL, epoch: Int) {
+        guard !listingScansInFlight.contains(path) else { return }
+        listingScansInFlight.insert(path)
+        Task { [weak self] in
+            let files = await Task.detached(priority: .userInitiated) {
+                Self.listMarkdownFiles(in: folder)
+            }.value
+            guard let self else { return }
+            self.listingScansInFlight.remove(path)
+            guard self.contentEpoch == epoch else { return }
+            let changed = self.folderListings[path]?.files != files
+            self.folderListings[path] = (epoch, files)
+            if changed {
+                self.objectWillChange.send()
+            }
+        }
+    }
+
+    nonisolated private static func listMarkdownFiles(in folder: URL) -> [URL] {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: folder,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles])) ?? []
         return items
-            .filter { Self.markdownExtensions.contains($0.pathExtension.lowercased()) }
+            .filter { markdownExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
@@ -83,18 +146,53 @@ final class WorkspaceModel: ObservableObject {
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
+    /// Paths with a background tree-stats scan in flight (no duplicate walks).
+    private var treeStatsScansInFlight = Set<String>()
+
     /// Tree stats for `folder` (counts + direct md/empty child folders). Uses
     /// `FolderStatsCache` keyed by path + `contentEpoch` so the sidebar and
     /// folder card share one scan.
+    ///
+    /// Non-blocking: this is called from SwiftUI body (sidebar), so a cache
+    /// miss returns empty stats and fills the cache off the main actor — a
+    /// synchronous full-tree walk here froze app startup for minutes on a big
+    /// workspace (sample: `contentsOfDirectory` on the main thread).
     func treeStats(for folder: URL) -> FolderTreeStats {
         let path = folder.standardizedFileURL.path
         let epoch = contentEpoch
-        if let cached = FolderStatsCache.lookup(path: path, epoch: epoch) {
-            return cached
+        if let entry = FolderStatsCache.lookupAny(path: path) {
+            // Stale-while-revalidate: keep showing the old tree while the
+            // rescan runs so an epoch bump doesn't blank the sidebar.
+            if entry.epoch != epoch {
+                scheduleTreeStatsScan(path: path, folder: folder.standardizedFileURL, epoch: epoch)
+            }
+            return entry.stats
         }
-        let stats = scanFolderTreeStats(at: folder.standardizedFileURL)
-        FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
-        return stats
+        scheduleTreeStatsScan(path: path, folder: folder.standardizedFileURL, epoch: epoch)
+        return FolderTreeStats(markdownCount: 0, subfolderCount: 0,
+                               directMarkdownFolders: [], directEmptyFolders: [])
+    }
+
+    /// One background scan per path; publishes when the cache fills so the
+    /// sidebar re-renders with the real subfolder lists.
+    private func scheduleTreeStatsScan(path: String, folder: URL, epoch: Int) {
+        guard !treeStatsScansInFlight.contains(path) else { return }
+        treeStatsScansInFlight.insert(path)
+        Task { [weak self] in
+            let stats = await Task.detached(priority: .userInitiated) {
+                scanFolderTreeStats(at: folder)
+            }.value
+            guard let self else { return }
+            self.treeStatsScansInFlight.remove(path)
+            // Epoch advanced while scanning (New File/Folder) — stale result;
+            // the next body pass re-requests against the new epoch.
+            guard self.contentEpoch == epoch else { return }
+            let changed = FolderStatsCache.lookupAny(path: path)?.stats != stats
+            FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
+            if changed {
+                self.objectWillChange.send()
+            }
+        }
     }
 
     /// Direct child folders that contain markdown somewhere in their tree.

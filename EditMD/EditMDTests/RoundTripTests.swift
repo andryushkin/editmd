@@ -16,6 +16,13 @@ final class RoundTripTests: XCTestCase {
             .replacingOccurrences(of: #"<!--[\s\S]*?-->"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"<div class="raw-html">\s*</div>"#, with: "",
                                   options: .regularExpression)
+            // Source offsets legitimately shift when a normalizing round-trip
+            // changes the text (delimiter padding, inserted list fences) —
+            // the fingerprint compares semantics, not positions.
+            .replacingOccurrences(of: #" data-md-(lo|hi)="\d+""#, with: "",
+                                  options: .regularExpression)
+            .replacingOccurrences(of: #" data-ln="\d+""#, with: "",
+                                  options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
     }

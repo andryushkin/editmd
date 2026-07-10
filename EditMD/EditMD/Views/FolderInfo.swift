@@ -168,6 +168,11 @@ enum FolderStatsCache {
         return entry.stats
     }
 
+    /// Entry regardless of epoch — stale-while-revalidate readers.
+    static func lookupAny(path: String) -> (epoch: Int, stats: FolderTreeStats)? {
+        store[path]
+    }
+
     static func store(path: String, epoch: Int, stats: FolderTreeStats) {
         store[path] = (epoch, stats)
     }

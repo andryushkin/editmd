@@ -36,6 +36,7 @@ final class WorkspaceModelTests: XCTestCase {
     func testScanFiltersToMarkdownAndSorts() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)
+        model.primeFolderListing(dir)   // listings fill async in the app
         XCTAssertEqual(names(model.visibleFiles(model.workspaces[0])),
                        ["a.md", "b.md", "sub.textbundle"])   // note.txt excluded, sorted
     }
@@ -43,6 +44,7 @@ final class WorkspaceModelTests: XCTestCase {
     func testHideUnhide() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)
+        model.primeFolderListing(dir)
         let ws = model.workspaces[0]
         let a = dir.appendingPathComponent("a.md")
 
@@ -64,6 +66,7 @@ final class WorkspaceModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         let deep = nested.appendingPathComponent("deep.md")
         try "x".write(to: deep, atomically: true, encoding: .utf8)
+        model.primeFolderListing(nested)
 
         XCTAssertEqual(model.relativePath(of: deep, in: model.workspaces[0]), "nested/deep.md")
         model.hide(deep)
@@ -97,6 +100,7 @@ final class WorkspaceModelTests: XCTestCase {
         m1.hide(dir.appendingPathComponent("a.md"), in: m1.workspaces[0])
 
         let m2 = WorkspaceModel(defaults: defaults)   // reloads from the same suite
+        m2.primeFolderListing(dir)
         XCTAssertEqual(m2.workspaces.map(\.folderPath), [dir.standardizedFileURL.path])
         XCTAssertEqual(m2.hiddenFiles[dir.standardizedFileURL.path], ["a.md"])
         XCTAssertEqual(names(m2.visibleFiles(m2.workspaces[0])), ["b.md", "sub.textbundle"])

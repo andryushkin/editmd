@@ -1,0 +1,769 @@
+import AppKit
+
+// MARK: - Text view with drawn markers
+
+/// A large table drawn as a virtualized, read-only grid rather than laid out as
+/// NSTextTable cells (which peg the CPU past a few thousand cells). `range` is
+/// the island paragraph whose (hidden) pipe text reserves the vertical space;
+/// `columnEdges` are absolute x positions left→right including the right edge;
+/// `rowHeight` is the fixed height each display line was pinned to, so row rects
+/// are computed arithmetically — no full line-fragment enumeration, which is
+/// what keeps a 9000-row table cheap to draw.
+struct TableIslandEntry {
+    let range: NSRange
+    let grid: TableGrid
+    let columnEdges: [CGFloat]
+    let rowHeight: CGFloat
+    let font: NSFont
+    let headerFont: NSFont
+}
+
+private final class TableCellEditorField: NSTextField {
+    var onCommit: ((String) -> Void)?
+    var onCancel: (() -> Void)?
+    var onMove: ((Bool) -> Void)?      // true: forward, false: backward
+    var onDeleteRow: (() -> Void)?
+    var onTextChange: ((String) -> Void)?
+
+    override func textDidChange(_ notification: Notification) {
+        super.textDidChange(notification)
+        onTextChange?(stringValue)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: // Esc
+            onCancel?()
+        case 48: // Tab
+            onCommit?(stringValue)
+            onMove?(!event.modifierFlags.contains(.shift))
+        case 51 where event.modifierFlags.contains(.command): // Cmd+Backspace
+            onDeleteRow?()
+        case 36, 76: // Enter/Return
+            onCommit?(stringValue)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
+private final class TableCellEditorCell: NSTextFieldCell {
+    var insets: NSSize = .zero
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        rect.insetBy(dx: insets.width, dy: insets.height)
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        rect.insetBy(dx: insets.width, dy: insets.height)
+    }
+
+    override func select(withFrame frame: NSRect, in controlView: NSView, editor textObj: NSText,
+                         delegate anObject: Any?, start selStart: Int, length selLength: Int) {
+        let rect = frame.insetBy(dx: insets.width, dy: insets.height)
+        super.select(withFrame: rect, in: controlView, editor: textObj,
+                     delegate: anObject, start: selStart, length: selLength)
+    }
+}
+
+final class VisualNSTextView: NSTextView {
+    var theme: EditorTheme = .system
+    var bulletEntries: [(range: NSRange, depth: Int)] = []
+    var numberEntries: [(range: NSRange, depth: Int, number: Int)] = []
+    var taskEntries: [(range: NSRange, depth: Int, done: Bool)] = []
+    var quoteEntries: [(range: NSRange, depth: Int)] = []
+    var codePanelRanges: [NSRange] = []
+    var ruleRanges: [NSRange] = []
+    var headingDividerRanges: [NSRange] = []
+    var tableIslandEntries: [TableIslandEntry] = [] {
+        didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
+    }
+    var propertiesPanelRanges: [NSRange] = []
+    private var islandHorizontalOffsets: [Int: CGFloat] = [:]
+    private var focusedIslandCell: (paragraphLocation: Int, row: Int, column: Int)?
+    private var activeEditor: TableCellEditorField?
+    private var activeEditorCell: (paragraphLocation: Int, row: Int, column: Int)?
+    /// Cache of rendered cell attributed strings for the current island set
+    /// (invalidated when `tableIslandEntries` is reassigned).
+    private var tableCellAttrCache: [String: NSAttributedString] = [:]
+
+    private var visualCoordinator: VisualMarkdownView.Coordinator? {
+        delegate as? VisualMarkdownView.Coordinator
+    }
+    private var editorSettings: VisualTableEditorSettings { EditorSettings.shared.visualTableEditor }
+
+    // Paste always as plain text — outside rich content would corrupt the model.
+    override func paste(_ sender: Any?) {
+        pasteAsPlainText(sender)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if activeEditor != nil, let hit = tableCellHit(at: point) {
+            // Fast path: switch editor directly to another cell.
+            finishActiveTableEditing(commit: true)
+            focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+            _ = startEditingTableCell(paragraphLocation: hit.entry.range.location,
+                                      row: hit.row, column: hit.column)
+            return
+        }
+        if let editor = activeEditor,
+           !editor.frame.insetBy(dx: -editorSettings.editorCellInset, dy: -editorSettings.editorCellInset).contains(point) {
+            finishActiveTableEditing(commit: true)
+        }
+        if event.clickCount >= 2, startEditingTableCell(at: point) {
+            return
+        }
+        if let hit = tableCellHit(at: point) {
+            focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+        } else {
+            focusedIslandCell = nil
+        }
+        if let paragraph = taskParagraph(at: point) {
+            visualCoordinator?.toggleTaskDone(at: paragraph)
+            return
+        }
+        if event.modifierFlags.contains(.command),
+           let payload = wikiPayload(at: point) {
+            visualCoordinator?.openWikiLink(payload)
+            return
+        }
+        if event.modifierFlags.contains(.command),
+           let url = linkURL(at: point) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 120, beginEditingFocusedTableCell() { // F2
+            return
+        }
+        if (event.keyCode == 36 || event.keyCode == 76), beginEditingFocusedTableCell() {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hit = tableCellHit(at: point) else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let wantsHorizontal = event.modifierFlags.contains(.shift) || abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+        guard wantsHorizontal else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let key = hit.entry.range.location
+        let current = islandHorizontalOffsets[key] ?? 0
+        let maxOffset = max(0, (hit.entry.columnEdges.last ?? 0) - textContainerInset.width - (bounds.width - textContainerInset.width * 2))
+        let next = min(max(0, current + event.scrollingDeltaX + event.scrollingDeltaY), maxOffset)
+        if abs(next - current) > 0.5 {
+            islandHorizontalOffsets[key] = next
+            needsDisplay = true
+        }
+    }
+
+    private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+        return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
+    }
+
+    private func linkURL(at point: NSPoint) -> URL? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length,
+              let dest = storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String,
+              let url = URL(string: dest), url.scheme != nil else { return nil }
+        return url
+    }
+
+    private func taskParagraph(at point: NSPoint) -> NSRange? {
+        for entry in taskEntries {
+            if let rect = markerRect(forParagraph: entry.range),
+               rect.insetBy(dx: -3, dy: -3).contains(point) {
+                return entry.range
+            }
+        }
+        return nil
+    }
+
+    private func tableCellHit(at point: NSPoint) -> (entry: TableIslandEntry, row: Int, column: Int, rect: NSRect)? {
+        guard let layoutManager else { return nil }
+        let totalLength = (string as NSString).length
+        for entry in tableIslandEntries {
+            guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { continue }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { continue }
+            let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let top = firstRect.minY + textContainerInset.height
+            let totalRows = entry.grid.rows.count + 1
+            let height = CGFloat(totalRows) * entry.rowHeight
+            let islandRect = NSRect(x: textContainerInset.width, y: top, width: bounds.width - textContainerInset.width * 2, height: height)
+            guard islandRect.contains(point) else { continue }
+            let offset = islandHorizontalOffsets[entry.range.location] ?? 0
+            let row = min(totalRows - 1, max(0, Int((point.y - top) / entry.rowHeight)))
+            let x = point.x + offset
+            var column = 0
+            while column + 1 < entry.columnEdges.count, x >= entry.columnEdges[column + 1] {
+                column += 1
+            }
+            column = min(max(0, column), entry.grid.columnCount - 1)
+            let left = entry.columnEdges[column] - offset
+            let right = entry.columnEdges[column + 1] - offset
+            let rect = NSRect(x: left, y: top + CGFloat(row) * entry.rowHeight, width: right - left, height: entry.rowHeight)
+            return (entry, row, column, rect)
+        }
+        return nil
+    }
+
+    private func beginEditingFocusedTableCell() -> Bool {
+        guard activeEditor == nil, let focus = focusedIslandCell else { return false }
+        return startEditingTableCell(paragraphLocation: focus.paragraphLocation, row: focus.row, column: focus.column)
+    }
+
+    private func startEditingTableCell(at point: NSPoint) -> Bool {
+        guard let hit = tableCellHit(at: point) else { return false }
+        focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
+        return startEditingTableCell(paragraphLocation: hit.entry.range.location, row: hit.row, column: hit.column)
+    }
+
+    private func startEditingTableCell(paragraphLocation: Int, row: Int, column: Int) -> Bool {
+        if let current = activeEditorCell {
+            if current.paragraphLocation == paragraphLocation && current.row == row && current.column == column {
+                return true
+            }
+            finishActiveTableEditing(commit: true)
+        }
+        guard activeEditor == nil else { return false }
+        guard let entry = tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else { return false }
+        let offset = islandHorizontalOffsets[paragraphLocation] ?? 0
+        guard column >= 0, column < entry.grid.columnCount else { return false }
+        let totalRows = entry.grid.rows.count + 1
+        guard row >= 0, row < totalRows else { return false }
+        let cells = row == 0 ? entry.grid.headers : entry.grid.rows[row - 1]
+        let value = column < cells.count ? cells[column] : ""
+        guard let layoutManager else { return false }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return false }
+        let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        let top = firstRect.minY + textContainerInset.height
+        let left = entry.columnEdges[column] - offset
+        let right = entry.columnEdges[column + 1] - offset
+        let cellInset = editorSettings.editorCellInset
+        let cellFrame = NSRect(x: left + cellInset, y: top + CGFloat(row) * entry.rowHeight + cellInset,
+                               width: max(32, right - left - cellInset * 2),
+                               height: max(20, entry.rowHeight - cellInset * 2))
+        let frame = expandedEditorFrame(for: value, cellFrame: cellFrame, font: row == 0 ? entry.headerFont : entry.font)
+        let editor = TableCellEditorField(frame: frame)
+        let cell = TableCellEditorCell()
+        cell.insets = NSSize(width: editorSettings.editorTextInsetH, height: editorSettings.editorTextInsetV)
+        editor.cell = cell
+        editor.font = row == 0 ? entry.headerFont : entry.font
+        editor.isBezeled = false
+        editor.isBordered = false
+        editor.drawsBackground = true
+        editor.stringValue = value
+        editor.focusRingType = .none
+        editor.backgroundColor = editorSettings.editorBackgroundColor
+        editor.textColor = editorSettings.editorTextColor
+        editor.lineBreakMode = .byWordWrapping
+        editor.usesSingleLineMode = false
+        editor.onCommit = { [weak self] text in
+            guard let self else { return }
+            _ = self.visualCoordinator?.updateTableIslandCell(
+                paragraphLocation: paragraphLocation, row: row, column: column, value: text)
+            self.endCellEditing()
+            self.focusedIslandCell = (paragraphLocation, row, column)
+        }
+        editor.onCancel = { [weak self] in
+            self?.endCellEditing()
+        }
+        editor.onMove = { [weak self] forward in
+            guard let self else { return }
+            guard let current = self.focusedIslandCell,
+                  current.paragraphLocation == paragraphLocation else { return }
+            guard let currentEntry = self.tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else { return }
+            let rows = currentEntry.grid.rows.count + 1
+            if let next = nextTableCellPosition(row: row, column: column, columns: currentEntry.grid.columnCount,
+                                                rows: rows, forward: forward) {
+                self.focusedIslandCell = (paragraphLocation, next.row, next.column)
+                _ = self.startEditingTableCell(paragraphLocation: paragraphLocation, row: next.row, column: next.column)
+            } else if forward {
+                if self.visualCoordinator?.insertTableIslandRow(paragraphLocation: paragraphLocation,
+                                                                atBodyIndex: currentEntry.grid.rows.count) == true {
+                    let nextRow = rows
+                    self.focusedIslandCell = (paragraphLocation, nextRow, 0)
+                    _ = self.startEditingTableCell(paragraphLocation: paragraphLocation, row: nextRow, column: 0)
+                }
+            }
+        }
+        editor.onDeleteRow = { [weak self] in
+            guard let self else { return }
+            guard row > 0 else { return }
+            if self.visualCoordinator?.deleteTableIslandRow(paragraphLocation: paragraphLocation,
+                                                            atBodyIndex: row - 1) == true {
+                self.endCellEditing()
+                let nextRow = max(1, row - 1)
+                self.focusedIslandCell = (paragraphLocation, nextRow, column)
+            }
+        }
+        editor.onTextChange = { [weak self, weak editor] text in
+            guard let self, let editor else { return }
+            let resized = self.expandedEditorFrame(for: text, cellFrame: cellFrame,
+                                                   font: editor.font ?? NSFont.systemFont(ofSize: 13))
+            if editor.frame != resized {
+                editor.frame = resized
+            }
+        }
+        addSubview(editor)
+        activeEditor = editor
+        activeEditorCell = (paragraphLocation, row, column)
+        needsDisplay = true
+        window?.makeFirstResponder(editor)
+        editor.selectText(nil)
+        return true
+    }
+
+    private func expandedEditorFrame(for text: String, cellFrame: NSRect, font: NSFont) -> NSRect {
+        let visible = enclosingScrollView?.contentView.documentVisibleRect ?? bounds
+        let s = editorSettings
+        let margin = s.editorViewportMargin
+        let maxUsableWidth = max(220, visible.width - margin * 2)
+        let expandedWidth = min(max(cellFrame.width + s.editorWidthExtra, s.editorMinWidth),
+                                min(max(260, bounds.width * s.editorMaxWidthRatio), maxUsableWidth))
+        let minHeight = max(cellFrame.height + s.editorTextInsetV * 2, s.editorMinHeight)
+        let maxHeight = max(56, min(bounds.height * s.editorMaxHeightRatio, visible.height - margin * 2))
+        let measureRect = NSRect(x: 0, y: 0,
+                                 width: max(80, expandedWidth - (s.editorTextInsetH * 2 + 8)),
+                                 height: .greatestFiniteMagnitude)
+        let measured = (text as NSString).boundingRect(
+            with: measureRect.size,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let targetHeight = min(max(minHeight, ceil(measured.height) + s.editorHeightExtra), maxHeight)
+        var x = cellFrame.minX + s.editorXOffset
+        var y = cellFrame.midY - targetHeight / 2
+        let minX = visible.minX + margin
+        let maxX = visible.maxX - margin - expandedWidth
+        let minY = visible.minY + margin
+        let maxY = visible.maxY - margin - targetHeight
+        x = min(max(x, minX), max(minX, maxX))
+        y = min(max(y, minY), max(minY, maxY))
+        return NSRect(x: x,
+                      y: y,
+                      width: expandedWidth,
+                      height: targetHeight)
+    }
+
+    private func endCellEditing() {
+        activeEditor?.removeFromSuperview()
+        activeEditor = nil
+        activeEditorCell = nil
+        needsDisplay = true
+        window?.makeFirstResponder(self)
+    }
+
+    func finishActiveTableEditing(commit: Bool) {
+        guard let editor = activeEditor, let cell = activeEditorCell else { return }
+        if commit {
+            let currentValue = tableCellCurrentValue(paragraphLocation: cell.paragraphLocation,
+                                                     row: cell.row, column: cell.column)
+            if currentValue != editor.stringValue {
+                _ = visualCoordinator?.updateTableIslandCell(
+                    paragraphLocation: cell.paragraphLocation,
+                    row: cell.row,
+                    column: cell.column,
+                    value: editor.stringValue
+                )
+            }
+        }
+        endCellEditing()
+    }
+
+    private func tableCellCurrentValue(paragraphLocation: Int, row: Int, column: Int) -> String? {
+        guard let entry = tableIslandEntries.first(where: { $0.range.location == paragraphLocation }) else {
+            return nil
+        }
+        if row == 0 {
+            guard column >= 0, column < entry.grid.headers.count else { return nil }
+            return entry.grid.headers[column]
+        }
+        let bodyIndex = row - 1
+        guard bodyIndex >= 0, bodyIndex < entry.grid.rows.count else { return nil }
+        let cells = entry.grid.rows[bodyIndex]
+        guard column >= 0, column < cells.count else { return nil }
+        return cells[column]
+    }
+
+    /// Rect of the drawn marker (bullet/checkbox/number) for a paragraph:
+    /// in the indent margin, on the first line fragment.
+    private func markerRect(forParagraph range: NSRange) -> NSRect? {
+        guard let layoutManager, let textContainer else { return nil }
+        let totalLength = (string as NSString).length
+        guard range.location < totalLength else { return nil }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: range.location, length: 1),
+            actualCharacterRange: nil)
+        guard glyphRange.location != NSNotFound else { return nil }
+        let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        guard lineRect.height > 0 else { return nil }
+        let boxSize: CGFloat = 15
+        // The marker sits left of the text indent (paragraph firstLineHeadIndent).
+        let indent = (textStorage?.attribute(.paragraphStyle, at: range.location,
+                                             effectiveRange: nil) as? NSParagraphStyle)?
+            .firstLineHeadIndent ?? 0
+        return NSRect(x: textContainerInset.width + indent - 21,
+                      y: textContainerInset.height + lineRect.midY - boxSize / 2,
+                      width: boxSize, height: boxSize)
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        if activeEditor != nil {
+            editorSettings.overlayColor.setFill()
+            (enclosingScrollView?.contentView.documentVisibleRect ?? bounds).fill()
+        }
+        guard let layoutManager else { return }
+        let inset = textContainerInset
+        let totalLength = (string as NSString).length
+        let fullWidth = bounds.width - inset.width * 2
+
+        func unionRect(for range: NSRange) -> NSRect? {
+            guard range.location < totalLength else { return nil }
+            let safe = NSRange(location: range.location,
+                               length: min(range.length, totalLength - range.location))
+            guard safe.length > 0 else { return nil }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: safe, actualCharacterRange: nil)
+            var union = NSRect.null
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { fragment, _, _, _, _ in
+                let line = NSRect(x: inset.width, y: fragment.minY + inset.height,
+                                  width: fullWidth, height: fragment.height)
+                union = union.isNull ? line : union.union(line)
+            }
+            return union.isNull ? nil : union
+        }
+
+        // Code panels.
+        // padding = gray around glyphs only (fixed).
+        // margin = enforced white gap between panel outer edges + clamp so a
+        // panel never paints over a neighboring (non-member) line fragment.
+        let codePanelPadding: CGFloat = 6
+        let codeBlockMargin: CGFloat = 12
+        var panelRects: [NSRect] = []
+        panelRects.reserveCapacity(codePanelRanges.count)
+        for range in codePanelRanges {
+            guard var box = unionRect(for: range) else { continue }
+            // Internal padding around the text of THIS fence only.
+            box = box.insetBy(dx: 0, dy: -codePanelPadding)
+            // Clamp to neighbors outside the character range so pad cannot
+            // bleed onto the previous/next paragraph (quote, list, other code).
+            if range.location > 0 {
+                let prevIdx = range.location - 1
+                let prevGlyph = layoutManager.glyphRange(
+                    forCharacterRange: NSRange(location: prevIdx, length: 1),
+                    actualCharacterRange: nil)
+                if prevGlyph.location != NSNotFound {
+                    var prevFrag = NSRect.null
+                    layoutManager.enumerateLineFragments(forGlyphRange: prevGlyph) { fragment, _, _, _, _ in
+                        let r = NSRect(x: inset.width, y: fragment.minY + inset.height,
+                                       width: fullWidth, height: fragment.height)
+                        prevFrag = prevFrag.isNull ? r : prevFrag.union(r)
+                    }
+                    if !prevFrag.isNull {
+                        box.origin.y = max(box.minY, prevFrag.maxY + codeBlockMargin)
+                        box.size.height = max(0, box.maxY - box.minY)
+                    }
+                }
+            }
+            let after = NSMaxRange(range)
+            if after < totalLength {
+                let nextGlyph = layoutManager.glyphRange(
+                    forCharacterRange: NSRange(location: after, length: 1),
+                    actualCharacterRange: nil)
+                if nextGlyph.location != NSNotFound {
+                    var nextFrag = NSRect.null
+                    layoutManager.enumerateLineFragments(forGlyphRange: nextGlyph) { fragment, _, _, _, _ in
+                        let r = NSRect(x: inset.width, y: fragment.minY + inset.height,
+                                       width: fullWidth, height: fragment.height)
+                        nextFrag = nextFrag.isNull ? r : nextFrag.union(r)
+                    }
+                    if !nextFrag.isNull {
+                        let maxY = nextFrag.minY - codeBlockMargin
+                        if maxY < box.maxY {
+                            box.size.height = max(0, maxY - box.minY)
+                        }
+                    }
+                }
+            }
+            if box.height > 0 { panelRects.append(box) }
+        }
+        // Resolve panel–panel overlap (adjacent fences): keep margin between
+        // outer edges by shrinking into the gap, never by expanding gray.
+        panelRects.sort { $0.minY < $1.minY }
+        if panelRects.count > 1 {
+            for i in 1..<panelRects.count {
+                let prev = panelRects[i - 1]
+                var cur = panelRects[i]
+                let minTop = prev.maxY + codeBlockMargin
+                if cur.minY < minTop {
+                    let shrink = minTop - cur.minY
+                    cur.origin.y += shrink
+                    cur.size.height = max(0, cur.height - shrink)
+                    panelRects[i] = cur
+                }
+            }
+        }
+        theme.codeBlockBackground.setFill()
+        for box in panelRects where box.intersects(rect) && box.height > 1 {
+            NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
+        }
+
+        // Frontmatter properties cards (Obsidian-style metadata panel)
+        for range in propertiesPanelRanges {
+            guard let rectUnion = unionRect(for: range) else { continue }
+            let padded = rectUnion.insetBy(dx: 0, dy: -8)
+            guard padded.intersects(rect) else { continue }
+            let path = NSBezierPath(roundedRect: padded, xRadius: 7, yRadius: 7)
+            NSColor(white: 0.5, alpha: 0.06).setFill()
+            path.fill()
+            path.lineWidth = 1
+            theme.separatorColor.withAlphaComponent(0.6).setStroke()
+            path.stroke()
+        }
+
+        // Quote bars
+        for (range, depth) in quoteEntries {
+            guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
+            theme.separatorColor.setFill()
+            for level in 0..<depth {
+                NSRect(x: inset.width + CGFloat(level) * 18, y: rectUnion.minY,
+                       width: 3, height: rectUnion.height).fill()
+            }
+        }
+
+        // Bullets — depth cycles • (fill) / ◦ (stroke) / ▪ (square), like Source.
+        for (range, depth) in bulletEntries {
+            guard let marker = markerRect(forParagraph: range) else { continue }
+            let radius = marker.height * 0.18
+            let center = NSPoint(x: marker.midX, y: marker.midY)
+            let box = NSRect(x: center.x - radius, y: center.y - radius,
+                             width: radius * 2, height: radius * 2)
+            switch depth % 3 {
+            case 0:
+                theme.accentColor.setFill()
+                NSBezierPath(ovalIn: box).fill()
+            case 1:
+                theme.accentColor.setStroke()
+                let ring = NSBezierPath(ovalIn: box)
+                ring.lineWidth = max(1.25, radius * 0.35)
+                ring.stroke()
+            default:
+                theme.accentColor.setFill()
+                let side = radius * 1.7
+                let square = NSRect(x: center.x - side / 2, y: center.y - side / 2,
+                                    width: side, height: side)
+                NSBezierPath(rect: square).fill()
+            }
+        }
+
+        // Ordered numbers
+        for (range, _, number) in numberEntries {
+            guard let marker = markerRect(forParagraph: range) else { continue }
+            let label = NSAttributedString(string: "\(number).", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: theme.accentColor,
+            ])
+            let size = label.size()
+            label.draw(at: NSPoint(x: marker.maxX - size.width,
+                                   y: marker.midY - size.height / 2))
+        }
+
+        // Task checkboxes
+        for (range, _, done) in taskEntries {
+            guard let box = markerRect(forParagraph: range) else { continue }
+            let path = NSBezierPath(roundedRect: box, xRadius: 3.5, yRadius: 3.5)
+            path.lineWidth = 1.5
+            if done {
+                theme.accentColor.setFill()
+                path.fill()
+                let check = NSBezierPath()
+                check.move(to: NSPoint(x: box.minX + 3.5, y: box.minY + box.height * 0.45))
+                check.line(to: NSPoint(x: box.minX + box.width * 0.45, y: box.minY + box.height * 0.75))
+                check.line(to: NSPoint(x: box.maxX - 3.5, y: box.minY + box.height * 0.25))
+                check.lineWidth = 2
+                check.lineCapStyle = .round
+                check.lineJoinStyle = .round
+                NSColor.white.setStroke()
+                check.stroke()
+            } else {
+                theme.secondaryColor.setStroke()
+                path.stroke()
+            }
+        }
+
+        // Thematic breaks
+        for range in ruleRanges {
+            guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
+            theme.separatorColor.setFill()
+            NSRect(x: inset.width, y: rectUnion.midY - 1, width: fullWidth, height: 2).fill()
+        }
+
+        // H1/H2 dividers
+        if theme.headingDividerColor.cgColor.alpha > 0 {
+            theme.headingDividerColor.setFill()
+            for range in headingDividerRanges {
+                guard let rectUnion = unionRect(for: range) else { continue }
+                let line = NSRect(x: inset.width, y: rectUnion.maxY - 1, width: fullWidth, height: 1)
+                if line.intersects(rect) { line.fill() }
+            }
+        }
+
+        // Large tables (drawn as virtualized read-only grids)
+        for entry in tableIslandEntries {
+            drawTableIsland(entry, dirty: rect, inset: inset, layoutManager: layoutManager)
+        }
+    }
+
+    /// Draws only the rows of a large table that intersect `dirty`. Row rects
+    /// are derived from the island's first line-fragment origin plus a fixed
+    /// `rowHeight` (arithmetic, not a full fragment walk), so cost scales with
+    /// the viewport, not with table size. The island's display text drops the
+    /// `---` delimiter, so display line 0 = header and lines 1… = data rows.
+    private func drawTableIsland(_ entry: TableIslandEntry, dirty: NSRect, inset: NSSize,
+                                 layoutManager: NSLayoutManager) {
+        let totalLength = (string as NSString).length
+        guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { return }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range,
+                                                  actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return }
+        let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
+                                                       effectiveRange: nil)
+        let top = firstRect.minY + inset.height
+        let rowH = entry.rowHeight
+        let grid = entry.grid
+        let edges = entry.columnEdges
+        let horizontalOffset = islandHorizontalOffsets[entry.range.location] ?? 0
+        let left = (edges.first ?? inset.width) - horizontalOffset
+        let right = (edges.last ?? inset.width) - horizontalOffset
+        let width = right - left
+        let totalLines = grid.rows.count + 1   // header + data rows (no delimiter)
+        let bottom = top + CGFloat(totalLines) * rowH
+
+        let firstVisible = max(0, Int(floor((dirty.minY - top) / rowH)))
+        let lastVisible = min(totalLines - 1, Int(ceil((dirty.maxY - top) / rowH)))
+        guard firstVisible <= lastVisible else { return }
+
+        let border = theme.separatorColor
+        for i in firstVisible...lastVisible {
+            let rowY = top + CGFloat(i) * rowH
+            let rowRect = NSRect(x: left, y: rowY, width: width, height: rowH)
+            if i == 0 {
+                NSColor(white: 0.5, alpha: 0.08).setFill()
+                rowRect.fill()
+                border.setFill()
+                NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
+                drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
+                             color: theme.textColor, edges: edges, alignments: grid.alignments,
+                             horizontalOffset: horizontalOffset)
+            } else {
+                let dataIndex = i - 1
+                if dataIndex < grid.rows.count {
+                    drawTableRow(grid.rows[dataIndex], in: rowRect, font: entry.font,
+                                 color: theme.textColor, edges: edges, alignments: grid.alignments,
+                                 horizontalOffset: horizontalOffset)
+                }
+            }
+            border.setFill()
+            NSRect(x: left, y: rowY + rowH - 0.5, width: width, height: 0.5).fill()   // row rule
+        }
+
+        // Vertical column separators across the visible span.
+        let visTop = max(dirty.minY, top)
+        let visBottom = min(dirty.maxY, bottom)
+        if visBottom > visTop {
+            border.setFill()
+            for x in edges {
+                NSRect(x: x - horizontalOffset - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()
+            }
+        }
+    }
+
+    private func drawTableRow(_ cells: [String], in rowRect: NSRect, font: NSFont,
+                              color: NSColor, edges: [CGFloat],
+                              alignments: [TableGrid.Alignment], horizontalOffset: CGFloat) {
+        let columns = edges.count - 1
+        let lineHeight = font.ascender - font.descender
+        let textY = rowRect.minY + (rowRect.height - lineHeight) / 2
+        let elements = EditorSettings.shared.visual.elements
+        let linkColor = elements.link.color ?? theme.accentColor
+        let codeColor = elements.inlineCode.color ?? theme.inlineCodeColor
+        let boldColor = elements.bold.color
+        for c in 0..<columns where c < cells.count {
+            let text = cells[c]
+            guard !text.isEmpty else { continue }
+            let cellW = edges[c + 1] - edges[c]
+            guard cellW > 12 else { continue }
+            let para = NSMutableParagraphStyle()
+            para.lineBreakMode = .byTruncatingTail
+            switch (c < alignments.count ? alignments[c] : .leading) {
+            case .leading: para.alignment = .left
+            case .center: para.alignment = .center
+            case .trailing: para.alignment = .right
+            }
+            let drawRect = NSRect(x: edges[c] - horizontalOffset + 6, y: textY,
+                                  width: cellW - 12, height: lineHeight)
+            let attr = attributedTableCell(text, font: font, textColor: color,
+                                           linkColor: linkColor, codeColor: codeColor,
+                                           boldColor: boldColor, paragraphStyle: para)
+            attr.draw(in: drawRect)
+        }
+    }
+
+    /// Renders (and caches) a table-island cell's inline markdown for drawing.
+    private func attributedTableCell(_ markdown: String, font: NSFont,
+                                     textColor: NSColor, linkColor: NSColor,
+                                     codeColor: NSColor, boldColor: NSColor?,
+                                     paragraphStyle: NSParagraphStyle) -> NSAttributedString {
+        // Key omits colors that rarely change mid-scroll; theme changes rebuild
+        // `tableIslandEntries` and clear the cache via didSet.
+        let key = "\(font.fontName)|\(font.pointSize)|\(markdown)"
+        if let cached = tableCellAttrCache[key] {
+            // Paragraph style (alignment / truncate) is per-column — stamp on a copy.
+            let copy = NSMutableAttributedString(attributedString: cached)
+            copy.addAttribute(.paragraphStyle, value: paragraphStyle,
+                              range: NSRange(location: 0, length: copy.length))
+            return copy
+        }
+        let rendered = renderTableCellAttributed(markdown, baseFont: font,
+                                                 textColor: textColor,
+                                                 linkColor: linkColor,
+                                                 codeColor: codeColor,
+                                                 boldColor: boldColor)
+        tableCellAttrCache[key] = rendered
+        let copy = NSMutableAttributedString(attributedString: rendered)
+        if copy.length > 0 {
+            copy.addAttribute(.paragraphStyle, value: paragraphStyle,
+                              range: NSRange(location: 0, length: copy.length))
+        }
+        return copy
+    }
+}

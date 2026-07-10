@@ -141,39 +141,6 @@ enum GitFileStatus {
                                   sessionDirty: sessionDirty, bufferDirty: bufferDirty)
     }
 
-    /// Blocking convenience for tests / rare call sites (still avoids main if caller is off-main).
-    static func snapshot(for url: URL?) -> GitFileSnapshot {
-        guard let url else { return .empty }
-        let key = url.standardizedFileURL
-        guard GitCLI.gitExecutable != nil else { return .empty }
-        let sessionDirty = LineChangeTracker.shared.dirtyLines(for: key).count
-        let bufferDirty = DocumentRegistry.shared.isDirty(key)
-        let after = DocumentRegistry.shared.contentIfOpen(key)
-        if GitCLI.repositoryRoot(containing: key) == nil {
-            return GitFileSnapshot(
-                inRepo: false, pathStatus: .notInRepo, branch: nil,
-                ahead: nil, behind: nil,
-                sessionDirtyLines: sessionDirty, bufferDirty: bufferDirty,
-                added: 0, removed: 0
-            )
-        }
-        let status = GitCLI.pathStatus(of: key)
-        let branch = GitCLI.currentBranch(containing: key)
-        let ab = GitCLI.aheadBehind(containing: key)
-        let delta: (Int, Int)
-        if status == .clean && !bufferDirty && sessionDirty == 0 {
-            delta = (0, 0)
-        } else {
-            delta = lineDeltaSync(file: key, after: after)
-        }
-        return GitFileSnapshot(
-            inRepo: true, pathStatus: status, branch: branch,
-            ahead: ab?.ahead, behind: ab?.behind,
-            sessionDirtyLines: sessionDirty, bufferDirty: bufferDirty,
-            added: delta.0, removed: delta.1
-        )
-    }
-
     private static func fullSnapshot(
         key: URL,
         after: String?,
@@ -238,8 +205,8 @@ enum GitFileStatus {
         if before == afterText { return (0, 0) }
         // Status-bar only: skip full Myers on enormous buffers (freeze risk).
         // Cap is tighter than TextDiff's 30k-line hard stop.
-        let beforeLines = splitDiffLines(before).count
-        let afterLines = splitDiffLines(afterText).count
+        let beforeLines = countDiffLines(before)
+        let afterLines = countDiffLines(afterText)
         if beforeLines + afterLines > 8_000 {
             // Coarse: whole-file replace estimate, still better than hanging UI.
             return (afterLines, beforeLines)
@@ -310,8 +277,6 @@ enum GitCommitMessage {
 
 struct GitCommitSheet: View {
     let fileURL: URL
-    /// Optional live content for dirty-line count in the header.
-    var documentContent: String = ""
     let onClose: () -> Void
     /// Called after a successful commit (marks already re-anchored).
     var onCommitted: (() -> Void)? = nil
@@ -322,10 +287,12 @@ struct GitCommitSheet: View {
     @State private var successHash: String?
     @State private var pushNote: String?
     @State private var pushError: String?
+    /// Loaded once off-main on appear — a computed `GitCLI.currentBranch`
+    /// spawned a git Process on every body re-render (each keystroke).
+    @State private var branch: String?
     @FocusState private var messageFocused: Bool
 
     private var fileName: String { fileURL.lastPathComponent }
-    private var branch: String? { GitCLI.currentBranch(containing: fileURL) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -356,26 +323,41 @@ struct GitCommitSheet: View {
         .padding(20)
         .frame(minWidth: 440, idealWidth: 480)
         .onAppear {
-            if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                message = suggestedMessage()
-            }
             messageFocused = true
+            loadBranchAndSuggestion()
         }
     }
 
-    private func suggestedMessage() -> String {
-        let status = GitCLI.pathStatus(of: fileURL)
-        // Prefer session gutter marks (what the user just edited); fall back to
-        // git diff line numbers when marks are empty but the file is modified.
-        var dirty = LineChangeTracker.shared.dirtyLines(for: fileURL)
-        if dirty.isEmpty, status == .modified || status == .clean {
-            dirty = GitCLI.changedLineNumbers(of: fileURL)
+    /// Branch + prefilled message need 2–4 git Processes — run them off-main
+    /// so opening the sheet doesn't stall the UI.
+    private func loadBranchAndSuggestion() {
+        let url = fileURL
+        let name = fileName
+        let wantSuggestion = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Session gutter marks live on the main actor — read before hopping.
+        let sessionDirty = LineChangeTracker.shared.dirtyLines(for: url)
+        Task.detached(priority: .userInitiated) {
+            let branchName = GitCLI.currentBranch(containing: url)
+            var suggested: String?
+            if wantSuggestion {
+                let status = GitCLI.pathStatus(of: url)
+                // Prefer session marks (what the user just edited); fall back to
+                // git diff line numbers when marks are empty but the file is modified.
+                var dirty = sessionDirty
+                if dirty.isEmpty, status == .modified || status == .clean {
+                    dirty = GitCLI.changedLineNumbers(of: url)
+                }
+                suggested = GitCommitMessage.suggested(
+                    fileName: name, pathStatus: status, dirtyLines: dirty)
+            }
+            await MainActor.run {
+                branch = branchName
+                if let suggested,
+                   message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    message = suggested
+                }
+            }
         }
-        return GitCommitMessage.suggested(
-            fileName: fileName,
-            pathStatus: status,
-            dirtyLines: dirty
-        )
     }
 
     private var commitBody: some View {
@@ -531,15 +513,40 @@ struct GitCommitSheet: View {
 
 @MainActor
 enum GitPushConfirm {
-    /// Shows an NSAlert then runs `git push`. Returns a user-visible outcome string.
-    @discardableResult
-    static func run(for fileURL: URL) -> String? {
-        guard GitCLI.repositoryRoot(containing: fileURL) != nil else {
-            presentError("Not inside a git repository.")
-            return nil
+    /// Meta check + confirm + `git push`, with every git Process off the main
+    /// actor — a network push used to freeze the UI for its whole duration.
+    /// Alerts surface on main; refreshes ride `.gitRepositoryDidChange`.
+    static func run(for fileURL: URL) {
+        Task.detached(priority: .userInitiated) {
+            guard GitCLI.repositoryRoot(containing: fileURL) != nil else {
+                await presentError("Not inside a git repository.")
+                return
+            }
+            let branch = GitCLI.currentBranch(containing: fileURL) ?? "current branch"
+            let ab = GitCLI.aheadBehind(containing: fileURL)
+            guard await confirm(branch: branch, ab: ab) else { return }
+
+            // Credential prompts are handled by the system helper / ssh-agent
+            // outside this process.
+            let result = GitCLI.push(containing: fileURL)
+            await MainActor.run {
+                NotificationCenter.default.post(name: .gitRepositoryDidChange, object: fileURL)
+                switch result {
+                case .success(let note):
+                    let done = NSAlert()
+                    done.messageText = "Push completed"
+                    done.informativeText = note
+                    done.alertStyle = .informational
+                    done.addButton(withTitle: "OK")
+                    done.runModal()
+                case .failure(let err):
+                    presentError(err.message)
+                }
+            }
         }
-        let branch = GitCLI.currentBranch(containing: fileURL) ?? "current branch"
-        let ab = GitCLI.aheadBehind(containing: fileURL)
+    }
+
+    private static func confirm(branch: String, ab: (ahead: Int, behind: Int)?) -> Bool {
         let alert = NSAlert()
         alert.messageText = "Push to remote?"
         var info = "Branch: \(branch)\nRuns `git push` with system credentials (Keychain / SSH)."
@@ -558,28 +565,7 @@ enum GitPushConfirm {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Push")
         alert.addButton(withTitle: "Cancel")
-        if ab?.ahead == 0 {
-            // Still allow (force user intent) but default Cancel is fine.
-        }
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-
-        // Process is blocking; typical push is short. Credential prompts are
-        // handled by the system helper / ssh-agent outside this process.
-        let result = GitCLI.push(containing: fileURL)
-        NotificationCenter.default.post(name: .gitRepositoryDidChange, object: fileURL)
-        switch result {
-        case .success(let note):
-            let done = NSAlert()
-            done.messageText = "Push completed"
-            done.informativeText = note
-            done.alertStyle = .informational
-            done.addButton(withTitle: "OK")
-            done.runModal()
-            return note
-        case .failure(let err):
-            presentError(err.message)
-            return nil
-        }
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private static func presentError(_ message: String) {
@@ -656,8 +642,6 @@ struct GitWorkspaceSnapshot: Equatable, Sendable {
 
 @MainActor
 enum GitWorkspaceStatus {
-    private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
-
     /// Async: git Process on a utility queue; MainActor only for dirty flags.
     static func snapshotAsync(
         workspaceRoots: [URL],
@@ -824,30 +808,34 @@ enum GitWorkspaceStatus {
 
     /// Before/after for the unified diff sheet (git sidebar).
     /// HEAD blob vs open buffer (if any) else working tree; deleted → empty after.
-    static func diffSheetContent(for file: URL) -> DiffSheetContent {
-        let before = GitCLI.headFileContents(of: file)
-        let after: String
-        let sideLabel: String
-        if let open = DocumentRegistry.shared.contentIfOpen(file) {
-            after = open
-            sideLabel = DocumentRegistry.shared.isDirty(file)
-                ? "HEAD → buffer (unsaved)"
-                : "HEAD → buffer"
-        } else {
-            after = GitCLI.workingTreeContents(of: file) ?? ""
-            switch GitCLI.pathStatus(of: file) {
-            case .untracked: sideLabel = "new file"
-            case .deleted: sideLabel = "HEAD → deleted"
-            default: sideLabel = "HEAD → working tree"
+    /// Async: `git show` / status Processes never run on the main actor.
+    static func diffSheetContent(for file: URL) async -> DiffSheetContent {
+        // Buffer state lives on the main actor — capture before hopping.
+        let open = DocumentRegistry.shared.contentIfOpen(file)
+        let bufferDirty = open != nil && DocumentRegistry.shared.isDirty(file)
+        return await Task.detached(priority: .userInitiated) {
+            let before = GitCLI.headFileContents(of: file)
+            let after: String
+            let sideLabel: String
+            if let open {
+                after = open
+                sideLabel = bufferDirty ? "HEAD → buffer (unsaved)" : "HEAD → buffer"
+            } else {
+                after = GitCLI.workingTreeContents(of: file) ?? ""
+                switch GitCLI.pathStatus(of: file) {
+                case .untracked: sideLabel = "new file"
+                case .deleted: sideLabel = "HEAD → deleted"
+                default: sideLabel = "HEAD → working tree"
+                }
             }
-        }
-        return DiffSheetContent(
-            title: "Git diff",
-            fileName: file.lastPathComponent,
-            sideLabel: sideLabel,
-            before: before,
-            after: after
-        )
+            return DiffSheetContent(
+                title: "Git diff",
+                fileName: file.lastPathComponent,
+                sideLabel: sideLabel,
+                before: before,
+                after: after
+            )
+        }.value
     }
 }
 
