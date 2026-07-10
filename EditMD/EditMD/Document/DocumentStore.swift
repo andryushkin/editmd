@@ -306,9 +306,17 @@ final class DocumentRegistry {
     }
 
     /// Conflict or post-apply: replace the buffer with `content` from disk/notice.
+    /// `content` just came from disk, so a failed re-persist loses nothing.
     func applyExternalContent(_ url: URL, content: String, assets: FileWrapper? = nil) {
-        let key = url.standardizedFileURL
-        guard let entry = entries[key] else { return }
+        guard let entry = entries[url.standardizedFileURL] else { return }
+        try? replaceBufferAndPersist(entry, content: content, assets: assets)
+    }
+
+    /// Shared core of external reload and agent accept: swap the buffer, then
+    /// write it out. Throws only from the final disk write — the buffer is
+    /// already swapped by then, so callers decide what a failed write means.
+    private func replaceBufferAndPersist(_ entry: Entry, content: String,
+                                         assets: FileWrapper?) throws {
         entry.document.commitContentEdit()
         entry.holdAutosaveUntilUserEdit = true
         entry.autosaveTask?.cancel()
@@ -320,11 +328,11 @@ final class DocumentRegistry {
         entry.isDirty = false
         entry.pendingConflictDiskContent = nil
         entry.hasOpenExternalNotice = false
-        entry.knownModDate = contentModificationDate(of: key)
+        entry.knownModDate = contentModificationDate(of: entry.url)
+        ExternalChangeCenter.shared.dismiss(entry.url)
+        LineChangeTracker.shared.noteBaseline(url: entry.url, content: content)
         // Persist so the next FS event doesn't look like another external write.
-        try? flush(entry)
-        ExternalChangeCenter.shared.dismiss(key)
-        LineChangeTracker.shared.noteBaseline(url: key, content: content)
+        try flush(entry)
     }
 
     /// After a clean auto-reload: restore the pre-reload snapshot and write it.
@@ -343,8 +351,18 @@ final class DocumentRegistry {
     /// but existing `.textbundle` assets must survive the rewrite.
     func applyAgentEdit(_ url: URL, content: String) throws {
         let key = url.standardizedFileURL
-        if entries[key] != nil {
-            applyExternalContent(key, content: content)
+        if let entry = entries[key] {
+            do {
+                try replaceBufferAndPersist(entry, content: content, assets: nil)
+            } catch {
+                // Disk still holds the old bytes but the buffer already shows
+                // Claude's. Surface it as an ordinary unsaved edit (autosave/⌘S
+                // retry the write) and rethrow so accept() answers
+                // DIFF_REJECTED — FILE_SAVED must mean bytes on disk.
+                entry.isDirty = true
+                entry.holdAutosaveUntilUserEdit = false
+                throw error
+            }
             return
         }
         let existingAssets = (try? loadMarkdownDocument(from: key))?.assets

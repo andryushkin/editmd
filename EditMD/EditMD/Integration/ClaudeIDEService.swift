@@ -49,6 +49,11 @@ final class ClaudeIDEService: ObservableObject {
     private var advertisedFolders: [String] = []
     private var cancellables: Set<AnyCancellable> = []
 
+    /// Start/stop epoch: every transition bumps it, and the async start body
+    /// re-checks after each await — a stop (or restart) issued mid-start wins
+    /// over the stale continuation instead of racing it.
+    private var generation = 0
+
     init(lockDirectory: URL = IDELockFile.defaultDirectory) {
         self.lockDirectory = lockDirectory
     }
@@ -85,6 +90,8 @@ final class ClaudeIDEService: ObservableObject {
 
     func start() {
         guard case .off = state else { return }
+        generation += 1
+        let gen = generation
         state = .starting
         let directory = lockDirectory
         let folders = claudeIDEWorkspaceFolders().map(\.path)
@@ -93,6 +100,7 @@ final class ClaudeIDEService: ObservableObject {
             do {
                 // Someone else's crashed lock file makes `/ide` dial a dead port.
                 await Task.detached { _ = IDELockFile.cleanStale(in: directory) }.value
+                guard generation == gen else { return }
 
                 let token = try IDELockFile.generateAuthToken()
                 let router = ClaudeIDERouter(tools: ClaudeIDETools(context: LiveEditorContext()))
@@ -101,7 +109,16 @@ final class ClaudeIDEService: ObservableObject {
                     handler: { request in await router.handle(request) },
                     onClientCountChange: { count in
                         Task { @MainActor in ClaudeIDEService.shared.clientCountChanged(count) }
+                    },
+                    onFailure: { message in
+                        Task { @MainActor in
+                            ClaudeIDEService.shared.serverFailed(message, generation: gen)
+                        }
                     })
+                guard generation == gen else {
+                    await server.stop()
+                    return
+                }
 
                 // Record the port BEFORE publishing the lock file: a client that
                 // connects the instant the file appears must find `lockedPort`
@@ -115,9 +132,16 @@ final class ClaudeIDEService: ObservableObject {
                 try await Task.detached {
                     _ = try IDELockFile.write(contents, port: port, in: directory)
                 }.value
+                guard generation == gen else {
+                    // Stopped while the file was in flight — don't leave it.
+                    await Task.detached { IDELockFile.remove(port: port, in: directory) }.value
+                    return
+                }
             } catch {
                 claudeIDELog.error("Start failed: \(String(describing: error), privacy: .public)")
                 await server.stop()
+                guard generation == gen else { return }
+                clearSession()
                 state = .failed(String(describing: error))
             }
         }
@@ -125,13 +149,12 @@ final class ClaudeIDEService: ObservableObject {
 
     func stop() {
         guard state != .off else { return }
+        generation += 1
         // Nobody will read the answer, but the continuations must not leak.
         DiffApprovalController.shared.rejectAll(reason: "integration stopped")
         let port = lockedPort
         let directory = lockDirectory
-        authToken = nil
-        lockedPort = nil
-        advertisedFolders = []
+        clearSession()
         state = .off
         Task {
             await server.stop()
@@ -144,12 +167,37 @@ final class ClaudeIDEService: ObservableObject {
     /// App termination: the lock file must be gone before we exit, so this one
     /// call does the removal synchronously.
     func stopBeforeTerminate() {
+        generation += 1
         DiffApprovalController.shared.rejectAll(reason: "app terminating")
         if let port = lockedPort {
             IDELockFile.remove(port: port, in: lockDirectory)
         }
-        lockedPort = nil
+        clearSession()
         state = .off
+    }
+
+    /// The server tore itself down (listener failed after start). Mirrors
+    /// `stop()` — same session cleanup — but lands in `.failed` so the chip
+    /// says why `/ide` stopped finding us.
+    private func serverFailed(_ message: String, generation failedGeneration: Int) {
+        guard generation == failedGeneration else { return }
+        generation += 1
+        DiffApprovalController.shared.rejectAll(reason: "server failed")
+        let port = lockedPort
+        let directory = lockDirectory
+        clearSession()
+        state = .failed(message)
+        guard let port else { return }
+        Task.detached { IDELockFile.remove(port: port, in: directory) }
+    }
+
+    /// The one place session identity is dropped. `stop`, `stopBeforeTerminate`,
+    /// `serverFailed` and the start-failure path must all clear the same fields,
+    /// or `refreshWorkspaceFolders` resurrects a lock file for a dead server.
+    private func clearSession() {
+        authToken = nil
+        lockedPort = nil
+        advertisedFolders = []
     }
 
     private func clientCountChanged(_ count: Int) {

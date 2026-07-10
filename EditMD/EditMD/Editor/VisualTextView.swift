@@ -320,24 +320,24 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         func storeCursor() {
             guard !isLoadingDocument, let textView else { return }
-            guard let offset = markdownOffset(atDisplayLocation: textView.selectedRange().location)
+            let selection = textView.selectedRange()
+            guard let start = markdownOffset(atDisplayLocation: selection.location)
             else { return }
-            parent.positionStore?.markdownOffset = offset
-            noteSelectionForClaude()
+            parent.positionStore?.markdownOffset = start
+            noteSelectionForClaude(selection: selection, mappedStart: start)
         }
 
         /// `selection_changed` is specified in markdown-source coordinates, so
         /// both ends go through the paragraph map — never the display text.
-        private func noteSelectionForClaude() {
-            guard let textView else { return }
-            let selection = textView.selectedRange()
-            guard let start = markdownOffset(atDisplayLocation: selection.location) else { return }
+        /// `mappedStart` reuses storeCursor's scan (the map is O(offset) per
+        /// call); only a non-empty selection pays for mapping its end.
+        private func noteSelectionForClaude(selection: NSRange, mappedStart: Int) {
             let end = selection.length == 0
-                ? start
-                : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? start)
+                ? mappedStart
+                : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? mappedStart)
             ClaudeIDEBridge.shared.noteSelection(
                 url: parent.fileURL,
-                markdownRange: NSRange(location: start, length: max(0, end - start)),
+                markdownRange: NSRange(location: mappedStart, length: max(0, end - mappedStart)),
                 markdown: parent.document.content)
         }
 

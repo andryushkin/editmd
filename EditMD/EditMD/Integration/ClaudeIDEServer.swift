@@ -33,12 +33,17 @@ actor ClaudeIDEServer {
     /// Number of live client connections, pushed on every change.
     typealias ClientCountHandler = @Sendable (Int) -> Void
 
+    /// The bound listener died after `start` returned. The server has already
+    /// torn itself down when this fires; the owner must retire the lock file.
+    typealias FailureHandler = @Sendable (String) -> Void
+
     private let queue = DispatchQueue(label: "com.editmd.claude-ide.ws")
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var handler: RequestHandler?
     private var clientCountHandler: ClientCountHandler?
+    private var failureHandler: FailureHandler?
 
     private(set) var port: UInt16?
 
@@ -52,12 +57,14 @@ actor ClaudeIDEServer {
     @discardableResult
     func start(authToken: String,
                handler: @escaping RequestHandler,
-               onClientCountChange: ClientCountHandler? = nil) async throws -> UInt16 {
+               onClientCountChange: ClientCountHandler? = nil,
+               onFailure: FailureHandler? = nil) async throws -> UInt16 {
         guard listener == nil else {
             throw ClaudeIDEServerError.alreadyRunning
         }
         self.handler = handler
         self.clientCountHandler = onClientCountChange
+        self.failureHandler = onFailure
 
         let websocket = NWProtocolWebSocket.Options()
         websocket.autoReplyPing = true
@@ -117,11 +124,14 @@ actor ClaudeIDEServer {
             listener.start(queue: queue)
         }
 
-        // Ready: keep observing so a later failure tears the server down rather
-        // than leaving a stale lock file pointing at a dead port.
-        listener.stateUpdateHandler = { state in
+        // Ready: keep observing — a later failure must tear the server down,
+        // or the lock file keeps advertising a dead port.
+        let listenerID = ObjectIdentifier(listener)
+        listener.stateUpdateHandler = { [weak self] state in
             if case .failed(let error) = state {
                 claudeIDELog.error("Listener failed: \(String(describing: error), privacy: .public)")
+                Task { await self?.listenerFailed(listenerID,
+                                                  message: String(describing: error)) }
             }
         }
 
@@ -137,10 +147,20 @@ actor ClaudeIDEServer {
         listener = nil
         port = nil
         handler = nil
+        failureHandler = nil
         let notifyCount = clientCountHandler
         clientCountHandler = nil
         notifyCount?(0)
         claudeIDELog.info("Server stopped")
+    }
+
+    /// A bound listener died behind us. Guarded by identity so a stale callback
+    /// from a previous listener can't kill a restarted server.
+    private func listenerFailed(_ id: ObjectIdentifier, message: String) {
+        guard let listener, ObjectIdentifier(listener) == id else { return }
+        let notify = failureHandler
+        stop()
+        notify?(message)
     }
 
     // MARK: Connections
