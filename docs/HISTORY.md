@@ -847,3 +847,11 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Track-changes-рендер внутри Visual-текста НЕ в v37** (только wash + карточки) — attributed-модель не трогаем.
 
 **Осталось / не в v37:** track-changes inline (зачёркнутый quote + replacement рядом), фаза 3 `editmdctl` + skill, CRUD меток через MCP-tools, multi-workspace единая очередь.
+
+### v37.1 — Preview-first review
+
+**Решение:** основной режим для меток smotr — **Preview** (чтение + выделение + wash + jump); Source/Visual — вспомогательные (правка markdown / WYSIWYG).
+
+- Preview selection → `ClaudeIDEBridge` (offsets `data-md-lo/hi`, multi-span, text fallback) → Review ▸ +.
+- `window.applyReviewMarks` + CSS wash по типам; `window.scrollToMdOffset` для jump из карточки (fraction fallback).
+- `latestNonEmpty` в bridge — focus hop на + не съедает якорь (Visual/Preview).

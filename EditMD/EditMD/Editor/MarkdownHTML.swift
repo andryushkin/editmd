@@ -695,6 +695,24 @@ func previewHTMLPage(markdown: String,
     @media (prefers-color-scheme: dark) {
         mark { background: rgba(255, 196, 0, 0.35); }
     }
+    /* Review-mark wash (v37) — open smotr anchors painted over data-md-lo spans.
+       Preview is the primary review surface; Source/Visual washes are secondary. */
+    [data-md-lo].review-wash {
+        border-radius: 2px;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+    }
+    [data-md-lo].review-question { background: rgba(0, 122, 255, 0.18); }
+    [data-md-lo].review-fix { background: rgba(255, 149, 0, 0.18); }
+    [data-md-lo].review-rewrite { background: rgba(175, 82, 222, 0.18); }
+    [data-md-lo].review-cut { background: rgba(255, 59, 48, 0.16); }
+    [data-md-lo].review-keep { background: rgba(142, 142, 147, 0.18); }
+    [data-md-lo].review-comment { background: rgba(255, 204, 0, 0.22); }
+    [data-md-lo].review-suggest { background: rgba(52, 199, 89, 0.18); }
+    [data-md-lo].review-wash.review-flash {
+        outline: 2px solid rgba(0, 122, 255, 0.55);
+        outline-offset: 1px;
+    }
     /* Obsidian-style frontmatter properties */
     table.frontmatter {
         display: table; width: 100%; border-collapse: collapse;
@@ -761,6 +779,51 @@ func previewHTMLPage(markdown: String,
             }
         });
     });
+    // Review marks (v37): paint open anchors on tagged spans and jump by
+    // markdown UTF-16 offset. Called from Swift after load / mark changes.
+    // marks = [{start, end, type, id}]
+    window.applyReviewMarks = function (marks) {
+        var types = ['question','fix','rewrite','cut','keep','comment','suggest'];
+        document.querySelectorAll('[data-md-lo].review-wash').forEach(function (el) {
+            el.classList.remove('review-wash', 'review-flash');
+            types.forEach(function (t) { el.classList.remove('review-' + t); });
+            el.removeAttribute('data-review-id');
+            el.removeAttribute('title');
+        });
+        if (!marks || !marks.length) return;
+        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
+            var lo = parseInt(el.getAttribute('data-md-lo'), 10);
+            var hi = parseInt(el.getAttribute('data-md-hi'), 10);
+            if (isNaN(lo) || isNaN(hi)) return;
+            for (var i = 0; i < marks.length; i++) {
+                var m = marks[i];
+                if (hi > m.start && lo < m.end) {
+                    el.classList.add('review-wash', 'review-' + (m.type || 'comment'));
+                    el.setAttribute('data-review-id', m.id || '');
+                    if (m.tip) el.setAttribute('title', m.tip);
+                    break; // first matching mark wins (worklist order)
+                }
+            }
+        });
+    };
+    // Scroll the span covering `offset` into view; fraction fallback is Swift-side.
+    window.scrollToMdOffset = function (offset) {
+        var best = null, bestLo = -1;
+        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
+            var lo = parseInt(el.getAttribute('data-md-lo'), 10);
+            var hi = parseInt(el.getAttribute('data-md-hi'), 10);
+            if (isNaN(lo) || isNaN(hi)) return;
+            if (lo <= offset && offset < hi) { best = el; bestLo = lo; }
+            else if (lo <= offset && lo > bestLo) { best = el; bestLo = lo; }
+        });
+        if (best) {
+            best.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            best.classList.add('review-flash');
+            setTimeout(function () { best.classList.remove('review-flash'); }, 1200);
+            return true;
+        }
+        return false;
+    };
     </script>
     </body>
     </html>

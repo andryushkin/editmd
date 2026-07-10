@@ -88,7 +88,7 @@ struct WorkspaceSidebar: View {
             navDivider
             navTabButton(id: "review",
                          systemImage: "text.bubble",
-                         help: "Review",
+                         help: "Review — метки (удобнее в Preview)",
                          badge: review.openCount)
             Spacer(minLength: 0)
         }

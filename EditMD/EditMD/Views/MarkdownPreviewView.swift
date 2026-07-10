@@ -146,6 +146,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 object: store
             )
         }
+        // Review-mark wash in Preview (primary review surface, v37).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.reviewMarksDidChange),
+            name: .reviewMarksDidChange,
+            object: nil
+        )
         render(in: webView, coordinator: coordinator)
         // Full Preview mode: focus the web view so Return-to-edit works
         // right after the mode switch (async — no window yet in makeNSView).
@@ -499,15 +506,22 @@ struct MarkdownPreviewView: NSViewRepresentable {
             document.applyUndoableContent(next, actionName: "Code Block")
         }
 
-        /// Outline-sidebar jump: scroll to the offset's proportional position
-        /// (the preview has no markdown offsets — same mapping as the
-        /// cross-mode restore).
+        /// Jump: prefer an exact `data-md-lo` span (Review / outline in Preview),
+        /// fall back to proportional scroll when the offset is untagged.
         @objc func jumpToStoredOffset() {
             guard let webView, let store = positionStore,
                   let content = lastRenderedContent else { return }
+            let offset = min(store.markdownOffset, (content as NSString).length)
             let total = max(1, (content as NSString).length)
-            let fraction = Double(min(store.markdownOffset, total)) / Double(total)
-            webView.evaluateJavaScript(Self.scrollJS(fraction: fraction))
+            let fraction = Double(offset) / Double(total)
+            // scrollToMdOffset returns true when a tagged span was found.
+            webView.evaluateJavaScript("window.scrollToMdOffset(\(offset))") { result, _ in
+                let hit = (result as? Bool) ?? false
+                if !hit {
+                    webView.evaluateJavaScript(Self.scrollJS(fraction: fraction),
+                                               completionHandler: nil)
+                }
+            }
         }
 
         private static func scrollJS(fraction: Double) -> String {
@@ -515,7 +529,58 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 + "document.documentElement.scrollHeight * \(fraction) - window.innerHeight * 0.4));"
         }
 
+        // MARK: Review-mark wash (Preview is the primary review surface)
+
+        @objc func reviewMarksDidChange() {
+            applyReviewHighlights()
+        }
+
+        /// Paints open-mark anchors onto `[data-md-lo]` spans via
+        /// `window.applyReviewMarks`. No full HTML reload — marks change
+        /// independently of the markdown body.
+        func applyReviewHighlights() {
+            guard let webView else { return }
+            // Only the main-window active review file.
+            guard fileURL?.standardizedFileURL == ReviewModel.shared.fileURL else {
+                webView.evaluateJavaScript("window.applyReviewMarks && window.applyReviewMarks([])",
+                                           completionHandler: nil)
+                return
+            }
+            let content = document?.content ?? lastRenderedContent ?? ""
+            let marks = ReviewModel.shared.doc.marks.compactMap { m -> [String: Any]? in
+                guard m.isOpen,
+                      let range = ReviewSidecar.anchorNSRange(for: m, in: content),
+                      range.length > 0
+                else { return nil }
+                let tip: String
+                if m.isSuggestion, let repl = m.replacement {
+                    tip = "suggest: \(repl)"
+                } else if let note = m.note, !note.isEmpty {
+                    tip = "\(m.markType?.label ?? m.type): \(note)"
+                } else {
+                    tip = m.markType?.label ?? m.type
+                }
+                return [
+                    "start": range.location,
+                    "end": NSMaxRange(range),
+                    "type": m.markType?.rawValue ?? m.type,
+                    "id": m.id,
+                    "tip": tip,
+                ]
+            }
+            // JSON for the page script (sorted worklist order already in doc.marks
+            // filter order; first hit wins in applyReviewMarks).
+            guard let data = try? JSONSerialization.data(withJSONObject: marks),
+                  let json = String(data: data, encoding: .utf8)
+            else { return }
+            webView.evaluateJavaScript(
+                "window.applyReviewMarks && window.applyReviewMarks(\(json))",
+                completionHandler: nil)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Fresh DOM — re-paint review washes (loadHTMLString wipes classes).
+            applyReviewHighlights()
             if let y = pendingScrollY {
                 pendingScrollY = nil
                 webView.evaluateJavaScript("window.scrollTo(0, \(y));")

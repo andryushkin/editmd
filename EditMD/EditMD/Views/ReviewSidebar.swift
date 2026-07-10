@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Review navigator tab (phase 2, v37): the active file's smotr marks as
-/// threads. Create a mark from the current selection, reply, resolve/reopen,
-/// and accept/reject Claude's `suggest` edits. Anchors are resolved against the
-/// live buffer; a mark whose fragment is gone still shows but cannot jump.
+/// threads. **Preview is the primary surface** for selecting text and reading
+/// washes; Source/Visual also feed the bridge but are secondary for review.
+/// Create a mark from the current (or last non-empty) selection, reply,
+/// resolve/reopen, accept/reject Claude's `suggest` edits.
 struct ReviewSidebar: View {
     @ObservedObject var review: ReviewModel
     @ObservedObject private var workspace = WorkspaceModel.shared
@@ -221,7 +222,7 @@ struct ReviewSidebar: View {
                 }
                 .font(.system(size: 11))
             } else {
-                Label("Выдели текст в Source, Visual или Preview, затем нажми +.",
+                Label("В Preview (или Source/Visual) выдели фрагмент, затем нажми +.",
                       systemImage: "hand.point.up.left")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
