@@ -314,6 +314,21 @@ final class ClaudeIDEToolsTests: XCTestCase {
         XCTAssertEqual(names.count, 12)
     }
 
+    /// The descriptors list and the `call` switch are maintained separately;
+    /// an advertised-but-unhandled tool would surface only against the live
+    /// CLI as `methodNotFound`. Empty arguments may earn `invalidParams` —
+    /// that still proves the switch has a case for the name.
+    func testEveryAdvertisedToolIsHandled() async throws {
+        for descriptor in ClaudeIDETools.descriptors {
+            let name = try XCTUnwrap(descriptor["name"]?.stringValue)
+            let result = await call(name)
+            if case .failure(let error) = result {
+                XCTAssertNotEqual(error.code, RPCError.methodNotFound,
+                                  "advertised tool \(name) is not handled by call()")
+            }
+        }
+    }
+
     func testDescriptorsCarryInputSchemas() throws {
         let openFile = try XCTUnwrap(ClaudeIDETools.descriptors.first {
             $0["name"]?.stringValue == "openFile"
@@ -396,6 +411,20 @@ final class IDEPositionMathTests: XCTestCase {
 
     func testZeroLengthRangeIsEmpty() {
         XCTAssertTrue(ideSelectionRange(for: NSRange(location: 3, length: 0), in: text).isEmpty)
+    }
+
+    /// `IDELineMap` (one pass + binary search, used for diagnostics lists)
+    /// must agree with `idePosition` at every offset, including clamps.
+    func testLineMapMatchesIdePositionEverywhere() {
+        for sample in [text, "", "no newline", "\n\n", "a🎉b\nc\n"] {
+            let map = IDELineMap(sample)
+            let length = (sample as NSString).length
+            for offset in -1...(length + 2) {
+                XCTAssertEqual(map.position(forUTF16Offset: offset),
+                               idePosition(forUTF16Offset: offset, in: sample),
+                               "offset \(offset) in \(sample.debugDescription)")
+            }
+        }
     }
 }
 

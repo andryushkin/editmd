@@ -77,14 +77,6 @@ extension JSONValue {
         return nil
     }
 
-    var intValue: Int? {
-        switch self {
-        case .int(let v): return v
-        case .double(let v): return Int(v)
-        default: return nil
-        }
-    }
-
     var boolValue: Bool? {
         if case .bool(let v) = self { return v }
         return nil
@@ -94,39 +86,15 @@ extension JSONValue {
         if case .array(let v) = self { return v }
         return nil
     }
-
-    var objectValue: [String: JSONValue]? {
-        if case .object(let v) = self { return v }
-        return nil
-    }
 }
 
 // MARK: - Request id
 
 /// JSON-RPC ids are numbers or strings; both must round-trip unchanged.
-enum RPCID: Equatable, Sendable, Codable {
+/// `MCPCodec` converts them to and from `JSONValue` itself.
+enum RPCID: Equatable, Sendable {
     case int(Int)
     case string(String)
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let value = try? container.decode(Int.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else {
-            throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "id must be a number or a string")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .int(let v): try container.encode(v)
-        case .string(let v): try container.encode(v)
-        }
-    }
 }
 
 // MARK: - Messages
@@ -143,7 +111,6 @@ struct RPCRequest: Equatable, Sendable {
 struct RPCError: Equatable, Sendable, Error {
     let code: Int
     let message: String
-    var data: JSONValue?
 
     // Standard JSON-RPC 2.0 codes.
     static let parseError = -32_700
@@ -174,7 +141,9 @@ enum MCPCodec {
 
     /// Encoder with sorted keys so tests (and diffs of logged traffic) are
     /// stable. `withoutEscapingSlashes` keeps `file:///…` URIs readable.
-    private static var encoder: JSONEncoder {
+    /// Shared with `MCPContent.json` — frames and embedded payloads must not
+    /// diverge in formatting.
+    static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return encoder
@@ -218,12 +187,10 @@ enum MCPCodec {
             object["result"] = value
         case .failure(let id, let error):
             object["id"] = id.map(idValue) ?? .null
-            var payload: [String: JSONValue] = [
+            object["error"] = .object([
                 "code": .int(error.code),
                 "message": .string(error.message),
-            ]
-            if let data = error.data { payload["data"] = data }
-            object["error"] = .object(payload)
+            ])
         case .notification(let method, let params):
             object["method"] = .string(method)
             if let params { object["params"] = params }
@@ -255,9 +222,7 @@ enum MCPContent {
 
     /// Serializes `payload` and wraps it as the text item.
     static func json(_ payload: JSONValue) -> JSONValue {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = (try? encoder.encode(payload)) ?? Data("{}".utf8)
+        let data = (try? MCPCodec.encoder.encode(payload)) ?? Data("{}".utf8)
         return text(String(decoding: data, as: UTF8.self))
     }
 }

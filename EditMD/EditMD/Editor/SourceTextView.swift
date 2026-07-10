@@ -300,34 +300,39 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
 
-        /// Claude's `openFile` with `startText` / `endText`: select the resolved
-        /// range. Fired both on mount (file just opened) and on notification
-        /// (file already on screen).
-        @objc func applyClaudeReveal() {
-            guard let textView,
-                  let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL)
-            else { return }
+        /// The shared caret dance: clamp to the current text, select, reveal
+        /// centered, focus. Claude reveals and outline jumps must not drift.
+        @discardableResult
+        private func selectAndReveal(_ range: NSRange) -> NSRange {
+            guard let textView else { return range }
             let length = (textView.string as NSString).length
             let location = min(range.location, length)
             let clamped = NSRange(location: location,
                                   length: min(range.length, length - location))
-            parent.positionStore?.markdownOffset = location
             textView.setSelectedRange(clamped)
             textView.scrollRangeToVisible(clamped)
             textView.centerSelectionInVisibleArea(nil)
             textView.window?.makeFirstResponder(textView)
+            return clamped
+        }
+
+        /// Claude's `openFile` with `startText` / `endText`: select the resolved
+        /// range. Fired both on mount (file just opened) and on notification
+        /// (file already on screen).
+        @objc func applyClaudeReveal() {
+            guard textView != nil,
+                  let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL)
+            else { return }
+            let clamped = selectAndReveal(range)
+            parent.positionStore?.markdownOffset = clamped.location
         }
 
         /// Outline-sidebar jump: markdown offsets are native here — place the
         /// cursor at the store's offset and reveal it (the same dance as the
         /// mode-switch restore in makeNSView).
         @objc func jumpToStoredOffset() {
-            guard let textView, let store = parent.positionStore else { return }
-            let offset = min(store.markdownOffset, (textView.string as NSString).length)
-            textView.setSelectedRange(NSRange(location: offset, length: 0))
-            textView.scrollRangeToVisible(textView.selectedRange())
-            textView.centerSelectionInVisibleArea(nil)
-            textView.window?.makeFirstResponder(textView)
+            guard let store = parent.positionStore else { return }
+            selectAndReveal(NSRange(location: store.markdownOffset, length: 0))
         }
 
         /// Reloads from the shared document (external change), preserving the

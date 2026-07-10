@@ -23,7 +23,7 @@ final class ClaudeIDEBridge: ObservableObject {
     /// A selection captured verbatim from an editor. Positions are derived on
     /// demand: `textViewDidChangeSelection` fires on every caret move, and
     /// mapping an offset to (line, character) is O(offset).
-    private struct RawSelection {
+    private struct RawSelection: Equatable, Sendable {
         let url: URL
         /// Range in **markdown source** coordinates.
         let range: NSRange
@@ -39,6 +39,11 @@ final class ClaudeIDEBridge: ObservableObject {
 
     private var raw: RawSelection?
     private var latestRaw: RawSelection?
+    /// Once the debounce settles, the latest selection is kept materialized
+    /// (positions + selected text) and `latestRaw` is dropped — its document
+    /// string would otherwise pin a stale full-document copy after edits
+    /// diverge the COW storage.
+    private var latestMaterialized: IDESelection?
     private var selectionNotifyTask: Task<Void, Never>?
 
     private var pendingReveal: (url: URL, range: NSRange, requestedAt: Date)?
@@ -82,15 +87,24 @@ final class ClaudeIDEBridge: ObservableObject {
         selectionNotifyTask?.cancel()
         selectionNotifyTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.selectionDebounceNanos)
-            guard !Task.isCancelled, let self, let current = self.currentSelection else { return }
-            ClaudeIDEService.shared.notifySelectionChanged(current)
+            guard !Task.isCancelled else { return }
+            // Off the main actor: materializing walks the document prefix.
+            let materialized = await Task.detached { Self.materialize(selection) }.value
+            guard !Task.isCancelled, let self else { return }
+            if self.latestRaw == selection {
+                self.latestMaterialized = materialized
+                self.latestRaw = nil
+            }
+            ClaudeIDEService.shared.notifySelectionChanged(materialized)
         }
     }
 
     var currentSelection: IDESelection? { raw.map(Self.materialize) }
-    var latestSelection: IDESelection? { latestRaw.map(Self.materialize) }
+    var latestSelection: IDESelection? {
+        latestRaw.map(Self.materialize) ?? latestMaterialized
+    }
 
-    private static func materialize(_ selection: RawSelection) -> IDESelection {
+    private nonisolated static func materialize(_ selection: RawSelection) -> IDESelection {
         let nsText = selection.markdown as NSString
         let location = max(0, min(selection.range.location, nsText.length))
         let length = max(0, min(selection.range.length, nsText.length - location))
@@ -143,10 +157,6 @@ final class ClaudeIDEBridge: ObservableObject {
             lineStart: selection.range.start.line,
             lineEnd: selection.range.end.line)
     }
-
-    var canSendToClaude: Bool {
-        hasSelection && ClaudeIDEService.shared.isConnected
-    }
 }
 
 // MARK: - Reveal target resolution (pure, unit-tested)
@@ -172,15 +182,12 @@ func ideRevealRange(for request: OpenFileRequest, in content: String) -> NSRange
         }
     }
     if request.selectToEndOfLine {
-        let lineRange = nsText.lineRange(for: NSRange(location: NSMaxRange(range), length: 0))
-        var end = NSMaxRange(lineRange)
-        // `lineRange(for:)` includes the terminator; don't select it.
-        while end > range.location, end <= nsText.length,
-              end - 1 < nsText.length,
-              nsText.character(at: end - 1) == 0x0A || nsText.character(at: end - 1) == 0x0D {
-            end -= 1
-        }
-        range = NSRange(location: range.location, length: max(0, end - range.location))
+        // `contentsEnd` is the line end without its terminator.
+        var contentsEnd = 0
+        nsText.getLineStart(nil, end: nil, contentsEnd: &contentsEnd,
+                            for: NSRange(location: NSMaxRange(range), length: 0))
+        range = NSRange(location: range.location,
+                        length: max(0, contentsEnd - range.location))
     }
     return range
 }
@@ -275,13 +282,16 @@ struct LiveEditorContext: IDEEditorContext {
         guard let url, let content = await documentContent(of: url) else { return [] }
         // 14 lint rules; ~1s on a 100K note — never on the main actor.
         let diagnostics = await Task.detached(priority: .userInitiated) {
-            lint(content).map { diagnostic in
+            // One line-start pass for the whole list — per-finding
+            // `ideSelectionRange` would rescan the prefix each time.
+            let lineMap = IDELineMap(content)
+            return lint(content).map { diagnostic in
                 IDEDiagnostic(
                     message: diagnostic.message,
                     severity: diagnostic.severity == .error ? "Error" : "Warning",
                     source: "editmd-lint",
                     code: diagnostic.rule.rawValue,
-                    range: ideSelectionRange(for: diagnostic.range, in: content))
+                    range: lineMap.selectionRange(for: diagnostic.range))
             }
         }.value
         return [IDEDiagnosticFile(uri: url.absoluteString, diagnostics: diagnostics)]
@@ -290,15 +300,18 @@ struct LiveEditorContext: IDEEditorContext {
     func openDiff(_ request: OpenDiffRequest) async -> DiffOutcome {
         guard let path = request.targetPath else { return .rejected }
         let url = URL(fileURLWithPath: path).standardizedFileURL
-        let buffer = await MainActor.run { DocumentRegistry.shared.contentIfOpen(url) }
-        let bufferIsDirty = await MainActor.run { DocumentRegistry.shared.isDirty(url) }
-        let disk = buffer == nil ? await documentContent(of: url) : nil
-        let before = buffer ?? disk ?? ""
+        // One hop: the buffer and its dirty flag must come from the same instant.
+        let (buffer, bufferIsDirty) = await MainActor.run {
+            (DocumentRegistry.shared.contentIfOpen(url), DocumentRegistry.shared.isDirty(url))
+        }
+        let disk: String? = buffer != nil ? nil : await Task.detached(priority: .userInitiated) {
+            (try? loadMarkdownDocument(from: url))?.content
+        }.value
 
         let diff = DiffApprovalController.PendingDiff(
             tabName: request.tabName,
             targetURL: url,
-            before: before,
+            before: buffer ?? disk ?? "",
             after: request.newFileContents,
             bufferIsDirty: buffer != nil && bufferIsDirty,
             isNewFile: buffer == nil && disk == nil)

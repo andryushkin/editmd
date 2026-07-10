@@ -35,6 +35,32 @@ struct IDESelection: Equatable, Sendable {
     var fileURL: String { URL(fileURLWithPath: filePath).absoluteString }
 }
 
+// Wire encoding lives on the value types: `getCurrentSelection` replies and
+// `selection_changed` notifications carry the same shape and must not drift.
+
+extension IDEPosition {
+    var jsonValue: JSONValue {
+        .object(["line": .int(line), "character": .int(character)])
+    }
+}
+
+extension IDESelectionRange {
+    var jsonValue: JSONValue {
+        .object(["start": start.jsonValue,
+                 "end": end.jsonValue,
+                 "isEmpty": .bool(isEmpty)])
+    }
+}
+
+extension IDESelection {
+    var payloadFields: [String: JSONValue] {
+        ["text": .string(text),
+         "filePath": .string(filePath),
+         "fileUrl": .string(fileURL),
+         "selection": range.jsonValue]
+    }
+}
+
 struct IDEEditorTab: Equatable, Sendable {
     var path: String
     var isActive: Bool
@@ -58,7 +84,6 @@ struct IDEDirtyState: Equatable, Sendable {
 
 struct OpenFileRequest: Equatable, Sendable {
     var filePath: String
-    var preview: Bool = false
     var startText: String?
     var endText: String?
     var selectToEndOfLine: Bool = false
@@ -168,6 +193,42 @@ func ideSelectionRange(for range: NSRange, in text: String) -> IDESelectionRange
                       end: idePosition(forUTF16Offset: NSMaxRange(range), in: text))
 }
 
+/// Line starts (UTF-16) built in one pass — for mapping many offsets against
+/// the same text. `idePosition` rescans the prefix per call, which is fine for
+/// a single selection but quadratic for a diagnostics list.
+struct IDELineMap: Sendable {
+    private let lineStarts: [Int]
+    private let length: Int
+
+    init(_ text: String) {
+        let nsText = text as NSString
+        var starts = [0]
+        var index = 0
+        while index < nsText.length {
+            if nsText.character(at: index) == 0x0A { starts.append(index + 1) }
+            index += 1
+        }
+        lineStarts = starts
+        length = nsText.length
+    }
+
+    func position(forUTF16Offset offset: Int) -> IDEPosition {
+        let clamped = max(0, min(offset, length))
+        // Last line start ≤ clamped, by binary search.
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineStarts[mid] <= clamped { low = mid } else { high = mid - 1 }
+        }
+        return IDEPosition(line: low, character: clamped - lineStarts[low])
+    }
+
+    func selectionRange(for range: NSRange) -> IDESelectionRange {
+        IDESelectionRange(start: position(forUTF16Offset: range.location),
+                          end: position(forUTF16Offset: NSMaxRange(range)))
+    }
+}
+
 // MARK: - Tools
 
 struct ClaudeIDETools: Sendable {
@@ -198,8 +259,7 @@ struct ClaudeIDETools: Sendable {
 
         case "getWorkspaceFolders":
             let folders = await context.workspaceFolders()
-            let payload = JSONValue.object([
-                "success": .bool(true),
+            return .success(status(true, extra: [
                 "folders": .array(folders.map { folder in
                     .object([
                         "name": .string(folder.name),
@@ -208,8 +268,7 @@ struct ClaudeIDETools: Sendable {
                     ])
                 }),
                 "rootPath": folders.first.map { .string($0.path) } ?? .null,
-            ])
-            return .success(MCPContent.json(payload))
+            ]))
 
         case "openFile":
             guard let filePath = arguments["filePath"]?.stringValue, !filePath.isEmpty else {
@@ -217,48 +276,37 @@ struct ClaudeIDETools: Sendable {
             }
             let request = OpenFileRequest(
                 filePath: filePath,
-                preview: arguments["preview"]?.boolValue ?? false,
                 startText: arguments["startText"]?.stringValue,
                 endText: arguments["endText"]?.stringValue,
                 selectToEndOfLine: arguments["selectToEndOfLine"]?.boolValue ?? false,
                 makeFrontmost: arguments["makeFrontmost"]?.boolValue ?? true
             )
             let outcome = await context.openFile(request)
-            return .success(MCPContent.json(.object([
-                "success": .bool(outcome.success),
-                "filePath": .string(filePath),
-                "message": .string(outcome.message),
-            ])))
+            return .success(status(outcome.success, filePath: filePath,
+                                   message: outcome.message))
 
         case "checkDocumentDirty":
             guard let filePath = arguments["filePath"]?.stringValue, !filePath.isEmpty else {
                 return .failure(.invalidParams("checkDocumentDirty requires filePath"))
             }
             guard let state = await context.documentDirtyState(path: filePath) else {
-                return .success(MCPContent.json(.object([
-                    "success": .bool(false),
-                    "message": .string("Document not open in EditMD: \(filePath)"),
-                ])))
+                return .success(status(false, filePath: filePath,
+                                       message: "Document not open in EditMD: \(filePath)"))
             }
-            return .success(MCPContent.json(.object([
-                "success": .bool(true),
-                "filePath": .string(filePath),
+            return .success(status(true, filePath: filePath, extra: [
                 "isDirty": .bool(state.isDirty),
                 "isUntitled": .bool(state.isUntitled),
-            ])))
+            ]))
 
         case "saveDocument":
             guard let filePath = arguments["filePath"]?.stringValue, !filePath.isEmpty else {
                 return .failure(.invalidParams("saveDocument requires filePath"))
             }
             let saved = await context.saveDocument(path: filePath)
-            return .success(MCPContent.json(.object([
-                "success": .bool(saved),
-                "filePath": .string(filePath),
-                "message": .string(saved
-                    ? "Saved \(filePath)"
-                    : "Document not open in EditMD: \(filePath)"),
-            ])))
+            return .success(status(saved, filePath: filePath,
+                                   message: saved
+                                       ? "Saved \(filePath)"
+                                       : "Document not open in EditMD: \(filePath)"))
 
         case "getDiagnostics":
             let uri = arguments["uri"]?.stringValue
@@ -297,12 +345,9 @@ struct ClaudeIDETools: Sendable {
             return .success(MCPContent.text("CLOSED_\(count)_DIFF_TABS"))
 
         case "executeCode":
-            return .success(MCPContent.json(.object([
-                "success": .bool(false),
-                "message": .string(
-                    "EditMD is a markdown editor and cannot execute code. "
-                    + "Run the code in your terminal instead."),
-            ])))
+            return .success(status(false, message:
+                "EditMD is a markdown editor and cannot execute code. "
+                + "Run the code in your terminal instead."))
 
         default:
             return .failure(RPCError(code: RPCError.methodNotFound,
@@ -312,30 +357,26 @@ struct ClaudeIDETools: Sendable {
 
     // MARK: Payload helpers
 
-    private func selectionPayload(_ selection: IDESelection?) -> JSONValue {
-        guard let selection else {
-            return MCPContent.json(.object([
-                "success": .bool(false),
-                "message": .string("No active editor in EditMD"),
-            ]))
-        }
-        return MCPContent.json(.object([
-            "success": .bool(true),
-            "text": .string(selection.text),
-            "filePath": .string(selection.filePath),
-            "fileUrl": .string(selection.fileURL),
-            "selection": rangePayload(selection.range),
-        ]))
+    /// The `{success, filePath?, message?, …}` envelope every non-blocking
+    /// tool answers with. One builder — the CLI parses these keys.
+    private func status(_ success: Bool,
+                        filePath: String? = nil,
+                        message: String? = nil,
+                        extra: [String: JSONValue] = [:]) -> JSONValue {
+        var payload: [String: JSONValue] = ["success": .bool(success)]
+        if let filePath { payload["filePath"] = .string(filePath) }
+        if let message { payload["message"] = .string(message) }
+        payload.merge(extra) { _, new in new }
+        return MCPContent.json(.object(payload))
     }
 
-    private func rangePayload(_ range: IDESelectionRange) -> JSONValue {
-        .object([
-            "start": .object(["line": .int(range.start.line),
-                              "character": .int(range.start.character)]),
-            "end": .object(["line": .int(range.end.line),
-                            "character": .int(range.end.character)]),
-            "isEmpty": .bool(range.isEmpty),
-        ])
+    private func selectionPayload(_ selection: IDESelection?) -> JSONValue {
+        guard let selection else {
+            return status(false, message: "No active editor in EditMD")
+        }
+        var payload = selection.payloadFields
+        payload["success"] = .bool(true)
+        return MCPContent.json(.object(payload))
     }
 
     private func diagnosticFilePayload(_ file: IDEDiagnosticFile) -> JSONValue {
@@ -347,7 +388,7 @@ struct ClaudeIDETools: Sendable {
                     "severity": .string(diagnostic.severity),
                     "source": .string(diagnostic.source),
                     "code": .string(diagnostic.code),
-                    "range": rangePayload(diagnostic.range),
+                    "range": diagnostic.range.jsonValue,
                 ])
             }),
         ])

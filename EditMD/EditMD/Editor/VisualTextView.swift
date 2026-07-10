@@ -332,6 +332,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// `mappedStart` reuses storeCursor's scan (the map is O(offset) per
         /// call); only a non-empty selection pays for mapping its end.
         private func noteSelectionForClaude(selection: NSRange, mappedStart: Int) {
+            // Integration off → no server, nobody to serve: skip the end map.
+            guard ClaudeIDEService.shared.state.port != nil else { return }
             let end = selection.length == 0
                 ? mappedStart
                 : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? mappedStart)

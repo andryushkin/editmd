@@ -80,17 +80,17 @@ struct ClaudeIDEChip: View {
             chip(symbol: "exclamationmark.triangle.fill",
                  tint: .orange,
                  help: "Claude Code integration failed: \(message)")
-        case .listening(let port):
+        case .listening(let session):
             chip(symbol: "sparkles",
                  tint: .secondary,
-                 help: "Claude Code: listening on 127.0.0.1:\(port). "
+                 help: "Claude Code: listening on 127.0.0.1:\(session.port). "
                      + "Run `claude` in a workspace folder and type /ide.")
-        case .connected(let port, let clients):
+        case .connected(let session, let clients):
             chip(symbol: "sparkles",
                  tint: Color.accentColor,
                  help: clients > 1
-                     ? "Claude Code: \(clients) clients on 127.0.0.1:\(port)"
-                     : "Claude Code: connected on 127.0.0.1:\(port)")
+                     ? "Claude Code: \(clients) clients on 127.0.0.1:\(session.port)"
+                     : "Claude Code: connected on 127.0.0.1:\(session.port)")
         }
     }
 
