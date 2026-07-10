@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import os
@@ -29,12 +30,26 @@ final class ReviewModel: ObservableObject {
     }
 
     @Published private(set) var fileURL: URL?
-    @Published private(set) var doc = ReviewDocument()
+    @Published private(set) var doc = ReviewDocument() {
+        didSet {
+            // AppKit coordinators (Source/Visual) repaint anchors from this.
+            NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
+        }
+    }
     /// Raw markdown of the active buffer — anchors resolve against it.
-    @Published private(set) var currentText = ""
+    @Published private(set) var currentText = "" {
+        didSet {
+            // Text moved under existing marks — re-resolve wash ranges.
+            if oldValue != currentText {
+                NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
+            }
+        }
+    }
     @Published var statusFilter: StatusFilter = .open
     /// nil = every type.
     @Published var typeFilter: ReviewMarkType?
+    /// Last queue/agent status line shown under the Review header (cleared by UI).
+    @Published var queueStatus: String?
 
     private var baseRev = 0
     /// Guards against a stale async load landing after a newer file switch.
@@ -111,6 +126,29 @@ final class ReviewModel: ObservableObject {
     /// Only marks whose fragment still exists appear.
     func anchor(for mark: ReviewMark) -> NSRange? {
         ReviewSidecar.anchorNSRange(for: mark, in: currentText)
+    }
+
+    /// Open marks whose quote still resolves in the live buffer — used by
+    /// Source (UTF-16 ranges into the raw markdown) for temporary-attr wash.
+    func openAnchorHighlights() -> [ReviewAnchorHighlight] {
+        doc.marks.compactMap { m in
+            guard m.isOpen, let range = ReviewSidecar.anchorNSRange(for: m, in: currentText)
+            else { return nil }
+            let tip: String
+            if m.isSuggestion, let repl = m.replacement {
+                tip = "suggest: \(repl)"
+            } else if let note = m.note, !note.isEmpty {
+                tip = "\(m.markType?.label ?? m.type): \(note)"
+            } else {
+                tip = m.markType?.label ?? m.type
+            }
+            return ReviewAnchorHighlight(id: m.id, range: range, type: m.markType, tooltip: tip)
+        }
+    }
+
+    /// Open marks for Visual's plain-text quote search (display has no markers).
+    func openMarksForDisplaySearch() -> [ReviewMark] {
+        doc.marks.filter { $0.isOpen && !($0.quote ?? "").isEmpty }
     }
 
     // MARK: Mutations
@@ -201,6 +239,65 @@ final class ReviewModel: ObservableObject {
                 }
             } catch {
                 reviewLog.error("sidecar save failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: Queue ➤ (step E)
+
+    /// Workspace root that should own `.smotr-queue.json` for the active file:
+    /// the longest-prefix workspace folder, else the file's parent directory.
+    func queueRoot(workspace: WorkspaceModel) -> URL? {
+        if let url = fileURL, let ws = workspace.workspaceOwning(url) {
+            return URL(fileURLWithPath: ws.folderPath, isDirectory: true)
+        }
+        if let first = workspace.workspaces.first {
+            return URL(fileURLWithPath: first.folderPath, isDirectory: true)
+        }
+        if let url = fileURL {
+            return url.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// Builds `.smotr-queue.json` under the workspace root. With the opt-in
+    /// auto-spawn setting, starts headless Claude; otherwise copies the
+    /// terminal command to the pasteboard and surfaces it in `queueStatus`.
+    func sendQueue(workspace: WorkspaceModel) {
+        guard let root = queueRoot(workspace: workspace) else {
+            queueStatus = "Нет workspace — открой папку (File ▸ Open Folder)"
+            return
+        }
+        let autoSpawn = EditorSettings.shared.general.claudeReviewAutoSpawn
+        queueStatus = "Собираю очередь…"
+        Task.detached(priority: .userInitiated) {
+            do {
+                let result = try ReviewQueue.writeQueue(in: root)
+                await MainActor.run {
+                    if result.count == 0 {
+                        self.queueStatus = "Открытых меток нет — очередь пуста"
+                        return
+                    }
+                    if autoSpawn {
+                        if ReviewAgentRunner.shared.isRunning {
+                            self.queueStatus = "Очередь \(result.count) · агент уже работает"
+                        } else {
+                            self.queueStatus = "Очередь \(result.count) · запускаю Claude…"
+                            ReviewAgentRunner.shared.start(in: root)
+                        }
+                    } else {
+                        let cmd = ReviewQueue.manualCommand(for: root)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(cmd, forType: .string)
+                        self.queueStatus =
+                            "Очередь \(result.count) → \(ReviewQueue.fileName). Команда в буфере:\n\(cmd)"
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.queueStatus = "Ошибка очереди: \(error.localizedDescription)"
+                    reviewLog.error("queue write failed: \(String(describing: error), privacy: .public)")
+                }
             }
         }
     }

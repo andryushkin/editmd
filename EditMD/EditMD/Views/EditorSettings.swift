@@ -355,16 +355,23 @@ struct GeneralSettings: Codable, Equatable {
     /// Run the local WebSocket IDE server so `claude` can attach with `/ide`
     /// (v36). Off = no server, no `~/.claude/ide/*.lock`.
     var claudeIDEEnabled: Bool
+    /// When on, Review ▸ ➤ also spawns `claude -p "/smotr -pr"` in the
+    /// workspace root after writing `.smotr-queue.json` (v37). Off (default) =
+    /// only write the queue and copy the terminal command — matches smotr
+    /// without `--agent`.
+    var claudeReviewAutoSpawn: Bool
 
     init(themePreset: String, appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
-         liteMode: Bool = false, claudeIDEEnabled: Bool = true) {
+         liteMode: Bool = false, claudeIDEEnabled: Bool = true,
+         claudeReviewAutoSpawn: Bool = false) {
         self.themePreset = themePreset
         self.appearance = appearance
         self.textColorHex = textColorHex
         self.accentColorHex = accentColorHex
         self.liteMode = liteMode
         self.claudeIDEEnabled = claudeIDEEnabled
+        self.claudeReviewAutoSpawn = claudeReviewAutoSpawn
     }
 
     init(from decoder: Decoder) throws {
@@ -375,6 +382,7 @@ struct GeneralSettings: Codable, Equatable {
         accentColorHex = try c.decodeIfPresent(String.self, forKey: .accentColorHex)
         liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? false
         claudeIDEEnabled = try c.decodeIfPresent(Bool.self, forKey: .claudeIDEEnabled) ?? true
+        claudeReviewAutoSpawn = try c.decodeIfPresent(Bool.self, forKey: .claudeReviewAutoSpawn) ?? false
     }
 }
 

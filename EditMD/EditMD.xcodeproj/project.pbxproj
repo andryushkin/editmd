@@ -42,6 +42,7 @@
 		515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
+		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
 		7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7515C3219FEEA448EFDED1F9 /* AppState.swift */; };
@@ -92,6 +93,7 @@
 		EB1794B535F9012AA920A33C /* GitUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57F65113867F0DDDF47D9686 /* GitUI.swift */; };
 		EB3CCCB901409C444B32A78D /* ClaudeIDEServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */; };
 		F01D7B266D913201DAA10D4E /* EditorActionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA09CFB97A06931314CAEC0 /* EditorActionStrip.swift */; };
+		F7BFA4AE1F75E6FAA9D862D6 /* ReviewQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218590314138A42580FA6D8 /* ReviewQueue.swift */; };
 		FC3186EAE0C45CF6A7A4EFAC /* MarkdownHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */; };
 /* End PBXBuildFile section */
 
@@ -117,6 +119,7 @@
 		3A6510639C139A366128A045 /* WorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceModel.swift; sourceTree = "<group>"; };
 		3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceModelTests.swift; sourceTree = "<group>"; };
 		3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkScannerTests.swift; sourceTree = "<group>"; };
+		40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewHighlight.swift; sourceTree = "<group>"; };
 		437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewView.swift; sourceTree = "<group>"; };
 		4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualTextView.swift; sourceTree = "<group>"; };
 		4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownOutline.swift; sourceTree = "<group>"; };
@@ -186,6 +189,7 @@
 		E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEToolsTests.swift; sourceTree = "<group>"; };
 		EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCommitWatcher.swift; sourceTree = "<group>"; };
 		EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServer.swift; sourceTree = "<group>"; };
+		F218590314138A42580FA6D8 /* ReviewQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewQueue.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 		F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeUI.swift; sourceTree = "<group>"; };
 		F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTracker.swift; sourceTree = "<group>"; };
@@ -244,7 +248,9 @@
 				4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */,
 				07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */,
 				20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */,
+				40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */,
 				FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */,
+				F218590314138A42580FA6D8 /* ReviewQueue.swift */,
 				F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */,
 				B07A13AEA492FEA0C2B1942F /* TextDiff.swift */,
 				C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */,
@@ -550,8 +556,10 @@
 				73515EE18917982E12613A05 /* MarkdownTableGrid.swift in Sources */,
 				BBD7230A06F923D8C34F074B /* MarkdownToAttributed.swift in Sources */,
 				35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */,
+				675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */,
 				7657AD7D127CE8651A55E0B5 /* ReviewMarks.swift in Sources */,
 				7A4E694B97739F877CBA0691 /* ReviewModel.swift in Sources */,
+				F7BFA4AE1F75E6FAA9D862D6 /* ReviewQueue.swift in Sources */,
 				BB65AFBF1498D96409CBE1EB /* ReviewSidebar.swift in Sources */,
 				1336942C491650E720695632 /* SettingsView.swift in Sources */,
 				38A47C74B7F33C780835BC54 /* SidebarRows.swift in Sources */,
@@ -746,7 +754,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 361;
+				CURRENT_PROJECT_VERSION = 370;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -756,7 +764,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.36.1;
+				MARKETING_VERSION = 0.37.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -771,7 +779,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 361;
+				CURRENT_PROJECT_VERSION = 370;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -781,7 +789,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.36.1;
+				MARKETING_VERSION = 0.37.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

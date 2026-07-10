@@ -70,6 +70,21 @@ enum ReviewMarkType: String, CaseIterable {
     }
 }
 
+extension Notification.Name {
+    /// Posted after `ReviewModel` adopts a new sidecar snapshot (load / save /
+    /// mutation). Source and Visual re-paint open-mark anchors from it.
+    static let reviewMarksDidChange = Notification.Name("editMD.reviewMarksDidChange")
+}
+
+/// One resolved open-mark anchor ready for in-text highlighting (UTF-16 range
+/// into the raw markdown buffer).
+struct ReviewAnchorHighlight: Equatable, Sendable {
+    let id: String
+    let range: NSRange
+    let type: ReviewMarkType?
+    let tooltip: String
+}
+
 /// Thread lifecycle status. Absent status means `open` (smotr convention).
 enum ReviewMarkStatus: String {
     case open

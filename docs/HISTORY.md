@@ -824,3 +824,26 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Повторный `openDiff` с тем же `tab_name`** отклоняет предыдущий (`DIFF_REJECTED`) и показывает новый. Все пути — disconnect, `close_tab`, таймаут 10 мин, Esc — резолвят continuation ровно один раз.
 
 **Осталось / не в v36:** кастомные EditMD-tools (`getOutline`, `resolveWikilink`, …) — фаза 1.5, требует решения по фильтрации `tools/list`; lite-окна как активный редактор; undo для принятой правки Claude; выделение диапазона в Visual при `openFile`.
+
+## v37 — Complete (метки-треды smotr-style) — app **0.37.0**
+
+Мотив: асинхронная ревью-петля автор↔Claude поверх тех же sidecar-меток, что у smotr — EditMD = второй фронтенд. Версия: `CFBundleShortVersionString` **0.37.0**, `CFBundleVersion` **370**. Спека — `docs/research/claude-code-integration.md` §1.2 / §5 фаза 2; план — `docs/plan-claude-code-integration.md` §4.
+
+- **Шаг A — ядро** (`Editor/ReviewMarks.swift`): `ReviewMark` / `ReviewThreadEntry` / `ReviewDocument` в формате smotr; lossless round-trip через `extra`-бэг (`JSONValue`); sidecar IO с optimistic `rev`-guard (merge by id при чужом rev); якоря — порт `_find_anchor` (`prefix+quote` → near-start → global → nil/`needs-rebase`); `applySuggest` pure; id/ts helpers.
+- **Шаг B — UI** (`Views/ReviewModel.swift` + `ReviewSidebar.swift`): вкладка Review (бейдж = openCount) рядом с Files/Outline/Git; создание метки из выделения Source/Visual (`ClaudeIDEBridge.reviewSelectionSource` → source-координаты); реплаи/статусы; suggest-карточки «было → станет» с Accept (`DocumentRegistry.applyAgentEdit`) / Reject. Reload sidecar на `didBecomeActive` (Claude/smotr могут писать out-of-band).
+- **Шаг C — подсветка якорей** (`Editor/ReviewHighlight.swift`): temporary `backgroundColor` wash в Source (диапазон по raw markdown) и Visual (plainText-поиск `quote` в display). Цвет по типу метки, низкая alpha. Notification `.reviewMarksDidChange` при смене doc/текста. Lint и review не делят toolTip/underline — review трогает только фон.
+- **Шаг E — очередь + opt-in агент** (`Editor/ReviewQueue.swift`): ➤ в шапке Review собирает open-метки workspace → `.smotr-queue.json` (`{created, count, marks:[{file, kind, …}]}`, как smotr). Default: команда `cd … && claude -p "/smotr -pr"` в буфер. Settings ▸ General ▸ «Auto-run Claude for Review queue» (default **off**) → `Process` `claude -p "/smotr -pr"` в корне workspace, лог `.smotr-agent.log`, `EDITMD_AGENT_CMD` env-override для тестов. Spawn + disk — `Task.detached`.
+- **Шаг F — ворота**: round-trip тесты против smotr-фикстур (html-mark fields, prompts, stages, project fixture `test-all-elements.md.review.json`); bump 0.37.0 / 370; 555 XCTest.
+
+### v37 — gotchas
+
+- **Якоря считаются по СЫРОМУ markdown** (source of truth), не по display Visual. Capture из Visual уже мапит selection → markdown через paragraph-map v22, поэтому quote обычно без `# `/`> `. Подсветка в Visual ищет quote в plain display — если метка создана в Source с маркерами в quote, wash в Visual может не найтись (карточка в сайдбаре и jump в Source остаются).
+- **`.fixedSize()` на Menu/Picker в анимированной колонке сайдбара** → layout↔render цикл (main 100% в `ReviewSidebar.body`). Фикс: `Menu` + явный `.frame`, без fixedSize (паттерн Files/Outline).
+- **Снимок якоря при «+»** — `CapturedAnchor` в `@State`. Живое выделение при вводе note в TextEditor сбрасывается фокусом → «Поставить» гасло бы без снимка.
+- **Preview не даёт selection** — `noteSelection` только Source/Visual; подсказка compose это говорит явно.
+- **rev-guard на диске, не HTTP** — EditMD пишет sidecar напрямую; при `disk.rev != baseRev` мержит свои marks by id на disk-state и пишет `diskRev+1` (роль out-of-band writer из спеки smotr).
+- **Очередь сканит дерево workspace** (enumerator, skip hidden/`node_modules`/`.git`) — только off-main. Корень = workspace, owning active file, иначе parent файла.
+- **Auto-spawn ищет `claude` в PATH + `~/.local/bin` / homebrew** — GUI app часто не видит shell PATH.
+- **Track-changes-рендер внутри Visual-текста НЕ в v37** (только wash + карточки) — attributed-модель не трогаем.
+
+**Осталось / не в v37:** track-changes inline (зачёркнутый quote + replacement рядом), фаза 3 `editmdctl` + skill, CRUD меток через MCP-tools, multi-workspace единая очередь.

@@ -163,6 +163,14 @@ struct SourceTextView: NSViewRepresentable {
         )
         // The file may have been opened BY that reveal: claim it on mount too.
         coordinator.applyClaudeReveal()
+        // Review-mark anchor wash (v37).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.reviewMarksDidChange),
+            name: .reviewMarksDidChange,
+            object: nil
+        )
+        coordinator.applyReviewHighlights()
 
         return scrollView
     }
@@ -260,6 +268,7 @@ struct SourceTextView: NSViewRepresentable {
             updateStats()
             highlightSource()
             scheduleLint()
+            applyReviewHighlights()
             refreshGutter()
         }
 
@@ -350,6 +359,7 @@ struct SourceTextView: NSViewRepresentable {
             updateStats()
             highlightSource()
             scheduleLint(delaySeconds: 0)
+            applyReviewHighlights()
             refreshGutter()
         }
 
@@ -360,6 +370,40 @@ struct SourceTextView: NSViewRepresentable {
             guard pendingExternalReload, let tv = textView,
                   (note.object as? NSWindow) === tv.window else { return }
             reloadFromDocument()
+        }
+
+        // MARK: Review-mark anchors (v37)
+
+        @objc func reviewMarksDidChange() {
+            applyReviewHighlights()
+        }
+
+        /// Temporary background wash on open-mark anchors. Ranges are resolved
+        /// against the raw markdown (Source's string == document.content).
+        func applyReviewHighlights() {
+            guard let textView else { return }
+            // Heavy docs stay plain (same gate as lint/highlight).
+            guard !parent.document.isHeavy else {
+                ReviewHighlight.apply(to: textView, highlights: [])
+                return
+            }
+            // Only the main-window active review file paints marks.
+            guard parent.fileURL?.standardizedFileURL == ReviewModel.shared.fileURL
+            else {
+                ReviewHighlight.apply(to: textView, highlights: [])
+                return
+            }
+            // Prefer live textView.string so we match what is on screen even if
+            // ReviewModel.currentText is one keystroke behind the notification.
+            let text = textView.string
+            let highlights: [ReviewAnchorHighlight] = ReviewModel.shared.doc.marks.compactMap { m in
+                guard m.isOpen,
+                      let range = ReviewSidecar.anchorNSRange(for: m, in: text)
+                else { return nil }
+                return ReviewAnchorHighlight(
+                    id: m.id, range: range, type: m.markType, tooltip: m.note ?? "")
+            }
+            ReviewHighlight.apply(to: textView, highlights: highlights)
         }
 
         // MARK: Lint
@@ -554,6 +598,7 @@ struct SourceTextView: NSViewRepresentable {
                     columnWidth: settings.columnWidth)
             }
             highlightSource()
+            applyReviewHighlights()
             refreshGutter()
             publishActions()
         }

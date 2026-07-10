@@ -6,6 +6,8 @@ import SwiftUI
 /// live buffer; a mark whose fragment is gone still shows but cannot jump.
 struct ReviewSidebar: View {
     @ObservedObject var review: ReviewModel
+    @ObservedObject private var workspace = WorkspaceModel.shared
+    @ObservedObject private var agent = ReviewAgentRunner.shared
     /// Bottom filter field text — matches note / quote substrings.
     var filter: String = ""
     /// Jump the editor caret to a markdown offset (reuses the outline plumbing).
@@ -34,10 +36,58 @@ struct ReviewSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let status = queueBannerText {
+                queueBanner(status)
+            }
             Divider()
             if composing { composeForm }
             content
         }
+        .onChange(of: agent.state) { newState in
+            switch newState {
+            case .running:
+                review.queueStatus = "⏳ Claude обрабатывает…"
+            case .finished(let code):
+                review.queueStatus = code == 0
+                    ? "Claude закончил — метки обновлены"
+                    : "Claude завершился с кодом \(code)"
+                review.reload()
+            case .failed(let msg):
+                review.queueStatus = "Агент: \(msg)"
+            case .idle:
+                break
+            }
+        }
+    }
+
+    private var queueBannerText: String? {
+        if let s = review.queueStatus, !s.isEmpty { return s }
+        return nil
+    }
+
+    private func queueBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            if agent.isRunning {
+                ProgressView().controlSize(.small)
+            }
+            Text(text)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                review.queueStatus = nil
+                agent.resetToIdle()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.45))
     }
 
     // MARK: Header
@@ -47,6 +97,22 @@ struct ReviewSidebar: View {
             statusFilterMenu
             typeFilterMenu
             Spacer(minLength: 0)
+            Button {
+                review.sendQueue(workspace: workspace)
+            } label: {
+                Image(systemName: agent.isRunning
+                      ? "arrow.triangle.2.circlepath"
+                      : "paperplane")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+                    .foregroundStyle(agent.isRunning ? Color.accentColor : Color.primary)
+            }
+            .buttonStyle(.plain)
+            .disabled(agent.isRunning)
+            .editMDHelp(EditorSettings.shared.general.claudeReviewAutoSpawn
+                        ? "Собрать очередь и запустить Claude (claude -p \"/smotr -pr\")"
+                        : "Собрать очередь .smotr-queue.json и скопировать команду")
             Button { toggleCompose() } label: {
                 Image(systemName: composing ? "xmark" : "plus")
                     .font(.system(size: 13, weight: .medium))

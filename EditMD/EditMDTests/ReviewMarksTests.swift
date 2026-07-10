@@ -270,6 +270,204 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertNil(try ReviewSidecar.load(for: file))
     }
 
+    // MARK: Display plainText search (Visual highlight path)
+
+    func testDisplayHighlightFindsQuote() {
+        let marks = [
+            ReviewMark(type: .comment, quote: "brown fox", prefix: "The quick ", start: 10, note: "n"),
+        ]
+        // Visual display has no markdown markers — quote matches body text.
+        let display = "The quick brown fox jumps"
+        let hs = ReviewHighlight.displayHighlights(marks: marks, displayText: display)
+        XCTAssertEqual(hs.count, 1)
+        XCTAssertEqual((display as NSString).substring(with: hs[0].range), "brown fox")
+        XCTAssertEqual(hs[0].type, .comment)
+    }
+
+    func testDisplayHighlightSkipsMissingQuote() {
+        let marks = [
+            ReviewMark(type: .fix, quote: "ghost", prefix: "", start: 0, note: ""),
+        ]
+        let hs = ReviewHighlight.displayHighlights(marks: marks, displayText: "hello world")
+        XCTAssertTrue(hs.isEmpty)
+    }
+
+    // MARK: Queue (.smotr-queue.json)
+
+    func testQueueWriteAndEmptyClear() throws {
+        let root = tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // note.md + sidecar with one open mark.
+        let note = root.appendingPathComponent("docs/note.md")
+        try FileManager.default.createDirectory(at: note.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try "hello world".write(to: note, atomically: true, encoding: .utf8)
+        var doc = ReviewDocument()
+        var m = ReviewMark(type: .question, quote: "hello", prefix: "", start: 0, note: "why?")
+        m.id = "m1"
+        doc.marks = [m]
+        _ = try ReviewSidecar.save(doc, for: note, baseRev: 0)
+
+        let result = try ReviewQueue.writeQueue(in: root)
+        XCTAssertEqual(result.count, 1)
+        XCTAssertTrue(result.wroteFile)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.queueURL.path))
+
+        let snap = try ReviewQueue.decode(Data(contentsOf: result.queueURL))
+        XCTAssertEqual(snap.count, 1)
+        XCTAssertEqual(snap.marks.count, 1)
+        XCTAssertEqual(snap.marks[0]["file"]?.stringValue, "docs/note.md")
+        XCTAssertEqual(snap.marks[0]["kind"]?.stringValue, "md")
+        XCTAssertEqual(snap.marks[0]["id"]?.stringValue, "m1")
+        XCTAssertEqual(snap.marks[0]["type"]?.stringValue, "question")
+        XCTAssertEqual(snap.marks[0]["quote"]?.stringValue, "hello")
+
+        // Resolve the open mark → empty queue deletes the file.
+        var closed = try XCTUnwrap(ReviewSidecar.load(for: note))
+        closed.marks[0].setStatus(.resolved)
+        _ = try ReviewSidecar.save(closed, for: note, baseRev: closed.rev)
+        let empty = try ReviewQueue.writeQueue(in: root)
+        XCTAssertEqual(empty.count, 0)
+        XCTAssertFalse(empty.wroteFile)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: empty.queueURL.path))
+    }
+
+    func testQueueSkipsClosedMarks() throws {
+        let root = tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let note = root.appendingPathComponent("a.md")
+        try "x".write(to: note, atomically: true, encoding: .utf8)
+        var doc = ReviewDocument()
+        var open = ReviewMark(type: .fix, quote: "x", prefix: "", start: 0, note: "")
+        open.id = "open"
+        var closed = ReviewMark(type: .fix, quote: "x", prefix: "", start: 0, note: "")
+        closed.id = "closed"
+        closed.setStatus(.resolved)
+        doc.marks = [open, closed]
+        _ = try ReviewSidecar.save(doc, for: note, baseRev: 0)
+
+        let result = try ReviewQueue.writeQueue(in: root)
+        XCTAssertEqual(result.count, 1)
+        let snap = try ReviewQueue.decode(Data(contentsOf: result.queueURL))
+        XCTAssertEqual(snap.marks[0]["id"]?.stringValue, "open")
+    }
+
+    func testManualCommandEscapesPath() {
+        let root = URL(fileURLWithPath: "/tmp/my project's notes")
+        let cmd = ReviewQueue.manualCommand(for: root)
+        XCTAssertTrue(cmd.contains("claude -p \"/smotr -pr\""))
+        XCTAssertTrue(cmd.contains("'/tmp/my project'\\''s notes'"))
+    }
+
+    // MARK: Round-trip against on-disk smotr-written fixture (step F)
+
+    /// EditMD must open a sidecar that a real smotr session wrote (or that
+    /// matches its schema) without loss, and re-encode to the same logical
+    /// document. Uses the acceptance fixture from this repo when present;
+    /// otherwise a minimal stand-in that mirrors smotr's field set.
+    func testRoundTripRealProjectFixture() throws {
+        let fixtureURL = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent() // EditMDTests
+            .deletingLastPathComponent() // EditMD
+            .deletingLastPathComponent() // repo root
+            .appendingPathComponent("test-all-elements.md.review.json")
+
+        let data: Data
+        if FileManager.default.fileExists(atPath: fixtureURL.path) {
+            data = try Data(contentsOf: fixtureURL)
+        } else {
+            // Stand-in if the acceptance file was cleaned up.
+            data = Data("""
+            {"rev":2,"marks":[
+              {"id":"m1","type":"comment","quote":"# **Heading 1**","prefix":"",
+               "start":0,"note":"привет","status":"open","ts":1,"mts":1,"thread":[]},
+              {"id":"m2","type":"comment","quote":"> This is a blockquote.",
+               "prefix":"photo.png) in the same line.\\n\\n","start":406,
+               "note":"ыыы","status":"open","ts":2,"mts":2,"thread":[]}
+            ]}
+            """.utf8)
+        }
+
+        let doc = try ReviewSidecar.decode(data)
+        let reencoded = try ReviewSidecar.encode(doc)
+        let reDoc = try ReviewSidecar.decode(reencoded)
+        XCTAssertEqual(doc, reDoc, "decode→encode→decode must be a fixed point")
+        XCTAssertGreaterThanOrEqual(doc.marks.count, 1)
+        // Every mark keeps its id and type through the cycle.
+        for (a, b) in zip(doc.marks, reDoc.marks) {
+            XCTAssertEqual(a.id, b.id)
+            XCTAssertEqual(a.type, b.type)
+            XCTAssertEqual(a.quote, b.quote)
+            XCTAssertEqual(a.note, b.note)
+        }
+    }
+
+    /// HTML-mark fields from a smotr visual sidecar must survive even when the
+    /// fixture also carries prompts + an unknown top-level key.
+    func testRoundTripSmotrRichFixture() throws {
+        let json = """
+        {
+          "rev": 12,
+          "marks": [
+            {
+              "id": "m1700000000000abcd",
+              "type": "question",
+              "quote": "Hello",
+              "prefix": "# ",
+              "start": 2,
+              "note": "Is this right?",
+              "status": "open",
+              "ts": 1700000000000,
+              "mts": 1700000000000,
+              "thread": [
+                {"role": "author", "text": "ping", "ts": 1700000000000},
+                {"role": "claude", "text": "pong", "ts": 1700000001000, "extra": true}
+              ]
+            },
+            {
+              "id": "v1700000000000wxyz",
+              "type": "element",
+              "vtype": "element",
+              "page": "home",
+              "selector": "body > h1",
+              "quote": "Title",
+              "note": "too loud",
+              "status": "open",
+              "ts": 1700000002000
+            },
+            {
+              "id": "s1700000000000sug1",
+              "type": "suggest",
+              "quote": "Hello",
+              "prefix": "# ",
+              "start": 2,
+              "replacement": "Hi",
+              "for": "m1700000000000abcd",
+              "note": "shorter",
+              "status": "open",
+              "ts": 1700000003000
+            }
+          ],
+          "prompts": {"intro": {"reply": "ok", "ts": 1}},
+          "stages": {"docs/a.md": "review"}
+        }
+        """
+        let doc = try ReviewSidecar.decode(Data(json.utf8))
+        let round = try ReviewSidecar.decode(try ReviewSidecar.encode(doc))
+        XCTAssertEqual(doc, round)
+        XCTAssertEqual(round.rev, 12)
+        XCTAssertEqual(round.marks.count, 3)
+        XCTAssertEqual(round.marks[1].extra["selector"]?.stringValue, "body > h1")
+        XCTAssertEqual(round.marks[2].forMark, "m1700000000000abcd")
+        XCTAssertEqual(round.marks[2].replacement, "Hi")
+        XCTAssertEqual(round.prompts["intro"]?["reply"]?.stringValue, "ok")
+        // Unknown top-level key preserved.
+        XCTAssertNotNil(round.extra["stages"])
+        // Thread unknown field on claude reply.
+        XCTAssertEqual(round.marks[0].thread?[1].extra["extra"], .bool(true))
+    }
+
     // MARK: Helpers
 
     private func mark(_ id: String, _ type: ReviewMarkType) -> ReviewMark {
@@ -281,6 +479,13 @@ final class ReviewMarksTests: XCTestCase {
     private func tempFile() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("editmd-review-\(UUID().uuidString).md")
+    }
+
+    private func tempDir() -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-queue-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     private func cleanup(_ file: URL) {

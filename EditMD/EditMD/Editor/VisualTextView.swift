@@ -194,6 +194,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             name: .claudeIDERevealRequested,
             object: nil)
         coordinator.applyClaudeReveal()
+        // Review-mark anchor wash (v37) — plainText quote search in display.
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.reviewMarksDidChange),
+            name: .reviewMarksDidChange,
+            object: nil)
+        coordinator.applyReviewHighlights()
         return scrollView
     }
 
@@ -272,8 +279,30 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
+            applyReviewHighlights()
             isLoadingDocument = false
             restoreCursor()
+        }
+
+        // MARK: Review-mark anchors (v37)
+
+        @objc func reviewMarksDidChange() {
+            applyReviewHighlights()
+        }
+
+        /// Temporary background wash: search each open mark's `quote` in the
+        /// display plain text (WYSIWYG has no markdown markers).
+        func applyReviewHighlights() {
+            guard let textView else { return }
+            guard parent.fileURL?.standardizedFileURL == ReviewModel.shared.fileURL
+            else {
+                ReviewHighlight.apply(to: textView, highlights: [])
+                return
+            }
+            let marks = ReviewModel.shared.openMarksForDisplaySearch()
+            let highlights = ReviewHighlight.displayHighlights(
+                marks: marks, displayText: textView.string)
+            ReviewHighlight.apply(to: textView, highlights: highlights)
         }
 
         /// Applies a deferred external change once the window regains focus (see
@@ -415,6 +444,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             LineChangeTracker.shared.noteContent(url: parent.fileURL,
                                                  content: parent.document.content)
             updateStats()
+            applyReviewHighlights()
             refreshGutter()
         }
 
