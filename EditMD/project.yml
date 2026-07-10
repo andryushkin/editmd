@@ -57,3 +57,22 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
+
+# Схема генерируется здесь же — раньше её автосоздавал Xcode в xcuserdata,
+# и любой `xcodegen generate` её терял (xcodebuild: "does not contain a scheme").
+schemes:
+  EditMD:
+    build:
+      targets:
+        EditMD: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gathersCoverageData: false
+      targets:
+        - EditMDTests
+    profile:
+      config: Release
+    archive:
+      config: Release
