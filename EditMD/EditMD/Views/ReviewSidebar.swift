@@ -155,7 +155,7 @@ struct ReviewSidebar: View {
                 }
                 .font(.system(size: 11))
             } else {
-                Label("Выдели текст в редакторе (режим Source), затем нажми + ещё раз",
+                Label("Выдели текст в редакторе (Source или Visual), затем нажми + ещё раз",
                       systemImage: "hand.point.up.left")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
