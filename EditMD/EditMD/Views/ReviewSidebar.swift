@@ -221,7 +221,7 @@ struct ReviewSidebar: View {
                 }
                 .font(.system(size: 11))
             } else {
-                Label("Выдели текст в Source или Visual, затем нажми +. Preview не даёт выделения.",
+                Label("Выдели текст в Source, Visual или Preview, затем нажми +.",
                       systemImage: "hand.point.up.left")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)

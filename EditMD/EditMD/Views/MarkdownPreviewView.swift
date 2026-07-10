@@ -37,6 +37,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                   name: "previewSelection")
         // Cache selection + source offsets (data-md-lo/hi). Keep last non-empty
         // so a click on the action strip doesn't wipe the range before wrap runs.
+        // Report selection in *markdown source* UTF-16 offsets (data-md-lo/hi).
+        // Used by the format strip and by Review-mark capture (v37) via the
+        // ClaudeIDEBridge — same path as Source/Visual.
         let selectionScript = WKUserScript(
             source: """
             (function () {
@@ -72,21 +75,26 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   var text = sel.toString();
                   var a = mdEl(range.startContainer);
                   var b = mdEl(range.endContainer);
-                  if (!a || !b || a !== b || a.getAttribute('data-md-code') === '1') {
+                  // Code islands: offsets into rendered code don't match source.
+                  if (!a || !b
+                      || a.getAttribute('data-md-code') === '1'
+                      || b.getAttribute('data-md-code') === '1') {
                     window.webkit.messageHandlers.previewSelection.postMessage({
                       text: text, start: -1, end: -1
                     });
                     return;
                   }
-                  var lo = parseInt(a.getAttribute('data-md-lo'), 10);
-                  if (isNaN(lo)) {
+                  var loA = parseInt(a.getAttribute('data-md-lo'), 10);
+                  var loB = parseInt(b.getAttribute('data-md-lo'), 10);
+                  if (isNaN(loA) || isNaN(loB)) {
                     window.webkit.messageHandlers.previewSelection.postMessage({
                       text: text, start: -1, end: -1
                     });
                     return;
                   }
-                  var start = lo + utf16OffsetIn(a, range.startContainer, range.startOffset);
-                  var end = lo + utf16OffsetIn(a, range.endContainer, range.endOffset);
+                  // a and b may differ (selection spans inline runs / lines).
+                  var start = loA + utf16OffsetIn(a, range.startContainer, range.startOffset);
+                  var end = loB + utf16OffsetIn(b, range.endContainer, range.endOffset);
                   if (end < start) { var t = start; start = end; end = t; }
                   window.webkit.messageHandlers.previewSelection.postMessage({
                     text: text, start: start, end: end
@@ -338,17 +346,51 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         /// Accepts a non-empty selection (and optional source offsets). Empty
-        /// updates are ignored so toolbar clicks keep the last range.
+        /// updates are ignored so toolbar / Review ▸ + clicks keep the last range
+        /// after WebKit collapses the selection on focus change.
         func updateCachedSelection(text: String, start: Int, end: Int) {
             guard !text.isEmpty else { return }
             cachedSelection = text
             if start >= 0, end > start {
                 cachedStart = start
                 cachedEnd = end
+            } else if let content = document?.content,
+                      let found = Self.locate(text, in: content, hint: cachedStart) {
+                // DOM could not map offsets (rare / untagged node) — fall back
+                // to locating the selected string in the markdown source so
+                // Review marks still get a real quote+prefix+start anchor.
+                cachedStart = found.location
+                cachedEnd = NSMaxRange(found)
             } else {
                 cachedStart = -1
                 cachedEnd = -1
             }
+            // Feed the IDE/review bridge (same path Source/Visual use). The
+            // latest-non-empty snapshot survives the focus hop to Review ▸ +.
+            if cachedStart >= 0, cachedEnd > cachedStart, let document {
+                let range = NSRange(location: cachedStart, length: cachedEnd - cachedStart)
+                let ns = document.content as NSString
+                guard NSMaxRange(range) <= ns.length else { return }
+                ClaudeIDEBridge.shared.noteSelection(
+                    url: fileURL,
+                    markdownRange: range,
+                    markdown: document.content)
+            }
+        }
+
+        /// Locate `text` in `content`, preferring a match near `hint` (last
+        /// known source offset) so repeated words don't always pick the first.
+        private static func locate(_ text: String, in content: String, hint: Int) -> NSRange? {
+            let ns = content as NSString
+            guard !text.isEmpty, ns.length > 0 else { return nil }
+            if hint >= 0, hint < ns.length {
+                let from = max(0, hint - 80)
+                let near = ns.range(of: text, options: [],
+                                    range: NSRange(location: from, length: ns.length - from))
+                if near.location != NSNotFound { return near }
+            }
+            let global = ns.range(of: text)
+            return global.location != NSNotFound ? global : nil
         }
 
         /// Copy the current page selection (cached — strip click clears WebKit
