@@ -124,6 +124,9 @@ struct MainWindowView: View {
             }
         }
         .onAppear { appState.bindOpenWindow(openWindow) }
+        // Claude's `openDiff` can target any file, not just the one on screen —
+        // the sheet belongs to the window, not to the current document view.
+        .claudeDiffApproval()
     }
 }
 

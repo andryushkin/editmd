@@ -14,6 +14,9 @@ struct EditMDApp: App {
     @FocusedValue(\.documentUndoActions) var documentUndoActions
 
     @StateObject private var history = DocumentHistory.shared
+    // Both drive the enabled state of Edit ▸ Send to Claude.
+    @StateObject private var claudeService = ClaudeIDEService.shared
+    @StateObject private var claudeBridge = ClaudeIDEBridge.shared
 
     /// Routes an Edit ▸ Find command into the focused NSTextView's find bar.
     /// performTextFinderAction reads the action from the SENDER's tag, so the
@@ -162,6 +165,16 @@ struct EditMDApp: App {
                     }
                     .keyboardShortcut("e")
                 }
+
+                Divider()
+
+                // at_mentioned — only meaningful while a `claude` client is
+                // attached (there is nobody to receive it otherwise).
+                Button("Send to Claude") {
+                    claudeBridge.sendSelectionToClaude()
+                }
+                .keyboardShortcut("a", modifiers: [.control, .command])
+                .disabled(!claudeBridge.hasSelection || !claudeService.isConnected)
             }
 
             CommandGroup(before: .toolbar) {

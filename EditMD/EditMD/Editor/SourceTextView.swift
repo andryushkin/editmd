@@ -153,6 +153,16 @@ struct SourceTextView: NSViewRepresentable {
                 object: store
             )
         }
+        // Claude `openFile` reveal. The bridge hands the range to whichever
+        // editor claims the URL, so a nil object scope is correct here.
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.applyClaudeReveal),
+            name: .claudeIDERevealRequested,
+            object: nil
+        )
+        // The file may have been opened BY that reveal: claim it on mount too.
+        coordinator.applyClaudeReveal()
 
         return scrollView
     }
@@ -283,7 +293,29 @@ struct SourceTextView: NSViewRepresentable {
                 if textView.typingAttributes[.kern] != nil {
                     textView.typingAttributes[.kern] = nil
                 }
+                // Source coordinates are the markdown's own — no mapping needed.
+                ClaudeIDEBridge.shared.noteSelection(url: parent.fileURL,
+                                                     markdownRange: textView.selectedRange(),
+                                                     markdown: parent.document.content)
             }
+        }
+
+        /// Claude's `openFile` with `startText` / `endText`: select the resolved
+        /// range. Fired both on mount (file just opened) and on notification
+        /// (file already on screen).
+        @objc func applyClaudeReveal() {
+            guard let textView,
+                  let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL)
+            else { return }
+            let length = (textView.string as NSString).length
+            let location = min(range.location, length)
+            let clamped = NSRange(location: location,
+                                  length: min(range.length, length - location))
+            parent.positionStore?.markdownOffset = location
+            textView.setSelectedRange(clamped)
+            textView.scrollRangeToVisible(clamped)
+            textView.centerSelectionInVisibleArea(nil)
+            textView.window?.makeFirstResponder(textView)
         }
 
         /// Outline-sidebar jump: markdown offsets are native here — place the

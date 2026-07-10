@@ -791,3 +791,36 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Commit path-scoped** как v34.3 (`git add` + `commit -- path`); multi-file commit не делаем.
 - **Line delta** кэширует `git show HEAD:path`; invalidate на commit / file switch / `gitRepositoryDidChange`.
 - **Diff sheet** предпочитает open buffer (в т.ч. unsaved) over disk — совпадает с «что закоммитится после Save».
+
+## v36 — Complete (Claude Code IDE channel) — app **0.36.0**
+
+Мотив: markdown-задачи (правка выделенного, линт-фиксы, суммаризация) хочется отдавать Claude Code, не встраивая чат и не храня API-ключей. Решение — **фаза 1** из `docs/research/claude-code-integration.md`: EditMD прикидывается IDE для CLI. Пользователь держит `claude` в терминале, жмёт `/ide` — Claude видит текущий файл, выделение и workspace, а правки приходят как **diff на подтверждение**. Версия: `CFBundleShortVersionString` **0.36.0**, `CFBundleVersion` **360**.
+
+Новая папка `EditMD/EditMD/Integration/` — слой СБОКУ от редактора: attributed-модель Visual, сериализатор и пороги больших файлов не тронуты.
+
+- **`MCPProtocol.swift`** — JSON-RPC 2.0 кодек: `JSONValue` (int ≠ double, чтобы `id` возвращался тем же типом), `RPCID`, `RPCRequest/RPCMessage/RPCError`, `MCPContent` (обёртка `content[0].text`).
+- **`ClaudeIDEServer.swift`** — `actor` поверх `NWListener` + `NWProtocolWebSocket`; bind строго `127.0.0.1` через `requiredLocalEndpoint`, ephemeral-порт; `setClientRequestHandler` отклоняет апгрейд без валидного `x-claude-code-ide-authorization`. Плюс `ClaudeIDERouter`: `initialize` (protocolVersion `2025-03-26`) / `tools/list` / `tools/call` / `ping` / `shutdown`.
+- **`IDELockFile.swift`** — `~/.claude/ide/<port>.lock` (0600, каталог 0700), схема дословно из спеки; `authToken` = 16 байт `SecRandomCopyBytes` → 32 hex; stale-cleanup по мёртвому pid (`kill(pid, 0)`).
+- **`ClaudeIDETools.swift`** — 12 стандартных tools + `IDEEditorContext` (протокол, чтобы тесты били по фейку). `getDiagnostics` отдаёт наш линтер (14 правил) — Obsidian-плагины возвращают `[]`.
+- **`ClaudeIDEBridge.swift`** — `@MainActor` фасад (выделение, active URL, reveal) + `LiveEditorContext` (nonisolated: main-actor hop за состоянием, `Task.detached` за диском).
+- **`DiffApprovalController.swift`** — blocking `openDiff` на `CheckedContinuation`; Accept пишет через `DocumentRegistry.applyAgentEdit`.
+- **`ClaudeIDEService.swift`** — старт/стоп по настройке, lock-файл, состояние для чипа, notifications `selection_changed` / `at_mentioned`.
+- **UI:** `Views/ClaudeIDEUI.swift` — sheet «Claude предлагает изменение: <tab_name>» (Принять/Отклонить) поверх переиспользованного `UnifiedDiffSheet` v34 + чип `sparkles` в статус-баре (серый = слушает, акцентный = подключён). Settings ▸ General — тумблер «Claude Code integration» (default on). Edit ▸ Send to Claude (⌃⌘A) = `at_mentioned`.
+- **Тесты (+95):** `MCPProtocolTests` (кодек, id-типы, notification, ошибки), `IDELockFileTests` (схема, права, stale), `ClaudeIDEServerTests` (**настоящий** WS-клиент: auth ок/отказ, счётчик клиентов, notification без ответа), `ClaudeIDEToolsTests` + `IDEPositionMathTests` + `IDERevealRangeTests`, `DiffApprovalControllerTests` (continuation ровно один раз).
+- **Smoke:** `EditMD/scripts/ide-smoke/ide_smoke.py` — WS-клиент на stdlib, имитирует `/ide`: discovery → upgrade с токеном (и проверка отказа без него) → `initialize` → `tools/list` → все tools. Страховка от изменений протокола CLI (риск 6.1 спеки). `--open-diff` шлёт блокирующий diff (решение кликает человек).
+
+### v36 — gotchas
+
+- **WS-клиент обязан подключаться по `.url(ws://host:port/)`**, не по `.hostPort`. С host/port Network.framework **не шлёт HTTP-upgrade**: серверный `setClientRequestHandler` молча не вызывается, клиент получает `ECONNABORTED (53)`. Сервер при этом исправен — так был потерян цикл отладки (проверять сначала клиента).
+- **`xcodebuild test` запускает app как тест-хост** → `applicationDidFinishLaunching` поднимал реальный listener и писал lock-файл в личный `~/.claude/ide` разработчика. Гард: `ProcessInfo…environment["XCTestConfigurationFilePath"] != nil` (`AppDelegate.isRunningUnitTests`).
+- **Тест-хост убивают SIGKILL** → `applicationWillTerminate` не выполняется. Отсюда обязателен stale-cleanup по pid при старте. Проверено вживую: ⌘Q удаляет lock; SIGKILL оставляет; следующий старт подчищает.
+- **`Data.write` не задаёт права** — новый файл получает umask (0644). После записи обязателен `setAttributes(.posixPermissions: 0o600)`, иначе токен читаем всем.
+- **Accept через `applyAgentEdit`** → для открытого файла идёт в `applyExternalContent`, который **чистит undo-стек**. Правку Claude нельзя откатить через ⌘Z (только Reject до применения). Осознанный компромисс: путь совпадает с external-change и держит инвариант v34 (`knownModDate` + re-arm watch), иначе своя запись вернулась бы conflict-чипом.
+- **`Task {}` внутри метода актора наследует его изоляцию** — `self.send(...)` внутри такого Task не требует `await` (компилятор ругается «no async operations occur within await»).
+- **Visual → source координаты** идут через paragraph-map v22 (`markdownOffset(atDisplayLocation:)`), оба конца выделения отдельно. Внутри table-island и frontmatter маппинг паграф-гранулярный, не посимвольный. `openFile` с `startText` в Visual ставит только каретку (display-диапазон ≠ source-диапазон); в Source выделяет найденное.
+- **`severity` в `getDiagnostics` — имя**, не число VS Code: `"Error"` / `"Warning"` + `code` = имя правила линтера.
+- **`workspaceFolders`**: корни `WorkspaceModel`; если workspace не заведён — папка файла в главном окне (иначе `/ide` не сматчит cwd на свежей установке). Файл перезаписывается на лету при смене набора; живое подключение это переживает (риск 6.4 закрыт).
+- **Два окна EditMD = два lock-файла.** CLI выбирает по `workspaceFolders` ⊇ cwd; при неоднозначности поведение на его стороне (риск 6.3 остаётся открытым).
+- **Повторный `openDiff` с тем же `tab_name`** отклоняет предыдущий (`DIFF_REJECTED`) и показывает новый. Все пути — disconnect, `close_tab`, таймаут 10 мин, Esc — резолвят continuation ровно один раз.
+
+**Осталось / не в v36:** кастомные EditMD-tools (`getOutline`, `resolveWikilink`, …) — фаза 1.5, требует решения по фильтрации `tools/list`; lite-окна как активный редактор; undo для принятой правки Claude; выделение диапазона в Visual при `openFile`.

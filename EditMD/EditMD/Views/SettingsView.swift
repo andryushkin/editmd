@@ -62,6 +62,11 @@ private struct GeneralTab: View {
                 Text("Off: a double-click in Finder loads the file into the main window. Sidebar clicks and File ▸ Open always use the main window; right-click a file to open it separately.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Claude Code") {
+                Toggle("Claude Code integration", isOn: $settings.general.claudeIDEEnabled)
+                Text("Runs a local server on 127.0.0.1 so `claude` in your terminal can attach with /ide: it then sees the current file, your selection and the workspace, and proposes edits as a diff you accept or reject. No API key is stored and nothing leaves your machine.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Line gutter") {
                 Toggle("Show line numbers", isOn: $settings.gutter.showLineNumbers)
                 Toggle("Highlight lines changed this session",

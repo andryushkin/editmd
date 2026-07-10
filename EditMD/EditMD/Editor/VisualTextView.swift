@@ -187,6 +187,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.windowBecameKey(_:)),
             name: NSWindow.didBecomeKeyNotification,
             object: nil)
+        // Claude `openFile` reveal (see SourceTextView for the mount rationale).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.applyClaudeReveal),
+            name: .claudeIDERevealRequested,
+            object: nil)
+        coordinator.applyClaudeReveal()
         return scrollView
     }
 
@@ -295,21 +302,53 @@ struct VisualMarkdownView: NSViewRepresentable {
             return (index, start)
         }
 
-        func storeCursor() {
-            guard !isLoadingDocument, let store = parent.positionStore, let textView,
-                  let storage = textView.textStorage,
-                  !lastParagraphRanges.isEmpty else { return }
+        /// Display offset → markdown offset, through the serializer's paragraph
+        /// map (v22). Visual's text has no markers, so the block's markdown
+        /// prefix ("# ", "- [x] ", "> " …) is added back here.
+        func markdownOffset(atDisplayLocation location: Int) -> Int? {
+            guard let textView, let storage = textView.textStorage,
+                  !lastParagraphRanges.isEmpty else { return nil }
             let nsText = textView.string as NSString
-            let location = textView.selectedRange().location
             let (index, start) = paragraphIndex(at: location, in: nsText)
-            guard index < lastParagraphRanges.count else { return }
+            guard index < lastParagraphRanges.count else { return nil }
             let mdRange = lastParagraphRanges[index]
-            // Compensate for the markdown prefix ("# ", "- [x] ", "> " …) the
-            // serializer emits before the display text.
             let blockValue = block(at: NSRange(location: start, length: 0), in: storage)
             let prefixLength = markdownPrefixLength(for: blockValue)
-            store.markdownOffset = min(mdRange.location + prefixLength + (location - start),
-                                       NSMaxRange(mdRange))
+            return min(mdRange.location + prefixLength + (location - start),
+                       NSMaxRange(mdRange))
+        }
+
+        func storeCursor() {
+            guard !isLoadingDocument, let textView else { return }
+            guard let offset = markdownOffset(atDisplayLocation: textView.selectedRange().location)
+            else { return }
+            parent.positionStore?.markdownOffset = offset
+            noteSelectionForClaude()
+        }
+
+        /// `selection_changed` is specified in markdown-source coordinates, so
+        /// both ends go through the paragraph map — never the display text.
+        private func noteSelectionForClaude() {
+            guard let textView else { return }
+            let selection = textView.selectedRange()
+            guard let start = markdownOffset(atDisplayLocation: selection.location) else { return }
+            let end = selection.length == 0
+                ? start
+                : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? start)
+            ClaudeIDEBridge.shared.noteSelection(
+                url: parent.fileURL,
+                markdownRange: NSRange(location: start, length: max(0, end - start)),
+                markdown: parent.document.content)
+        }
+
+        /// Claude's `openFile` reveal. Visual places the caret at the mapped
+        /// source offset; it does not extend the selection — display ranges and
+        /// source ranges are not the same span.
+        @objc func applyClaudeReveal() {
+            guard let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL),
+                  let store = parent.positionStore else { return }
+            store.markdownOffset = range.location
+            restoreCursor()
         }
 
         /// Outline-sidebar jump: `restoreCursor` maps the store's markdown

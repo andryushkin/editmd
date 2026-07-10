@@ -171,13 +171,26 @@ struct DiffSheetContent: Equatable, Sendable {
     var sideLabel: String
     var before: String
     var after: String
+    /// Optional caution line under the header (unsaved buffer, new file, …).
+    var warning: String? = nil
 
     var stats: LineDiffResult { lineDiff(before: before, after: after) }
+}
+
+/// Turns the sheet from a viewer into a decision: Claude's `openDiff` blocks on
+/// one of these two buttons (v36).
+struct DiffApprovalActions {
+    var acceptTitle: String = "Принять"
+    var rejectTitle: String = "Отклонить"
+    let onAccept: () -> Void
+    let onReject: () -> Void
 }
 
 struct UnifiedDiffSheet: View {
     let content: DiffSheetContent
     let onClose: () -> Void
+    /// When set, the footer offers Accept/Reject instead of Close.
+    var approval: DiffApprovalActions? = nil
 
     /// External-change banner (v34).
     init(notice: ExternalChangeNotice, onClose: @escaping () -> Void) {
@@ -195,6 +208,13 @@ struct UnifiedDiffSheet: View {
     init(content: DiffSheetContent, onClose: @escaping () -> Void) {
         self.content = content
         self.onClose = onClose
+    }
+
+    /// Decision sheet (Claude `openDiff`).
+    init(content: DiffSheetContent, approval: DiffApprovalActions) {
+        self.content = content
+        self.approval = approval
+        self.onClose = approval.onReject
     }
 
     private var result: LineDiffResult { content.stats }
@@ -226,6 +246,11 @@ struct UnifiedDiffSheet: View {
                     DiffStatsLabel(added: result.added, removed: result.removed,
                                    font: .system(size: 12, design: .monospaced))
                 }
+                if let warning = content.warning {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
+                }
             }
             Spacer()
             Text(content.sideLabel)
@@ -246,10 +271,20 @@ struct UnifiedDiffSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Close", action: onClose)
-                .keyboardShortcut(.cancelAction)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            if let approval {
+                Button(approval.rejectTitle, action: approval.onReject)
+                    .keyboardShortcut(.cancelAction)
+                    .controlSize(.small)
+                Button(approval.acceptTitle, action: approval.onAccept)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            } else {
+                Button("Close", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
         }
         .padding(12)
     }

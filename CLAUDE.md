@@ -8,7 +8,7 @@
 - **Visual** — WYSIWYG на attributed-модели: маркеров в тексте нет, семантика в кастомных атрибутах, пропорциональный шрифт, таблицы NSTextTable, картинки, синхронная сериализация в markdown — `VisualTextView.swift`
 - **Preview** — read-only рендер в WKWebView (свой HTML-визитор + GitHub-подобный CSS) — `MarkdownPreviewView.swift`
 
-Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift` (File-меню теперь ручное — DocumentGroup его больше не даёт). **Файловый сайдбар** (⌃⌘S, кастомный HStack-сплит + divider) — вкладки **Files/Outline/Git**: Files = несколько workspace-папок (скрытые файлы, пины) + «Открытые файлы», клик = замена файла в окне; Outline = заголовки документа; Git = workspace-scoped status + Commit/Push/Diff (`WorkspaceSidebar.swift` + `GitSidebar.swift` + `OutlineSidebar.swift`, `WorkspaceModel.swift`). **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
+Кнопка 🎨 в тулбаре переключает тему (System/Comfortable/GitHub). Кнопка ☀/🌙 управляет `.preferredColorScheme`. Меню — через SwiftUI `.commands` + `@FocusedValue` в `EditMDApp.swift` (File-меню теперь ручное — DocumentGroup его больше не даёт). **Интеграция с Claude Code** (v36, Settings ▸ General, default on) — локальный WebSocket/MCP-сервер на `127.0.0.1`: `claude` в терминале делает `/ide`, видит файл/выделение/workspace, правки приходят как diff с Accept/Reject (`Integration/`). **Файловый сайдбар** (⌃⌘S, кастомный HStack-сплит + divider) — вкладки **Files/Outline/Git**: Files = несколько workspace-папок (скрытые файлы, пины) + «Открытые файлы», клик = замена файла в окне; Outline = заголовки документа; Git = workspace-scoped status + Commit/Push/Diff (`WorkspaceSidebar.swift` + `GitSidebar.swift` + `OutlineSidebar.swift`, `WorkspaceModel.swift`). **Сплит редактор+превью** (⌥⌘P) — Source/Visual слева + живой Preview справа. Тулбар — плоские иконочные кнопки в стиле agterm (многосостоянные SF Symbols, тултипы с шорткатами). **Settings-окно** (⌘,) — вкладки General/Source/Visual/Preview: шрифт/отступы/ширина колонки по каждому режиму отдельно, тема + цвета в General — `EditorSettings.swift` + `SettingsView.swift`.
 
 ## Версии — краткая карта
 
@@ -33,6 +33,7 @@
 - **v33** — YAML frontmatter «как в Obsidian» (Visual + Preview) + подсветка `yaml`-код-блоков во всех режимах
 - **v34** — внешние правки открытого файла: watch + auto-reload/conflict, unified diff, line gutter, commit/push (app 0.34.3)
 - **v35** — вкладка Git в сайдбаре, workspace-scoped status, perf-фиксы (app 0.35.1)
+- **v36** — интеграция с Claude Code, фаза 1: локальный WS/MCP-сервер (`/ide`), 12 IDE-tools, `openDiff` с Accept/Reject (app 0.36.0)
 
 **Осталось на будущее:** remote-картинки в Visual (async загрузка), undo через границы переключения режимов, CRUD столбцов таблиц, drag&drop картинок, per-document запоминание режима (идея FSNotes, отложена), поиск внутри Preview (WKWebView.find / кастомная панель как MPreviewFindPanel в FSNotes), **полноценная работа с большими таблицами** (сейчас read-only virtualized grid — нужно редактирование + горизонтальный скролл, см. `docs/HISTORY.md`, «v31» → идеи), **перенос широких ячеек в Visual-grid** (v32 в Source перенос невозможен — plain text; wrap уместен в нарисованной сетке v31: многострочная ячейка + рост высоты строки). Wiki-links Фаза-5 хвосты: стиль несуществующих ссылок, heading/block-скролл, `[[`-автокомплит.
 
@@ -56,6 +57,9 @@
 - **Диагностика зависаний — `sample <pid> 3`**, не догадки: изолированный юнит-замер может не воспроизвести проблему, живой процесс покажет точный стек (v29).
 - **Сайдбар не ходит на диск синхронно из SwiftUI body** — листинги папок и tree-stats идут через кэш + фоновый скан (stale-while-revalidate, `WorkspaceModel.markdownFiles`/`treeStats`); один блокирующий `contentsOfDirectory` (TCC-арбитраж, мёртвый маунт, огромный каталог) вешал всё приложение на минуты, включая тест-хост (v35.3).
 - **Git Process и полный line-diff не бегут на main в per-keystroke путях** — `LineChangeTracker.noteContent` диффит большие буферы с debounce вне main actor; в SwiftUI body не должно быть computed-свойств, спавнящих git (`GitCommitSheet.branch` спавнил Process на каждый ререндер) (v35.3).
+- **Правки Claude попадают в документ ТОЛЬКО через `DocumentRegistry.applyAgentEdit`** (Accept в `openDiff`) — прямая запись из tool-хендлера вернулась бы conflict-чипом как external change (v34+v36). Цена: для открытого файла undo-стек чистится.
+- **`openDiff` — единственный blocking tool**: его `CheckedContinuation` обязан резолвиться ровно один раз. Accept / Reject / Esc / `close_tab` / disconnect / таймаут — все через `DiffApprovalController.resolve` (v36).
+- **Интеграционный слой не поднимается под XCTest** — тест-хост писал бы реальный lock-файл в `~/.claude/ide` разработчика (`AppDelegate.isRunningUnitTests`) (v36).
 
 ## Project Structure
 
@@ -66,9 +70,10 @@ editmd/
     ├── EditMD.xcodeproj/
     └── EditMD/
         ├── App/        EditMDApp.swift (entry point: Window("main")+WindowGroup(for:URL), ручное File-меню, commands), AppState.swift (currentURL главного окна + роутинг открытия), AppDelegate.swift (Finder open→AppState), Info.plist
-        ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave)
+        ├── Document/   MarkdownDocument.swift (модель контента, всё ещё ReferenceFileDocument — но сцену больше не питает), DocumentStore.swift (общий core сериализации .md/.textbundle + DocumentRegistry: одна модель на URL, refcount, autosave, applyAgentEdit)
+        ├── Integration/ Claude Code IDE-канал (v36): MCPProtocol.swift (JSON-RPC 2.0), ClaudeIDEServer.swift (actor: NWListener+WebSocket, loopback, auth-header; + ClaudeIDERouter), IDELockFile.swift (~/.claude/ide/<port>.lock), ClaudeIDETools.swift (12 tools + IDEEditorContext), ClaudeIDEBridge.swift (@MainActor фасад + LiveEditorContext), DiffApprovalController.swift (blocking openDiff), ClaudeIDEService.swift (жизненный цикл, notifications)
         ├── Editor/     SourceTextView.swift (Source: подсветка + линт; `makeSourceHighlightedString` shared), VisualTextView.swift (Visual: ядро — wrapper + Coordinator: delegate, таблицы, Enter/Tab, sync) + VisualCoordinatorFormat.swift (format-действия) + VisualCoordinatorPresentation.swift (presentation-проход: шрифты/цвета/декорации из md.*-атрибутов) + VisualNSTextView.swift (drawn markers + table-island cell editor), MarkdownHighlighter.swift, MarkdownOutline.swift, FormattingHelpers.swift, EditorTheme.swift, MarkdownHTML.swift, MarkdownLint.swift, MarkdownToAttributed.swift + AttributedToMarkdown.swift, Frontmatter.swift, MarkdownTableGrid.swift, WikiLink.swift, TextDiff.swift, LineChangeTracker.swift, LineNumberRulerView.swift, GitCommitWatcher.swift (`GitCLI` + detect-commit)
-        └── Views/      ContentView.swift (layout + external-change chip + git info chip), FileEditor.swift (DocHost + MainWindowView), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip + workspace git snapshot), GitSidebar.swift (Git navigator tab), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
+        └── Views/      ContentView.swift (layout + external-change chip + git info chip + Claude chip), FileEditor.swift (DocHost + MainWindowView), ClaudeIDEUI.swift (diff-sheet Accept/Reject + чип подключения), ExternalChangeUI.swift, GitUI.swift (Commit sheet + Push confirm + status chip + workspace git snapshot), GitSidebar.swift (Git navigator tab), WorkspaceModel.swift, WorkspaceSidebar.swift, OutlineSidebar.swift, EditorSettings.swift, SettingsView.swift, FocusedValues.swift, EditorMode.swift, EditorPositionStore.swift, MarkdownPreviewView.swift, DocumentHistory.swift, WelcomeView.swift
     EditMDTests/
         ├── MarkdownHighlighterTests.swift   # 53 XCTest кейса для LineIndex + collectSpans (все markdown-элементы)
         ├── FormattingHelpersTests.swift     # 14 XCTest кейсов для wordAndCharCount + applyWrap
@@ -79,8 +84,15 @@ editmd/
         ├── RoundTripTests.swift            # 55 XCTest кейсов render/serialize: stable-фикстуры, идемпотентность, HTML-отпечаток, корпус
         ├── DocumentStoreTests.swift        # 7 кейсов: round-trip .md/.textbundle + assets, DocumentRegistry (shared-model/refcount, save-on-dirty, flush-on-release)
         ├── WorkspaceModelTests.swift       # 5 кейсов: скан-фильтрация, hide/unhide, персист скрытых по пути, пины, noteOpened
-        └── FrontmatterTests.swift          # 22 кейса: frontmatterRange (детект/фенсы/малформ), parseFrontmatterProperties (scalar/flow/block-list/comment/colon-в-значении), yamlLineSegments (лосслесс/классификация), HTML-таблица + yaml-спаны, Visual round-trip
-docs/HISTORY.md  # история версий v1–v35: детали релизов + per-version gotchas
+        ├── FrontmatterTests.swift          # 22 кейса: frontmatterRange (детект/фенсы/малформ), parseFrontmatterProperties (scalar/flow/block-list/comment/colon-в-значении), yamlLineSegments (лосслесс/классификация), HTML-таблица + yaml-спаны, Visual round-trip
+        ├── MCPProtocolTests.swift          # 15 кейсов: JSON-RPC кодек (типы id, notification, ошибки, MCP-обёртка content[0].text)
+        ├── IDELockFileTests.swift          # 13 кейсов: схема lock-файла, права 0600/0700, authToken, stale-cleanup по pid
+        ├── ClaudeIDEServerTests.swift      # 8 кейсов: НАСТОЯЩИЙ WS-клиент — upgrade с токеном / отказ без него, счётчик клиентов, notification без ответа
+        ├── ClaudeIDEToolsTests.swift       # 40 кейсов: 12 tools против фейкового редактора + позиционная арифметика + reveal-диапазоны
+        └── DiffApprovalControllerTests.swift  # 12 кейсов: continuation ровно один раз (accept/reject/close/disconnect/timeout/повторный openDiff), Accept через реестр
+    scripts/ide-smoke/ide_smoke.py  # интеграционный smoke: имитирует /ide (discovery → auth → handshake → все tools); --open-diff = блокирующий diff
+docs/HISTORY.md  # история версий v1–v36: детали релизов + per-version gotchas
+docs/research/claude-code-integration.md  # спека IDE-протокола + фазы 2–3 (метки smotr, editmdctl)
 visual-audit.md  # чеклист визуального аудита всех 17 SpanKind + матрица light/dark состояний
 ```
 

@@ -9,6 +9,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
+        // Claude Code IDE channel: follows Settings ▸ General (default on).
+        // Skipped under XCTest — the unit-test host would open a real listener
+        // and drop a lock file into the developer's own `~/.claude/ide`.
+        if !Self.isRunningUnitTests {
+            ClaudeIDEService.shared.activate()
+        }
+    }
+
+    /// The test bundle sets this; `xcodebuild test` launches the app as host.
+    static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // The lock file must not outlive the process — a stale one makes the
+        // CLI dial a dead port on the next `/ide`.
+        ClaudeIDEService.shared.stopBeforeTerminate()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

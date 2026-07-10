@@ -332,6 +332,28 @@ final class DocumentRegistry {
         applyExternalContent(url, content: previousContent)
     }
 
+    /// Applies an agent-proposed edit the user accepted (Claude's `openDiff`).
+    ///
+    /// The whole point of routing it here: `flush` advances `knownModDate` and
+    /// re-arms the watch, so our own write is not mistaken for an external
+    /// change (v34). A plain `writeMarkdownDocument` from a tool handler would
+    /// pop the conflict chip on the file the user just approved.
+    ///
+    /// Closed files are written directly — nothing holds a buffer to reconcile,
+    /// but existing `.textbundle` assets must survive the rewrite.
+    func applyAgentEdit(_ url: URL, content: String) throws {
+        let key = url.standardizedFileURL
+        if entries[key] != nil {
+            applyExternalContent(key, content: content)
+            return
+        }
+        let existingAssets = (try? loadMarkdownDocument(from: key))?.assets
+        try writeMarkdownDocument(content: content, assets: existingAssets, to: key)
+        LineChangeTracker.shared.noteBaseline(url: key, content: content)
+        // A brand-new file has to appear in the sidebar without a manual refresh.
+        WorkspaceModel.shared.noteFilesystemChange()
+    }
+
     /// Drops the session cache (tests / low-memory). Live window entries stay.
     func clearSessionCache() {
         sessionCache.removeAll()

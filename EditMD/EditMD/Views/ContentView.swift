@@ -184,10 +184,14 @@ struct ContentView: View {
                 showExternalDiff = false
             }
         }
-        .onAppear { refreshGitSnapshot(mode: .full, delayMs: 0) }
+        .onAppear {
+            refreshGitSnapshot(mode: .full, delayMs: 0)
+            if isMain { ClaudeIDEBridge.shared.setActiveURL(fileURL) }
+        }
         .onChange(of: fileURL) { _ in
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
+            if isMain { ClaudeIDEBridge.shared.setActiveURL(fileURL) }
         }
         // Session marks only — no git Process (delta reuses cached HEAD).
         .onChange(of: lineChanges.revision) { _ in
@@ -540,6 +544,8 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.quaternary)
             }
+            // Claude Code: grey while listening, accent once /ide attached.
+            ClaudeIDEChip()
             // Git: info only (Commit / Push live in the Git sidebar tab).
             if gitSnapshot.inRepo {
                 GitStatusChip(snapshot: gitSnapshot) {
