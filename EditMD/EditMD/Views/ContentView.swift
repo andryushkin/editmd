@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
+    @State private var showLintPopover = false
     @State private var positionStore = EditorPositionStore()
     /// Shared Notes-style action strip (all three modes). Held in a ref box so
     /// rebinding closures does not trigger SwiftUI view updates.
@@ -391,7 +392,10 @@ struct ContentView: View {
                     bindStrip(from: actions, visualExtras: false)
                 },
                 onLintUpdate: { summary in lintSummary = summary },
-                onActiveFormats: { activeFormats = $0 }
+                onActiveFormats: { activeFormats = $0 },
+                onVisibleOffset: splitPreview
+                    ? { offset in positionStore.requestPreviewScroll(toMarkdownOffset: offset) }
+                    : nil
             )
         case .visual:
             VisualMarkdownView(
@@ -476,23 +480,9 @@ struct ContentView: View {
             ? wordAndCharCount(in: document.content)
             : (wordCount, charCount)
         return HStack(spacing: 10) {
-            if mode == .source, let summary = lintSummary,
-               summary.errorCount + summary.warningCount > 0 {
-                Button {
-                    summary.jumpToNext()
-                } label: {
-                    HStack(spacing: 8) {
-                        if summary.errorCount > 0 {
-                            Text("✕ \(summary.errorCount)").foregroundStyle(.red)
-                        }
-                        if summary.warningCount > 0 {
-                            Text("⚠ \(summary.warningCount)").foregroundStyle(.orange)
-                        }
-                    }
-                    .font(.system(size: 11))
-                }
-                .buttonStyle(.plain)
-                .editMDHelp("Jump to the next issue")
+            // D2: always-on lint chip in Source (checkmark when clean).
+            if mode == .source {
+                lintStatusChip
             }
             Spacer(minLength: 8)
             // External disk change — compact chip left of word count.
@@ -527,6 +517,106 @@ struct ContentView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Lint status (D2)
+
+    @ViewBuilder private var lintStatusChip: some View {
+        let summary = lintSummary
+        let errors = summary?.errorCount ?? 0
+        let warnings = summary?.warningCount ?? 0
+        let total = errors + warnings
+        Button {
+            if total > 0 {
+                showLintPopover.toggle()
+            } else {
+                summary?.jumpToNext()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if total == 0 {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                    Text("0")
+                        .foregroundStyle(.secondary)
+                } else {
+                    if errors > 0 {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                        Text("\(errors)")
+                            .foregroundStyle(.red)
+                    }
+                    if warnings > 0 {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("\(warnings)")
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            .font(.system(size: 11))
+        }
+        .buttonStyle(.plain)
+        .editMDHelp(total == 0 ? "No lint issues" : "Show lint issues")
+        .popover(isPresented: $showLintPopover, arrowEdge: .top) {
+            lintPopoverContent
+                .frame(minWidth: 320, idealWidth: 380, maxHeight: 360)
+        }
+    }
+
+    @ViewBuilder private var lintPopoverContent: some View {
+        let diags = lintSummary?.diagnostics ?? []
+        if diags.isEmpty {
+            Text("No issues")
+                .foregroundStyle(.secondary)
+                .padding()
+        } else {
+            List {
+                ForEach(Array(diags.enumerated()), id: \.offset) { _, d in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: d.severity == .error
+                              ? "xmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(d.severity == .error ? Color.red : Color.orange)
+                            .font(.system(size: 12))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.message)
+                                .font(.system(size: 12))
+                                .lineLimit(3)
+                            Text("\(d.rule.rawValue) · line \(lineNumber(for: d.range))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        if let fix = d.fixes.first {
+                            Button(fix.title) {
+                                lintSummary?.applyFirstFix?(d)
+                                showLintPopover = false
+                            }
+                            .font(.system(size: 11))
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        lintSummary?.jumpTo?(d)
+                        showLintPopover = false
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+        }
+    }
+
+    private func lineNumber(for range: NSRange) -> Int {
+        let ns = document.content as NSString
+        guard range.location <= ns.length else { return 1 }
+        var line = 1
+        var i = 0
+        while i < range.location && i < ns.length {
+            if ns.character(at: i) == 0x0A { line += 1 }
+            i += 1
+        }
+        return line
     }
 
     // MARK: - Sidebar open

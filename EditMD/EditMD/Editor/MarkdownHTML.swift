@@ -733,6 +733,29 @@ func previewHTMLPage(markdown: String,
         padding: 1px 8px; margin: 1px 4px 1px 0; font-size: 0.92em;
     }
     .fm-empty { opacity: 0.4; }
+    /* D4: copy button on code / quote (hover) */
+    .copy-host { position: relative; }
+    .copy-block-btn {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 2;
+        opacity: 0;
+        pointer-events: none;
+        border: none;
+        border-radius: 4px;
+        padding: 2px 7px;
+        font: 12px/1.2 ui-monospace, Menlo, monospace;
+        background: rgba(128,128,128,0.18);
+        color: inherit;
+        cursor: pointer;
+        transition: opacity 0.12s ease;
+    }
+    .copy-host:hover > .copy-block-btn {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .copy-block-btn:hover { background: rgba(128,128,128,0.32); }
     /* yaml code-block syntax colors */
     .yaml-key { color: #6f42c1; }
     .yaml-string { color: #0a7d33; }
@@ -830,6 +853,49 @@ func previewHTMLPage(markdown: String,
         }
         return false;
     };
+    // D4: hover copy button on code blocks and blockquotes.
+    (function () {
+        function copyText(text, btn) {
+            function ok() {
+                var prev = btn.textContent;
+                btn.textContent = '✓';
+                setTimeout(function () { btn.textContent = prev; }, 1000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(ok).catch(function () {
+                    fallbackCopy(text); ok();
+                });
+            } else {
+                fallbackCopy(text); ok();
+            }
+        }
+        function fallbackCopy(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+        }
+        function attach(el) {
+            if (el.querySelector('.copy-block-btn')) return;
+            el.classList.add('copy-host');
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'copy-block-btn';
+            btn.textContent = '⎘';
+            btn.title = 'Copy';
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                copyText(el.innerText || '', btn);
+            });
+            el.appendChild(btn);
+        }
+        document.querySelectorAll('pre, blockquote').forEach(attach);
+    })();
     </script>
     </body>
     </html>

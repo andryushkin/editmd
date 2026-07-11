@@ -40,8 +40,9 @@ private struct GeneralTab: View {
         Form {
             Section("Theme") {
                 Picker("Preset", selection: $settings.general.themePreset) {
-                    Text("System").tag("system")
-                    Text("GitHub").tag("github")
+                    ForEach(EditorTheme.allPresets, id: \.id) { preset in
+                        Text(preset.title).tag(preset.id)
+                    }
                 }
                 Picker("Appearance", selection: $settings.general.appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }

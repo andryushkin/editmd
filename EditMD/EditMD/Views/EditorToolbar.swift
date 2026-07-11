@@ -72,8 +72,9 @@ struct EditorToolbar: ToolbarContent {
         ToolbarItem {
             Menu {
                 Picker("Theme", selection: $editorSettings.general.themePreset) {
-                    Text("System").tag("system")
-                    Text("GitHub").tag("github")
+                    ForEach(EditorTheme.allPresets, id: \.id) { preset in
+                        Text(preset.title).tag(preset.id)
+                    }
                 }
                 Divider()
                 Button("Settings…") {

@@ -155,4 +155,35 @@ final class WorkspaceModelTests: XCTestCase {
         model.noteOpened(URL(fileURLWithPath: "/tmp/outside.md")) // not in a workspace
         XCTAssertEqual(names(model.looseFilesToShow), ["outside.md"])
     }
+
+    // MARK: - Frontmatter tags (D11)
+
+    func testFrontmatterTagsFlowList() {
+        let md = "---\ntags: [demo, markup]\n---\n\n# Hi\n"
+        XCTAssertEqual(frontmatterTags(in: md), ["demo", "markup"])
+    }
+
+    func testFrontmatterTagsBlockList() {
+        let md = "---\ntags:\n  - alpha\n  - beta\n---\n"
+        XCTAssertEqual(frontmatterTags(in: md), ["alpha", "beta"])
+    }
+
+    func testFrontmatterTagsAbsent() {
+        XCTAssertTrue(frontmatterTags(in: "# no fm\n").isEmpty)
+        XCTAssertTrue(frontmatterTags(in: "---\ntitle: x\n---\n").isEmpty)
+    }
+
+    func testScanWorkspaceTags() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-tags-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("a.md")
+        let b = root.appendingPathComponent("b.md")
+        try "---\ntags: [shared, only-a]\n---\n".write(to: a, atomically: true, encoding: .utf8)
+        try "---\ntags: [shared]\n---\n".write(to: b, atomically: true, encoding: .utf8)
+        let index = scanWorkspaceTags(roots: [root])
+        XCTAssertEqual(Set(index["shared"]?.map(\.lastPathComponent) ?? []), ["a.md", "b.md"])
+        XCTAssertEqual(index["only-a"]?.map(\.lastPathComponent), ["a.md"])
+    }
 }

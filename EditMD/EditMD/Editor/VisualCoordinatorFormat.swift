@@ -383,11 +383,14 @@ extension VisualMarkdownView.Coordinator {
     }
 
     /// ⌘K: add a link on the selection, or edit/remove the link under the
-    /// cursor. Empty selection with no existing link inserts the URL text.
+    /// cursor (D9: prefilled text + URL for existing links). Empty selection
+    /// with no existing link inserts the URL text.
     func editLink() {
         guard let textView, let storage = textView.textStorage else { return }
         var selection = textView.selectedRange()
         var existingURL = ""
+        var existingText = selection.length > 0
+            ? (storage.string as NSString).substring(with: selection) : ""
 
         // Expand to the full run of an existing link under the cursor.
         if storage.length > 0 {
@@ -398,45 +401,52 @@ extension VisualMarkdownView.Coordinator {
                                             in: NSRange(location: 0, length: storage.length)) as? String {
                 existingURL = dest
                 selection = effective
+                existingText = (storage.string as NSString).substring(with: effective)
             }
         }
 
         let alert = NSAlert()
         alert.messageText = existingURL.isEmpty ? "Add Link" : "Edit Link"
-        alert.informativeText = "URL:"
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.stringValue = existingURL
-        field.placeholderString = "https://"
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
+        alert.informativeText = "Display text and URL:"
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 320, height: 56))
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        textField.stringValue = existingText
+        textField.placeholderString = "Link text"
+        let urlField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        urlField.stringValue = existingURL
+        urlField.placeholderString = "https://"
+        stack.addArrangedSubview(textField)
+        stack.addArrangedSubview(urlField)
+        alert.accessoryView = stack
+        alert.window.initialFirstResponder = existingURL.isEmpty ? urlField : textField
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         if !existingURL.isEmpty { alert.addButton(withTitle: "Remove Link") }
 
         let response = alert.runModal()
-        let url = field.stringValue.trimmingCharacters(in: .whitespaces)
+        let url = urlField.stringValue.trimmingCharacters(in: .whitespaces)
+        let display = textField.stringValue
 
         switch response {
         case .alertFirstButtonReturn where !url.isEmpty:
-            if selection.length == 0 {
-                // Nothing selected: insert the URL itself as linked text.
-                guard textView.shouldChangeText(in: selection, replacementString: url) else { return }
-                isMutating = true
-                var attrs = textView.typingAttributes
-                attrs[.mdLink] = url
-                storage.replaceCharacters(in: selection,
-                                          with: NSAttributedString(string: url, attributes: attrs))
-                isMutating = false
-                textView.didChangeText()
-                textView.setSelectedRange(
-                    NSRange(location: selection.location + (url as NSString).length, length: 0))
-            } else {
-                guard textView.shouldChangeText(in: selection, replacementString: nil) else { return }
-                isMutating = true
-                storage.addAttribute(.mdLink, value: url, range: selection)
-                isMutating = false
-                textView.didChangeText()
-            }
+            let linkText = display.isEmpty ? url : display
+            guard textView.shouldChangeText(in: selection, replacementString: linkText)
+            else { return }
+            isMutating = true
+            var attrs = selection.length > 0
+                ? storage.attributes(at: selection.location, effectiveRange: nil)
+                : textView.typingAttributes
+            attrs[.mdLink] = url
+            // Presentation font for links (underline applied by presentation pass).
+            storage.replaceCharacters(in: selection,
+                                      with: NSAttributedString(string: linkText, attributes: attrs))
+            isMutating = false
+            textView.didChangeText()
+            textView.setSelectedRange(
+                NSRange(location: selection.location + (linkText as NSString).length, length: 0))
             afterMutation()
         case .alertThirdButtonReturn:
             guard textView.shouldChangeText(in: selection, replacementString: nil) else { return }

@@ -47,6 +47,8 @@ struct WorkspaceSidebar: View {
                     )
                 case "review":
                     ReviewSidebar(review: review, filter: filterText, onJump: onJump)
+                case "tags":
+                    TagsSidebar(workspace: workspace, filter: filterText, onOpen: onOpen)
                 default:
                     filesTab
                 }
@@ -111,6 +113,10 @@ struct WorkspaceSidebar: View {
                          systemImage: "text.bubble",
                          help: "Review — метки (удобнее в Preview)",
                          badge: review.openCount)
+            navDivider
+            navTabButton(id: "tags",
+                         systemImage: "tag",
+                         help: "Tags — frontmatter")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 5)

@@ -107,6 +107,8 @@ enum ControlCommandName: String, CaseIterable, Sendable {
     case marksList = "marks.list"
     case marksAdd = "marks.add"
     case diffShow = "diff.show"
+    /// D6: adopt a folder as workspace root (absolute path).
+    case workspaceAdd = "workspace.add"
 
     var help: String {
         switch self {
@@ -118,6 +120,7 @@ enum ControlCommandName: String, CaseIterable, Sendable {
         case .marksList: return "list review marks for active (or --path) file"
         case .marksAdd: return "add a mark from selection or --quote/--note/--type"
         case .diffShow: return "unified diff of buffer vs last-saved / disk"
+        case .workspaceAdd: return "workspace.add <absolute folder path>"
         }
     }
 }

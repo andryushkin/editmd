@@ -67,6 +67,14 @@ func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
 /// as a subfolder. A subfolder is counted only if its subtree contains at least
 /// one markdown file (empty / non-md folders are ignored). `.textbundle`
 /// packages count as markdown and are not descended into. Hidden items skipped.
+/// One node in the nested-folder tree (D8) — name + recursive .md count.
+struct FolderTreeNode: Equatable, Sendable, Identifiable {
+    var url: URL
+    var markdownCount: Int
+    var children: [FolderTreeNode]
+    var id: String { url.path }
+}
+
 struct FolderTreeStats: Equatable, Sendable {
     var markdownCount: Int
     var subfolderCount: Int
@@ -74,6 +82,8 @@ struct FolderTreeStats: Equatable, Sendable {
     var directMarkdownFolders: [URL]
     /// Direct child folders with no markdown in the tree (bottom section, like «Скрытые»).
     var directEmptyFolders: [URL]
+    /// Full nested tree of folders that contain markdown (D8).
+    var folderTree: [FolderTreeNode] = []
 }
 
 /// Synchronous post-order scan. Call off the main actor for large trees.
@@ -85,8 +95,10 @@ func scanFolderTreeStats(at root: URL,
 
     /// `hasMarkdown` — this directory's subtree has ≥1 md (not counting the
     /// directory as a subfolder; callers count children that report true).
-    func walk(_ dir: URL) -> (markdown: Int, foldersWithMd: Int, hasMarkdown: Bool) {
-        if Task.isCancelled { return (0, 0, false) }
+    /// Also builds nested tree nodes for D8.
+    func walk(_ dir: URL) -> (markdown: Int, foldersWithMd: Int, hasMarkdown: Bool,
+                              tree: [FolderTreeNode]) {
+        if Task.isCancelled { return (0, 0, false, []) }
         let items = (try? fileManager.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: Array(keys),
@@ -94,6 +106,7 @@ func scanFolderTreeStats(at root: URL,
         var markdown = 0
         var foldersWithMd = 0
         var hasMarkdown = false
+        var tree: [FolderTreeNode] = []
         for url in items {
             if Task.isCancelled { break }
             let vals = try? url.resourceValues(forKeys: keys)
@@ -107,13 +120,20 @@ func scanFolderTreeStats(at root: URL,
                     // Count only subfolders that actually hold markdown somewhere.
                     foldersWithMd += 1
                     hasMarkdown = true
+                    tree.append(FolderTreeNode(url: url,
+                                               markdownCount: child.markdown,
+                                               children: child.tree))
                 }
             } else if mdExt.contains(url.pathExtension.lowercased()) {
                 markdown += 1
                 hasMarkdown = true
             }
         }
-        return (markdown, foldersWithMd, hasMarkdown)
+        tree.sort {
+            $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent)
+                == .orderedAscending
+        }
+        return (markdown, foldersWithMd, hasMarkdown, tree)
     }
 
     // Root pass: collect direct child folders that have markdown (for the grid).
@@ -126,6 +146,7 @@ func scanFolderTreeStats(at root: URL,
     var foldersWithMd = 0
     var directMarkdownFolders: [URL] = []
     var directEmptyFolders: [URL] = []
+    var folderTree: [FolderTreeNode] = []
     for url in items {
         if Task.isCancelled { break }
         let vals = try? url.resourceValues(forKeys: keys)
@@ -138,6 +159,9 @@ func scanFolderTreeStats(at root: URL,
             if child.hasMarkdown {
                 foldersWithMd += 1
                 directMarkdownFolders.append(url)
+                folderTree.append(FolderTreeNode(url: url,
+                                                 markdownCount: child.markdown,
+                                                 children: child.tree))
             } else {
                 directEmptyFolders.append(url)
             }
@@ -151,10 +175,15 @@ func scanFolderTreeStats(at root: URL,
     }
     directMarkdownFolders.sort(by: byName)
     directEmptyFolders.sort(by: byName)
+    folderTree.sort {
+        $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent)
+            == .orderedAscending
+    }
     return FolderTreeStats(markdownCount: markdown,
                            subfolderCount: foldersWithMd,
                            directMarkdownFolders: directMarkdownFolders,
-                           directEmptyFolders: directEmptyFolders)
+                           directEmptyFolders: directEmptyFolders,
+                           folderTree: folderTree)
 }
 
 /// Path → (contentEpoch, stats). Invalidated when `WorkspaceModel.contentEpoch`
@@ -279,6 +308,41 @@ struct FolderInfoHost: View {
     }
 }
 
+// MARK: - Nested tree row (separate type — recursive `some View` is illegal)
+
+private struct FolderTreeRowView: View {
+    let node: FolderTreeNode
+    let depth: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                if depth > 0 {
+                    Spacer().frame(width: CGFloat(depth) * 14)
+                }
+                Image(systemName: "folder")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(node.url.lastPathComponent)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(node.markdownCount)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                AppState.shared.openInMainWindow(node.url)
+            }
+            ForEach(node.children) { child in
+                FolderTreeRowView(node: child, depth: depth + 1)
+            }
+        }
+    }
+}
+
 // MARK: - Card
 
 struct FolderInfoCard: View {
@@ -332,6 +396,7 @@ struct FolderInfoCard: View {
                     header
                     // Future: git status strip (branch / dirty / pull·push) when git lands.
                     contentList
+                    nestedFolderTree
                     Spacer(minLength: 0)
                 }
                 // Left (and right) field = Preview mode insetH.
@@ -520,6 +585,22 @@ struct FolderInfoCard: View {
             .editMDHelp("Скопировать путь")
         }
         .padding(.leading, contentIconRail)
+    }
+
+    // MARK: Nested folder tree (D8)
+
+    /// Full-depth tree of folders with .md counts — data only from cached scan.
+    @ViewBuilder private var nestedFolderTree: some View {
+        let nodes = treeStats?.folderTree ?? []
+        if !nodes.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                sectionHeader("ПОДПАПКИ")
+                ForEach(nodes) { node in
+                    FolderTreeRowView(node: node, depth: 0)
+                }
+            }
+            .padding(.leading, contentIconRail)
+        }
     }
 
     // MARK: Content grid (direct children + hidden section)

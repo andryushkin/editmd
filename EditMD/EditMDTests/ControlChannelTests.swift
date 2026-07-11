@@ -39,9 +39,13 @@ final class ControlChannelTests: XCTestCase {
     func testKnownCommandsCoverPlan() {
         let names = Set(ControlCommandName.allCases.map(\.rawValue))
         for need in ["ping", "status", "open", "reveal", "mode",
-                     "marks.list", "marks.add", "diff.show"] {
+                     "marks.list", "marks.add", "diff.show", "workspace.add"] {
             XCTAssertTrue(names.contains(need), "missing \(need)")
         }
+    }
+
+    func testWorkspaceAddCommandName() {
+        XCTAssertEqual(ControlCommandName.workspaceAdd.rawValue, "workspace.add")
     }
 
     func testSocketPathDefault() {

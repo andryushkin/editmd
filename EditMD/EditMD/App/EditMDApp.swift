@@ -39,6 +39,27 @@ struct EditMDApp: App {
         }
     }
 
+    /// Help ▸ Демо-разметка (D7): copy bundle KitchenSink.md to a temp file and
+    /// open in a lite window so all three modes can be smoke-tested.
+    @MainActor private func openKitchenSinkDemo() {
+        guard let src = Bundle.main.url(forResource: "KitchenSink", withExtension: "md")
+                ?? Bundle.main.url(forResource: "KitchenSink", withExtension: "md",
+                                   subdirectory: nil)
+        else {
+            NSSound.beep()
+            return
+        }
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EditMD-KitchenSink.md")
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try FileManager.default.copyItem(at: src, to: dest)
+            AppState.shared.openInSeparateWindow(dest.standardizedFileURL)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
     var body: some Scene {
         // The single main workspace window (in-place file replacement).
         Window("EditMD", id: WindowID.main) {
@@ -74,6 +95,24 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("s")
                 .disabled(documentActions == nil)
+
+                Button("Export as PDF…") {
+                    // Active document content from main window registry / focused editor.
+                    let url = AppState.shared.currentURL
+                    let content: String
+                    if let url, let open = DocumentRegistry.shared.contentIfOpen(url) {
+                        content = open
+                    } else if let url, let loaded = try? loadMarkdownDocument(from: url) {
+                        content = loaded.content
+                    } else {
+                        content = ""
+                    }
+                    guard !content.isEmpty else { NSSound.beep(); return }
+                    let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
+                    let base = url?.deletingLastPathComponent()
+                    PDFExporter.export(markdown: content, suggestedName: name, baseURL: base)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
 
                 Button("Save As…") {
                     documentActions?.saveAs()
@@ -201,6 +240,13 @@ struct EditMDApp: App {
                 .keyboardShortcut("p", modifiers: [.option, .command])
                 .disabled(splitPreview == nil)
 
+                // D1: toggle shared with Settings ▸ gutter; editors already react (v27).
+                Toggle("Line Numbers", isOn: Binding(
+                    get: { EditorSettings.shared.gutter.showLineNumbers },
+                    set: { EditorSettings.shared.gutter.showLineNumbers = $0 }
+                ))
+                .keyboardShortcut("l", modifiers: [.command, .shift, .option])
+
                 Divider()
 
                 Button("Back") {
@@ -221,6 +267,9 @@ struct EditMDApp: App {
             CommandGroup(after: .help) {
                 Button("Install Agent Skill…") {
                     SkillInstaller.installWithUI()
+                }
+                Button("Демо-разметка") {
+                    openKitchenSinkDemo()
                 }
             }
 

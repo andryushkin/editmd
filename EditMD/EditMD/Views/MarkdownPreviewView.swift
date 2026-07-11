@@ -145,6 +145,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 name: .editMDJumpToOffset,
                 object: store
             )
+            // D5: editor→preview scroll follow (no Source selection side-effect).
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.jumpToStoredOffset),
+                name: .editMDPreviewScrollSync,
+                object: store
+            )
         }
         // Review-mark wash in Preview (primary review surface, v37).
         NotificationCenter.default.addObserver(

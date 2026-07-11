@@ -18,6 +18,13 @@ final class EditorPositionStore {
         markdownOffset = offset
         NotificationCenter.default.post(name: .editMDJumpToOffset, object: self)
     }
+
+    /// D5: editor→preview scroll sync only (Preview listens; Source/Visual
+    /// must not re-select / fight the user scroll).
+    func requestPreviewScroll(toMarkdownOffset offset: Int) {
+        markdownOffset = offset
+        NotificationCenter.default.post(name: .editMDPreviewScrollSync, object: self)
+    }
 }
 
 extension Notification.Name {
@@ -25,4 +32,6 @@ extension Notification.Name {
     /// `markdownOffset` holds the target. Observed by the Source/Visual/
     /// Preview coordinators of the same window.
     static let editMDJumpToOffset = Notification.Name("editmd.jumpToOffset")
+    /// Split-mode scroll follow: Preview only (no Source/Visual selection).
+    static let editMDPreviewScrollSync = Notification.Name("editmd.previewScrollSync")
 }

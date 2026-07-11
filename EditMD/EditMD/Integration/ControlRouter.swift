@@ -83,6 +83,42 @@ enum ControlRouter {
 
         case .diffShow:
             return try diffShow(request)
+
+        case .workspaceAdd:
+            return try workspaceAdd(request)
+        }
+    }
+
+    // MARK: workspace.add (D6)
+
+    /// Validate path off main (caller may be socket thread via deferred), mutate
+    /// WorkspaceModel on main. Idempotent if already adopted.
+    private static func workspaceAdd(_ request: ControlRequest) throws -> Dispatched {
+        guard let path = request.argString("path"), !path.isEmpty else {
+            throw ControlError("workspace.add requires path")
+        }
+        guard path.hasPrefix("/") else {
+            throw ControlError("path must be absolute (editmdctl absolutizes from cwd)")
+        }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        // Disk validation deferred off main.
+        return .deferred { [url] in
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+                  isDir.boolValue else {
+                return .failure(id: request.id, error: "not a directory: \(url.path)")
+            }
+            let added: Bool = DispatchQueue.main.sync {
+                let before = WorkspaceModel.shared.workspaces.count
+                WorkspaceModel.shared.addWorkspace(url)
+                let after = WorkspaceModel.shared.workspaces.count
+                return after > before
+            }
+            return .success(id: request.id, data: .object([
+                "path": .string(url.path),
+                "added": .bool(added),
+                "idempotent": .bool(!added),
+            ]))
         }
     }
 

@@ -205,6 +205,15 @@ enum EditMDCtl {
             if let path { argsMap = ["path": .string(absolutePath(path))] }
             return ControlRequest(id: "1", cmd: "diff.show", args: argsMap)
 
+        case "workspace":
+            guard rest.first == "add" else {
+                throw CLIError("workspace requires add <path>")
+            }
+            guard rest.count >= 2 else { throw CLIError("workspace add requires a path") }
+            let path = absolutePath(rest[1])
+            return ControlRequest(id: "1", cmd: "workspace.add",
+                                  args: ["path": .string(path)])
+
         default:
             throw CLIError("unknown command: \(cmd)")
         }

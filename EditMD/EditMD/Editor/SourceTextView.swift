@@ -14,6 +14,12 @@ struct LintSummary {
     var errorCount: Int
     var warningCount: Int
     var jumpToNext: () -> Void
+    /// Snapshot for the status-bar popover (D2). Ranges are UTF-16.
+    var diagnostics: [LintDiagnostic] = []
+    /// Jump caret to a diagnostic's range (popover row click).
+    var jumpTo: ((LintDiagnostic) -> Void)? = nil
+    /// Apply the first available fix, if any.
+    var applyFirstFix: ((LintDiagnostic) -> Void)? = nil
 }
 
 struct SourceTextView: NSViewRepresentable {
@@ -34,6 +40,8 @@ struct SourceTextView: NSViewRepresentable {
     var onLintUpdate: ((LintSummary) -> Void)? = nil
     /// B6: active inline styles at caret (from cached spans — no re-parse).
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
+    /// D5: top-of-viewport markdown offset for split-preview scroll sync.
+    var onVisibleOffset: ((Int) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -294,9 +302,37 @@ struct SourceTextView: NSViewRepresentable {
                 sourceLineCountHint: sourceLines)
         }
 
+        private var scrollSyncTask: Task<Void, Never>?
+
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             (textView?.enclosingScrollView?.verticalRulerView as? LineNumberRulerView)?
                 .needsDisplay = true
+            // D5: debounce visible-offset publish for split preview.
+            guard parent.onVisibleOffset != nil, let textView else { return }
+            scrollSyncTask?.cancel()
+            scrollSyncTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard !Task.isCancelled, let self, let textView = self.textView else { return }
+                let offset = self.visibleMarkdownOffset(in: textView)
+                let cb = self.parent.onVisibleOffset
+                await MainActor.run { cb?(offset) }
+            }
+        }
+
+        /// Character index at the top of the visible rect (UTF-16).
+        private func visibleMarkdownOffset(in textView: NSTextView) -> Int {
+            guard let scroll = textView.enclosingScrollView else {
+                return textView.selectedRange().location
+            }
+            let visible = scroll.contentView.bounds
+            // Convert to textView coordinates.
+            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.minY + 4),
+                                         from: scroll.contentView)
+            var frac: CGFloat = 0
+            let idx = textView.characterIndexForInsertion(at: point)
+            // characterIndexForInsertion may need layoutManager path on older SDK:
+            _ = frac
+            return max(0, min(idx, (textView.string as NSString).length))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -470,11 +506,28 @@ struct SourceTextView: NSViewRepresentable {
             let summary = LintSummary(
                 errorCount: errors,
                 warningCount: diags.count - errors,
-                jumpToNext: { [weak self] in self?.jumpToNextDiagnostic() }
+                jumpToNext: { [weak self] in self?.jumpToNextDiagnostic() },
+                diagnostics: diags,
+                jumpTo: { [weak self] d in self?.jumpToDiagnostic(d) },
+                applyFirstFix: { [weak self] d in self?.applyFirstFix(d) }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onLintUpdate?(summary)
             }
+        }
+
+        private func jumpToDiagnostic(_ d: LintDiagnostic) {
+            selectAndReveal(NSRange(location: d.range.location, length: 0))
+        }
+
+        private func applyFirstFix(_ d: LintDiagnostic) {
+            guard let textView, let fix = d.fixes.first else { return }
+            guard textView.shouldChangeText(in: fix.range, replacementString: fix.replacement)
+            else { return }
+            textView.textStorage?.replaceCharacters(in: fix.range, with: fix.replacement)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: fix.range.location,
+                                              length: (fix.replacement as NSString).length))
         }
 
         /// Temporary attributes live in the layout manager only — they never

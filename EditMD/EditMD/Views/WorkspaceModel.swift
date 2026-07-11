@@ -41,6 +41,11 @@ final class WorkspaceModel: ObservableObject {
     /// so adopting a folder with thousands of nested files stays cheap.
     @Published var expandedFolders: Set<String> { didSet { persist(expandedFolders, Keys.expanded) } }
 
+    /// D11: tag → files (frontmatter only). Filled off-main; read from UI.
+    @Published private(set) var tagIndex: [String: [URL]] = [:]
+    private var tagScanInFlight = false
+    private var tagIndexEpoch: Int = -1
+
     private let defaults: UserDefaults
 
     private enum Keys {
@@ -199,6 +204,28 @@ final class WorkspaceModel: ObservableObject {
             if changed {
                 self.objectWillChange.send()
             }
+        }
+    }
+
+    /// D11: ensure `tagIndex` is current for `contentEpoch` (stale-while-revalidate).
+    func ensureTagIndex() {
+        let epoch = contentEpoch
+        if tagIndexEpoch == epoch { return }
+        guard !tagScanInFlight else { return }
+        tagScanInFlight = true
+        let roots = workspaces.map(\.url)
+        Task { [weak self] in
+            let index = await Task.detached(priority: .utility) {
+                scanWorkspaceTags(roots: roots)
+            }.value
+            guard let self else { return }
+            self.tagScanInFlight = false
+            guard self.contentEpoch == epoch else {
+                // Stale — re-request on next appear.
+                return
+            }
+            self.tagIndex = index
+            self.tagIndexEpoch = epoch
         }
     }
 
