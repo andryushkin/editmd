@@ -48,8 +48,7 @@ struct EditMDApp: App {
         let content = actions.markdownContent()
         let url = actions.fileURL
         let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
-        let base = url?.deletingLastPathComponent()
-        PDFExporter.export(markdown: content, suggestedName: name, baseURL: base)
+        PDFExporter.export(markdown: content, suggestedName: name, fileURL: url)
     }
 
     /// Help ▸ Демо-разметка (D7): copy bundle KitchenSink.md to a temp file and
