@@ -35,15 +35,19 @@ enum SkillInstaller {
     static func bundledSkillURL(
         bundle: Bundle = .main
     ) -> URL? {
-        // xcodegen resources: EditMD/Resources/skills/editmd/SKILL.md
+        // Folder-structured layouts (folder-reference resources).
         if let url = bundle.url(forResource: "SKILL",
                                 withExtension: "md",
                                 subdirectory: "skills/editmd") {
             return url
         }
-        // Fallback: flat copy path.
-        return bundle.url(forResource: "SKILL", withExtension: "md",
-                          subdirectory: "editmd")
+        if let url = bundle.url(forResource: "SKILL", withExtension: "md",
+                                subdirectory: "editmd") {
+            return url
+        }
+        // Actual layout: xcodegen adds SKILL.md as a plain file reference, so
+        // it lands flat in Contents/Resources/.
+        return bundle.url(forResource: "SKILL", withExtension: "md")
     }
 
     /// Reads bundled content, or nil if missing.

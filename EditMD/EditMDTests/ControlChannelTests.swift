@@ -82,6 +82,14 @@ final class ControlChannelTests: XCTestCase {
         XCTAssertTrue(diff.contains("+++"))
     }
 
+    /// Test host = EditMD.app, so this checks the REAL bundle layout: xcodegen
+    /// copies SKILL.md flat into Contents/Resources/ — if the lookup misses it,
+    /// Help ▸ Install Agent Skill is dead in the shipped app.
+    func testBundledSkillResolvesInAppBundle() {
+        XCTAssertNotNil(SkillInstaller.bundledContent(bundle: .main),
+                        "bundled SKILL.md not found — check bundledSkillURL against the app's Resources layout")
+    }
+
     // MARK: Live socket (ping)
 
     /// Client I/O must NOT run on the main thread: the server hops to main
@@ -143,6 +151,82 @@ final class ControlChannelTests: XCTestCase {
         XCTAssertTrue(r.error?.contains("unknown") == true)
     }
 
+    /// An idle client holding an open connection must not starve other
+    /// clients: accepts and per-client serve loops run independently.
+    func testIdleClientDoesNotStarveOthers() throws {
+        let sock = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-ctl-\(UUID().uuidString).sock")
+        let server = ControlServer()
+        try server.start(socketPath: sock)
+        defer { server.stop() }
+
+        let exp = expectation(description: "ping despite idle client")
+        var resp: ControlResponse?
+        var clientError: Error?
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                Thread.sleep(forTimeInterval: 0.05)
+                // First client connects and stays silent.
+                let idle = try Self.connectClient(socketPath: sock.path)
+                defer { close(idle) }
+                // Second client must still round-trip.
+                let req = ControlRequest(id: "busy-1", cmd: "ping")
+                let payload = try ControlCodec.encodeRequest(req)
+                let respLine = try Self.clientRoundTrip(socketPath: sock.path,
+                                                        requestLine: payload)
+                resp = try ControlCodec.decodeResponse(respLine)
+            } catch {
+                clientError = error
+            }
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+        XCTAssertNil(clientError, String(describing: clientError))
+        XCTAssertEqual(resp?.ok, true)
+    }
+
+    /// A client that sends a request and disconnects without reading must not
+    /// take the server down (SIGPIPE) — the next client still gets served.
+    func testEarlyDisconnectDoesNotKillServer() throws {
+        let sock = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-ctl-\(UUID().uuidString).sock")
+        let server = ControlServer()
+        try server.start(socketPath: sock)
+        defer { server.stop() }
+
+        let exp = expectation(description: "server survives early disconnect")
+        var resp: ControlResponse?
+        var clientError: Error?
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                Thread.sleep(forTimeInterval: 0.05)
+                // Fire a request and slam the connection shut before the reply.
+                let rude = try Self.connectClient(socketPath: sock.path)
+                let line = try ControlCodec.encodeRequest(
+                    ControlRequest(id: "rude", cmd: "ping"))
+                let bytes = Array(line.utf8)
+                _ = bytes.withUnsafeBufferPointer { buf in
+                    Darwin.write(rude, buf.baseAddress!, bytes.count)
+                }
+                close(rude)
+                // Give the server time to try writing into the closed socket.
+                Thread.sleep(forTimeInterval: 0.2)
+                let req = ControlRequest(id: "after", cmd: "ping")
+                let payload = try ControlCodec.encodeRequest(req)
+                let respLine = try Self.clientRoundTrip(socketPath: sock.path,
+                                                        requestLine: payload)
+                resp = try ControlCodec.decodeResponse(respLine)
+            } catch {
+                clientError = error
+            }
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+        XCTAssertNil(clientError, String(describing: clientError))
+        XCTAssertEqual(resp?.ok, true)
+        XCTAssertEqual(resp?.id, "after")
+    }
+
     func testFormatUnifiedDiff() {
         let d = formatUnifiedDiff(old: "a\nb\n", new: "a\nc\n",
                                   oldName: "old", newName: "new")
@@ -154,10 +238,10 @@ final class ControlChannelTests: XCTestCase {
 
     // MARK: Client helper
 
-    private static func clientRoundTrip(socketPath: String, requestLine: String) throws -> String {
+    /// Connects to the unix socket and returns the fd (caller closes).
+    private static func connectClient(socketPath: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw NSError(domain: "ctl", code: 1) }
-        defer { close(fd) }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -170,7 +254,17 @@ final class ControlChannelTests: XCTestCase {
                 connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard ok == 0 else { throw NSError(domain: "ctl", code: 2, userInfo: [NSLocalizedDescriptionKey: "connect \(errno)"]) }
+        guard ok == 0 else {
+            close(fd)
+            throw NSError(domain: "ctl", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "connect \(errno)"])
+        }
+        return fd
+    }
+
+    private static func clientRoundTrip(socketPath: String, requestLine: String) throws -> String {
+        let fd = try connectClient(socketPath: socketPath)
+        defer { close(fd) }
 
         let bytes = Array(requestLine.utf8)
         _ = bytes.withUnsafeBufferPointer { buf in

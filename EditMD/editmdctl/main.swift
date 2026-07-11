@@ -214,6 +214,16 @@ enum EditMDCtl {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw CLIError("socket() failed: \(errno)") }
         defer { close(fd) }
+        // EPIPE (not SIGPIPE) if EditMD dies mid-exchange; bounded waits so a
+        // wedged app never hangs the calling script forever.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on,
+                   socklen_t(MemoryLayout<Int32>.size))
+        var tv = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv,
+                   socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv,
+                   socklen_t(MemoryLayout<timeval>.size))
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -251,6 +261,9 @@ enum EditMDCtl {
             let n = read(fd, &tmp, tmp.count)
             if n < 0 {
                 if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError("timed out waiting for EditMD (10s)")
+                }
                 throw CLIError("read failed: \(errno)")
             }
             if n == 0 { break }

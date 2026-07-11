@@ -258,11 +258,13 @@ final class ReviewModel: ObservableObject {
         if let url = fileURL, let ws = workspace.workspaceOwning(url) {
             return URL(fileURLWithPath: ws.folderPath, isDirectory: true)
         }
-        if let first = workspace.workspaces.first {
-            return URL(fileURLWithPath: first.folderPath, isDirectory: true)
-        }
+        // A file outside every workspace queues in its own folder — an open
+        // but unrelated workspace must not swallow its marks.
         if let url = fileURL {
             return url.deletingLastPathComponent()
+        }
+        if let first = workspace.workspaces.first {
+            return URL(fileURLWithPath: first.folderPath, isDirectory: true)
         }
         return nil
     }

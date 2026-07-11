@@ -9,11 +9,19 @@ import os
 /// `ControlRouter`.
 final class ControlServer: @unchecked Sendable {
 
+    /// Accept loop only — the listen dispatch-source lives here.
     private let queue = DispatchQueue(label: "com.editmd.control", qos: .userInitiated)
-    private var listenFD: Int32 = -1
+    /// Client handlers — concurrent, so one idle/blocked client (serve() sits
+    /// in read()) never starves accepts or other clients.
+    private let clientQueue = DispatchQueue(label: "com.editmd.control.client",
+                                            qos: .userInitiated,
+                                            attributes: .concurrent)
     private var source: DispatchSourceRead?
     private(set) var path: URL?
-    private var running = false
+    /// Written by start()/stop(), read from client-handler threads.
+    private let running = OSAllocatedUnfairLock(initialState: false)
+
+    private var isRunning: Bool { running.withLock { $0 } }
 
     /// Starts listening at `socketPath` (replaces a leftover file).
     func start(socketPath: URL) throws {
@@ -63,16 +71,17 @@ final class ControlServer: @unchecked Sendable {
         // Restrict the socket file to the user.
         chmod(socketPath.path, 0o600)
 
-        listenFD = fd
         path = socketPath
-        running = true
+        running.withLock { $0 = true }
 
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         src.setEventHandler { [weak self] in
-            self?.acceptOne()
+            self?.acceptOne(on: fd)
         }
         src.setCancelHandler {
-            // FD closed in stop()
+            // The source owns the fd: closing here (not in stop()) can't race
+            // an in-flight acceptOne on the queue.
+            close(fd)
         }
         source = src
         src.resume()
@@ -80,21 +89,17 @@ final class ControlServer: @unchecked Sendable {
     }
 
     func stop() {
-        running = false
-        source?.cancel()
+        running.withLock { $0 = false }
+        source?.cancel()   // cancel handler closes the listen fd
         source = nil
-        if listenFD >= 0 {
-            close(listenFD)
-            listenFD = -1
-        }
         if let path, FileManager.default.fileExists(atPath: path.path) {
             try? FileManager.default.removeItem(at: path)
         }
         path = nil
     }
 
-    private func acceptOne() {
-        guard running, listenFD >= 0 else { return }
+    private func acceptOne(on listenFD: Int32) {
+        guard isRunning else { return }
         var addr = sockaddr_un()
         var len = socklen_t(MemoryLayout<sockaddr_un>.size)
         let client = withUnsafeMutablePointer(to: &addr) { ptr in
@@ -103,7 +108,17 @@ final class ControlServer: @unchecked Sendable {
             }
         }
         guard client >= 0 else { return }
-        queue.async { [weak self] in
+        // A dying peer must return EPIPE, not deliver SIGPIPE (kills the app).
+        var on: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on,
+                   socklen_t(MemoryLayout<Int32>.size))
+        // Idle/stuck clients time out instead of pinning a handler forever.
+        var tv = timeval(tv_sec: 30, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv,
+                   socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv,
+                   socklen_t(MemoryLayout<timeval>.size))
+        clientQueue.async { [weak self] in
             self?.serve(client)
         }
     }
@@ -112,11 +127,11 @@ final class ControlServer: @unchecked Sendable {
         defer { close(fd) }
         var buffer = Data()
         var tmp = [UInt8](repeating: 0, count: 4096)
-        while running {
+        while isRunning {
             let n = read(fd, &tmp, tmp.count)
             if n < 0 {
                 if errno == EINTR { continue }
-                break
+                break   // includes EAGAIN from SO_RCVTIMEO — drop idle client
             }
             if n == 0 { break }
             buffer.append(contentsOf: tmp[0..<n])

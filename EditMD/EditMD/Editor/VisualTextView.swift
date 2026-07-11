@@ -294,6 +294,11 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// display plain text (WYSIWYG has no markdown markers).
         func applyReviewHighlights() {
             guard let textView else { return }
+            // Heavy docs skip the O(n × marks) quote search — same gate as Source.
+            guard !parent.document.isHeavy else {
+                ReviewHighlight.apply(to: textView, highlights: [])
+                return
+            }
             guard parent.fileURL?.standardizedFileURL == ReviewModel.shared.fileURL
             else {
                 ReviewHighlight.apply(to: textView, highlights: [])
