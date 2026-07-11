@@ -57,6 +57,12 @@ struct DocumentActions {
     var saveAs: () -> Void
     /// false = untitled (Save falls back to a save panel).
     var hasURL: Bool
+    /// Live markdown buffer of the focused editor (works for unsaved/untitled).
+    var markdownContent: () -> String = { "" }
+    /// Path-backed file, if any (PDF baseURL / suggested name). Nil = untitled.
+    var fileURL: URL? = nil
+    /// Flush coalesced typing into `markdownContent` before export.
+    var prepareForExport: (() -> Void)? = nil
     /// Open the Commit-this-file sheet (stage 4). Nil when not in a git repo.
     var presentCommit: (() -> Void)? = nil
     /// Confirm + `git push` (stage 5). Nil when not in a git repo.

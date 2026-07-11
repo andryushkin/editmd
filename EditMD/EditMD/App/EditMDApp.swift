@@ -39,25 +39,15 @@ struct EditMDApp: App {
         }
     }
 
-    /// File ▸ Export as PDF… — only while an editor is focused (md file or
-    /// untitled). Folder-info / welcome leave `documentActions` nil, same as Save.
+    /// File ▸ Export as PDF… — focused editor buffer (including unsaved/untitled).
+    /// Folder-info / welcome leave `documentActions` nil, same as Save.
     @MainActor private func exportFocusedDocumentAsPDF() {
-        guard documentActions != nil else { NSSound.beep(); return }
-        let url = AppState.shared.currentURL
-        // Folder card also sets currentURL — never export a directory path.
-        if let url, AppState.isFolder(url) {
-            NSSound.beep()
-            return
-        }
-        let content: String
-        if let url, let open = DocumentRegistry.shared.contentIfOpen(url) {
-            content = open
-        } else if let url, let loaded = try? loadMarkdownDocument(from: url) {
-            content = loaded.content
-        } else {
-            content = ""
-        }
+        guard let actions = documentActions else { NSSound.beep(); return }
+        actions.prepareForExport?()
+        // Prefer live editor buffer — works without a path on disk.
+        let content = actions.markdownContent()
         guard !content.isEmpty else { NSSound.beep(); return }
+        let url = actions.fileURL
         let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
         let base = url?.deletingLastPathComponent()
         PDFExporter.export(markdown: content, suggestedName: name, baseURL: base)

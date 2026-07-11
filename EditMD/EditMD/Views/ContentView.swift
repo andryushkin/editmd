@@ -152,6 +152,9 @@ struct ContentView: View {
             save: onSave,
             saveAs: onSaveAs,
             hasURL: fileURL != nil,
+            markdownContent: { [document] in document.content },
+            fileURL: fileURL,
+            prepareForExport: { [document] in document.commitContentEdit() },
             presentCommit: (fileURL != nil && gitSnapshot.inRepo)
                 ? { showGitCommit = true } : nil,
             presentPush: (fileURL != nil && gitSnapshot.inRepo)
