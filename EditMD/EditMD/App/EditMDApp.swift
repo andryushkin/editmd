@@ -39,9 +39,16 @@ struct EditMDApp: App {
         }
     }
 
-    /// File ▸ Export as PDF… — active main-window buffer (or disk if closed).
+    /// File ▸ Export as PDF… — only while an editor is focused (md file or
+    /// untitled). Folder-info / welcome leave `documentActions` nil, same as Save.
     @MainActor private func exportFocusedDocumentAsPDF() {
+        guard documentActions != nil else { NSSound.beep(); return }
         let url = AppState.shared.currentURL
+        // Folder card also sets currentURL — never export a directory path.
+        if let url, AppState.isFolder(url) {
+            NSSound.beep()
+            return
+        }
         let content: String
         if let url, let open = DocumentRegistry.shared.contentIfOpen(url) {
             content = open
@@ -126,6 +133,8 @@ struct EditMDApp: App {
                     exportFocusedDocumentAsPDF()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+                // Editor focused (file / untitled) only — not folder info or welcome.
+                .disabled(documentActions == nil)
 
                 Divider()
 
