@@ -167,6 +167,9 @@ final class DocumentRegistry {
         var diskEventDebounce: Task<Void, Never>?
         /// Accumulated `DispatchSource.FileSystemEvent` flags for the burst.
         var pendingDiskFlags: DispatchSource.FileSystemEvent?
+        /// Content we last wrote ourselves (autosave / ⌘S). An FS echo of the
+        /// same bytes must not re-baseline dirty-line marks (C2 / v34).
+        var lastSelfWriteContent: String?
         init(url: URL, document: MarkdownDocument) {
             self.url = url
             self.document = document
@@ -405,17 +408,22 @@ final class DocumentRegistry {
     }
 
     private func flush(_ entry: Entry) throws {
-        try writeMarkdownDocument(content: entry.document.content,
+        let content = entry.document.content
+        try writeMarkdownDocument(content: content,
                                   assets: entry.document.assetsFileWrapper,
                                   to: entry.url)
         entry.isDirty = false
+        // Own write: keep session dirty-line baseline (marks live until close /
+        // external apply / commit). Remember payload so a racing FS echo is
+        // not treated as external reload (C2).
+        entry.lastSelfWriteContent = content
         // Remember our write so a racing FS event doesn't re-load the same bytes
         // as an "external" change (and so mtime compares stay correct).
         entry.knownModDate = contentModificationDate(of: entry.url)
         // Atomic replace may invalidate the watched inode — re-arm.
         rearmWatch(entry)
         // After save, a concurrent `git commit` (or hook) may have advanced;
-        // re-check path hash so dirty-line marks can clear.
+        // re-check path hash so dirty-line marks can clear on real commits only.
         GitCommitWatcher.shared.check(url: entry.url)
     }
 
@@ -450,6 +458,13 @@ final class DocumentRegistry {
         }
         let disk = loaded.content
         let mem = entry.document.content
+        // Own autosave/⌘S echo: mtime advanced but bytes are what we wrote.
+        // Never re-baseline session dirty marks for our own flush (C2).
+        if let selfWrite = entry.lastSelfWriteContent, disk == selfWrite {
+            entry.lastSelfWriteContent = nil
+            entry.knownModDate = contentModificationDate(of: entry.url)
+            return false
+        }
         let contentChanged = disk != mem
         let assetsChanged = !fileWrappersEqual(loaded.assets, entry.document.assetsFileWrapper)
         entry.knownModDate = contentModificationDate(of: entry.url)

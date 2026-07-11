@@ -177,4 +177,28 @@ final class MarkdownHTMLTests: XCTestCase {
         let html = markdownHTMLBody("| name |\n| --- |\n| a_b_c |")
         XCTAssertTrue(html.contains("a_<wbr>b_<wbr>c"), html)
     }
+
+    // MARK: - Preview line numbers (C1)
+
+    func testPreviewLineNumbersMatchSourceLines() {
+        let md = "# Title\n\nParagraph text.\n\n## Second\n\n- item\n"
+        let gutter = PreviewGutterOptions(showLineNumbers: true)
+        let html = markdownHTMLBody(md, gutter: gutter)
+        // Line 1: # Title
+        XCTAssertTrue(html.contains("data-ln=\"1\""), html)
+        // Line 3: paragraph
+        XCTAssertTrue(html.contains("data-ln=\"3\""), html)
+        // Line 5: ## Second
+        XCTAssertTrue(html.contains("data-ln=\"5\""), html)
+        // Line 7: list item
+        XCTAssertTrue(html.contains("data-ln=\"7\""), html)
+    }
+
+    func testPreviewLineNumbersWithFrontmatterOffset() {
+        let md = "---\ntitle: x\n---\n\n# Hello\n"
+        let gutter = PreviewGutterOptions(showLineNumbers: true)
+        let html = markdownHTMLBody(md, gutter: gutter)
+        // "# Hello" is line 5 in the original file
+        XCTAssertTrue(html.contains("<h1") && html.contains("data-ln=\"5\""), html)
+    }
 }

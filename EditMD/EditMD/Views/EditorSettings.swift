@@ -349,8 +349,8 @@ struct GeneralSettings: Codable, Equatable {
     var appearance: AppearanceMode
     var textColorHex: String?
     var accentColorHex: String?
-    /// When on, a double-click in Finder opens the file in its own separate
-    /// (sidebar-less) window; off (default) loads it into the main window.
+    /// When on (default), a double-click in Finder opens the file in its own
+    /// separate (sidebar-less) window; off loads it into the main window.
     var liteMode: Bool
     /// Run the local WebSocket IDE server so `claude` can attach with `/ide`
     /// (v36). Off = no server, no `~/.claude/ide/*.lock`.
@@ -363,7 +363,7 @@ struct GeneralSettings: Codable, Equatable {
 
     init(themePreset: String, appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
-         liteMode: Bool = false, claudeIDEEnabled: Bool = true,
+         liteMode: Bool = true, claudeIDEEnabled: Bool = true,
          claudeReviewAutoSpawn: Bool = false) {
         self.themePreset = themePreset
         self.appearance = appearance
@@ -380,7 +380,8 @@ struct GeneralSettings: Codable, Equatable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
         textColorHex = try c.decodeIfPresent(String.self, forKey: .textColorHex)
         accentColorHex = try c.decodeIfPresent(String.self, forKey: .accentColorHex)
-        liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? false
+        // C5: Finder double-click opens a lite window by default.
+        liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? true
         claudeIDEEnabled = try c.decodeIfPresent(Bool.self, forKey: .claudeIDEEnabled) ?? true
         claudeReviewAutoSpawn = try c.decodeIfPresent(Bool.self, forKey: .claudeReviewAutoSpawn) ?? false
     }

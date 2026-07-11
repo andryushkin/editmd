@@ -472,7 +472,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         // MARK: NSTextViewDelegate
 
         func textDidChange(_ notification: Notification) {
-            guard !isMutating else { return }
+            // Load path: setAttributedString can notify; must not rewrite the
+            // markdown (would inject trailing newlines / normalize without edit — C4).
+            guard !isMutating, !isLoadingDocument else { return }
             runAutoformat()
             applyPresentation()
             syncToDocument()
@@ -974,7 +976,14 @@ struct VisualMarkdownView: NSViewRepresentable {
                 guard textView.shouldChangeText(in: selection, replacementString: "\n") else { return true }
                 isMutating = true
                 var newlineAttrs = textView.typingAttributes
-                newlineAttrs[.mdBlock] = current
+                // Leaving a heading: next paragraph is plain — stamp body font
+                // on the newline so typingAttributes don't keep the big heading
+                // face (C3).
+                if case .heading = current.kind, atEnd {
+                    newlineAttrs = defaultTypingAttributes()
+                } else {
+                    newlineAttrs[.mdBlock] = current
+                }
                 storage.replaceCharacters(in: selection,
                                           with: NSAttributedString(string: "\n", attributes: newlineAttrs))
                 isMutating = false
@@ -988,6 +997,9 @@ struct VisualMarkdownView: NSViewRepresentable {
                     if case .paragraph = kind { newBlock.group = -1 }
                     let newParagraph = paragraphRange(at: cursor, in: storage.string as NSString)
                     restamp(newParagraph, to: newBlock, in: textView)
+                    if case .paragraph = kind {
+                        textView.typingAttributes = defaultTypingAttributes()
+                    }
                 } else {
                     afterMutation()
                 }
@@ -1114,7 +1126,12 @@ struct VisualMarkdownView: NSViewRepresentable {
             let detailed = serializeAttributedToMarkdownDetailed(storage)
             lastParagraphRanges = detailed.paragraphRanges
             var serialized = detailed.markdown
-            if !serialized.isEmpty { serialized += "\n" }
+            // Single trailing newline (POSIX text files). Do not append a second
+            // one when the serializer already ended with \n — that grew blank
+            // lines on every Visual edit cycle (C4).
+            if !serialized.isEmpty, !serialized.hasSuffix("\n") {
+                serialized += "\n"
+            }
             lastSerialized = serialized
             isInternalUpdate = true
             parent.document.content = serialized
