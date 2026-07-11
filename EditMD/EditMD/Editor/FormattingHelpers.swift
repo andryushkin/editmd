@@ -66,7 +66,9 @@ private func stripNonCodeInlineMarkers(_ text: String) -> String {
     while changed {
         changed = false
         for d in pairs {
-            let next = stripDelimiterPairs(d, in: s)
+            // CommonMark: intraword `_` is NOT emphasis — `my_var_name`
+            // must survive the cleanup untouched.
+            let next = stripDelimiterPairs(d, in: s, requireWordBoundary: d == "_")
             if next != s {
                 s = next
                 changed = true
@@ -77,7 +79,11 @@ private func stripNonCodeInlineMarkers(_ text: String) -> String {
 }
 
 /// Removes all non-overlapping `delim…delim` pairs (non-greedy, single-line).
-private func stripDelimiterPairs(_ delim: String, in text: String) -> String {
+/// A pair only counts as emphasis when its interior has non-whitespace edges
+/// (`2 * 3` stays literal); `requireWordBoundary` additionally rejects pairs
+/// glued to letters/digits on the outside (the `_` flanking rule).
+private func stripDelimiterPairs(_ delim: String, in text: String,
+                                 requireWordBoundary: Bool = false) -> String {
     guard !delim.isEmpty else { return text }
     let d = delim
     let dLen = d.count
@@ -97,15 +103,33 @@ private func stripDelimiterPairs(_ delim: String, in text: String) -> String {
             break
         }
         let close = closeRel.lowerBound
+        let afterClose = text.index(close, offsetBy: dLen)
         let inner = text[afterOpen..<close]
-        // Empty or multiline → keep markers (not valid emphasis).
-        if inner.isEmpty || inner.contains(where: { $0 == "\n" || $0 == "\r" }) {
-            out += text[open..<text.index(close, offsetBy: dLen)]
-            i = text.index(close, offsetBy: dLen)
+
+        var valid = !inner.isEmpty
+            && !inner.contains(where: { $0 == "\n" || $0 == "\r" })
+            // Whitespace-flanked interior is not emphasis (`2 * 3`).
+            && inner.first?.isWhitespace != true
+            && inner.last?.isWhitespace != true
+        if valid && requireWordBoundary {
+            if open > text.startIndex {
+                let before = text[text.index(before: open)]
+                if before.isLetter || before.isNumber { valid = false }
+            }
+            if valid, afterClose < text.endIndex {
+                let after = text[afterClose]
+                if after.isLetter || after.isNumber { valid = false }
+            }
+        }
+        guard valid else {
+            // Keep only the opener and rescan from right after it — the
+            // rejected closer may open a later valid pair (`a_ _b_ c`).
+            out += text[open..<afterOpen]
+            i = afterOpen
             continue
         }
         out += inner
-        i = text.index(close, offsetBy: dLen)
+        i = afterClose
         // Continue scanning after this pair (changed for outer while).
     }
     return out

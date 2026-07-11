@@ -305,6 +305,21 @@ final class StripInlineMarkersTests: XCTestCase {
         // Only inline delimiters — leading # is not stripped here.
         XCTAssertEqual(stripInlineMarkers("# **Title**"), "# Title")
     }
+
+    func testIntrawordUnderscoreSurvives() {
+        // CommonMark: intraword `_` is not emphasis.
+        XCTAssertEqual(stripInlineMarkers("my_var_name"), "my_var_name")
+        XCTAssertEqual(stripInlineMarkers("a_b_c and _real_"), "a_b_c and real")
+    }
+
+    func testWhitespaceFlankedStarsSurvive() {
+        XCTAssertEqual(stripInlineMarkers("2 * 3 * 4"), "2 * 3 * 4")
+        XCTAssertEqual(stripInlineMarkers("2 * 3 and *real*"), "2 * 3 and real")
+    }
+
+    func testRejectedCloserCanOpenLaterPair() {
+        XCTAssertEqual(stripInlineMarkers("a_ _b_ c"), "a_ b c")
+    }
 }
 
 // MARK: - cycleCase (B5)
