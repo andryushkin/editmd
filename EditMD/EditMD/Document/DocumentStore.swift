@@ -170,6 +170,10 @@ final class DocumentRegistry {
         /// Content we last wrote ourselves (autosave / ⌘S). An FS echo of the
         /// same bytes must not re-baseline dirty-line marks (C2 / v34).
         var lastSelfWriteContent: String?
+        /// When that write happened — the echo guard honours it only briefly,
+        /// so a LATER external writer landing identical bytes (git checkout of
+        /// the saved state) is still reported as external.
+        var lastSelfWriteAt: Date?
         init(url: URL, document: MarkdownDocument) {
             self.url = url
             self.document = document
@@ -417,6 +421,7 @@ final class DocumentRegistry {
         // external apply / commit). Remember payload so a racing FS echo is
         // not treated as external reload (C2).
         entry.lastSelfWriteContent = content
+        entry.lastSelfWriteAt = Date()
         // Remember our write so a racing FS event doesn't re-load the same bytes
         // as an "external" change (and so mtime compares stay correct).
         entry.knownModDate = contentModificationDate(of: entry.url)
@@ -460,8 +465,17 @@ final class DocumentRegistry {
         let mem = entry.document.content
         // Own autosave/⌘S echo: mtime advanced but bytes are what we wrote.
         // Never re-baseline session dirty marks for our own flush (C2).
-        if let selfWrite = entry.lastSelfWriteContent, disk == selfWrite {
+        // Guard window: an echo arrives within seconds; identical bytes long
+        // after (git checkout back to the saved state) are a real external
+        // change. Assets must match too — a .textbundle image swap with an
+        // unchanged text.md is external.
+        if let selfWrite = entry.lastSelfWriteContent,
+           let writtenAt = entry.lastSelfWriteAt,
+           disk == selfWrite,
+           Date().timeIntervalSince(writtenAt) < 10,
+           fileWrappersEqual(loaded.assets, entry.document.assetsFileWrapper) {
             entry.lastSelfWriteContent = nil
+            entry.lastSelfWriteAt = nil
             entry.knownModDate = contentModificationDate(of: entry.url)
             return false
         }
