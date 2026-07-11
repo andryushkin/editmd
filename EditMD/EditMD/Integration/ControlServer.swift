@@ -145,9 +145,9 @@ final class ControlServer: @unchecked Sendable {
                 }
                 do {
                     let request = try ControlCodec.decodeRequest(line)
-                    // Hop to main for router (AppKit / document state).
-                    // ControlResponse is Sendable value type — safe across queues.
-                    response = Self.handleOnMain(request)
+                    // Router hops to main for state, then runs any deferred
+                    // disk work back on this thread before replying.
+                    response = ControlRouter.process(request)
                 } catch {
                     response = .failure(id: nil, error: "bad request: \(error)")
                 }
@@ -176,16 +176,4 @@ enum ControlServerError: Error, Equatable {
     case bind(Int32)
     case listen(Int32)
     case pathTooLong
-}
-
-extension ControlServer {
-    /// Blocks the client-handler queue until MainActor finishes the command.
-    nonisolated private static func handleOnMain(_ request: ControlRequest) -> ControlResponse {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated { ControlRouter.handle(request) }
-        }
-        return DispatchQueue.main.sync {
-            ControlRouter.handle(request)
-        }
-    }
 }

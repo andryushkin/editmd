@@ -227,6 +227,41 @@ final class ControlChannelTests: XCTestCase {
         XCTAssertEqual(resp?.id, "after")
     }
 
+    // MARK: marks.add durability
+
+    /// The reply to marks.add must mean "durable on disk": the very next CLI
+    /// call (queue build, `/smotr -pr`) reads the sidecar file directly.
+    func testControlMarksAddDurableBeforeReply() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-ctl-marks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("a.md")
+        try "hello world".write(to: file, atomically: true, encoding: .utf8)
+
+        let req = ControlRequest(id: "m1", cmd: "marks.add", args: [
+            "path": .string(file.path),
+            "type": .string("comment"),
+            "note": .string("сноска"),
+            "quote": .string("hello"),
+        ])
+        let exp = expectation(description: "marks.add")
+        var resp: ControlResponse?
+        DispatchQueue.global(qos: .userInitiated).async {
+            resp = ControlRouter.process(req)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+
+        let r = try XCTUnwrap(resp)
+        XCTAssertTrue(r.ok, r.error ?? "")
+        // Immediately after the reply the mark is on disk, rev matches.
+        let disk = ReviewSidecar.loadOrEmpty(for: file)
+        XCTAssertEqual(disk.marks.count, 1)
+        XCTAssertEqual(disk.marks.first?.note, "сноска")
+        XCTAssertEqual(r.data?["rev"], .int(disk.rev))
+    }
+
     func testFormatUnifiedDiff() {
         let d = formatUnifiedDiff(old: "a\nb\n", new: "a\nc\n",
                                   oldName: "old", newName: "new")

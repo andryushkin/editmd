@@ -9,47 +9,80 @@ let controlLog = Logger(subsystem: "com.editmd.app", category: "control")
 @MainActor
 enum ControlRouter {
 
-    static func handle(_ request: ControlRequest) -> ControlResponse {
-        let id = request.id
-        guard let name = ControlCommandName(rawValue: request.cmd) else {
-            return .failure(id: id, error: "unknown command: \(request.cmd)")
+    /// Main-actor phase result: either a ready response, or follow-up work
+    /// the socket thread must run (disk write) before replying — callers of
+    /// e.g. `marks.add` read the sidecar right after the reply, so the reply
+    /// must mean "durable on disk".
+    enum Phase {
+        case response(ControlResponse)
+        case followUp(@Sendable () -> ControlResponse)
+    }
+
+    /// Socket-thread entry point: hops to main for state, then runs any
+    /// deferred disk work on the calling thread.
+    nonisolated static func process(_ request: ControlRequest) -> ControlResponse {
+        let phase: Phase
+        if Thread.isMainThread {
+            phase = MainActor.assumeIsolated { handle(request) }
+        } else {
+            phase = DispatchQueue.main.sync { handle(request) }
         }
-        do {
-            let data = try dispatch(name, request: request)
-            return .success(id: id, data: data)
-        } catch let err as ControlError {
-            return .failure(id: id, error: err.message)
-        } catch {
-            return .failure(id: id, error: String(describing: error))
+        switch phase {
+        case .response(let r): return r
+        case .followUp(let work): return work()
         }
     }
 
+    static func handle(_ request: ControlRequest) -> Phase {
+        let id = request.id
+        guard let name = ControlCommandName(rawValue: request.cmd) else {
+            return .response(.failure(id: id, error: "unknown command: \(request.cmd)"))
+        }
+        do {
+            switch try dispatch(name, request: request) {
+            case .data(let data):
+                return .response(.success(id: id, data: data))
+            case .deferred(let work):
+                return .followUp(work)
+            }
+        } catch let err as ControlError {
+            return .response(.failure(id: id, error: err.message))
+        } catch {
+            return .response(.failure(id: id, error: String(describing: error)))
+        }
+    }
+
+    private enum Dispatched {
+        case data(JSONValue)
+        case deferred(@Sendable () -> ControlResponse)
+    }
+
     private static func dispatch(_ name: ControlCommandName,
-                                 request: ControlRequest) throws -> JSONValue {
+                                 request: ControlRequest) throws -> Dispatched {
         switch name {
         case .ping:
-            return .object(["pong": .bool(true)])
+            return .data(.object(["pong": .bool(true)]))
 
         case .status:
-            return try status()
+            return .data(try status())
 
         case .open:
-            return try open(request)
+            return .data(try open(request))
 
         case .reveal:
-            return try reveal(request)
+            return .data(try reveal(request))
 
         case .mode:
-            return try setMode(request)
+            return .data(try setMode(request))
 
         case .marksList:
-            return try marksList(request)
+            return .data(try marksList(request))
 
         case .marksAdd:
-            return try marksAdd(request)
+            return .deferred(try marksAdd(request))
 
         case .diffShow:
-            return try diffShow(request)
+            return .data(try diffShow(request))
         }
     }
 
@@ -221,7 +254,11 @@ enum ControlRouter {
         ])
     }
 
-    private static func marksAdd(_ request: ControlRequest) throws -> JSONValue {
+    /// Both branches defer the actual sidecar write to the socket thread and
+    /// reply only once it is durable — the very next CLI call may read the
+    /// sidecar (`.smotr-queue.json` flow) and must see the new mark.
+    private static func marksAdd(_ request: ControlRequest)
+        throws -> @Sendable () -> ControlResponse {
         let url = try fileURL(for: request)
         // Ensure ReviewModel is pointed at this file when it's the main window.
         if AppState.shared.currentURL?.standardizedFileURL == url.standardizedFileURL {
@@ -253,31 +290,61 @@ enum ControlRouter {
             throw ControlError("marks.add: no selection and no args.quote")
         }
 
-        // Always write via ReviewModel when it's the active file (rev-guard + UI).
+        let requestID = request.id
+        let path = url.path
+        let typeValue = type.rawValue
+
+        // Always write via ReviewModel when it's the active file (rev-guard +
+        // UI). The follow-up blocks the socket thread on the model's pipeline
+        // so the reply means "on disk".
         if ReviewModel.shared.fileURL == url.standardizedFileURL {
             let anchor = ReviewModel.CapturedAnchor(quote: quote, prefix: prefix, start: start)
             let id = ReviewModel.shared.addMark(anchor: anchor, type: type, note: note)
-            return .object([
-                "path": .string(url.path),
-                "id": .string(id),
-                "type": .string(type.rawValue),
-                "quote": .string(quote),
-            ])
+            return {
+                let sem = DispatchSemaphore(value: 0)
+                let revBox = OSAllocatedUnfairLock(initialState: 0)
+                Task { @MainActor in
+                    await ReviewModel.shared.flushPipeline()
+                    let rev = ReviewModel.shared.lastKnownRev
+                    revBox.withLock { $0 = rev }
+                    sem.signal()
+                }
+                // Bounded: a hung disk must not pin this client thread forever
+                // (the mark is still queued in the model's pipeline).
+                if sem.wait(timeout: .now() + 15) == .timedOut {
+                    return .failure(id: requestID,
+                                    error: "marks.add: sidecar write timed out")
+                }
+                return .success(id: requestID, data: .object([
+                    "path": .string(path),
+                    "id": .string(id),
+                    "type": .string(typeValue),
+                    "quote": .string(quote),
+                    "rev": .int(revBox.withLock { $0 }),
+                ]))
+            }
         }
 
-        // File not active in ReviewModel — write sidecar directly.
-        var doc = ReviewSidecar.loadOrEmpty(for: url)
-        let baseRev = doc.rev
+        // File not active in ReviewModel — write the sidecar directly, off main.
         let mark = ReviewMark(type: type, quote: quote, prefix: prefix, start: start, note: note)
-        doc.upsert(mark)
-        let written = try ReviewSidecar.save(doc, for: url, baseRev: baseRev)
-        return .object([
-            "path": .string(url.path),
-            "id": .string(mark.id),
-            "type": .string(type.rawValue),
-            "quote": .string(quote),
-            "rev": .int(written.rev),
-        ])
+        return {
+            do {
+                var doc = ReviewSidecar.loadOrEmpty(for: url)
+                let baseRev = doc.rev
+                doc.upsert(mark)
+                let written = try ReviewSidecar.save(doc, for: url, baseRev: baseRev)
+                return .success(id: requestID, data: .object([
+                    "path": .string(path),
+                    "id": .string(mark.id),
+                    "type": .string(typeValue),
+                    "quote": .string(quote),
+                    "rev": .int(written.rev),
+                ]))
+            } catch {
+                return .failure(id: requestID,
+                                error: "marks.add write failed: \(error)")
+            }
+        }
     }
 
     // MARK: diff

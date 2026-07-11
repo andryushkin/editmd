@@ -54,6 +54,11 @@ final class ReviewModel: ObservableObject {
     private var baseRev = 0
     /// Guards against a stale async load landing after a newer file switch.
     private var loadToken = 0
+    /// FIFO pipeline for sidecar disk steps (saves and reloads): each step
+    /// runs after the previous one completed and adopted its result. Kills
+    /// the stale-base races of fire-and-forget saves — two rapid mutations
+    /// used to overwrite each other and resurrect deleted marks.
+    private var pipelineTask: Task<Void, Never>?
 
     // MARK: Active file
 
@@ -65,6 +70,12 @@ final class ReviewModel: ObservableObject {
         let std = url?.standardizedFileURL
         guard std != fileURL else { return }
         fileURL = std
+        // Synchronous baseline reset: a mutation arriving before the async
+        // reload lands (editmdctl `open` + `marks add` back to back) must
+        // start from an empty doc — persisting the previous file's marks
+        // into this file's sidecar would silently cross-pollute them.
+        doc = ReviewDocument()
+        baseRev = 0
         reload()
     }
 
@@ -77,14 +88,53 @@ final class ReviewModel: ObservableObject {
         }
         loadToken += 1
         let token = loadToken
-        Task.detached(priority: .userInitiated) {
-            let loaded = ReviewSidecar.loadOrEmpty(for: url)
-            await MainActor.run {
-                guard token == self.loadToken else { return }   // superseded
+        // Snapshot for the adoption guard: a mutation made while the load was
+        // in flight must not be wiped by the (older) disk state.
+        let expected = doc
+        enqueue { [weak self] in
+            guard let self else { return }
+            let loaded = await Self.loadOffMain(url)
+            guard token == self.loadToken, self.fileURL == url else { return }
+            if self.doc == expected {
                 self.doc = loaded
-                self.baseRev = loaded.rev
             }
+            // Disk rev is the truth either way; a divergent local doc
+            // reconciles through the next save's rev-guard merge.
+            self.baseRev = loaded.rev
         }
+    }
+
+    /// Awaits every sidecar disk step enqueued so far (saves and reloads).
+    /// Control channel uses it to reply only after the write is durable.
+    func flushPipeline() async {
+        await pipelineTask?.value
+    }
+
+    /// Disk revision the model last reconciled with (control-channel replies).
+    var lastKnownRev: Int { baseRev }
+
+    /// Appends a step to the FIFO pipeline (runs on the main actor; steps do
+    /// their disk IO via the off-main helpers).
+    private func enqueue(_ step: @escaping @MainActor () async -> Void) {
+        let previous = pipelineTask
+        pipelineTask = Task {
+            await previous?.value
+            await step()
+        }
+    }
+
+    nonisolated private static func loadOffMain(_ url: URL) async -> ReviewDocument {
+        await Task.detached(priority: .userInitiated) {
+            ReviewSidecar.loadOrEmpty(for: url)
+        }.value
+    }
+
+    nonisolated private static func saveOffMain(
+        _ doc: ReviewDocument, for url: URL, baseRev: Int
+    ) async throws -> ReviewDocument {
+        try await Task.detached(priority: .userInitiated) {
+            try ReviewSidecar.save(doc, for: url, baseRev: baseRev)
+        }.value
     }
 
     // MARK: Derived
@@ -229,21 +279,39 @@ final class ReviewModel: ObservableObject {
         persist()
     }
 
-    // MARK: Persistence (off-main rev-guard)
+    // MARK: Persistence (serialized off-main rev-guard)
 
     private func persist() {
         guard let url = fileURL else { return }
-        let snapshot = doc
-        let base = baseRev
-        Task.detached(priority: .userInitiated) {
+        // Fallback snapshot for the file-switched case; the live path
+        // re-reads state at execution time (see below).
+        let enqueuedDoc = doc
+        let enqueuedBase = baseRev
+        enqueue { [weak self] in
+            guard let self else { return }
+            let snapshot: ReviewDocument
+            let base: Int
+            if self.fileURL == url {
+                // Same file still active → snapshot NOW: the previous chained
+                // step has adopted, so the base is fresh — no stale-base merge,
+                // deletions hold, later mutations aren't overwritten.
+                snapshot = self.doc
+                base = self.baseRev
+            } else {
+                // User switched away — save what the mutation produced; the
+                // rev-guard merge reconciles any drift.
+                snapshot = enqueuedDoc
+                base = enqueuedBase
+            }
             do {
-                let written = try ReviewSidecar.save(snapshot, for: url, baseRev: base)
-                await MainActor.run {
-                    // Adopt the reconciled result unless the user switched files.
-                    guard self.fileURL == url else { return }
+                let written = try await Self.saveOffMain(snapshot, for: url, baseRev: base)
+                guard self.fileURL == url else { return }
+                // Don't clobber a mutation made while the write was in
+                // flight — the chained follow-up persist reconciles it.
+                if self.doc == snapshot {
                     self.doc = written
-                    self.baseRev = written.rev
                 }
+                self.baseRev = written.rev
             } catch {
                 reviewLog.error("sidecar save failed: \(String(describing: error), privacy: .public)")
             }

@@ -468,6 +468,88 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(round.marks[0].thread?[1].extra["extra"], .bool(true))
     }
 
+    // MARK: ReviewModel persistence pipeline (stage-2 race fixes)
+
+    /// Add + delete inside one runloop tick: two persists in flight. The
+    /// fire-and-forget saves used to resurrect the deleted mark via the
+    /// stale-base merge; the FIFO pipeline must keep it deleted.
+    @MainActor
+    func testRapidAddDeleteDoesNotResurrect() async throws {
+        let file = tempFile()
+        defer { cleanup(file) }
+        try "hello world".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(file, text: "hello world")
+        await model.flushPipeline()
+
+        let id = model.addMark(
+            anchor: .init(quote: "hello", prefix: "", start: 0),
+            type: .comment, note: "n")
+        model.deleteMark(id)
+        await model.flushPipeline()
+
+        XCTAssertTrue(model.doc.marks.isEmpty, "UI resurrected the deleted mark")
+        let disk = ReviewSidecar.loadOrEmpty(for: file)
+        XCTAssertTrue(disk.marks.isEmpty, "disk resurrected the deleted mark")
+    }
+
+    /// Reply + resolve back to back: the later mutation must not be
+    /// overwritten by the earlier save's snapshot.
+    @MainActor
+    func testOverlappingMutationsBothPersist() async throws {
+        let file = tempFile()
+        defer { cleanup(file) }
+        try "hello world".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(file, text: "hello world")
+        await model.flushPipeline()
+
+        let id = model.addMark(
+            anchor: .init(quote: "world", prefix: "hello ", start: 6),
+            type: .question, note: "q")
+        model.reply(to: id, text: "ответ")
+        model.setStatus(id, .resolved)
+        await model.flushPipeline()
+
+        let disk = ReviewSidecar.loadOrEmpty(for: file)
+        let m = try XCTUnwrap(disk[id])
+        XCTAssertEqual(m.thread?.count, 1, "reply was lost")
+        XCTAssertEqual(m.statusOrOpen, "resolved", "status change was lost")
+        XCTAssertEqual(model.doc[id]?.statusOrOpen, "resolved")
+    }
+
+    /// Switching files while a persist is in flight: the previous file's
+    /// marks must not leak into the new file's sidecar, and the new mark
+    /// must not be wiped by the async reload landing after it.
+    @MainActor
+    func testFileSwitchDoesNotLeakMarksIntoNewSidecar() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.md")
+        let b = dir.appendingPathComponent("b.md")
+        try "alpha text".write(to: a, atomically: true, encoding: .utf8)
+        try "beta text".write(to: b, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(a, text: "alpha text")
+        await model.flushPipeline()
+        model.addMark(anchor: .init(quote: "alpha", prefix: "", start: 0),
+                      type: .comment, note: "on a")
+        // Switch before a's persist lands, add on b before its reload lands.
+        model.setActiveFile(b, text: "beta text")
+        model.addMark(anchor: .init(quote: "beta", prefix: "", start: 0),
+                      type: .comment, note: "on b")
+        await model.flushPipeline()
+
+        let diskA = ReviewSidecar.loadOrEmpty(for: a)
+        XCTAssertEqual(diskA.marks.map(\.note), ["on a"], "a's mark lost or polluted")
+        let diskB = ReviewSidecar.loadOrEmpty(for: b)
+        XCTAssertEqual(diskB.marks.map(\.note), ["on b"], "b's sidecar polluted or mark wiped")
+        XCTAssertEqual(model.doc.marks.map(\.note), ["on b"])
+    }
+
     // MARK: Helpers
 
     private func mark(_ id: String, _ type: ReviewMarkType) -> ReviewMark {
