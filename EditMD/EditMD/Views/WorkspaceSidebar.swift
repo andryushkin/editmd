@@ -22,6 +22,10 @@ struct WorkspaceSidebar: View {
     @AppStorage("sidebarShowHidden") private var showHidden = false
     /// Bottom filter field — filters Files tree / Outline headings / Git paths.
     @State private var filterText = ""
+    /// A2: rename workspace root (alert + TextField).
+    @State private var showRenameAlert = false
+    @State private var renameDraft = ""
+    @State private var renameWorkspace: WorkspaceModel.Workspace?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +51,9 @@ struct WorkspaceSidebar: View {
                     filesTab
                 }
             }
+            // Fill remaining height so bottomBar stays pinned even when the
+            // active tab has little content (empty Outline / short Review).
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Xcode-style bottom strip: + · Filter · eye
             bottomBar
@@ -55,6 +62,20 @@ struct WorkspaceSidebar: View {
         // Match the window chrome (toolbar / titlebar), not the greyer
         // under-page fill that made the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
+        .alert("Переименовать workspace", isPresented: $showRenameAlert) {
+            TextField("Имя", text: $renameDraft)
+            Button("Отмена", role: .cancel) {
+                renameWorkspace = nil
+            }
+            Button("Сохранить") {
+                if let ws = renameWorkspace {
+                    workspace.renameWorkspace(ws, to: renameDraft)
+                }
+                renameWorkspace = nil
+            }
+        } message: {
+            Text("Пустое имя сбрасывает отображаемое имя на имя папки.")
+        }
     }
 
     private var filterQuery: String {
@@ -141,19 +162,23 @@ struct WorkspaceSidebar: View {
 
     private var bottomBar: some View {
         HStack(spacing: 6) {
-            Menu {
-                Button("New Workspace…") { workspace.promptAddFolder() }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+            // "+" is Files-only (workspace adoption). Filter stays global —
+            // it also filters Outline / Git / Review.
+            if tab == "files" {
+                Menu {
+                    Button("New Workspace…") { workspace.promptAddFolder() }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 22, height: 22)
+                .editMDHelp("New Workspace…")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 22, height: 22)
-            .editMDHelp("New Workspace…")
 
             HStack(spacing: 5) {
                 Image(systemName: "line.3.horizontal.decrease")
@@ -251,6 +276,8 @@ struct WorkspaceSidebar: View {
 
     @ViewBuilder private func workspaceGroup(_ ws: WorkspaceModel.Workspace) -> some View {
         let selected = isActive(ws.url)
+        // A6: also highlight the root when the open file lives inside this workspace.
+        let ownsActive = selected || containsActiveFile(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
             // Chevron alone toggles expand/collapse (Finder/VS Code).
@@ -277,12 +304,12 @@ struct WorkspaceSidebar: View {
                 }
             } label: {
                 HStack(spacing: SidebarTree.rowSpacing) {
-                    Image(systemName: selected ? "folder.fill" : "folder")
+                    Image(systemName: ownsActive ? "folder.fill" : "folder")
                         .font(.system(size: 11))
-                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
                     Text(ws.name.uppercased())
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .font(.system(size: 10.5, weight: ownsActive ? .bold : .semibold))
+                        .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -295,9 +322,15 @@ struct WorkspaceSidebar: View {
         .padding(.bottom, 3)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear)
+                .fill(ownsActive ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .contextMenu {
+            Button("Переименовать…") {
+                renameWorkspace = ws
+                renameDraft = ws.customName ?? ws.url.lastPathComponent
+                showRenameAlert = true
+            }
+            copyPathMenuItem(ws.url)
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([ws.url])
             }
@@ -363,6 +396,7 @@ struct WorkspaceSidebar: View {
             } else {
                 Button("Скрыть из списка") { workspace.hide(url, in: ws) }
             }
+            copyPathMenuItem(url)
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
@@ -388,6 +422,7 @@ struct WorkspaceSidebar: View {
                 pinned ? workspace.unpin(url) : workspace.pin(url)
             }
             Button("Убрать из списка") { workspace.removeLoose(url) }
+            copyPathMenuItem(url)
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
@@ -396,6 +431,22 @@ struct WorkspaceSidebar: View {
 
     private func isActive(_ url: URL) -> Bool {
         url.standardizedFileURL == activeURL?.standardizedFileURL
+    }
+
+    /// Active file lives under this workspace root (not the root itself).
+    private func containsActiveFile(_ ws: WorkspaceModel.Workspace) -> Bool {
+        guard let path = activeURL?.standardizedFileURL.path else { return false }
+        let root = (ws.folderPath as NSString).standardizingPath
+        return path.hasPrefix(root + "/")
+    }
+
+    /// Shared context-menu item: absolute path → pasteboard.
+    @ViewBuilder
+    private func copyPathMenuItem(_ url: URL) -> some View {
+        Button("Скопировать путь") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.path, forType: .string)
+        }
     }
 }
 
@@ -488,6 +539,10 @@ private struct SubfolderNode: View {
                 .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .contextMenu {
+            Button("Скопировать путь") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(folder.path, forType: .string)
+            }
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             }
@@ -541,6 +596,10 @@ private struct SubfolderNode: View {
                 Button("Вернуть в список") { workspace.unhide(file) }
             } else {
                 Button("Скрыть из списка") { workspace.hide(file) }
+            }
+            Button("Скопировать путь") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(file.path, forType: .string)
             }
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([file])

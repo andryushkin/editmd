@@ -7,6 +7,9 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Always land on Files after a cold launch; keep @AppStorage so the
+        // tab still sticks when the sidebar view is recreated mid-session (A4).
+        UserDefaults.standard.set("files", forKey: "sidebarTab")
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
         // Claude Code IDE channel: follows Settings ▸ General (default on).

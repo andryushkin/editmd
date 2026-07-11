@@ -15,9 +15,16 @@ final class WorkspaceModel: ObservableObject {
     struct Workspace: Codable, Equatable, Identifiable {
         var folderPath: String
         var collapsed: Bool = false
+        /// Optional display name; nil / empty → folder basename (legacy decode OK).
+        var customName: String? = nil
         var id: String { folderPath }
         var url: URL { URL(fileURLWithPath: folderPath) }
-        var name: String { url.lastPathComponent }
+        var name: String {
+            if let customName, !customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return customName
+            }
+            return url.lastPathComponent
+        }
     }
 
     /// Adopted folders, always visible, collapsible.
@@ -262,6 +269,13 @@ final class WorkspaceModel: ObservableObject {
 
     func removeWorkspace(_ ws: Workspace) {
         workspaces.removeAll { $0.id == ws.id }
+    }
+
+    /// Set a custom display name; empty / whitespace clears back to folder basename.
+    func renameWorkspace(_ ws: Workspace, to name: String) {
+        guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspaces[i].customName = trimmed.isEmpty ? nil : trimmed
     }
 
     func toggleCollapsed(_ ws: Workspace) {
