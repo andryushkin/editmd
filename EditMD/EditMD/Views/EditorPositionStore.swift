@@ -19,10 +19,15 @@ final class EditorPositionStore {
         NotificationCenter.default.post(name: .editMDJumpToOffset, object: self)
     }
 
+    /// D5: transport for the split-mode scroll follow. Deliberately NOT
+    /// `markdownOffset` — that field is the caret restored on mode switches,
+    /// and a passive scroll must never move the caret.
+    var previewScrollOffset: Int = 0
+
     /// D5: editor→preview scroll sync only (Preview listens; Source/Visual
     /// must not re-select / fight the user scroll).
     func requestPreviewScroll(toMarkdownOffset offset: Int) {
-        markdownOffset = offset
+        previewScrollOffset = offset
         NotificationCenter.default.post(name: .editMDPreviewScrollSync, object: self)
     }
 }

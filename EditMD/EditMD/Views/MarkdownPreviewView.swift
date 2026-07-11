@@ -193,7 +193,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             // D5: editor→preview scroll follow (no Source selection side-effect).
             NotificationCenter.default.addObserver(
                 coordinator,
-                selector: #selector(Coordinator.jumpToStoredOffset),
+                selector: #selector(Coordinator.followEditorScroll),
                 name: .editMDPreviewScrollSync,
                 object: store
             )
@@ -568,9 +568,20 @@ struct MarkdownPreviewView: NSViewRepresentable {
         /// Jump: prefer an exact `data-md-lo` span (Review / outline in Preview),
         /// fall back to proportional scroll when the offset is untagged.
         @objc func jumpToStoredOffset() {
-            guard let webView, let store = positionStore,
-                  let content = lastRenderedContent else { return }
-            let offset = min(store.markdownOffset, (content as NSString).length)
+            guard let store = positionStore else { return }
+            scroll(toMarkdownOffset: store.markdownOffset)
+        }
+
+        /// D5: split-mode scroll follow reads its own transport field so a
+        /// passive scroll never rewrites the caret (`markdownOffset`).
+        @objc func followEditorScroll() {
+            guard let store = positionStore else { return }
+            scroll(toMarkdownOffset: store.previewScrollOffset)
+        }
+
+        private func scroll(toMarkdownOffset target: Int) {
+            guard let webView, let content = lastRenderedContent else { return }
+            let offset = min(target, (content as NSString).length)
             let total = max(1, (content as NSString).length)
             let fraction = Double(offset) / Double(total)
             // scrollToMdOffset returns true when a tagged span was found.
