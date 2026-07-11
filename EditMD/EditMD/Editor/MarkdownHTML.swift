@@ -561,8 +561,9 @@ func previewHTMLPage(markdown: String,
     let lnColPx = max(28, lnFontPx * max(2, String(max(99, gutter.dirtyLines.max() ?? 999)).count) + 10)
     let dirtyColor = gutter.dirtyMarkColorHex.isEmpty ? "#1a8f3c" : gutter.dirtyMarkColorHex
     let bodyGutterClass = gutterOn ? " class=\"\(gutter.modeClass)\"" : ""
-    // Extra left padding so numbers never sit on the text column.
-    let padHLeft = gutterOn ? padH + lnColPx + 6 : padH
+    // Extra left padding reserves one shared gutter plus a comfortable gap.
+    let lineNumberGapPx = 18
+    let padHLeft = gutterOn ? padH + lnColPx + lineNumberGapPx : padH
 
     // Per-element rules generated from ElementStyles — appended after the base
     // rules so they win. Heading size uses `em` (= the scale), matching how
@@ -595,6 +596,7 @@ func previewHTMLPage(markdown: String,
         --ln-dirty: \(dirtyColor);
         --ln-col: \(lnColPx)px;
         --ln-size: \(lnFontPx)px;
+        --ln-gap: \(lineNumberGapPx)px;
     }
     * { box-sizing: border-box; }
     body {
@@ -610,7 +612,10 @@ func previewHTMLPage(markdown: String,
     [data-ln]::before {
         position: absolute;
         top: 0.2em;
-        right: calc(100% + 0.65em);
+        /* JS below replaces this fallback with a document-global x position.
+           Every element has a different local origin (lists, quotes, tables),
+           so a percentage/right-based gutter cannot form one visual column. */
+        left: var(--ln-left, calc(-1 * (var(--ln-col) + var(--ln-gap))));
         width: var(--ln-col);
         text-align: right;
         font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -640,13 +645,6 @@ func previewHTMLPage(markdown: String,
     [data-ln].ln-dirty::before {
         color: var(--ln-dirty);
         font-weight: 700;
-    }
-    /* List items are indented — pull the number further left into the gutter. */
-    li[data-ln]::before {
-        right: calc(100% + 0.65em + 1.5em);
-    }
-    li.task[data-ln]::before {
-        right: calc(100% + 0.65em + 0.2em);
     }
     /* First block must not add extra top margin on top of body padding —
        otherwise Settings ▸ Vertical never reaches zero under the action strip. */
@@ -754,9 +752,11 @@ func previewHTMLPage(markdown: String,
         opacity: 0.72;
         pointer-events: auto;
         border: none;
-        border-radius: 4px;
-        padding: 2px 7px;
-        font: 12px/1.2 ui-monospace, Menlo, monospace;
+        min-width: 32px;
+        min-height: 32px;
+        border-radius: 7px;
+        padding: 4px 8px;
+        font: 17px/1 ui-monospace, Menlo, monospace;
         background: rgba(128,128,128,0.18);
         color: inherit;
         cursor: pointer;
@@ -784,6 +784,28 @@ func previewHTMLPage(markdown: String,
     <body\(bodyGutterClass)>
     \(body)
     <script>
+    // Align every source-line marker to one document-global column. `data-ln`
+    // lives on blocks with different local x origins (nested lists/quotes), so
+    // pure element-relative CSS produces a ragged gutter. Recompute on resize
+    // because a centered reading column moves with the viewport.
+    (function () {
+        function alignLineNumberGutter() {
+            var bodyStyle = getComputedStyle(document.body);
+            var contentLeft = document.body.getBoundingClientRect().left
+                + parseFloat(bodyStyle.paddingLeft || '0');
+            var rootStyle = getComputedStyle(document.documentElement);
+            var columnWidth = parseFloat(rootStyle.getPropertyValue('--ln-col')) || 28;
+            var gap = parseFloat(rootStyle.getPropertyValue('--ln-gap')) || 18;
+            var desiredLeft = contentLeft - gap - columnWidth;
+            document.querySelectorAll('[data-ln]').forEach(function (el) {
+                var localLeft = desiredLeft - el.getBoundingClientRect().left;
+                el.style.setProperty('--ln-left', localLeft + 'px');
+            });
+        }
+        alignLineNumberGutter();
+        window.addEventListener('resize', alignLineNumberGutter);
+        window.alignLineNumberGutter = alignLineNumberGutter;
+    })();
     // Interactive task checkboxes (FSNotes' HandlerCheckbox idea): the body
     // fragment renders them disabled; the live preview re-enables them and
     // reports the clicked index — document order matches the order of
@@ -889,6 +911,9 @@ func previewHTMLPage(markdown: String,
         }
         function attach(el) {
             if (el.querySelector('.copy-block-btn')) return;
+            // One button per logical quote tree: a nested blockquote belongs
+            // to its outer quote and is copied together with it.
+            if (el.tagName === 'BLOCKQUOTE' && el.parentElement.closest('blockquote')) return;
             el.classList.add('copy-host');
             var btn = document.createElement('button');
             btn.type = 'button';

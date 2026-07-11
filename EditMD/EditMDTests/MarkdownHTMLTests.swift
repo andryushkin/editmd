@@ -137,6 +137,32 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("document.querySelectorAll('pre, blockquote')"), page)
         XCTAssertTrue(page.contains("clone.querySelectorAll('.copy-block-btn')"), page)
         XCTAssertTrue(page.contains("opacity: 0.72"), page)
+        XCTAssertTrue(page.contains("min-width: 32px"), page)
+        XCTAssertTrue(page.contains("min-height: 32px"), page)
+        XCTAssertTrue(page.contains("font: 17px/1"), page)
+        XCTAssertTrue(page.contains("el.parentElement.closest('blockquote')"), page)
+    }
+
+    func testNestedQuoteRendersAsOneCopyableTree() {
+        let md = "> This is a blockquote.\n>\n> > It can span multiple lines."
+        let page = previewHTMLPage(markdown: md, fontSize: 14)
+        XCTAssertTrue(page.contains("<blockquote>"), page)
+        // Runtime attachment deliberately skips nested blockquotes, while the
+        // outer clone retains their text for one whole-tree copy operation.
+        XCTAssertTrue(page.contains("el.tagName === 'BLOCKQUOTE'"), page)
+        XCTAssertTrue(page.contains("copyText(clone.innerText || '', btn)"), page)
+    }
+
+    func testPreviewLineNumbersUseOneGlobalColumnAndLargerGap() {
+        let gutter = PreviewGutterOptions(showLineNumbers: true)
+        let page = previewHTMLPage(markdown: "# H\n\n- item\n\n> quote",
+                                   fontSize: 14, insetH: 32, gutter: gutter)
+        XCTAssertTrue(page.contains("--ln-gap: 18px"), page)
+        XCTAssertTrue(page.contains("function alignLineNumberGutter()"), page)
+        XCTAssertTrue(page.contains("desiredLeft - el.getBoundingClientRect().left"), page)
+        XCTAssertFalse(page.contains("li[data-ln]::before"), page)
+        // 32 content inset + gutter column + the new 18px text gap.
+        XCTAssertTrue(page.contains("padding: 24px 32px 64px 93px"), page)
     }
 
     // MARK: - Wiki-links
