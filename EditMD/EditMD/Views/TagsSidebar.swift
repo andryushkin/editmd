@@ -156,7 +156,9 @@ func scanWorkspaceTags(roots: [URL], maxBytes: Int = 2048) -> [String: [URL]] {
                 guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
                 defer { try? handle.close() }
                 let data = handle.readData(ofLength: maxBytes)
-                guard let text = String(data: data, encoding: .utf8) else { continue }
+                // Lossy decode: the byte cap can split a multibyte character;
+                // strict String(data:) would nil out and drop the whole file.
+                let text = String(decoding: data, as: UTF8.self)
                 for tag in frontmatterTags(in: text) {
                     index[tag, default: []].append(url.standardizedFileURL)
                 }

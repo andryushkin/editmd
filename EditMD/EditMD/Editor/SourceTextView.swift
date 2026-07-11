@@ -331,10 +331,7 @@ struct SourceTextView: NSViewRepresentable {
             // Convert to textView coordinates.
             let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.minY + 4),
                                          from: scroll.contentView)
-            var frac: CGFloat = 0
             let idx = textView.characterIndexForInsertion(at: point)
-            // characterIndexForInsertion may need layoutManager path on older SDK:
-            _ = frac
             return max(0, min(idx, (textView.string as NSString).length))
         }
 
@@ -637,7 +634,7 @@ struct SourceTextView: NSViewRepresentable {
         private func insertDivider() {
             guard let textView else { return }
             let range = textView.selectedRange()
-            let insert = "\n\n---\n\n"
+            let insert = dividerSnippet(in: textView.string as NSString, replacing: range)
             guard textView.shouldChangeText(in: range, replacementString: insert) else { return }
             textView.replaceCharacters(in: range, with: insert)
             textView.didChangeText()

@@ -108,6 +108,10 @@ enum ControlRouter {
                   isDir.boolValue else {
                 return .failure(id: request.id, error: "not a directory: \(url.path)")
             }
+            // Second socket→main hop — same primitive (and deadlock profile)
+            // as `process`'s own main phase; needed because the disk check
+            // above must stay off main while the model is main-only. Safe as
+            // long as main never blocks on the control queue.
             let added: Bool = DispatchQueue.main.sync {
                 let before = WorkspaceModel.shared.workspaces.count
                 WorkspaceModel.shared.addWorkspace(url)

@@ -347,6 +347,39 @@ final class CycleCaseTests: XCTestCase {
     }
 }
 
+// MARK: - dividerSnippet (B3)
+
+final class DividerSnippetTests: XCTestCase {
+
+    private func insert(_ text: String, at loc: Int) -> String {
+        let ns = text as NSString
+        let range = NSRange(location: loc, length: 0)
+        return ns.replacingCharacters(in: range,
+                                      with: dividerSnippet(in: ns, replacing: range))
+    }
+
+    func testEmptyDocument() {
+        XCTAssertEqual(insert("", at: 0), "---\n")
+    }
+
+    func testAfterParagraphWithoutTrailingNewline() {
+        XCTAssertEqual(insert("text", at: 4), "text\n\n---\n")
+    }
+
+    func testBetweenExistingBlankLines() {
+        // "para\n\n" + caret + "\nnext" — no extra blank growth.
+        XCTAssertEqual(insert("para\n\n\nnext", at: 6), "para\n\n---\n\nnext")
+    }
+
+    func testMidLineBreaksOutToOwnBlock() {
+        XCTAssertEqual(insert("ab", at: 1), "a\n\n---\n\nb")
+    }
+
+    func testAtLineStartAfterSingleNewline() {
+        XCTAssertEqual(insert("para\nnext", at: 5), "para\n\n---\n\nnext")
+    }
+}
+
 // MARK: - cycleCaseAttributed (B5, Visual)
 
 final class CycleCaseAttributedTests: XCTestCase {

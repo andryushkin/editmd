@@ -63,11 +63,8 @@ func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
 
 // MARK: - Recursive tree stats
 
-/// Full-tree counts under a folder (any depth). The root itself is not counted
-/// as a subfolder. A subfolder is counted only if its subtree contains at least
-/// one markdown file (empty / non-md folders are ignored). `.textbundle`
-/// packages count as markdown and are not descended into. Hidden items skipped.
-/// One node in the nested-folder tree (D8) — name + recursive .md count.
+/// One node in the nested-folder tree (D8). `markdownCount` is the number of
+/// .md files DIRECTLY in this folder — descendants report their own counts.
 struct FolderTreeNode: Equatable, Sendable, Identifiable {
     var url: URL
     var markdownCount: Int
@@ -75,6 +72,10 @@ struct FolderTreeNode: Equatable, Sendable, Identifiable {
     var id: String { url.path }
 }
 
+/// Full-tree counts under a folder (any depth). The root itself is not counted
+/// as a subfolder. A subfolder is counted only if its subtree contains at least
+/// one markdown file (empty / non-md folders are ignored). `.textbundle`
+/// packages count as markdown and are not descended into. Hidden items skipped.
 struct FolderTreeStats: Equatable, Sendable {
     var markdownCount: Int
     var subfolderCount: Int

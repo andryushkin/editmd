@@ -135,6 +135,42 @@ private func stripDelimiterPairs(_ delim: String, in text: String,
     return out
 }
 
+// MARK: - Divider insertion (B3)
+
+/// `---` snippet with just enough newlines for a thematic break: its own line,
+/// one blank line each side. Peeks at the actual neighbours instead of always
+/// injecting `\n\n---\n\n` (which grew extra blank lines the linter then
+/// flagged). O(1) — no substring copies of the whole document.
+func dividerSnippet(in text: NSString, replacing range: NSRange) -> String {
+    let nl: unichar = 0x0A
+    func char(at i: Int) -> unichar? {
+        i >= 0 && i < text.length ? text.character(at: i) : nil
+    }
+    let beforeEnd = range.location
+    let prevIsNL = char(at: beforeEnd - 1) == nl
+    let prev2IsNL = char(at: beforeEnd - 2) == nl
+    let prefix: String
+    if beforeEnd == 0 || (prevIsNL && (prev2IsNL || beforeEnd == 1)) {
+        prefix = ""
+    } else if prevIsNL {
+        prefix = "\n"
+    } else {
+        prefix = "\n\n"
+    }
+    let afterStart = NSMaxRange(range)
+    let suffix: String
+    if afterStart >= text.length {
+        suffix = "\n"
+    } else if char(at: afterStart) == nl && char(at: afterStart + 1) == nl {
+        suffix = ""
+    } else if char(at: afterStart) == nl {
+        suffix = "\n"
+    } else {
+        suffix = "\n\n"
+    }
+    return prefix + "---" + suffix
+}
+
 // MARK: - Case cycle (B5)
 
 /// The transform `cycleCase` picked for the current selection state.
