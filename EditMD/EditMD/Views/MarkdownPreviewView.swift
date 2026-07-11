@@ -378,6 +378,17 @@ struct MarkdownPreviewView: NSViewRepresentable {
             actions.toggleChecklist = { [weak self] in self?.transformSelectionLines(.checklist) }
             actions.toggleNumberedList = { [weak self] in self?.transformSelectionLines(.ordered) }
             actions.toggleQuote = { [weak self] in self?.transformSelectionLines(.quote) }
+            actions.clearInlineFormatting = { [weak self] in
+                self?.rewriteCachedSelection(actionName: "Clear Formatting",
+                                             stripInlineMarkers)
+            }
+            actions.cycleCase = { [weak self] in
+                self?.rewriteCachedSelection(actionName: "Change Case", cycleCase)
+            }
+            // No caret→markdown mapping in Preview yet — a divider insert has
+            // no anchor. Nil (beep) beats inheriting the previous mode's
+            // coordinator closure from the shared actions bag.
+            actions.insertDivider = nil
             // Table / formula only in Visual (UI gated by mode, not these nils).
             actions.insertTable = nil
             actions.tableAddRow = nil
@@ -501,6 +512,30 @@ struct MarkdownPreviewView: NSViewRepresentable {
             }
             document.commitContentEdit()
             document.applyUndoableContent(next, actionName: actionName)
+        }
+
+        /// Rewrite the cached (non-empty) selection through a pure text
+        /// transform — the shared path for clear-formatting / case cycle.
+        /// Collapsed carets have no source range in Preview (updateCachedSelection
+        /// keeps only non-empty DOM ranges), so those beep for now.
+        private func rewriteCachedSelection(actionName: String,
+                                            _ transform: (String) -> String) {
+            guard let document else { NSSound.beep(); return }
+            guard cachedStart >= 0, cachedEnd > cachedStart else {
+                NSSound.beep()
+                return
+            }
+            let ns = document.content as NSString
+            let range = NSRange(location: cachedStart, length: cachedEnd - cachedStart)
+            guard NSMaxRange(range) <= ns.length else { NSSound.beep(); return }
+            let replaced = transform(ns.substring(with: range))
+            guard replaced != ns.substring(with: range) else { return }
+            cachedSelection = ""
+            cachedStart = -1
+            cachedEnd = -1
+            document.commitContentEdit()
+            document.applyUndoableContent(ns.replacingCharacters(in: range, with: replaced),
+                                          actionName: actionName)
         }
 
         /// Line-level transform for the lines covering the cached selection.
