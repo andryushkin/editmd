@@ -121,4 +121,27 @@ final class VisualEditingTests: XCTestCase {
     func testShiftTabBeforeFirstCellReturnsNil() {
         XCTAssertNil(nextTableCellPosition(row: 0, column: 0, columns: 3, rows: 2, forward: false))
     }
+
+    // MARK: - Markdown paste detection
+
+    func testMarkdownPasteRecognizesStructuredSyntax() {
+        XCTAssertTrue(looksLikeMarkdownForVisualPaste("## Heading"))
+        XCTAssertTrue(looksLikeMarkdownForVisualPaste("- one\n- two"))
+        XCTAssertTrue(looksLikeMarkdownForVisualPaste("Text with **bold** and `code`"))
+        XCTAssertTrue(looksLikeMarkdownForVisualPaste("[OpenAI](https://openai.com)"))
+        XCTAssertTrue(looksLikeMarkdownForVisualPaste("| A | B |\n| --- | --- |\n| 1 | 2 |"))
+    }
+
+    func testMarkdownPasteLeavesOrdinaryTextPlain() {
+        XCTAssertFalse(looksLikeMarkdownForVisualPaste("ordinary prose"))
+        XCTAssertFalse(looksLikeMarkdownForVisualPaste("snake_case and 2 * 3"))
+        XCTAssertFalse(looksLikeMarkdownForVisualPaste("a-b@example.com"))
+        XCTAssertFalse(looksLikeMarkdownForVisualPaste(""))
+    }
+
+    func testMarkdownPasteKeepsMarkersInsideCodeBlock() {
+        let markdown = "## Heading\n\n**bold** and `code`"
+        XCTAssertTrue(shouldFormatVisualPaste(markdown, in: .paragraph))
+        XCTAssertFalse(shouldFormatVisualPaste(markdown, in: .codeBlock(language: "swift")))
+    }
 }

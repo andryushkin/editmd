@@ -66,7 +66,9 @@ enum PDFExporter {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let cfg = WKPDFConfiguration()
-            cfg.rect = NSRect(x: 0, y: 0, width: 800, height: 0) // height 0 → full content
+            // WKPDFConfiguration defaults to CGRect.null, which WebKit defines
+            // as the bounds of the full displayed page. A zero-height rect is
+            // an empty capture area, not a sentinel for full content.
             webView.createPDF(configuration: cfg) { [weak self] result in
                 Task { @MainActor in
                     guard let self else { return }

@@ -665,14 +665,17 @@ func previewHTMLPage(markdown: String,
         border-radius: 4px; padding: 0.15em 0.35em;
     }
     pre {
-        background: rgba(128,128,128,0.1);
+        background: rgba(175,82,222,0.09);
+        border: 1px solid rgba(175,82,222,0.28);
         border-radius: 8px; padding: 14px 16px; overflow-x: auto;
     }
     pre code { background: none; padding: 0; font-size: 0.875em; }
     blockquote {
         margin: 0.8em 0; padding: 0.1em 1em;
-        border-left: 3px solid rgba(128,128,128,0.4);
-        opacity: 0.75;
+        border-left: 4px solid rgba(0,122,255,0.68);
+        border-radius: 0 7px 7px 0;
+        background: rgba(0,122,255,0.07);
+        opacity: 0.9;
     }
     ul, ol { padding-left: 1.7em; margin: 0.6em 0; }
     li { margin: 0.2em 0; }
@@ -694,6 +697,14 @@ func previewHTMLPage(markdown: String,
     }
     @media (prefers-color-scheme: dark) {
         mark { background: rgba(255, 196, 0, 0.35); }
+        pre {
+            background: rgba(191,90,242,0.12);
+            border-color: rgba(191,90,242,0.36);
+        }
+        blockquote {
+            background: rgba(10,132,255,0.11);
+            border-left-color: rgba(10,132,255,0.78);
+        }
     }
     /* Review-mark wash (v37) — open smotr anchors painted over data-md-lo spans.
        Preview is the primary review surface; Source/Visual washes are secondary. */
@@ -740,8 +751,8 @@ func previewHTMLPage(markdown: String,
         top: 6px;
         right: 6px;
         z-index: 2;
-        opacity: 0;
-        pointer-events: none;
+        opacity: 0.72;
+        pointer-events: auto;
         border: none;
         border-radius: 4px;
         padding: 2px 7px;
@@ -751,10 +762,7 @@ func previewHTMLPage(markdown: String,
         cursor: pointer;
         transition: opacity 0.12s ease;
     }
-    .copy-host:hover > .copy-block-btn {
-        opacity: 1;
-        pointer-events: auto;
-    }
+    .copy-host:hover > .copy-block-btn { opacity: 1; }
     .copy-block-btn:hover { background: rgba(128,128,128,0.32); }
     /* yaml code-block syntax colors */
     .yaml-key { color: #6f42c1; }
@@ -890,7 +898,9 @@ func previewHTMLPage(markdown: String,
             btn.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                copyText(el.innerText || '', btn);
+                var clone = el.cloneNode(true);
+                clone.querySelectorAll('.copy-block-btn').forEach(function (b) { b.remove(); });
+                copyText(clone.innerText || '', btn);
             });
             el.appendChild(btn);
         }

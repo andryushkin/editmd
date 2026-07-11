@@ -104,6 +104,40 @@ func indentedKind(_ kind: MDBlock.Kind, by delta: Int) -> MDBlock.Kind? {
     }
 }
 
+/// Conservative clipboard heuristic: format text only when it carries
+/// unambiguous Markdown structure. Ordinary prose (including punctuation and
+/// underscores in identifiers) must keep the normal plain-text paste path.
+func looksLikeMarkdownForVisualPaste(_ text: String) -> Bool {
+    guard !text.isEmpty else { return false }
+    let ns = text as NSString
+    let full = NSRange(location: 0, length: ns.length)
+    let patterns = [
+        #"(?m)^\s{0,3}#{1,6}\s+\S"#,             // heading
+        #"(?m)^\s{0,3}(?:[-+*]|\d+[.)])\s+\S"#, // list
+        #"(?m)^\s{0,3}>\s?\S"#,                 // quote
+        #"(?m)^\s*```[^\n]*$"#,                 // fenced code
+        #"(?m)^\s*(?:---+|\*\*\*+)\s*$"#,      // thematic break
+        #"(?m)^\s*\|?.+\|.+\n\s*\|?\s*:?-{3}"#, // table
+        #"!\[[^\]\n]*\]\([^\)\n]+\)"#,        // image
+        #"\[[^\]\n]+\]\([^\)\n]+\)"#,         // link
+        #"\[\[[^\]\n]+\]\]"#,                 // wiki-link
+        #"(?:\*\*|~~|==)[^\n]+?(?:\*\*|~~|==)"#,
+        #"(?<!\*)\*[^*\n]+\*(?!\*)"#,          // emphasis
+        #"`[^`\n]+`"#,                           // inline code
+    ]
+    return patterns.contains { pattern in
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        return regex.firstMatch(in: text, range: full) != nil
+    }
+}
+
+/// Code blocks are literal by definition: Markdown-looking clipboard text
+/// pasted there must keep every marker instead of being rendered.
+func shouldFormatVisualPaste(_ text: String, in blockKind: MDBlock.Kind) -> Bool {
+    if case .codeBlock = blockKind { return false }
+    return looksLikeMarkdownForVisualPaste(text)
+}
+
 // MARK: - SwiftUI wrapper
 
 struct VisualMarkdownView: NSViewRepresentable {
@@ -698,6 +732,37 @@ struct VisualMarkdownView: NSViewRepresentable {
             applyPresentation()
             syncToDocument()
             updateStats()
+        }
+
+        /// Visual paste keeps ordinary clipboard text plain, but converts
+        /// recognizable Markdown through the same semantic renderer used when
+        /// opening a document. Returning false lets NSTextView use its existing
+        /// plain-text fallback.
+        func pasteMarkdownFromPasteboard() -> Bool {
+            guard let textView, let storage = textView.textStorage,
+                  let markdown = NSPasteboard.general.string(forType: .string)
+            else { return false }
+            let selection = textView.selectedRange()
+            let blockKind: MDBlock.Kind
+            if storage.length > 0 {
+                let probe = min(selection.location, storage.length - 1)
+                blockKind = (storage.attribute(.mdBlock, at: probe, effectiveRange: nil) as? MDBlock)?
+                    .kind ?? .paragraph
+            } else {
+                blockKind = .paragraph
+            }
+            guard shouldFormatVisualPaste(markdown, in: blockKind) else { return false }
+            let rendered = renderMarkdownToAttributed(markdown, style: visualStyle)
+            guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
+            else { return true }
+            isMutating = true
+            storage.replaceCharacters(in: selection, with: rendered)
+            isMutating = false
+            textView.didChangeText()
+            let caret = selection.location + rendered.length
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            afterMutation()
+            return true
         }
 
         // MARK: Tables

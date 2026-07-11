@@ -129,6 +129,16 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("a { color: #445566; }"), page)
     }
 
+    func testPreviewPageStylesQuoteAndCodeWithCopyButtons() {
+        let page = previewHTMLPage(markdown: "> quote\n\n```swift\nlet x = 1\n```",
+                                   fontSize: 14)
+        XCTAssertTrue(page.contains("border-left: 4px solid rgba(0,122,255"), page)
+        XCTAssertTrue(page.contains("border: 1px solid rgba(175,82,222"), page)
+        XCTAssertTrue(page.contains("document.querySelectorAll('pre, blockquote')"), page)
+        XCTAssertTrue(page.contains("clone.querySelectorAll('.copy-block-btn')"), page)
+        XCTAssertTrue(page.contains("opacity: 0.72"), page)
+    }
+
     // MARK: - Wiki-links
 
     func testWikiLinkRendersAsAnchor() {

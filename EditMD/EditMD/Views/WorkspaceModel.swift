@@ -44,7 +44,8 @@ final class WorkspaceModel: ObservableObject {
     /// D11: tag → files (frontmatter only). Filled off-main; read from UI.
     @Published private(set) var tagIndex: [String: [URL]] = [:]
     private var tagScanInFlight = false
-    private var tagIndexEpoch: Int = -1
+    private var tagScanPending = false
+    private var tagIndexKey = ""
 
     private let defaults: UserDefaults
 
@@ -207,26 +208,40 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
-    /// D11: ensure `tagIndex` is current for `contentEpoch` (stale-while-revalidate).
+    /// D11: ensure `tagIndex` is current for both filesystem contents and the
+    /// adopted root set (stale-while-revalidate).
     func ensureTagIndex() {
         let epoch = contentEpoch
-        if tagIndexEpoch == epoch { return }
-        guard !tagScanInFlight else { return }
-        tagScanInFlight = true
         let roots = workspaces.map(\.url)
+        let key = tagScanKey(epoch: epoch, roots: roots)
+        if tagIndexKey == key { return }
+        guard !tagScanInFlight else {
+            tagScanPending = true
+            return
+        }
+        tagScanInFlight = true
         Task { [weak self] in
             let index = await Task.detached(priority: .utility) {
                 scanWorkspaceTags(roots: roots)
             }.value
             guard let self else { return }
             self.tagScanInFlight = false
-            guard self.contentEpoch == epoch else {
-                // Stale — re-request on next appear.
+            let currentRoots = self.workspaces.map(\.url)
+            let currentKey = self.tagScanKey(epoch: self.contentEpoch, roots: currentRoots)
+            guard currentKey == key, !self.tagScanPending else {
+                // A change notification may have arrived while this scan was
+                // running. It could not start another scan then, so do it now.
+                self.tagScanPending = false
+                self.ensureTagIndex()
                 return
             }
             self.tagIndex = index
-            self.tagIndexEpoch = epoch
+            self.tagIndexKey = key
         }
+    }
+
+    private func tagScanKey(epoch: Int, roots: [URL]) -> String {
+        "\(epoch):" + roots.map { $0.standardizedFileURL.path }.joined(separator: "\u{1F}")
     }
 
     /// Direct child folders that contain markdown somewhere in their tree.

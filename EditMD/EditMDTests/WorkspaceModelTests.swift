@@ -186,4 +186,37 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(Set(index["shared"]?.map(\.lastPathComponent) ?? []), ["a.md", "b.md"])
         XCTAssertEqual(index["only-a"]?.map(\.lastPathComponent), ["a.md"])
     }
+
+    func testTagIndexRefreshesWhenWorkspaceRootsChange() async throws {
+        try "---\ntags: [first-root]\n---\n".write(
+            to: dir.appendingPathComponent("first-tagged.md"), atomically: true, encoding: .utf8)
+        let second = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-tags-second-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: second) }
+        try "---\ntags: [second-root]\n---\n".write(
+            to: second.appendingPathComponent("tagged.md"), atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        model.ensureTagIndex()
+        await waitForTagIndex(model) { $0["first-root"]?.count == 1 }
+
+        model.addWorkspace(second)
+        model.ensureTagIndex()
+        await waitForTagIndex(model) { $0["second-root"]?.count == 1 }
+        XCTAssertEqual(model.tagIndex["second-root"]?.first?.lastPathComponent, "tagged.md")
+    }
+
+    private func waitForTagIndex(
+        _ model: WorkspaceModel,
+        timeoutIterations: Int = 100,
+        until predicate: ([String: [URL]]) -> Bool
+    ) async {
+        for _ in 0..<timeoutIterations {
+            if predicate(model.tagIndex) { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Timed out waiting for tag index refresh")
+    }
 }

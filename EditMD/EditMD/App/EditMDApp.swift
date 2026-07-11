@@ -46,7 +46,6 @@ struct EditMDApp: App {
         actions.prepareForExport?()
         // Prefer live editor buffer — works without a path on disk.
         let content = actions.markdownContent()
-        guard !content.isEmpty else { NSSound.beep(); return }
         let url = actions.fileURL
         let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
         let base = url?.deletingLastPathComponent()

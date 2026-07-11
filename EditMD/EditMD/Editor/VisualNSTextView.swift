@@ -92,9 +92,13 @@ final class VisualNSTextView: NSTextView {
     }
     private var editorSettings: VisualTableEditorSettings { EditorSettings.shared.visualTableEditor }
 
-    // Paste always as plain text — outside rich content would corrupt the model.
+    // Clipboard rich-text attributes are never accepted. Recognizable Markdown
+    // is rebuilt through our own semantic renderer; everything else remains
+    // plain text.
     override func paste(_ sender: Any?) {
-        pasteAsPlainText(sender)
+        if visualCoordinator?.pasteMarkdownFromPasteboard() != true {
+            pasteAsPlainText(sender)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -534,7 +538,13 @@ final class VisualNSTextView: NSTextView {
         }
         theme.codeBlockBackground.setFill()
         for box in panelRects where box.intersects(rect) && box.height > 1 {
-            NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
+            let panel = NSBezierPath(roundedRect: box,
+                                     xRadius: theme.codeBlockCornerRadius,
+                                     yRadius: theme.codeBlockCornerRadius)
+            panel.fill()
+            panel.lineWidth = 1
+            theme.inlineCodeColor.withAlphaComponent(0.28).setStroke()
+            panel.stroke()
         }
 
         // Frontmatter properties cards (Obsidian-style metadata panel)
@@ -553,10 +563,13 @@ final class VisualNSTextView: NSTextView {
         // Quote bars
         for (range, depth) in quoteEntries {
             guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
-            theme.separatorColor.setFill()
+            let quoteBox = rectUnion.insetBy(dx: 0, dy: -3)
+            theme.quoteBackground.setFill()
+            NSBezierPath(roundedRect: quoteBox, xRadius: 5, yRadius: 5).fill()
+            theme.accentColor.withAlphaComponent(0.72).setFill()
             for level in 0..<depth {
                 NSRect(x: inset.width + CGFloat(level) * 18, y: rectUnion.minY,
-                       width: 3, height: rectUnion.height).fill()
+                       width: theme.quoteBarWidth, height: rectUnion.height).fill()
             }
         }
 
