@@ -83,6 +83,9 @@ struct EditMDApp: App {
             MainWindowView()
         }
         .commands {
+            // Non-DocumentGroup apps: `replacing: .saveItem` is often empty in
+            // the File menu (system still shows Close). Put Save/Export after
+            // .newItem so they always appear with New/Open (see File menu repro).
             CommandGroup(replacing: .newItem) {
                 Button("New") {
                     AppState.shared.openUntitled()
@@ -106,7 +109,7 @@ struct EditMDApp: App {
                 }
             }
 
-            CommandGroup(replacing: .saveItem) {
+            CommandGroup(after: .newItem) {
                 Button("Save") {
                     documentActions?.save()
                 }
@@ -118,6 +121,11 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.shift, .command])
                 .disabled(documentActions == nil)
+
+                Button("Export as PDF…") {
+                    exportFocusedDocumentAsPDF()
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
 
                 Divider()
 
@@ -134,13 +142,10 @@ struct EditMDApp: App {
                 .disabled(documentActions?.presentPush == nil)
             }
 
-            // Own group — items stuffed into `replacing: .saveItem` are often
-            // omitted from the File menu on macOS (only Save/Save As stay visible).
-            CommandGroup(after: .saveItem) {
-                Button("Export as PDF…") {
-                    exportFocusedDocumentAsPDF()
-                }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+            // Clear system Save slot so we don't get a second empty/broken Save
+            // group above Close.
+            CommandGroup(replacing: .saveItem) {
+                EmptyView()
             }
 
             CommandGroup(replacing: .undoRedo) {
