@@ -332,6 +332,51 @@ final class CycleCaseTests: XCTestCase {
     }
 }
 
+// MARK: - cycleCaseAttributed (B5, Visual)
+
+final class CycleCaseAttributedTests: XCTestCase {
+
+    private let marker = NSAttributedString.Key("test.marker")
+
+    /// "**bold** plain" as two runs; UPPER must not smear the bold attribute.
+    func testMixedRunsKeepTheirAttributes() {
+        let src = NSMutableAttributedString()
+        src.append(NSAttributedString(string: "bold", attributes: [marker: 1]))
+        src.append(NSAttributedString(string: " plain"))
+        let out = cycleCaseAttributed(src)  // lower → capitalized? "bold plain" is lower → Capitalized
+        XCTAssertEqual(out.string, "Bold Plain")
+        XCTAssertEqual(out.attribute(marker, at: 0, effectiveRange: nil) as? Int, 1)
+        XCTAssertEqual(out.attribute(marker, at: 3, effectiveRange: nil) as? Int, 1)
+        XCTAssertNil(out.attribute(marker, at: 4, effectiveRange: nil))
+    }
+
+    /// A word split across runs ("H" bold + "ello" plain) stays ONE word when
+    /// capitalizing — the second run must not get an extra capital.
+    func testCapitalizationCarriesWordStateAcrossRuns() {
+        let src = NSMutableAttributedString()
+        src.append(NSAttributedString(string: "h", attributes: [marker: 1]))
+        src.append(NSAttributedString(string: "ello world"))
+        let out = cycleCaseAttributed(src)  // all lower → Capitalized
+        XCTAssertEqual(out.string, "Hello World")
+        XCTAssertEqual(out.attribute(marker, at: 0, effectiveRange: nil) as? Int, 1)
+    }
+
+    func testUpperAndLowerPerRun() {
+        let src = NSMutableAttributedString()
+        src.append(NSAttributedString(string: "ПРИВЕТ", attributes: [marker: 1]))
+        src.append(NSAttributedString(string: " МИР"))
+        let out = cycleCaseAttributed(src)  // upper → lower
+        XCTAssertEqual(out.string, "привет мир")
+        XCTAssertEqual(out.attribute(marker, at: 2, effectiveRange: nil) as? Int, 1)
+        XCTAssertNil(out.attribute(marker, at: 7, effectiveRange: nil))
+    }
+
+    func testNoLettersUntouched() {
+        let src = NSAttributedString(string: "12 34")
+        XCTAssertEqual(cycleCaseAttributed(src).string, "12 34")
+    }
+}
+
 // MARK: - applyWrap
 
 final class ApplyWrapTests: XCTestCase {

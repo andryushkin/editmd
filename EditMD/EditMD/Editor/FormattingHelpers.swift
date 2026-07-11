@@ -113,22 +113,68 @@ private func stripDelimiterPairs(_ delim: String, in text: String) -> String {
 
 // MARK: - Case cycle (B5)
 
+/// The transform `cycleCase` picked for the current selection state.
+enum CaseCycleOp {
+    case upper, lower, capitalized
+}
+
+/// Next cycle step UPPER → lower → Capitalized → UPPER; nil when the text
+/// carries no letters (nothing to cycle).
+func nextCaseCycleOp(for text: String) -> CaseCycleOp? {
+    guard text.contains(where: \.isLetter) else { return nil }
+    if text == text.uppercased() { return .lower }
+    if text == text.lowercased() { return .capitalized }
+    if text == text.capitalized { return .upper }
+    // Mixed → normalize to UPPER (next full cycle step).
+    return .upper
+}
+
 /// Cycles selection case: UPPER → lower → Capitalized → UPPER.
 /// Detection uses letter-bearing content; non-letters pass through.
 func cycleCase(_ text: String) -> String {
-    let letters = text.filter(\.isLetter)
-    guard !letters.isEmpty else { return text }
-    if text == text.uppercased() {
-        return text.lowercased()
+    guard let op = nextCaseCycleOp(for: text) else { return text }
+    switch op {
+    case .upper: return text.uppercased()
+    case .lower: return text.lowercased()
+    case .capitalized: return text.capitalized
     }
-    if text == text.lowercased() {
-        return text.capitalized
+}
+
+/// Attributed variant for Visual (B5): the op is detected on the WHOLE
+/// selection, then applied run-by-run so mixed inline formatting survives —
+/// `replaceCharacters(in:with: String)` would smear the first run's
+/// attributes over the entire selection. Capitalization carries its
+/// word-boundary state across runs (`**H**ello` stays one word).
+func cycleCaseAttributed(_ source: NSAttributedString) -> NSAttributedString {
+    guard let op = nextCaseCycleOp(for: source.string) else { return source }
+    let result = NSMutableAttributedString()
+    // Word state for .capitalized: true at start / after any non-letter.
+    var capitalizeNext = true
+    let full = NSRange(location: 0, length: source.length)
+    source.enumerateAttributes(in: full) { attrs, range, _ in
+        let run = (source.string as NSString).substring(with: range)
+        let transformed: String
+        switch op {
+        case .upper:
+            transformed = run.uppercased()
+        case .lower:
+            transformed = run.lowercased()
+        case .capitalized:
+            var out = ""
+            for ch in run {
+                if ch.isLetter {
+                    out += capitalizeNext ? String(ch).uppercased() : String(ch).lowercased()
+                    capitalizeNext = false
+                } else {
+                    out.append(ch)
+                    capitalizeNext = true
+                }
+            }
+            transformed = out
+        }
+        result.append(NSAttributedString(string: transformed, attributes: attrs))
     }
-    if text == text.capitalized {
-        return text.uppercased()
-    }
-    // Mixed → normalize to UPPER (next full cycle step).
-    return text.uppercased()
+    return result
 }
 
 // MARK: - Task checkbox toggle (Preview click-through)

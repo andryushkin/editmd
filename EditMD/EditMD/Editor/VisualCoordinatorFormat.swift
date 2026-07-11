@@ -134,17 +134,17 @@ extension VisualMarkdownView.Coordinator {
         guard let textView, let storage = textView.textStorage else { return }
         let selection = textView.selectedRange()
         guard selection.length > 0 else { NSSound.beep(); return }
-        let selected = (storage.string as NSString).substring(with: selection)
-        let next = cycleCase(selected)
-        guard next != selected else { return }
-        // replaceCharacters keeps attributes on the range (bold stays bold).
-        guard textView.shouldChangeText(in: selection, replacementString: next) else { return }
+        // Run-by-run transform: a plain-String replaceCharacters would smear
+        // the first run's attributes over a mixed-format selection.
+        let next = cycleCaseAttributed(storage.attributedSubstring(from: selection))
+        guard next.string != (storage.string as NSString).substring(with: selection) else { return }
+        guard textView.shouldChangeText(in: selection, replacementString: next.string) else { return }
         isMutating = true
         storage.replaceCharacters(in: selection, with: next)
         isMutating = false
         textView.didChangeText()
         textView.setSelectedRange(NSRange(location: selection.location,
-                                          length: (next as NSString).length))
+                                          length: next.length))
         afterMutation()
     }
 
