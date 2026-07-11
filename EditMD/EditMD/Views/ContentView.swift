@@ -125,7 +125,18 @@ struct ContentView: View {
             statusBar
         }
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)
-        .toolbar { toolbarContent }
+        .toolbar {
+            EditorToolbar(
+                allowsSidebar: allowsSidebar,
+                sidebarVisible: $sidebarVisible,
+                mode: mode,
+                setEditorMode: setEditorMode,
+                splitPreview: $splitPreview,
+                onToggleSplit: { splitBinding.wrappedValue.toggle() },
+                editorSettings: editorSettings,
+                appearanceIsDark: appearanceIsDark
+            )
+        }
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
@@ -446,94 +457,6 @@ struct ContentView: View {
                             .onChanged { onDrag($0.location.x) }
                     )
             }
-    }
-
-    // MARK: - Toolbar
-
-    /// Flat icon-only buttons with tooltip+shortcut hints and multi-state
-    /// SF Symbols (filled while active) — the agterm titlebar button style.
-    @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        if allowsSidebar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    sidebarVisible.toggle()
-                } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .help("Toggle Sidebar (⌃⌘S)")
-            }
-        }
-        ToolbarItemGroup(placement: .navigation) {
-            ForEach(EditorMode.allCases) { candidate in
-                Button {
-                    setEditorMode(candidate)
-                } label: {
-                    Label(candidate.title,
-                          systemImage: mode == candidate
-                              ? candidate.activeSystemImage
-                              : candidate.systemImage)
-                        .foregroundStyle(mode == candidate ? Color.accentColor : Color.primary)
-                }
-                // Toolbar already hosts native tooltips via Label; .help is enough.
-                .help("\(candidate.title) (\(candidate.shortcutHint))")
-            }
-        }
-        ToolbarItemGroup {
-            Button {
-                NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
-            } label: {
-                Label("Cut", systemImage: "scissors")
-            }
-            .help("Cut (⌘X)")
-            Button {
-                NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .help("Copy (⌘C)")
-            Button {
-                NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
-            } label: {
-                Label("Paste", systemImage: "doc.on.clipboard")
-            }
-            .help("Paste (⌘V)")
-        }
-        ToolbarItem {
-            Button {
-                splitBinding.wrappedValue.toggle()
-            } label: {
-                Label("Split Preview",
-                      systemImage: splitPreview ? "rectangle.split.2x1.fill" : "rectangle.split.2x1")
-            }
-            .help(splitPreview ? "Hide preview pane (⌥⌘P)" : "Show preview pane (⌥⌘P)")
-        }
-        ToolbarItem {
-            Menu {
-                Picker("Theme", selection: $editorSettings.general.themePreset) {
-                    Text("System").tag("system")
-                    Text("GitHub").tag("github")
-                }
-                Divider()
-                Button("Settings…") {
-                    // macOS 14+ uses showSettingsWindow:; 13 uses the older
-                    // showPreferencesWindow:.
-                    if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-                    }
-                }
-            } label: {
-                Label("Theme", systemImage: "paintpalette")
-            }
-            .help("Editor theme & settings")
-        }
-        ToolbarItem {
-            Button {
-                editorSettings.general.appearance = appearanceIsDark ? .light : .dark
-            } label: {
-                Label("Appearance", systemImage: appearanceIsDark ? "moon" : "sun.max")
-            }
-            .help(appearanceIsDark ? "Switch to light appearance" : "Switch to dark appearance")
-        }
     }
 
     // MARK: - Status bar
