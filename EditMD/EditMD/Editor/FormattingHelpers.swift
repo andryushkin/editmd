@@ -293,6 +293,18 @@ func toggleWrapAtRange(in markdown: String,
     let closeLen = (close as NSString).length
     let selected = ns.substring(with: range)
 
+    // Source mode often selects the visible syntax as well as its body
+    // (`~~text~~`). Treat that as the same toggle-off gesture as Preview's
+    // body-only selection; otherwise it becomes `~~~~text~~~~`.
+    let selectedLength = (selected as NSString).length
+    if selectedLength >= openLen + closeLen,
+       selected.hasPrefix(open), selected.hasSuffix(close) {
+        let innerRange = NSRange(location: openLen,
+                                 length: selectedLength - openLen - closeLen)
+        let inner = (selected as NSString).substring(with: innerRange)
+        return ns.replacingCharacters(in: range, with: inner)
+    }
+
     let beforeStart = range.location - openLen
     let afterStart = NSMaxRange(range)
     let hasOpen = beforeStart >= 0
@@ -304,6 +316,38 @@ func toggleWrapAtRange(in markdown: String,
         let full = NSRange(location: beforeStart,
                            length: openLen + range.length + closeLen)
         return ns.replacingCharacters(in: full, with: selected)
+    }
+    // Partial selection inside one uniformly formatted run: remove formatting
+    // only from the selected fragment and preserve it on both sides.
+    // Example: `~~paragraph~~`, selecting `para` → `para~~graph~~`.
+    if open == close {
+        var tokens: [NSRange] = []
+        var search = NSRange(location: 0, length: ns.length)
+        while search.length > 0 {
+            let token = ns.range(of: open, options: [.literal], range: search)
+            guard token.location != NSNotFound else { break }
+            tokens.append(token)
+            let next = NSMaxRange(token)
+            search = NSRange(location: next, length: ns.length - next)
+        }
+        let before = tokens.filter { NSMaxRange($0) <= range.location }
+        if before.count % 2 == 1, let opener = before.last,
+           let closer = tokens.first(where: { $0.location >= NSMaxRange(range) }) {
+            let bodyStart = NSMaxRange(opener)
+            let bodyEnd = closer.location
+            if range.location >= bodyStart, NSMaxRange(range) <= bodyEnd {
+                let left = ns.substring(with: NSRange(location: bodyStart,
+                                                       length: range.location - bodyStart))
+                let right = ns.substring(with: NSRange(location: NSMaxRange(range),
+                                                        length: bodyEnd - NSMaxRange(range)))
+                let replacement = (left.isEmpty ? "" : open + left + close)
+                    + selected
+                    + (right.isEmpty ? "" : open + right + close)
+                let full = NSRange(location: opener.location,
+                                   length: NSMaxRange(closer) - opener.location)
+                return ns.replacingCharacters(in: full, with: replacement)
+            }
+        }
     }
     return ns.replacingCharacters(in: range, with: open + selected + close)
 }

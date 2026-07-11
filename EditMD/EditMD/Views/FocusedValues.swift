@@ -6,6 +6,13 @@ struct ActiveInlineFormats: Equatable {
     var italic = false
     var code = false
     var strikethrough = false
+    var highlight = false
+    var headingLevel: Int? = nil
+    var bulletList = false
+    var numberedList = false
+    var checklist = false
+    var quote = false
+    var codeBlock = false
 }
 
 struct FormatActions {

@@ -580,14 +580,17 @@ struct VisualMarkdownView: NSViewRepresentable {
                 fmt.italic = styles.contains(.italic)
                 fmt.code = styles.contains(.code)
                 fmt.strikethrough = styles.contains(.strike)
+                fmt.highlight = styles.contains(.highlight)
                 // Also sample char under caret for truth when typing attrs lag.
                 let sample = MDInlineStyle(rawValue: storage.attribute(.mdInline, at: loc, effectiveRange: nil) as? Int ?? 0)
                 if sample.contains(.bold) { fmt.bold = true }
                 if sample.contains(.italic) { fmt.italic = true }
                 if sample.contains(.code) { fmt.code = true }
                 if sample.contains(.strike) { fmt.strikethrough = true }
+                if sample.contains(.highlight) { fmt.highlight = true }
             } else {
                 var allBold = true, allItalic = true, allCode = true, allStrike = true
+                var allHighlight = true
                 var any = false
                 storage.enumerateAttribute(.mdInline, in: sel) { value, _, _ in
                     any = true
@@ -596,13 +599,31 @@ struct VisualMarkdownView: NSViewRepresentable {
                     if !styles.contains(.italic) { allItalic = false }
                     if !styles.contains(.code) { allCode = false }
                     if !styles.contains(.strike) { allStrike = false }
+                    if !styles.contains(.highlight) { allHighlight = false }
                 }
                 if any {
                     fmt.bold = allBold
                     fmt.italic = allItalic
                     fmt.code = allCode
                     fmt.strikethrough = allStrike
+                    fmt.highlight = allHighlight
                 }
+            }
+            let paragraphs = selectedParagraphs()
+            if !paragraphs.isEmpty {
+                let blocks = paragraphs.map { block(at: $0, in: storage) }
+                let levels = blocks.compactMap { b -> Int? in
+                    if case .heading(let level) = b.kind { return level }
+                    return nil
+                }
+                if levels.count == blocks.count, Set(levels).count == 1 {
+                    fmt.headingLevel = levels[0]
+                }
+                fmt.bulletList = blocks.allSatisfy { if case .bulletItem = $0.kind { true } else { false } }
+                fmt.numberedList = blocks.allSatisfy { if case .orderedItem = $0.kind { true } else { false } }
+                fmt.checklist = blocks.allSatisfy { if case .taskItem = $0.kind { true } else { false } }
+                fmt.quote = blocks.allSatisfy { $0.quoteDepth > 0 }
+                fmt.codeBlock = blocks.allSatisfy { if case .codeBlock = $0.kind { true } else { false } }
             }
             emitFormats(fmt)
         }

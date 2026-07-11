@@ -113,6 +113,27 @@ final class MarkdownLintTests: XCTestCase {
         XCTAssertTrue(diags("run `cmd` now", .unpairedBacktick).isEmpty)
     }
 
+    func testRepeatedStrikethroughMarkers() {
+        let text = "before ~~~~paragraph~~~~ after"
+        let found = diags(text, .repeatedInlineMarkers)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(applyFix(found[0].fixes[0], to: text),
+                       "before ~~paragraph~~ after")
+    }
+
+    func testRepeatedHighlightMarkers() {
+        let text = "before ====important==== after"
+        let found = diags(text, .repeatedInlineMarkers)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(applyFix(found[0].fixes[0], to: text),
+                       "before ==important== after")
+    }
+
+    func testRepeatedMarkersInsideCodeAreIgnored() {
+        XCTAssertTrue(diags("`~~~~literal~~~~`", .repeatedInlineMarkers).isEmpty)
+        XCTAssertTrue(diags("```\n====literal====\n```", .repeatedInlineMarkers).isEmpty)
+    }
+
     func testFencedBlockBackticksNotFlagged() {
         XCTAssertTrue(diags("```swift\nlet x = 1\n```", .unpairedBacktick).isEmpty)
     }

@@ -85,7 +85,8 @@ struct EditorActionStrip: View {
                             actions.run(actions.toggleCodeSpan)
                         }
                         sep
-                        icon("highlighter", "Выделение (==…==)") {
+                        icon("highlighter", "Выделение (==…==)",
+                             active: activeFormats.highlight) {
                             actions.run(actions.toggleHighlight)
                         }
                         sep
@@ -93,15 +94,15 @@ struct EditorActionStrip: View {
                     }
                     // Paragraph styles (markdown-relevant)
                     pill {
-                        labelBtn("H1", "Заголовок 1 (#)") {
+                        labelBtn("H1", "Заголовок 1 (#)", active: activeFormats.headingLevel == 1) {
                             if let h = actions.setHeading { h(1) } else { NSSound.beep() }
                         }
                         sep
-                        labelBtn("H2", "Заголовок 2 (##)") {
+                        labelBtn("H2", "Заголовок 2 (##)", active: activeFormats.headingLevel == 2) {
                             if let h = actions.setHeading { h(2) } else { NSSound.beep() }
                         }
                         sep
-                        labelBtn("H3", "Заголовок 3 (###)") {
+                        labelBtn("H3", "Заголовок 3 (###)", active: activeFormats.headingLevel == 3) {
                             if let h = actions.setHeading { h(3) } else { NSSound.beep() }
                         }
                         sep
@@ -121,23 +122,30 @@ struct EditorActionStrip: View {
                             actions.run(actions.insertDivider)
                         }
                         sep
-                        icon("chevron.left.forwardslash.chevron.right", "Блок кода") {
+                        icon("chevron.left.forwardslash.chevron.right", "Блок кода",
+                             active: activeFormats.codeBlock) {
                             actions.run(actions.toggleCodeBlock)
                         }
                     }
                     // Lists + quote
                     pill {
-                        icon("list.bullet", "Маркированный список") {
+                        icon("list.bullet", "Маркированный список",
+                             active: activeFormats.bulletList) {
                             actions.run(actions.toggleBulletList)
                         }
                         sep
-                        icon("checklist", "Чеклист") { actions.run(actions.toggleChecklist) }
+                        icon("checklist", "Чеклист", active: activeFormats.checklist) {
+                            actions.run(actions.toggleChecklist)
+                        }
                         sep
-                        icon("list.number", "Нумерованный список") {
+                        icon("list.number", "Нумерованный список",
+                             active: activeFormats.numberedList) {
                             actions.run(actions.toggleNumberedList)
                         }
                         sep
-                        icon("text.quote", "Цитата") { actions.run(actions.toggleQuote) }
+                        icon("text.quote", "Цитата", active: activeFormats.quote) {
+                            actions.run(actions.toggleQuote)
+                        }
                     }
                     // Visual-only: table + formula stub
                     if showVisualExtras {

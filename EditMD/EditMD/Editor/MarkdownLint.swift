@@ -30,6 +30,7 @@ enum LintRule: String, Equatable {
     case unpairedBold
     case unpairedStrikethrough
     case unpairedBacktick
+    case repeatedInlineMarkers
     case emptyLinkDestination
     case unresolvedReference
     case unclosedLink
@@ -90,6 +91,30 @@ func lint(_ text: String) -> [LintDiagnostic] {
     func isExcluded(_ r: NSRange) -> Bool { intersects(excluded, r) }
     func isCovered(_ r: NSRange) -> Bool {
         isExcluded(r) || intersects(markerCovered, r)
+    }
+
+    // MARK: Rule: accidentally repeated toggle markers
+
+    // These runs are unambiguous products of applying the same toolbar toggle
+    // twice. Asterisks are excluded because **** may be valid bold/italic.
+    let repeatedMarkerRx = try! NSRegularExpression(
+        pattern: #"(~~~~)([^~\n]+)(~~~~)|(====)([^=\n]+)(====)"#)
+    repeatedMarkerRx.enumerateMatches(
+        in: text, range: NSRange(location: 0, length: nsText.length)
+    ) { match, _, _ in
+        guard let match, !isExcluded(match.range) else { return }
+        let strike = match.range(at: 1).location != NSNotFound
+        let bodyRange = match.range(at: strike ? 2 : 5)
+        let body = nsText.substring(with: bodyRange)
+        let marker = strike ? "~~" : "=="
+        diags.append(LintDiagnostic(
+            range: match.range,
+            severity: .warning,
+            rule: .repeatedInlineMarkers,
+            message: "Repeated \(marker) markers — formatting was probably toggled twice",
+            fixes: [LintFix(title: "Reduce to one marker pair",
+                            range: match.range,
+                            replacement: marker + body + marker)]))
     }
 
     // MARK: Rule: checkboxes (invalid char / empty / uppercase / missing spaces)

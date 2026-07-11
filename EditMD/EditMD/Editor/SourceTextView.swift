@@ -372,6 +372,19 @@ struct SourceTextView: NSViewRepresentable {
                 default: break
                 }
             }
+            let selection = textView.selectedRange()
+            let highlightProbe = selection.length == 0
+                ? NSRange(location: pos, length: 0) : selection
+            fmt.highlight = scanHighlightMarks(in: textView.string).contains { mark in
+                let body = NSRange(location: mark.range.location + 2,
+                                   length: max(0, mark.range.length - 4))
+                if highlightProbe.length == 0 {
+                    return highlightProbe.location >= body.location
+                        && highlightProbe.location <= NSMaxRange(body)
+                }
+                return highlightProbe.location >= body.location
+                    && NSMaxRange(highlightProbe) <= NSMaxRange(body)
+            }
             guard fmt != lastPublishedFormats else { return }
             lastPublishedFormats = fmt
             let callback = parent.onActiveFormats
@@ -649,6 +662,22 @@ struct SourceTextView: NSViewRepresentable {
             let range = textView.selectedRange()
             let ns = textView.string as NSString
             let openLen = (marker as NSString).length
+            // Selection includes its own syntax (`~~text~~`): unwrap it
+            // directly. The old path wrapped again into `~~~~text~~~~`.
+            if range.length >= openLen * 2 {
+                let selected = ns.substring(with: range)
+                if selected.hasPrefix(marker), selected.hasSuffix(marker) {
+                    let selectedNS = selected as NSString
+                    let inner = selectedNS.substring(with: NSRange(
+                        location: openLen, length: selectedNS.length - openLen * 2))
+                    guard textView.shouldChangeText(in: range, replacementString: inner) else { return }
+                    textView.replaceCharacters(in: range, with: inner)
+                    textView.didChangeText()
+                    textView.setSelectedRange(NSRange(location: range.location,
+                                                      length: (inner as NSString).length))
+                    return
+                }
+            }
             // Toggle unwrap when markers already surround the selection.
             if range.length > 0, range.location >= openLen {
                 let before = ns.substring(with: NSRange(location: range.location - openLen,

@@ -20,6 +20,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
     /// Optional strip bridge (full Preview mode). Coordinator installs
     /// format closures on make + update.
     var toolbarActions: EditorStripActions? = nil
+    /// Inline styles uniformly active at the Preview caret/selection.
+    var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -67,11 +69,53 @@ struct MarkdownPreviewView: NSViewRepresentable {
               function report() {
                 try {
                   var sel = window.getSelection();
-                  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-                    window.webkit.messageHandlers.previewSelection.postMessage({text: ''});
+                  if (!sel || sel.rangeCount === 0) {
+                    window.webkit.messageHandlers.previewSelection.postMessage({text: '', formats: {}});
                     return;
                   }
                   var range = sel.getRangeAt(0);
+                  function enclosing(node, tags) {
+                    var n = node && node.nodeType === 3 ? node.parentElement : node;
+                    while (n && n !== document.body) {
+                      if (tags.indexOf(n.tagName) >= 0) return n;
+                      n = n.parentElement;
+                    }
+                    return null;
+                  }
+                  function uniform(tags) {
+                    var owner = enclosing(range.startContainer, tags);
+                    return !!owner && (sel.isCollapsed || owner.contains(range.endContainer));
+                  }
+                  var formats = {
+                    bold: uniform(['STRONG', 'B']),
+                    italic: uniform(['EM', 'I']),
+                    code: uniform(['CODE']) && !enclosing(range.startContainer, ['PRE']),
+                    strikethrough: uniform(['DEL', 'S']),
+                    highlight: uniform(['MARK']),
+                    headingLevel: (function () {
+                      var h = enclosing(range.startContainer, ['H1','H2','H3','H4','H5','H6']);
+                      return h && (sel.isCollapsed || h.contains(range.endContainer))
+                        ? parseInt(h.tagName.substring(1), 10) : 0;
+                    })(),
+                    bulletList: (function () {
+                      var li = enclosing(range.startContainer, ['LI']);
+                      return !!enclosing(range.startContainer, ['UL'])
+                        && !(li && li.classList.contains('task'));
+                    })(),
+                    numberedList: !!enclosing(range.startContainer, ['OL']),
+                    checklist: (function () {
+                      var li = enclosing(range.startContainer, ['LI']);
+                      return !!li && li.classList.contains('task');
+                    })(),
+                    quote: uniform(['BLOCKQUOTE']),
+                    codeBlock: uniform(['PRE'])
+                  };
+                  if (sel.isCollapsed) {
+                    window.webkit.messageHandlers.previewSelection.postMessage({
+                      text: '', formats: formats
+                    });
+                    return;
+                  }
                   var text = sel.toString();
                   var a = mdEl(range.startContainer);
                   var b = mdEl(range.endContainer);
@@ -80,7 +124,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                       || a.getAttribute('data-md-code') === '1'
                       || b.getAttribute('data-md-code') === '1') {
                     window.webkit.messageHandlers.previewSelection.postMessage({
-                      text: text, start: -1, end: -1
+                      text: text, start: -1, end: -1, formats: formats
                     });
                     return;
                   }
@@ -88,7 +132,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   var loB = parseInt(b.getAttribute('data-md-lo'), 10);
                   if (isNaN(loA) || isNaN(loB)) {
                     window.webkit.messageHandlers.previewSelection.postMessage({
-                      text: text, start: -1, end: -1
+                      text: text, start: -1, end: -1, formats: formats
                     });
                     return;
                   }
@@ -97,7 +141,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   var end = loB + utf16OffsetIn(b, range.endContainer, range.endOffset);
                   if (end < start) { var t = start; start = end; end = t; }
                   window.webkit.messageHandlers.previewSelection.postMessage({
-                    text: text, start: start, end: end
+                    text: text, start: start, end: end, formats: formats
                   });
                 } catch (e) {}
               }
@@ -118,6 +162,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         webView.underPageBackgroundColor = .textBackgroundColor
         coordinator.webView = webView
         coordinator.positionStore = positionStore
+        coordinator.onActiveFormats = onActiveFormats
         coordinator.document = document
         coordinator.fileURL = fileURL
         coordinator.bindToolbar(toolbarActions)
@@ -174,6 +219,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.onActiveFormats = onActiveFormats
         coordinator.document = document
         coordinator.fileURL = fileURL
         coordinator.bindToolbar(toolbarActions)
@@ -281,6 +327,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var webView: WKWebView?
+        var onActiveFormats: ((ActiveInlineFormats) -> Void)?
         weak var toolbarActions: EditorStripActions?
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
@@ -323,6 +370,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             }
             actions.toggleBold = { [weak self] in self?.toggleWrap(open: "**", close: "**") }
             actions.toggleItalic = { [weak self] in self?.toggleWrap(open: "*", close: "*") }
+            actions.toggleCodeSpan = { [weak self] in self?.toggleWrap(open: "`", close: "`") }
             actions.setHeading = { [weak self] level in self?.transformSelectionLines(.heading(level)) }
             actions.setBody = { [weak self] in self?.transformSelectionLines(.body) }
             actions.toggleCodeBlock = { [weak self] in self?.fenceSelectionLines() }
@@ -390,6 +438,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
                     markdownRange: range,
                     markdown: document.content)
             }
+        }
+
+        func updateActiveFormats(_ formats: ActiveInlineFormats) {
+            onActiveFormats?(formats)
         }
 
         /// Locate `text` in `content`, preferring a match near `hint` (last
@@ -698,6 +750,18 @@ private final class PreviewSelectionHandler: NSObject, WKScriptMessageHandler {
             let end = (body["end"] as? NSNumber)?.intValue
                 ?? (body["end"] as? Int)
                 ?? -1
+            if let raw = body["formats"] as? [String: Any] {
+                func flag(_ key: String) -> Bool {
+                    (raw[key] as? NSNumber)?.boolValue ?? (raw[key] as? Bool) ?? false
+                }
+                coordinator?.updateActiveFormats(ActiveInlineFormats(
+                    bold: flag("bold"), italic: flag("italic"), code: flag("code"),
+                    strikethrough: flag("strikethrough"), highlight: flag("highlight"),
+                    headingLevel: (raw["headingLevel"] as? NSNumber)?.intValue,
+                    bulletList: flag("bulletList"), numberedList: flag("numberedList"),
+                    checklist: flag("checklist"), quote: flag("quote"),
+                    codeBlock: flag("codeBlock")))
+            }
             coordinator?.updateCachedSelection(text: text, start: start, end: end)
             return
         }

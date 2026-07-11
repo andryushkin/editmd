@@ -123,6 +123,32 @@ final class PreviewSelectionWrapTests: XCTestCase {
         )
     }
 
+    func testUnwrapsWhenSelectionIncludesMarkers() {
+        let md = "before ~~paragraph~~ after"
+        let r = (md as NSString).range(of: "~~paragraph~~")
+        XCTAssertEqual(
+            toggleWrapAtRange(in: md, range: r, open: "~~", close: "~~"),
+            "before paragraph after"
+        )
+    }
+
+    func testPartialSelectionRemovesStyleOnlyFromFragment() {
+        let md = "~~paragraph~~"
+        XCTAssertEqual(toggleWrapAtRange(
+            in: md, range: NSRange(location: 2, length: 4), open: "~~", close: "~~"),
+            "para~~graph~~")
+        XCTAssertEqual(toggleWrapAtRange(
+            in: md, range: NSRange(location: 6, length: 5), open: "~~", close: "~~"),
+            "~~para~~graph")
+    }
+
+    func testPlainTextBetweenStyledRunsIsWrappedNotUnwrapped() {
+        let md = "~~a~~ plain ~~b~~"
+        let range = (md as NSString).range(of: "plain")
+        XCTAssertEqual(toggleWrapAtRange(in: md, range: range, open: "~~", close: "~~"),
+                       "~~a~~ ~~plain~~ ~~b~~")
+    }
+
     func testHighlightMarkers() {
         let md = "see ==important== note"
         let r = NSRange(location: 6, length: 9) // "important"

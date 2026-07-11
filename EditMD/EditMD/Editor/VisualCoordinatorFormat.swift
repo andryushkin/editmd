@@ -258,7 +258,7 @@ extension VisualMarkdownView.Coordinator {
     /// Paragraph ranges the selection touches (skipping none); table
     /// cells and raw islands are excluded — block restamps would corrupt
     /// them.
-    private func selectedParagraphs() -> [NSRange] {
+    func selectedParagraphs() -> [NSRange] {
         guard let textView, let storage = textView.textStorage else { return [] }
         let nsText = storage.string as NSString
         let selection = textView.selectedRange()

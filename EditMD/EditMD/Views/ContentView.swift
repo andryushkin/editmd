@@ -350,7 +350,8 @@ struct ContentView: View {
                 MarkdownPreviewView(document: document, fileURL: fileURL,
                                     positionStore: positionStore,
                                     onRequestEdit: { setEditorMode(.visual) },
-                                    toolbarActions: stripActions)
+                                    toolbarActions: stripActions,
+                                    onActiveFormats: { activeFormats = $0 })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geo in
