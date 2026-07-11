@@ -39,6 +39,23 @@ struct EditMDApp: App {
         }
     }
 
+    /// File ▸ Export as PDF… — active main-window buffer (or disk if closed).
+    @MainActor private func exportFocusedDocumentAsPDF() {
+        let url = AppState.shared.currentURL
+        let content: String
+        if let url, let open = DocumentRegistry.shared.contentIfOpen(url) {
+            content = open
+        } else if let url, let loaded = try? loadMarkdownDocument(from: url) {
+            content = loaded.content
+        } else {
+            content = ""
+        }
+        guard !content.isEmpty else { NSSound.beep(); return }
+        let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let base = url?.deletingLastPathComponent()
+        PDFExporter.export(markdown: content, suggestedName: name, baseURL: base)
+    }
+
     /// Help ▸ Демо-разметка (D7): copy bundle KitchenSink.md to a temp file and
     /// open in a lite window so all three modes can be smoke-tested.
     @MainActor private func openKitchenSinkDemo() {
@@ -96,24 +113,6 @@ struct EditMDApp: App {
                 .keyboardShortcut("s")
                 .disabled(documentActions == nil)
 
-                Button("Export as PDF…") {
-                    // Active document content from main window registry / focused editor.
-                    let url = AppState.shared.currentURL
-                    let content: String
-                    if let url, let open = DocumentRegistry.shared.contentIfOpen(url) {
-                        content = open
-                    } else if let url, let loaded = try? loadMarkdownDocument(from: url) {
-                        content = loaded.content
-                    } else {
-                        content = ""
-                    }
-                    guard !content.isEmpty else { NSSound.beep(); return }
-                    let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
-                    let base = url?.deletingLastPathComponent()
-                    PDFExporter.export(markdown: content, suggestedName: name, baseURL: base)
-                }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-
                 Button("Save As…") {
                     documentActions?.saveAs()
                 }
@@ -133,6 +132,15 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("p", modifiers: [.command, .option, .shift])
                 .disabled(documentActions?.presentPush == nil)
+            }
+
+            // Own group — items stuffed into `replacing: .saveItem` are often
+            // omitted from the File menu on macOS (only Save/Save As stay visible).
+            CommandGroup(after: .saveItem) {
+                Button("Export as PDF…") {
+                    exportFocusedDocumentAsPDF()
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
             }
 
             CommandGroup(replacing: .undoRedo) {
