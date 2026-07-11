@@ -250,6 +250,9 @@ struct SourceTextView: NSViewRepresentable {
         var pendingExternalReload = false
         /// Last `collectSpans` result — selection only reads this (B6).
         var cachedSpans: [Span] = []
+        /// `==…==` runs of the last highlighted text — recomputed with the
+        /// spans cache, NEVER on selection change (no O(text) per caret move).
+        var cachedHighlightMarks: [HighlightMarkMatch] = []
         var lastPublishedFormats = ActiveInlineFormats()
 
         init(parent: SourceTextView) {
@@ -375,7 +378,7 @@ struct SourceTextView: NSViewRepresentable {
             let selection = textView.selectedRange()
             let highlightProbe = selection.length == 0
                 ? NSRange(location: pos, length: 0) : selection
-            fmt.highlight = scanHighlightMarks(in: textView.string).contains { mark in
+            fmt.highlight = cachedHighlightMarks.contains { mark in
                 let body = NSRange(location: mark.range.location + 2,
                                    length: max(0, mark.range.length - 4))
                 if highlightProbe.length == 0 {
@@ -782,6 +785,7 @@ struct SourceTextView: NSViewRepresentable {
             // Base font/color only — same choice FSNotes makes for large notes.
             if parent.document.isHeavy {
                 cachedSpans = []
+                cachedHighlightMarks = []
                 storage.beginEditing()
                 storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
                 storage.endEditing()
@@ -790,6 +794,7 @@ struct SourceTextView: NSViewRepresentable {
 
             let spans = collectSpans(textView.string)
             cachedSpans = spans
+            cachedHighlightMarks = scanHighlightMarks(in: textView.string)
 
             func headingFont(_ level: Int) -> NSFont {
                 let e = els.heading(level)
