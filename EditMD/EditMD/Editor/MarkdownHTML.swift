@@ -808,14 +808,20 @@ func previewHTMLPage(markdown: String,
     };
     // Scroll the span covering `offset` into view; fraction fallback is Swift-side.
     window.scrollToMdOffset = function (offset) {
-        var best = null, bestLo = -1;
+        // A span CONTAINING the offset always beats the nearest-preceding
+        // fallback — a later non-containing span must not override it.
+        var contain = null, containLo = -1, near = null, nearLo = -1;
         document.querySelectorAll('[data-md-lo]').forEach(function (el) {
             var lo = parseInt(el.getAttribute('data-md-lo'), 10);
             var hi = parseInt(el.getAttribute('data-md-hi'), 10);
             if (isNaN(lo) || isNaN(hi)) return;
-            if (lo <= offset && offset < hi) { best = el; bestLo = lo; }
-            else if (lo <= offset && lo > bestLo) { best = el; bestLo = lo; }
+            if (lo <= offset && offset < hi) {
+                if (lo > containLo) { contain = el; containLo = lo; }
+            } else if (lo <= offset && lo > nearLo) {
+                near = el; nearLo = lo;
+            }
         });
+        var best = contain || near;
         if (best) {
             best.scrollIntoView({ block: 'center', behavior: 'smooth' });
             best.classList.add('review-flash');

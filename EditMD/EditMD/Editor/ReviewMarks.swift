@@ -447,23 +447,36 @@ enum ReviewSidecar {
     /// (exact context), `quote` near the stored `start` offset, then `quote`
     /// anywhere. Returns the range of the quote, or nil when the fragment is
     /// gone (→ honest `needs-rebase`, never "approximately there").
+    ///
+    /// All arithmetic is UTF-16 code units with `.literal` search — the same
+    /// semantics as smotr's JS `indexOf`/slice offsets. Character (grapheme)
+    /// math skids when the prefix/quote boundary merges into one cluster
+    /// (e.g. prefix ends "e", quote starts with a combining accent): stepping
+    /// `prefix.count` Characters overshot and silently shifted the anchor —
+    /// wash on the wrong range, applySuggest corrupting the document.
     static func anchorRange(quote: String, prefix: String, start: Int,
                             in text: String) -> Range<String.Index>? {
         guard !quote.isEmpty else { return nil }
+        let ns = text as NSString
 
-        if !prefix.isEmpty, let r = text.range(of: prefix + quote) {
-            let quoteStart = text.index(r.lowerBound, offsetBy: prefix.count)
-            return quoteStart..<r.upperBound
+        if !prefix.isEmpty {
+            let ctx = ns.range(of: prefix + quote, options: [.literal])
+            if ctx.location != NSNotFound {
+                let quoteRange = NSRange(
+                    location: ctx.location + (prefix as NSString).length,
+                    length: (quote as NSString).length)
+                return Range(quoteRange, in: text)
+            }
         }
         // Search near the stored offset first (start − 40, like smotr).
         let hint = max(0, start - 40)
-        if hint > 0, hint < text.count {
-            let from = text.index(text.startIndex, offsetBy: hint)
-            if let r = text.range(of: quote, range: from..<text.endIndex) {
-                return r
-            }
+        if hint > 0, hint < ns.length {
+            let r = ns.range(of: quote, options: [.literal],
+                             range: NSRange(location: hint, length: ns.length - hint))
+            if r.location != NSNotFound { return Range(r, in: text) }
         }
-        return text.range(of: quote)
+        let global = ns.range(of: quote, options: [.literal])
+        return global.location != NSNotFound ? Range(global, in: text) : nil
     }
 
     static func anchorRange(for mark: ReviewMark, in text: String) -> Range<String.Index>? {
@@ -492,15 +505,23 @@ enum ReviewSidecar {
 // MARK: - Anchor capture (creating a mark from a selection)
 
 extension ReviewSidecar {
-    /// Builds the anchor fields for a fresh mark from a selected character
-    /// range in the raw text: quote = the selection, prefix = up to 30 chars
-    /// before it (smotr's window), start = the character offset.
+    /// Builds the anchor fields for a fresh mark from a selected range in the
+    /// raw text: quote = the selection, prefix = up to 30 UTF-16 units before
+    /// it (smotr's window), start = the UTF-16 offset — smotr's web view
+    /// reads these as JS string indices, so grapheme counts would drift on
+    /// any document containing emoji or combining marks.
     static func captureAnchor(in text: String, range: Range<String.Index>)
         -> (quote: String, prefix: String, start: Int) {
         let quote = String(text[range])
-        let start = text.distance(from: text.startIndex, to: range.lowerBound)
-        let prefixStart = text.index(range.lowerBound, offsetBy: -min(30, start))
-        let prefix = String(text[prefixStart..<range.lowerBound])
+        let ns = text as NSString
+        let start = NSRange(range, in: text).location
+        var prefixStart = max(0, start - 30)
+        // Never split a surrogate pair at the window edge.
+        if prefixStart > 0, UTF16.isTrailSurrogate(ns.character(at: prefixStart)) {
+            prefixStart -= 1
+        }
+        let prefix = ns.substring(
+            with: NSRange(location: prefixStart, length: start - prefixStart))
         return (quote, prefix, start)
     }
 }

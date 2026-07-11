@@ -575,6 +575,48 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(model.anchor(for: mark)?.location, 10)
     }
 
+    // MARK: UTF-16 anchor arithmetic (stage-5 — smotr-JS offset semantics)
+
+    /// Prefix ends with a base letter, quote begins with a combining accent —
+    /// smotr's JS slices at UTF-16 boundaries, so this is a legal sidecar.
+    /// Grapheme (Character) stepping merged "e" + accent into one cluster and
+    /// shifted the anchor by a scalar; UTF-16 math must return it exactly.
+    func testAnchorRangeCombiningMarkBoundary() throws {
+        let text = "abc xye\u{0301}той hvost"
+        let r = try XCTUnwrap(ReviewSidecar.anchorRange(
+            quote: "\u{0301}той", prefix: "abc xye", start: 7, in: text))
+        XCTAssertEqual(String(text[r]), "\u{0301}той")
+        let ns = NSRange(r, in: text)
+        XCTAssertEqual(ns.location, 7)
+        XCTAssertEqual(ns.length, 4)
+    }
+
+    /// `start` is stored in UTF-16 code units (smotr's JS string indices) —
+    /// grapheme counts drift on any document with emoji.
+    func testCaptureAnchorStartIsUTF16Units() throws {
+        let text = "🙂🙂 hello world"
+        let range = try XCTUnwrap(text.range(of: "world"))
+        let a = ReviewSidecar.captureAnchor(in: text, range: range)
+        XCTAssertEqual(a.start, (text as NSString).range(of: "world").location)  // 11, not 9
+        XCTAssertEqual(a.quote, "world")
+        XCTAssertEqual(a.prefix, "🙂🙂 hello ")
+        // And it round-trips through anchorRange.
+        XCTAssertEqual(ReviewSidecar.anchorRange(
+            quote: a.quote, prefix: a.prefix, start: a.start, in: text), range)
+    }
+
+    /// The 30-unit prefix window must not split a surrogate pair at its edge.
+    func testCapturePrefixWindowDoesNotSplitSurrogates() throws {
+        let text = "a" + String(repeating: "🙂", count: 20) + "b" + "target"
+        let range = try XCTUnwrap(text.range(of: "target"))
+        let a = ReviewSidecar.captureAnchor(in: text, range: range)
+        XCTAssertFalse(a.prefix.unicodeScalars.contains { $0.value == 0xFFFD },
+                       "prefix contains a broken surrogate")
+        XCTAssertTrue(a.prefix.hasSuffix("b"))
+        XCTAssertEqual(ReviewSidecar.anchorRange(
+            quote: a.quote, prefix: a.prefix, start: a.start, in: text), range)
+    }
+
     // MARK: Helpers
 
     private func mark(_ id: String, _ type: ReviewMarkType) -> ReviewMark {

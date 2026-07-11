@@ -875,3 +875,20 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Socket file leftover after crash** — unbound on start (unlink); terminate removes it. XCTest does not touch the user path.
 - **`editmdctl` on PATH** — not auto-installed; build the `editmdctl` scheme / copy from DerivedData. Skill documents this.
 - **`diff.show` ≠ git** — buffer vs on-disk content only.
+
+## v38.1 — Fix series по код-ревью фаз 2–3 — app **0.38.1**
+
+Пять этапов фиксов по результатам ревью (`6f45a46..a4a4923`). Версия **0.38.1** / build **381**.
+
+- **Этап 1 — крашы/зависания:** `SO_NOSIGPIPE` на клиентских fd (отвал клиента убивал app сигналом SIGPIPE); serve() на конкурентной очереди + `SO_RCVTIMEO` 30s (один висящий клиент голодал весь канал); таймауты 10s в `editmdctl`; SkillInstaller — плоский лукап `Resources/SKILL.md` (оба subdirectory-лукапа возвращали nil → Help ▸ Install Agent Skill был мёртв); `queueRoot` — родитель файла раньше чужого workspace; isHeavy-гейт wash в Visual.
+- **Этап 2 — целостность меток:** FIFO-пайплайн persist/reload в `ReviewModel` (снапшот в момент исполнения — быстрые пары мутаций теряли/воскрешали метки); синхронный сброс doc при смене файла (метки предыдущего файла утекали в чужой sidecar); `marks.add` отвечает после durable-записи.
+- **Этап 3 — control-канал:** `editmdctl` абсолютизирует пути от cwd вызывающего, роутер отвергает относительные; двухфазный `ControlRouter.process` (main-фаза + deferred disk work на сокет-потоке) — `diff.show`/`marks.list`/`status`/чтения в `open`/`reveal` больше не на main; jump без таймеров (`AppState.pendingControlJump`, consume при mount); `marks.list` активного файла ждёт pipeline и читает диск (после `open` отвечал из пустого сброшенного doc).
+- **Этап 4 — perf:** общий кэш якорей `ReviewModel.anchors` (один off-main проход, debounce 300ms) — Source/Preview/сайдбар читают словарь вместо O(n×marks)-поисков на каждый кейстрок; `currentText` больше не @Published; Visual hint через paragraph map (raw-hint красил чужой дубль); selection-мапа Visual за 150ms debounce.
+- **Этап 5 — точность якорей:** `anchorRange`/`captureAnchor` на UTF-16 + `.literal` (grapheme-склейка на границе prefix/quote сдвигала якорь; `start` теперь в UTF-16 = JS-оффсеты smotr); cleanup (мёртвые `process`/нотификация, containment-приоритет в `scrollToMdOffset`).
+- **Тесты:** +11 (ControlChannelTests 13→20, ReviewMarksTests 31→38) — конкурентные клиенты сокета, durable marks.add, гонки persist, UTF-16 якоря.
+
+### v38.1 — gotchas
+
+- **Merge в `ReviewSidecar.save` не выражает удаления** — при гонке с внешним писателем (smotr web / claude) удалённая локально метка может воскреснуть; для локальных мутаций FIFO-пайплайн это исключает. Полный фикс = tombstones, схему smotr не расширяем без согласования.
+- **`marks.add`/`marks.list` активного файла блокируют сокет-поток семафором** до `flushPipeline` (bounded 15s) — клиентская очередь конкурентная, другие клиенты не ждут.
+- **Старые sidecar'ы с Character-`start`** (созданные EditMD ≤0.38.0 на текстах с эмодзи) — `start` мог дрейфовать; используется только как hint, ladder `prefix+quote` находит якорь.

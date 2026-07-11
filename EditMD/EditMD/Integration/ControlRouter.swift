@@ -247,9 +247,8 @@ enum ControlRouter {
               let mode = EditorMode(rawValue: raw.lowercased()) else {
             throw ControlError("mode requires args.mode = source|visual|preview")
         }
+        // ContentView's @AppStorage("editorMode") observes UserDefaults itself.
         UserDefaults.standard.set(mode.rawValue, forKey: "editorMode")
-        // AppStorage observers pick this up; also notify for any custom listeners.
-        NotificationCenter.default.post(name: .editMDControlModeDidChange, object: mode.rawValue)
         return .object(["mode": .string(mode.rawValue)])
     }
 
@@ -503,8 +502,6 @@ extension Notification.Name {
     /// window when the target file is mounted) — the notification is only a
     /// nudge for the already-mounted case.
     static let editMDControlJump = Notification.Name("editmd.control.jump")
-    /// Control channel changed editor mode via UserDefaults.
-    static let editMDControlModeDidChange = Notification.Name("editmd.control.mode")
 }
 
 // MARK: - Unified diff helper

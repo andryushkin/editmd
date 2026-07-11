@@ -251,7 +251,6 @@ final class ReviewAgentRunner: ObservableObject {
     /// Workspace the current/last run used (for log path).
     @Published private(set) var root: URL?
 
-    private var process: Process?
     private var waitTask: Task<Void, Never>?
 
     var isRunning: Bool {
@@ -286,12 +285,10 @@ final class ReviewAgentRunner: ObservableObject {
                 switch result {
                 case .success(let code):
                     self.state = .finished(exitCode: code)
-                    self.process = nil
                     // Sidecar may have new replies / suggests — reload active.
                     ReviewModel.shared.reload()
                 case .failure(let msg):
                     self.state = .failed(msg)
-                    self.process = nil
                 }
             }
         }

@@ -1,4 +1,4 @@
- import SwiftUI
+import SwiftUI
 import AppKit
 
 @main
@@ -332,5 +332,3 @@ struct EditMDApp: App {
         }
     }
 }
-
-
