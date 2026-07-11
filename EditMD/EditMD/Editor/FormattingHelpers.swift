@@ -22,6 +22,115 @@ func applyWrap(marker: String, to text: String, selection: NSRange) -> (newText:
     return (newText, newSelection)
 }
 
+// MARK: - Clear inline markers (Source)
+
+/// Removes markdown inline markers from a selection, leaving block structure
+/// alone. Code-span *interiors* keep their characters (so `a**b**` stays
+/// `a**b**` after unwrap); outer `` ` `` / `**` / `*` / `~~` / `==` wrappers
+/// are stripped. (B4)
+func stripInlineMarkers(_ text: String) -> String {
+    // Split into code spans and everything else. Single-backtick spans only
+    // (`` multi-tick is rare in casual selection; leave multi-tick alone).
+    var result = ""
+    var i = text.startIndex
+    while i < text.endIndex {
+        if text[i] == "`" {
+            // Find matching closing backtick on the same line.
+            let afterOpen = text.index(after: i)
+            if let close = text[afterOpen...].firstIndex(of: "`"),
+               !text[afterOpen..<close].contains(where: { $0 == "\n" || $0 == "\r" }) {
+                // Unwrap: emit interior only (do not strip markers inside).
+                result += text[afterOpen..<close]
+                i = text.index(after: close)
+                continue
+            }
+            // Unmatched ` — keep as-is and continue.
+            result.append(text[i])
+            i = text.index(after: i)
+            continue
+        }
+        // Non-code run until next ` or end.
+        let runEnd = text[i...].firstIndex(of: "`") ?? text.endIndex
+        result += stripNonCodeInlineMarkers(String(text[i..<runEnd]))
+        i = runEnd
+    }
+    return result
+}
+
+/// Strip bold / italic / strike / highlight markers outside code spans.
+private func stripNonCodeInlineMarkers(_ text: String) -> String {
+    var s = text
+    // Order: longer delimiters first so ** is not eaten as two *'s.
+    let pairs = ["**", "~~", "==", "*", "_"]
+    var changed = true
+    while changed {
+        changed = false
+        for d in pairs {
+            let next = stripDelimiterPairs(d, in: s)
+            if next != s {
+                s = next
+                changed = true
+            }
+        }
+    }
+    return s
+}
+
+/// Removes all non-overlapping `delim…delim` pairs (non-greedy, single-line).
+private func stripDelimiterPairs(_ delim: String, in text: String) -> String {
+    guard !delim.isEmpty else { return text }
+    let d = delim
+    let dLen = d.count
+    var out = ""
+    var i = text.startIndex
+    while i < text.endIndex {
+        // Find next opening delimiter.
+        guard let open = text[i...].range(of: d)?.lowerBound else {
+            out += text[i...]
+            break
+        }
+        out += text[i..<open]
+        let afterOpen = text.index(open, offsetBy: dLen)
+        guard afterOpen < text.endIndex,
+              let closeRel = text[afterOpen...].range(of: d) else {
+            out += text[open...]
+            break
+        }
+        let close = closeRel.lowerBound
+        let inner = text[afterOpen..<close]
+        // Empty or multiline → keep markers (not valid emphasis).
+        if inner.isEmpty || inner.contains(where: { $0 == "\n" || $0 == "\r" }) {
+            out += text[open..<text.index(close, offsetBy: dLen)]
+            i = text.index(close, offsetBy: dLen)
+            continue
+        }
+        out += inner
+        i = text.index(close, offsetBy: dLen)
+        // Continue scanning after this pair (changed for outer while).
+    }
+    return out
+}
+
+// MARK: - Case cycle (B5)
+
+/// Cycles selection case: UPPER → lower → Capitalized → UPPER.
+/// Detection uses letter-bearing content; non-letters pass through.
+func cycleCase(_ text: String) -> String {
+    let letters = text.filter(\.isLetter)
+    guard !letters.isEmpty else { return text }
+    if text == text.uppercased() {
+        return text.lowercased()
+    }
+    if text == text.lowercased() {
+        return text.capitalized
+    }
+    if text == text.capitalized {
+        return text.uppercased()
+    }
+    // Mixed → normalize to UPPER (next full cycle step).
+    return text.uppercased()
+}
+
 // MARK: - Task checkbox toggle (Preview click-through)
 
 /// Toggles the `index`-th task-list checkbox (`[ ]` ↔ `[x]`, document order)

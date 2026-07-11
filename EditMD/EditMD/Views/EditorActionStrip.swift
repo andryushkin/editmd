@@ -13,11 +13,16 @@ final class EditorStripActions {
     var toggleBold: (() -> Void)?
     var toggleItalic: (() -> Void)?
     var toggleStrikethrough: (() -> Void)?
+    var toggleCodeSpan: (() -> Void)?
     var toggleHighlight: (() -> Void)?
     /// Heading 1…3 (Title / Heading / Subheading).
     var setHeading: ((Int) -> Void)?
     /// Plain paragraph (strip structure).
     var setBody: (() -> Void)?
+    /// Clear inline styles only (B4).
+    var clearInlineFormatting: (() -> Void)?
+    var insertDivider: (() -> Void)?
+    var cycleCase: (() -> Void)?
     var toggleCodeBlock: (() -> Void)?
     var toggleBulletList: (() -> Void)?
     var toggleChecklist: (() -> Void)?
@@ -30,6 +35,9 @@ final class EditorStripActions {
     var tableAddRow: (() -> Void)?
     var tableDeleteRow: (() -> Void)?
     var formulaStub: (() -> Void)?
+
+    /// Active inline formats at caret — drives accent tint on B/I/`/S (B6).
+    var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
 
     func run(_ action: (() -> Void)?) {
         guard let action else { NSSound.beep(); return }
@@ -51,6 +59,8 @@ struct EditorActionStrip: View {
     /// Table + formula tools (Visual only). Driven by mode, not by nil-ing
     /// closures on the actions bag.
     var showVisualExtras: Bool = false
+    /// B6: tint B/I/`/S when caret is inside those styles.
+    var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
 
     var body: some View {
         GeometryReader { geo in
@@ -59,12 +69,20 @@ struct EditorActionStrip: View {
                 HStack(alignment: .center, spacing: 8) {
                     // Inline styles
                     pill {
-                        icon("bold", "Жирный (**…**)") { actions.run(actions.toggleBold) }
+                        icon("bold", "Жирный (**…**)",
+                             active: activeFormats.bold) { actions.run(actions.toggleBold) }
                         sep
-                        icon("italic", "Курсив (*…*)") { actions.run(actions.toggleItalic) }
+                        icon("italic", "Курсив (*…*)",
+                             active: activeFormats.italic) { actions.run(actions.toggleItalic) }
                         sep
-                        icon("strikethrough", "Зачёркивание (~~…~~)") {
+                        icon("strikethrough", "Зачёркивание (~~…~~)",
+                             active: activeFormats.strikethrough) {
                             actions.run(actions.toggleStrikethrough)
+                        }
+                        sep
+                        labelBtn("<>", "Инлайн-код (`…`)",
+                                 active: activeFormats.code) {
+                            actions.run(actions.toggleCodeSpan)
                         }
                         sep
                         icon("highlighter", "Выделение (==…==)") {
@@ -87,8 +105,20 @@ struct EditorActionStrip: View {
                             if let h = actions.setHeading { h(3) } else { NSSound.beep() }
                         }
                         sep
-                        labelBtn("Aa", "Обычный текст (снять заголовок/список)") {
+                        labelBtn("T", "Обычный текст (снять inline-разметку)") {
+                            actions.run(actions.clearInlineFormatting)
+                        }
+                        sep
+                        labelBtn("Aa", "Снять заголовок/список") {
                             actions.run(actions.setBody)
+                        }
+                        sep
+                        labelBtn("aA", "Регистр: UPPER → lower → Capitalized") {
+                            actions.run(actions.cycleCase)
+                        }
+                        sep
+                        icon("minus", "Линия-разделитель (---)") {
+                            actions.run(actions.insertDivider)
                         }
                         sep
                         icon("chevron.left.forwardslash.chevron.right", "Блок кода") {
@@ -185,11 +215,12 @@ struct EditorActionStrip: View {
     }
 
     private func icon(_ systemImage: String, _ help: String,
+                      active: Bool = false,
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
                 .frame(width: SidebarChrome.iconButtonWidth,
                        height: SidebarChrome.iconButtonHeight)
                 .contentShape(Rectangle())
@@ -199,11 +230,12 @@ struct EditorActionStrip: View {
     }
 
     private func labelBtn(_ title: String, _ help: String,
+                          active: Bool = false,
                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.primary)
+                .foregroundStyle(active ? Color.accentColor : Color.primary)
                 .frame(minWidth: SidebarChrome.iconButtonWidth,
                        minHeight: SidebarChrome.iconButtonHeight)
                 .contentShape(Rectangle())

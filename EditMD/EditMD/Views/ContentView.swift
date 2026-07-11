@@ -32,6 +32,8 @@ struct ContentView: View {
     /// Shared Notes-style action strip (all three modes). Held in a ref box so
     /// rebinding closures does not trigger SwiftUI view updates.
     @State private var stripActions = EditorStripActions()
+    /// B6: strip B/I/`/S accent state (updated from editor caret callbacks).
+    @State private var activeFormats = ActiveInlineFormats()
     @State private var showExternalDiff = false
     @State private var showGitCommit = false
     @State private var gitSnapshot = GitFileSnapshot.empty
@@ -336,7 +338,8 @@ struct ContentView: View {
             EditorActionStrip(actions: stripActions,
                               insetH: stripInset.h,
                               columnWidth: stripInset.column,
-                              showVisualExtras: mode == .visual)
+                              showVisualExtras: mode == .visual,
+                              activeFormats: activeFormats)
             if mode == .preview {
                 // Line numbers / dirty marks are baked into the HTML (`data-ln`)
                 // so they scroll with the page — no separate rail to sync.
@@ -387,7 +390,8 @@ struct ContentView: View {
                     formatActions = actions
                     bindStrip(from: actions, visualExtras: false)
                 },
-                onLintUpdate: { summary in lintSummary = summary }
+                onLintUpdate: { summary in lintSummary = summary },
+                onActiveFormats: { activeFormats = $0 }
             )
         case .visual:
             VisualMarkdownView(
@@ -399,7 +403,8 @@ struct ContentView: View {
                 onFormatActions: { actions in
                     formatActions = actions
                     bindStrip(from: actions, visualExtras: true)
-                }
+                },
+                onActiveFormats: { activeFormats = $0 }
             )
         case .preview:
             // unreachable: editorArea routes .preview to the full preview
@@ -412,9 +417,13 @@ struct ContentView: View {
         stripActions.toggleBold = fa.toggleBold
         stripActions.toggleItalic = fa.toggleItalic
         stripActions.toggleStrikethrough = fa.toggleStrikethrough
+        stripActions.toggleCodeSpan = fa.toggleCodeSpan
         stripActions.toggleHighlight = fa.toggleHighlight
         stripActions.setHeading = fa.setHeading
         stripActions.setBody = fa.setBody
+        stripActions.clearInlineFormatting = fa.clearInlineFormatting
+        stripActions.insertDivider = fa.insertDivider
+        stripActions.cycleCase = fa.cycleCase
         stripActions.toggleCodeBlock = fa.toggleCodeBlock
         stripActions.toggleBulletList = fa.toggleBulletList
         stripActions.toggleChecklist = fa.toggleChecklist

@@ -114,6 +114,8 @@ struct VisualMarkdownView: NSViewRepresentable {
     var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
+    /// B6: active md.inline styles at caret.
+    var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -510,7 +512,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             // Keep custom attrs out of typing attributes only where harmful:
             // links must not extend as the user types after them.
-            guard let textView else { return }
+            // Guard: setAttributedString fires selection sync (v22).
+            guard !isMutating, let textView else { return }
             var attrs = textView.typingAttributes
             if attrs[.mdLink] != nil || attrs[.mdImage] != nil || attrs[.mdWikiLink] != nil {
                 attrs[.mdLink] = nil
@@ -519,6 +522,60 @@ struct VisualMarkdownView: NSViewRepresentable {
                 textView.typingAttributes = attrs
             }
             storeCursor()
+            publishActiveFormats()
+        }
+
+        private var lastPublishedFormats = ActiveInlineFormats()
+
+        private func publishActiveFormats() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let sel = textView.selectedRange()
+            let length = storage.length
+            guard length > 0 else {
+                emitFormats(ActiveInlineFormats())
+                return
+            }
+            let loc = min(sel.location, length - 1)
+            var fmt = ActiveInlineFormats()
+            if sel.length == 0 {
+                // Prefer typingAttributes at caret (covers empty run boundaries).
+                let styles = MDInlineStyle(rawValue: textView.typingAttributes[.mdInline] as? Int ?? 0)
+                fmt.bold = styles.contains(.bold)
+                fmt.italic = styles.contains(.italic)
+                fmt.code = styles.contains(.code)
+                fmt.strikethrough = styles.contains(.strike)
+                // Also sample char under caret for truth when typing attrs lag.
+                let sample = MDInlineStyle(rawValue: storage.attribute(.mdInline, at: loc, effectiveRange: nil) as? Int ?? 0)
+                if sample.contains(.bold) { fmt.bold = true }
+                if sample.contains(.italic) { fmt.italic = true }
+                if sample.contains(.code) { fmt.code = true }
+                if sample.contains(.strike) { fmt.strikethrough = true }
+            } else {
+                var allBold = true, allItalic = true, allCode = true, allStrike = true
+                var any = false
+                storage.enumerateAttribute(.mdInline, in: sel) { value, _, _ in
+                    any = true
+                    let styles = MDInlineStyle(rawValue: value as? Int ?? 0)
+                    if !styles.contains(.bold) { allBold = false }
+                    if !styles.contains(.italic) { allItalic = false }
+                    if !styles.contains(.code) { allCode = false }
+                    if !styles.contains(.strike) { allStrike = false }
+                }
+                if any {
+                    fmt.bold = allBold
+                    fmt.italic = allItalic
+                    fmt.code = allCode
+                    fmt.strikethrough = allStrike
+                }
+            }
+            emitFormats(fmt)
+        }
+
+        private func emitFormats(_ fmt: ActiveInlineFormats) {
+            guard fmt != lastPublishedFormats else { return }
+            lastPublishedFormats = fmt
+            let callback = parent.onActiveFormats
+            DispatchQueue.main.async { callback?(fmt) }
         }
 
         func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange,

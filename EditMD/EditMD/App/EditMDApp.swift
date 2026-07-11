@@ -263,6 +263,21 @@ struct EditMDApp: App {
                 .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(actions?.toggleCodeSpan == nil)
 
+                Button("Clear Inline Formatting") {
+                    actions?.clearInlineFormatting?()
+                }
+                .disabled(actions?.clearInlineFormatting == nil)
+
+                Button("Cycle Case") {
+                    actions?.cycleCase?()
+                }
+                .disabled(actions?.cycleCase == nil)
+
+                Button("Insert Divider") {
+                    actions?.insertDivider?()
+                }
+                .disabled(actions?.insertDivider == nil)
+
                 Divider()
 
                 // ⌥⌘1…6 — plain ⌘1/⌘2/⌘3 already switch the editor mode.

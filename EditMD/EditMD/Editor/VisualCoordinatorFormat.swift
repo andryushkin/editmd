@@ -22,6 +22,9 @@ extension VisualMarkdownView.Coordinator {
             toggleHighlight: { [weak self] in self?.toggleInlineStyle(.highlight) },
             setHeading: { [weak self] level in self?.setHeading(level) },
             setBody: { [weak self] in self?.setBodyParagraph() },
+            clearInlineFormatting: { [weak self] in self?.clearInlineFormatting() },
+            insertDivider: { [weak self] in self?.insertDivider() },
+            cycleCase: { [weak self] in self?.cycleSelectionCase() },
             toggleBulletList: { [weak self] in self?.toggleListKind(
                 isTarget: { if case .bulletItem = $0 { return true }; return false },
                 makeKind: { .bulletItem(depth: $0) }) },
@@ -79,6 +82,70 @@ extension VisualMarkdownView.Coordinator {
             target.quoteGroup = -1
             restamp(paragraph, to: target, in: textView)
         }
+    }
+
+    /// Strip inline md.* styles on the selection; leave block kind alone (B4).
+    private func clearInlineFormatting() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+        guard selection.length > 0 else {
+            // Caret: clear typing attrs only.
+            var attrs = textView.typingAttributes
+            attrs[.mdInline] = nil
+            let blockAttr = attrs[.mdBlock] as? MDBlock ?? MDBlock(kind: .paragraph)
+            attrs[.font] = visualStyle.font(for: [], blockKind: blockAttr.kind)
+            textView.typingAttributes = attrs
+            return
+        }
+        guard textView.shouldChangeText(in: selection, replacementString: nil) else { return }
+        isMutating = true
+        storage.beginEditing()
+        storage.enumerateAttributes(in: selection) { attrs, range, _ in
+            storage.removeAttribute(.mdInline, range: range)
+            let blockAttr = attrs[.mdBlock] as? MDBlock ?? MDBlock(kind: .paragraph)
+            storage.addAttribute(.font,
+                                 value: self.visualStyle.font(for: [], blockKind: blockAttr.kind),
+                                 range: range)
+            storage.removeAttribute(.strikethroughStyle, range: range)
+            storage.removeAttribute(.backgroundColor, range: range)
+        }
+        storage.endEditing()
+        isMutating = false
+        textView.didChangeText()
+        afterMutation()
+    }
+
+    /// Insert thematic break as a rendered block (same path as empty table).
+    private func insertDivider() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let md = "\n\n---\n\n"
+        let rendered = renderMarkdownToAttributed(md, style: visualStyle)
+        let selection = textView.selectedRange()
+        guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
+        else { return }
+        isMutating = true
+        storage.replaceCharacters(in: selection, with: rendered)
+        isMutating = false
+        textView.didChangeText()
+        afterMutation()
+    }
+
+    private func cycleSelectionCase() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+        guard selection.length > 0 else { NSSound.beep(); return }
+        let selected = (storage.string as NSString).substring(with: selection)
+        let next = cycleCase(selected)
+        guard next != selected else { return }
+        // replaceCharacters keeps attributes on the range (bold stays bold).
+        guard textView.shouldChangeText(in: selection, replacementString: next) else { return }
+        isMutating = true
+        storage.replaceCharacters(in: selection, with: next)
+        isMutating = false
+        textView.didChangeText()
+        textView.setSelectedRange(NSRange(location: selection.location,
+                                          length: (next as NSString).length))
+        afterMutation()
     }
 
     private func insertEmptyTable() {

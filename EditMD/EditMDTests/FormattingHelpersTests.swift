@@ -246,6 +246,66 @@ final class WordAndCharCountTests: XCTestCase {
     }
 }
 
+// MARK: - stripInlineMarkers (B4)
+
+final class StripInlineMarkersTests: XCTestCase {
+
+    func testBold() {
+        XCTAssertEqual(stripInlineMarkers("**hello**"), "hello")
+    }
+
+    func testNestedBoldItalic() {
+        XCTAssertEqual(stripInlineMarkers("***hello***"), "hello")
+        XCTAssertEqual(stripInlineMarkers("**_hello_**"), "hello")
+        XCTAssertEqual(stripInlineMarkers("***hello***"), "hello")
+    }
+
+    func testCodeInteriorUntouched() {
+        // Markers inside a code span must survive; outer backticks unwrap.
+        XCTAssertEqual(stripInlineMarkers("`a**b**`"), "a**b**")
+        XCTAssertEqual(stripInlineMarkers("x `a**b**` y"), "x a**b** y")
+    }
+
+    func testStrikeAndHighlight() {
+        XCTAssertEqual(stripInlineMarkers("~~gone~~"), "gone")
+        XCTAssertEqual(stripInlineMarkers("==hi=="), "hi")
+    }
+
+    func testMixedOutsideCode() {
+        XCTAssertEqual(stripInlineMarkers("**a** and *b*"), "a and b")
+    }
+
+    func testHeadingMarkersNotTouchedAsStructure() {
+        // Only inline delimiters — leading # is not stripped here.
+        XCTAssertEqual(stripInlineMarkers("# **Title**"), "# Title")
+    }
+}
+
+// MARK: - cycleCase (B5)
+
+final class CycleCaseTests: XCTestCase {
+
+    func testLatinCycle() {
+        XCTAssertEqual(cycleCase("HELLO"), "hello")
+        XCTAssertEqual(cycleCase("hello"), "Hello")
+        XCTAssertEqual(cycleCase("Hello"), "HELLO")
+    }
+
+    func testCyrillicCycle() {
+        XCTAssertEqual(cycleCase("ПРИВЕТ"), "привет")
+        XCTAssertEqual(cycleCase("привет"), "Привет")
+        XCTAssertEqual(cycleCase("Привет"), "ПРИВЕТ")
+    }
+
+    func testMixedGoesUpper() {
+        XCTAssertEqual(cycleCase("HeLLo"), "HELLO")
+    }
+
+    func testNoLettersUnchanged() {
+        XCTAssertEqual(cycleCase("123"), "123")
+    }
+}
+
 // MARK: - applyWrap
 
 final class ApplyWrapTests: XCTestCase {

@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Inline styles active at the caret / over the selection (B6).
+struct ActiveInlineFormats: Equatable {
+    var bold = false
+    var italic = false
+    var code = false
+    var strikethrough = false
+}
+
 struct FormatActions {
     var toggleBold: () -> Void
     var toggleItalic: () -> Void
@@ -22,6 +30,12 @@ struct FormatActions {
     var setHeading: ((Int) -> Void)? = nil
     /// Plain body paragraph (strip heading / list / quote structure).
     var setBody: (() -> Void)? = nil
+    /// Strip inline markers / md.* styles only (keep heading/list) — B4.
+    var clearInlineFormatting: (() -> Void)? = nil
+    /// Insert a thematic break (`---`) — B3.
+    var insertDivider: (() -> Void)? = nil
+    /// Cycle selection case UPPER → lower → Capitalized — B5.
+    var cycleCase: (() -> Void)? = nil
     var toggleBulletList: (() -> Void)? = nil
     var toggleNumberedList: (() -> Void)? = nil
     var toggleQuote: (() -> Void)? = nil

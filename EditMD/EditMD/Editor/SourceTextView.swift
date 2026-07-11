@@ -32,6 +32,8 @@ struct SourceTextView: NSViewRepresentable {
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
     var onLintUpdate: ((LintSummary) -> Void)? = nil
+    /// B6: active inline styles at caret (from cached spans — no re-parse).
+    var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -238,6 +240,9 @@ struct SourceTextView: NSViewRepresentable {
         /// A background window sets this when the shared document changes under
         /// it; the reload is applied when the window next becomes key.
         var pendingExternalReload = false
+        /// Last `collectSpans` result — selection only reads this (B6).
+        var cachedSpans: [Span] = []
+        var lastPublishedFormats = ActiveInlineFormats()
 
         init(parent: SourceTextView) {
             self.parent = parent
@@ -295,19 +300,46 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            if let textView {
-                parent.positionStore?.markdownOffset = textView.selectedRange().location
-                // Don't let the virtual-alignment .kern bleed into typed text —
-                // the char before the caret may carry a pad; re-highlight will
-                // recompute it, but typing attributes must start clean.
-                if textView.typingAttributes[.kern] != nil {
-                    textView.typingAttributes[.kern] = nil
-                }
-                // Source coordinates are the markdown's own — no mapping needed.
-                ClaudeIDEBridge.shared.noteSelection(url: parent.fileURL,
-                                                     markdownRange: textView.selectedRange(),
-                                                     markdown: parent.document.content)
+            // textView.string = … fires this synchronously (v22) — skip during
+            // internal reloads so we don't thrash the strip.
+            guard !isInternalUpdate, let textView else { return }
+            parent.positionStore?.markdownOffset = textView.selectedRange().location
+            // Don't let the virtual-alignment .kern bleed into typed text —
+            // the char before the caret may carry a pad; re-highlight will
+            // recompute it, but typing attributes must start clean.
+            if textView.typingAttributes[.kern] != nil {
+                textView.typingAttributes[.kern] = nil
             }
+            // Source coordinates are the markdown's own — no mapping needed.
+            ClaudeIDEBridge.shared.noteSelection(url: parent.fileURL,
+                                                 markdownRange: textView.selectedRange(),
+                                                 markdown: parent.document.content)
+            publishActiveFormats()
+        }
+
+        /// Active formats from `cachedSpans` only — never re-runs collectSpans.
+        private func publishActiveFormats() {
+            guard let textView else { return }
+            let pos = textView.selectedRange().location
+            let probe = max(0, min(pos, max(0, (textView.string as NSString).length - 1)))
+            var fmt = ActiveInlineFormats()
+            for span in cachedSpans {
+                guard NSLocationInRange(probe, span.range)
+                        || (span.range.length > 0
+                            && pos == NSMaxRange(span.range)
+                            && pos > span.range.location) else { continue }
+                switch span.kind {
+                case .boldBody, .boldMarker: fmt.bold = true
+                case .italicBody, .italicMarker: fmt.italic = true
+                case .code, .codeMarker: fmt.code = true
+                case .strikethroughBody, .strikethroughMarker: fmt.strikethrough = true
+                default: break
+                }
+            }
+            guard fmt != lastPublishedFormats else { return }
+            lastPublishedFormats = fmt
+            let callback = parent.onActiveFormats
+            DispatchQueue.main.async { callback?(fmt) }
         }
 
         /// The shared caret dance: clamp to the current text, select, reveal
@@ -504,6 +536,9 @@ struct SourceTextView: NSViewRepresentable {
                 toggleHighlight: { [weak self] in self?.wrapSelection(with: "==") },
                 setHeading: { [weak self] level in self?.transformSelectedLines(.heading(level)) },
                 setBody: { [weak self] in self?.transformSelectedLines(.body) },
+                clearInlineFormatting: { [weak self] in self?.clearInlineFormatting() },
+                insertDivider: { [weak self] in self?.insertDivider() },
+                cycleCase: { [weak self] in self?.cycleSelectionCase() },
                 toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
                 toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
                 toggleQuote: { [weak self] in self?.transformSelectedLines(.quote) },
@@ -513,6 +548,47 @@ struct SourceTextView: NSViewRepresentable {
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
             }
+        }
+
+        private func clearInlineFormatting() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { NSSound.beep(); return }
+            let ns = textView.string as NSString
+            let selected = ns.substring(with: range)
+            let stripped = stripInlineMarkers(selected)
+            guard stripped != selected else { return }
+            guard textView.shouldChangeText(in: range, replacementString: stripped) else { return }
+            textView.replaceCharacters(in: range, with: stripped)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: range.location,
+                                              length: (stripped as NSString).length))
+        }
+
+        private func insertDivider() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            let insert = "\n\n---\n\n"
+            guard textView.shouldChangeText(in: range, replacementString: insert) else { return }
+            textView.replaceCharacters(in: range, with: insert)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: range.location + (insert as NSString).length,
+                                              length: 0))
+        }
+
+        private func cycleSelectionCase() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { NSSound.beep(); return }
+            let ns = textView.string as NSString
+            let selected = ns.substring(with: range)
+            let next = cycleCase(selected)
+            guard next != selected else { return }
+            guard textView.shouldChangeText(in: range, replacementString: next) else { return }
+            textView.replaceCharacters(in: range, with: next)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: range.location,
+                                              length: (next as NSString).length))
         }
 
         private func wrapSelection(with marker: String) {
@@ -623,6 +699,7 @@ struct SourceTextView: NSViewRepresentable {
             // and the per-keystroke re-attribution would freeze on every edit.
             // Base font/color only — same choice FSNotes makes for large notes.
             if parent.document.isHeavy {
+                cachedSpans = []
                 storage.beginEditing()
                 storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
                 storage.endEditing()
@@ -630,6 +707,7 @@ struct SourceTextView: NSViewRepresentable {
             }
 
             let spans = collectSpans(textView.string)
+            cachedSpans = spans
 
             func headingFont(_ level: Int) -> NSFont {
                 let e = els.heading(level)
