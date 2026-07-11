@@ -550,6 +550,31 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(model.doc.marks.map(\.note), ["on b"])
     }
 
+    /// Stage-4: the shared anchor cache re-resolves after (debounced) text
+    /// edits — views and the sidebar read the dict instead of searching.
+    @MainActor
+    func testAnchorCacheTracksTextEdits() async throws {
+        let file = tempFile()
+        defer { cleanup(file) }
+        try "hello world".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(file, text: "hello world")
+        await model.flushPipeline()
+
+        model.addMark(anchor: .init(quote: "world", prefix: "hello ", start: 6),
+                      type: .comment, note: "n")
+        await model.flushPipeline()
+        await model.awaitAnchorRecompute()
+        let mark = try XCTUnwrap(model.doc.marks.first)
+        XCTAssertEqual(model.anchor(for: mark)?.location, 6)
+
+        // Text grows before the anchor: the debounced recompute shifts it.
+        model.setActiveFile(file, text: "1234hello world")
+        await model.awaitAnchorRecompute()
+        XCTAssertEqual(model.anchor(for: mark)?.location, 10)
+    }
+
     // MARK: Helpers
 
     private func mark(_ id: String, _ type: ReviewMarkType) -> ReviewMark {

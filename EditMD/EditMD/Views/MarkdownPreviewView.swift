@@ -546,26 +546,19 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                            completionHandler: nil)
                 return
             }
-            let content = document?.content ?? lastRenderedContent ?? ""
+            // Ranges come from ReviewModel's shared anchor cache (recomputed
+            // off-main, debounced) — no per-notification text search on main.
             let marks = ReviewModel.shared.doc.marks.compactMap { m -> [String: Any]? in
                 guard m.isOpen,
-                      let range = ReviewSidecar.anchorNSRange(for: m, in: content),
+                      let range = ReviewModel.shared.anchor(for: m),
                       range.length > 0
                 else { return nil }
-                let tip: String
-                if m.isSuggestion, let repl = m.replacement {
-                    tip = "suggest: \(repl)"
-                } else if let note = m.note, !note.isEmpty {
-                    tip = "\(m.markType?.label ?? m.type): \(note)"
-                } else {
-                    tip = m.markType?.label ?? m.type
-                }
                 return [
                     "start": range.location,
                     "end": NSMaxRange(range),
                     "type": m.markType?.rawValue ?? m.type,
                     "id": m.id,
-                    "tip": tip,
+                    "tip": m.washTooltip,
                 ]
             }
             // JSON for the page script (sorted worklist order already in doc.marks

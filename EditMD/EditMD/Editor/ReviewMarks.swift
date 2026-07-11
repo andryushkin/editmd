@@ -171,6 +171,18 @@ struct ReviewMark: Equatable {
 }
 
 extension ReviewMark {
+    /// One-line tooltip for the in-text wash — shared by Source, Visual and
+    /// Preview so the three surfaces describe a mark identically.
+    var washTooltip: String {
+        if isSuggestion, let replacement {
+            return "suggest: \(replacement)"
+        }
+        if let note, !note.isEmpty {
+            return "\(markType?.label ?? type): \(note)"
+        }
+        return markType?.label ?? type
+    }
+
     /// A fresh author-created mark (EditMD only ever creates markdown marks:
     /// quote + prefix + start, anchored in the raw text).
     init(type: ReviewMarkType, quote: String, prefix: String, start: Int, note: String) {

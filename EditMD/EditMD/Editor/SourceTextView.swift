@@ -268,7 +268,8 @@ struct SourceTextView: NSViewRepresentable {
             updateStats()
             highlightSource()
             scheduleLint()
-            applyReviewHighlights()
+            // Review wash re-aligns via the model's debounced recompute
+            // notification — no per-keystroke repaint here.
             refreshGutter()
         }
 
@@ -378,8 +379,11 @@ struct SourceTextView: NSViewRepresentable {
             applyReviewHighlights()
         }
 
-        /// Temporary background wash on open-mark anchors. Ranges are resolved
-        /// against the raw markdown (Source's string == document.content).
+        /// Temporary background wash on open-mark anchors. Ranges come from
+        /// ReviewModel's shared anchor cache (one off-main pass, debounced
+        /// behind typing) — Source runs no text search of its own. During a
+        /// typing burst the wash may trail the buffer briefly; apply() clamps
+        /// ranges and the post-recompute notification re-aligns it.
         func applyReviewHighlights() {
             guard let textView else { return }
             // Heavy docs stay plain (same gate as lint/highlight).
@@ -393,17 +397,8 @@ struct SourceTextView: NSViewRepresentable {
                 ReviewHighlight.apply(to: textView, highlights: [])
                 return
             }
-            // Prefer live textView.string so we match what is on screen even if
-            // ReviewModel.currentText is one keystroke behind the notification.
-            let text = textView.string
-            let highlights: [ReviewAnchorHighlight] = ReviewModel.shared.doc.marks.compactMap { m in
-                guard m.isOpen,
-                      let range = ReviewSidecar.anchorNSRange(for: m, in: text)
-                else { return nil }
-                return ReviewAnchorHighlight(
-                    id: m.id, range: range, type: m.markType, tooltip: m.note ?? "")
-            }
-            ReviewHighlight.apply(to: textView, highlights: highlights)
+            ReviewHighlight.apply(to: textView,
+                                  highlights: ReviewModel.shared.openAnchorHighlights())
         }
 
         // MARK: Lint

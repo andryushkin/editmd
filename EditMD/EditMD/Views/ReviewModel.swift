@@ -32,19 +32,20 @@ final class ReviewModel: ObservableObject {
     @Published private(set) var fileURL: URL?
     @Published private(set) var doc = ReviewDocument() {
         didSet {
-            // AppKit coordinators (Source/Visual) repaint anchors from this.
-            NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
+            // Discrete doc change (mutation / reload) → fresh anchors + washes.
+            scheduleAnchorRecompute(debounce: false)
         }
     }
     /// Raw markdown of the active buffer — anchors resolve against it.
-    @Published private(set) var currentText = "" {
-        didSet {
-            // Text moved under existing marks — re-resolve wash ranges.
-            if oldValue != currentText {
-                NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
-            }
-        }
-    }
+    /// Deliberately NOT @Published: it changes per keystroke, and publishing
+    /// it re-rendered the whole sidebar on every key press (v35.3 spirit).
+    private(set) var currentText = ""
+    /// Resolved anchors (mark id → UTF-16 range in the raw markdown),
+    /// recomputed off-main and debounced behind typing. One shared pass —
+    /// Source wash, Preview wash and the sidebar cards all read this instead
+    /// of each running their own O(text × marks) searches per keystroke.
+    @Published private(set) var anchors: [String: NSRange] = [:]
+    private var anchorTask: Task<Void, Never>?
     @Published var statusFilter: StatusFilter = .open
     /// nil = every type.
     @Published var typeFilter: ReviewMarkType?
@@ -66,9 +67,15 @@ final class ReviewModel: ObservableObject {
     /// text change keeps the marks (anchors recompute in the views); a new file
     /// reloads the sidecar off-main.
     func setActiveFile(_ url: URL?, text: String) {
+        let textChanged = text != currentText
         currentText = text
         let std = url?.standardizedFileURL
-        guard std != fileURL else { return }
+        guard std != fileURL else {
+            // Typing in the active file: re-anchor behind a debounce, never
+            // on the keystroke itself.
+            if textChanged { scheduleAnchorRecompute(debounce: true) }
+            return
+        }
         fileURL = std
         // Synchronous baseline reset: a mutation arriving before the async
         // reload lands (editmdctl `open` + `marks add` back to back) must
@@ -108,6 +115,57 @@ final class ReviewModel: ObservableObject {
     /// Control channel uses it to reply only after the write is durable.
     func flushPipeline() async {
         await pipelineTask?.value
+    }
+
+    // MARK: Anchor cache
+
+    /// Recomputes `anchors` for the current doc/text — off-main, debounced
+    /// for keystroke-driven text changes, immediate for doc mutations.
+    /// Observers repaint on `.reviewMarksDidChange`, posted after the pass.
+    private func scheduleAnchorRecompute(debounce: Bool) {
+        anchorTask?.cancel()
+        guard !doc.marks.isEmpty else {
+            // No marks: clear once; don't re-notify on every keystroke.
+            if !anchors.isEmpty {
+                anchors = [:]
+                NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
+            }
+            return
+        }
+        let text = currentText
+        let marks = doc.marks
+        anchorTask = Task { [weak self] in
+            if debounce {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            let resolved = await Self.resolveAnchors(marks: marks, text: text)
+            guard let self, !Task.isCancelled else { return }
+            self.anchors = resolved
+            NotificationCenter.default.post(name: .reviewMarksDidChange, object: self)
+        }
+    }
+
+    /// Test hook: waits for the in-flight anchor pass (if any).
+    func awaitAnchorRecompute() async {
+        await anchorTask?.value
+    }
+
+    /// All marks (open and closed) resolve, so the sidebar can jump to a
+    /// resolved-but-still-anchored thread too.
+    nonisolated private static func resolveAnchors(
+        marks: [ReviewMark], text: String
+    ) async -> [String: NSRange] {
+        await Task.detached(priority: .userInitiated) {
+            var out: [String: NSRange] = [:]
+            for m in marks {
+                guard let q = m.quote, !q.isEmpty else { continue }
+                if let r = ReviewSidecar.anchorNSRange(for: m, in: text) {
+                    out[m.id] = r
+                }
+            }
+            return out
+        }.value
     }
 
     /// Disk revision the model last reconciled with (control-channel replies).
@@ -177,27 +235,19 @@ final class ReviewModel: ObservableObject {
         return CapturedAnchor(quote: a.quote, prefix: a.prefix, start: a.start)
     }
 
-    /// Resolved anchor ranges for the active buffer (for highlighting / jump).
-    /// Only marks whose fragment still exists appear.
+    /// Resolved anchor range for `mark` (cache lookup — the shared pass in
+    /// `scheduleAnchorRecompute` does the actual text search).
     func anchor(for mark: ReviewMark) -> NSRange? {
-        ReviewSidecar.anchorNSRange(for: mark, in: currentText)
+        anchors[mark.id]
     }
 
     /// Open marks whose quote still resolves in the live buffer — used by
     /// Source (UTF-16 ranges into the raw markdown) for temporary-attr wash.
     func openAnchorHighlights() -> [ReviewAnchorHighlight] {
         doc.marks.compactMap { m in
-            guard m.isOpen, let range = ReviewSidecar.anchorNSRange(for: m, in: currentText)
-            else { return nil }
-            let tip: String
-            if m.isSuggestion, let repl = m.replacement {
-                tip = "suggest: \(repl)"
-            } else if let note = m.note, !note.isEmpty {
-                tip = "\(m.markType?.label ?? m.type): \(note)"
-            } else {
-                tip = m.markType?.label ?? m.type
-            }
-            return ReviewAnchorHighlight(id: m.id, range: range, type: m.markType, tooltip: tip)
+            guard m.isOpen, let range = anchors[m.id] else { return nil }
+            return ReviewAnchorHighlight(id: m.id, range: range,
+                                         type: m.markType, tooltip: m.washTooltip)
         }
     }
 

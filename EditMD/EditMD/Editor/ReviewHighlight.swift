@@ -49,27 +49,23 @@ enum ReviewHighlight {
     /// Visual path: locate each open mark's `quote` inside the *display* string
     /// (plainText search). Prefix is ignored — it may contain raw-markdown
     /// context that does not appear in WYSIWYG text.
-    static func displayHighlights(marks: [ReviewMark], displayText: String)
+    ///
+    /// `hintForRawOffset` translates the mark's raw-markdown `start` into a
+    /// display offset (Visual's paragraph map). The raw offset itself must NOT
+    /// be used as the hint: display text is shorter (markers stripped), so a
+    /// raw hint can overshoot the true occurrence and wash a later duplicate.
+    static func displayHighlights(marks: [ReviewMark], displayText: String,
+                                  hintForRawOffset: (Int) -> Int? = { _ in nil })
         -> [ReviewAnchorHighlight] {
         marks.compactMap { m in
             guard m.isOpen, let quote = m.quote, !quote.isEmpty else { return nil }
-            // Prefer a match near the stored start (clamped into display), then
-            // fall back to a global search — same ladder as `_find_anchor`, but
-            // without prefix (display has no markers / different surrounding).
+            let hint = m.start.flatMap(hintForRawOffset) ?? 0
             guard let range = ReviewSidecar.anchorRange(
-                quote: quote, prefix: "", start: m.start ?? 0, in: displayText)
+                quote: quote, prefix: "", start: hint, in: displayText)
             else { return nil }
-            let tip: String
-            if m.isSuggestion, let repl = m.replacement {
-                tip = "suggest: \(repl)"
-            } else if let note = m.note, !note.isEmpty {
-                tip = "\(m.markType?.label ?? m.type): \(note)"
-            } else {
-                tip = m.markType?.label ?? m.type
-            }
             return ReviewAnchorHighlight(
                 id: m.id, range: NSRange(range, in: displayText),
-                type: m.markType, tooltip: tip)
+                type: m.markType, tooltip: m.washTooltip)
         }
     }
 }

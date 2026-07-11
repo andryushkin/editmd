@@ -291,7 +291,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         /// Temporary background wash: search each open mark's `quote` in the
-        /// display plain text (WYSIWYG has no markdown markers).
+        /// display plain text (WYSIWYG has no markdown markers). Runs on the
+        /// model's debounced recompute notification, not per keystroke.
         func applyReviewHighlights() {
             guard let textView else { return }
             // Heavy docs skip the O(n × marks) quote search — same gate as Source.
@@ -305,8 +306,14 @@ struct VisualMarkdownView: NSViewRepresentable {
                 return
             }
             let marks = ReviewModel.shared.openMarksForDisplaySearch()
+            // Hints translate raw-markdown starts into display coordinates —
+            // a raw hint overshoots (display text is shorter) and could wash
+            // a later duplicate of the quote.
             let highlights = ReviewHighlight.displayHighlights(
-                marks: marks, displayText: textView.string)
+                marks: marks, displayText: textView.string,
+                hintForRawOffset: { [weak self] raw in
+                    self?.displayLocation(forMarkdownOffset: raw)
+                })
             ReviewHighlight.apply(to: textView, highlights: highlights)
         }
 
@@ -365,15 +372,32 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// go through the paragraph map — never the display text. Always stored
         /// on the bridge (review needs it even when no `/ide` client is
         /// attached); MCP `selection_changed` no-ops when nobody is connected.
-        /// `mappedStart` reuses storeCursor's scan; only a non-empty selection
-        /// pays for mapping its end.
+        ///
+        /// Mapping the selection END costs an O(offset) paragraph-map scan, so
+        /// non-empty selections settle behind a short debounce — a drag no
+        /// longer pays the scan on every tick (Review ▸ + and Claude both read
+        /// the bridge much later than 150 ms).
+        private var selectionNoteTask: Task<Void, Never>?
+
         private func noteSelectionForClaude(selection: NSRange, mappedStart: Int) {
-            let end = selection.length == 0
-                ? mappedStart
-                : (markdownOffset(atDisplayLocation: NSMaxRange(selection)) ?? mappedStart)
+            selectionNoteTask?.cancel()
+            guard selection.length > 0 else {
+                forwardSelectionToBridge(start: mappedStart, end: mappedStart)
+                return
+            }
+            selectionNoteTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, let self else { return }
+                let end = self.markdownOffset(atDisplayLocation: NSMaxRange(selection))
+                    ?? mappedStart
+                self.forwardSelectionToBridge(start: mappedStart, end: end)
+            }
+        }
+
+        private func forwardSelectionToBridge(start: Int, end: Int) {
             ClaudeIDEBridge.shared.noteSelection(
                 url: parent.fileURL,
-                markdownRange: NSRange(location: mappedStart, length: max(0, end - mappedStart)),
+                markdownRange: NSRange(location: start, length: max(0, end - start)),
                 markdown: parent.document.content)
         }
 
@@ -394,11 +418,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             restoreCursor()
         }
 
-        private func restoreCursor() {
-            guard let store = parent.positionStore, let textView,
-                  let storage = textView.textStorage,
-                  !lastParagraphRanges.isEmpty else { return }
-            let target = store.markdownOffset
+        /// Markdown offset → display offset (inverse of
+        /// `markdownOffset(atDisplayLocation:)`), through the paragraph map.
+        func displayLocation(forMarkdownOffset target: Int) -> Int? {
+            guard let textView, let storage = textView.textStorage,
+                  !lastParagraphRanges.isEmpty else { return nil }
             var index = 0
             var within = 0
             for (i, range) in lastParagraphRanges.enumerated() where range.location <= target {
@@ -419,7 +443,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
             let blockValue = block(at: NSRange(location: start, length: 0), in: storage)
             within = max(0, within - markdownPrefixLength(for: blockValue))
-            let cursor = min(start + within, end)
+            return min(start + within, end)
+        }
+
+        private func restoreCursor() {
+            guard let store = parent.positionStore,
+                  let cursor = displayLocation(forMarkdownOffset: store.markdownOffset),
+                  let textView else { return }
             textView.setSelectedRange(NSRange(location: cursor, length: 0))
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
@@ -449,7 +479,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             LineChangeTracker.shared.noteContent(url: parent.fileURL,
                                                  content: parent.document.content)
             updateStats()
-            applyReviewHighlights()
+            // Review wash re-aligns via the model's debounced recompute
+            // notification — no per-keystroke quote search here.
             refreshGutter()
         }
 
