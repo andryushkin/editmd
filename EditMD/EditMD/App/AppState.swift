@@ -32,7 +32,31 @@ final class AppState: ObservableObject {
     private var openWindow: OpenWindowAction?
     private var pendingSeparateURLs: [URL] = []
 
+    /// Pending control-channel jump (url + UTF-16 markdown offset), consumed
+    /// by the main window once the target file is mounted. Replaces the old
+    /// fixed-delay notification, which silently dropped the jump whenever the
+    /// file took longer than the timer to open.
+    private var pendingControlJump: (url: URL, offset: Int)?
+
     private init() {}
+
+    // MARK: Control-channel jump
+
+    /// Control channel requests a caret/scroll jump. If the target is already
+    /// mounted, the notification handler consumes it immediately; otherwise
+    /// ContentView consumes it on mount (onAppear / fileURL change).
+    func requestControlJump(url: URL, offset: Int) {
+        pendingControlJump = (url.standardizedFileURL, offset)
+        NotificationCenter.default.post(name: .editMDControlJump, object: nil)
+    }
+
+    /// Returns the pending offset if it targets `url`, clearing it.
+    func consumeControlJump(for url: URL?) -> Int? {
+        guard let url, let pending = pendingControlJump,
+              pending.url == url.standardizedFileURL else { return nil }
+        pendingControlJump = nil
+        return pending.offset
+    }
 
     /// Main pane is the app welcome (not a document / folder).
     var isWelcome: Bool { currentURL == nil && !isUntitled }

@@ -59,6 +59,17 @@ do {
 
 enum EditMDCtl {
 
+    /// Absolutize a user-supplied path against the CALLER's cwd — the app
+    /// would otherwise resolve relative paths against its own cwd ("/" for a
+    /// Finder-launched app) and hit the wrong file.
+    static func absolutePath(_ path: String) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") { return expanded }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL.path
+    }
+
     static func buildRequest(_ args: [String]) throws -> ControlRequest {
         let cmd = args[0]
         let rest = Array(args.dropFirst())
@@ -88,7 +99,7 @@ enum EditMDCtl {
                 throw CLIError("unexpected argument: \(a)")
             }
             guard let path else { throw CLIError("open requires a path") }
-            var argsMap: [String: JSONValue] = ["path": .string(path)]
+            var argsMap: [String: JSONValue] = ["path": .string(absolutePath(path))]
             if let line { argsMap["line"] = .int(line) }
             if let heading { argsMap["heading"] = .string(heading) }
             return ControlRequest(id: "1", cmd: "open", args: argsMap)
@@ -113,7 +124,7 @@ enum EditMDCtl {
                 throw CLIError("unknown argument: \(a)")
             }
             var argsMap: [String: JSONValue] = [:]
-            if let path { argsMap["path"] = .string(path) }
+            if let path { argsMap["path"] = .string(absolutePath(path)) }
             if let line { argsMap["line"] = .int(line) }
             if let heading { argsMap["heading"] = .string(heading) }
             return ControlRequest(id: "1", cmd: "reveal",
@@ -145,7 +156,7 @@ enum EditMDCtl {
                     throw CLIError("unknown argument: \(a)")
                 }
                 var argsMap: [String: JSONValue] = ["open": .bool(openOnly)]
-                if let path { argsMap["path"] = .string(path) }
+                if let path { argsMap["path"] = .string(absolutePath(path)) }
                 return ControlRequest(id: "1", cmd: "marks.list", args: argsMap)
             }
             if sub == "add" {
@@ -175,7 +186,7 @@ enum EditMDCtl {
                     "note": .string(note),
                 ]
                 if let quote { argsMap["quote"] = .string(quote) }
-                if let path { argsMap["path"] = .string(path) }
+                if let path { argsMap["path"] = .string(absolutePath(path)) }
                 return ControlRequest(id: "1", cmd: "marks.add", args: argsMap)
             }
             throw CLIError("marks requires list|add")
@@ -191,7 +202,7 @@ enum EditMDCtl {
                 else if !a.hasPrefix("-") { path = a }
             }
             var argsMap: [String: JSONValue]? = nil
-            if let path { argsMap = ["path": .string(path)] }
+            if let path { argsMap = ["path": .string(absolutePath(path))] }
             return ControlRequest(id: "1", cmd: "diff.show", args: argsMap)
 
         default:

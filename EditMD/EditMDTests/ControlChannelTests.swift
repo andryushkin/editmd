@@ -262,6 +262,63 @@ final class ControlChannelTests: XCTestCase {
         XCTAssertEqual(r.data?["rev"], .int(disk.rev))
     }
 
+    // MARK: Stage-3 — paths, off-main diff, pending jump
+
+    /// The app's cwd is "/" under Finder — resolving relative paths there
+    /// targets the wrong file, so the router must reject them outright
+    /// (editmdctl absolutizes against the caller's cwd before sending).
+    func testControlRejectsRelativePath() throws {
+        let req = ControlRequest(id: "r1", cmd: "marks.list",
+                                 args: ["path": .string("relative/notes.md")])
+        let exp = expectation(description: "relative path")
+        var resp: ControlResponse?
+        DispatchQueue.global(qos: .userInitiated).async {
+            resp = ControlRouter.process(req)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+        let r = try XCTUnwrap(resp)
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.error?.contains("absolute") == true, r.error ?? "")
+    }
+
+    func testControlDiffShowCleanFile() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-ctl-diff-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("clean.md")
+        try "# clean\n".write(to: file, atomically: true, encoding: .utf8)
+
+        let req = ControlRequest(id: "d1", cmd: "diff.show",
+                                 args: ["path": .string(file.path)])
+        let exp = expectation(description: "diff.show")
+        var resp: ControlResponse?
+        DispatchQueue.global(qos: .userInitiated).async {
+            resp = ControlRouter.process(req)
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 5)
+        let r = try XCTUnwrap(resp)
+        XCTAssertTrue(r.ok, r.error ?? "")
+        XCTAssertEqual(r.data?["dirty"]?.boolValue, false)
+    }
+
+    /// The pending jump waits for its exact file and is consumed exactly once
+    /// — the old fixed-delay notification dropped it when the file opened
+    /// slower than the timer.
+    @MainActor
+    func testControlJumpPendingConsumedOnce() {
+        let url = URL(fileURLWithPath: "/tmp/editmd-jump-\(UUID().uuidString).md")
+        AppState.shared.requestControlJump(url: url, offset: 42)
+        XCTAssertNil(AppState.shared.consumeControlJump(
+            for: URL(fileURLWithPath: "/tmp/other.md")),
+            "jump must wait for its own file")
+        XCTAssertEqual(AppState.shared.consumeControlJump(for: url), 42)
+        XCTAssertNil(AppState.shared.consumeControlJump(for: url),
+                     "consume must clear the pending jump")
+    }
+
     func testFormatUnifiedDiff() {
         let d = formatUnifiedDiff(old: "a\nb\n", new: "a\nc\n",
                                   oldName: "old", newName: "new")

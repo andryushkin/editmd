@@ -64,45 +64,37 @@ enum ControlRouter {
             return .data(.object(["pong": .bool(true)]))
 
         case .status:
-            return .data(try status())
+            return status(request)
 
         case .open:
-            return .data(try open(request))
+            return try open(request)
 
         case .reveal:
-            return .data(try reveal(request))
+            return try reveal(request)
 
         case .mode:
             return .data(try setMode(request))
 
         case .marksList:
-            return .data(try marksList(request))
+            return try marksList(request)
 
         case .marksAdd:
             return .deferred(try marksAdd(request))
 
         case .diffShow:
-            return .data(try diffShow(request))
+            return try diffShow(request)
         }
     }
 
     // MARK: status
 
-    private static func status() throws -> JSONValue {
+    private static func status(_ request: ControlRequest) -> Dispatched {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
             ?? "0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         let url = AppState.shared.currentURL
         let mode = UserDefaults.standard.string(forKey: "editorMode")
             ?? EditorMode.preview.rawValue
-        let openMarks: Int
-        if let url, url.standardizedFileURL == ReviewModel.shared.fileURL {
-            openMarks = ReviewModel.shared.openCount
-        } else if let url {
-            openMarks = ReviewSidecar.loadOrEmpty(for: url).openCount
-        } else {
-            openMarks = 0
-        }
         let dirty: Bool
         if let url { dirty = DocumentRegistry.shared.isDirty(url) } else { dirty = false }
 
@@ -111,7 +103,6 @@ enum ControlRouter {
             "version": .string(version),
             "build": .string(build),
             "mode": .string(mode),
-            "openMarks": .int(openMarks),
             "dirty": .bool(dirty),
             "socket": .string(ControlService.shared.socketPath.path),
         ]
@@ -127,52 +118,77 @@ enum ControlRouter {
             obj["idePort"] = .int(Int(ClaudeIDEService.shared.state.port!))
             obj["ideConnected"] = .bool(ClaudeIDEService.shared.isConnected)
         }
-        return .object(obj)
+
+        if let url, url.standardizedFileURL == ReviewModel.shared.fileURL {
+            obj["openMarks"] = .int(ReviewModel.shared.openCount)
+            return .data(.object(obj))
+        }
+        guard let url else {
+            obj["openMarks"] = .int(0)
+            return .data(.object(obj))
+        }
+        // Non-active file: sidecar read happens on the socket thread, not main.
+        let requestID = request.id
+        let partial = obj
+        return .deferred {
+            var out = partial
+            out["openMarks"] = .int(ReviewSidecar.loadOrEmpty(for: url).openCount)
+            return .success(id: requestID, data: .object(out))
+        }
     }
 
     // MARK: open
 
-    private static func open(_ request: ControlRequest) throws -> JSONValue {
+    private static func open(_ request: ControlRequest) throws -> Dispatched {
         guard let path = request.argString("path"), !path.isEmpty else {
             throw ControlError("open requires args.path")
         }
-        let url = resolvePath(path)
+        let url = try resolvePath(path)
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw ControlError("file not found: \(url.path)")
         }
         AppState.shared.openInMainWindow(url)
         NSApp.activate(ignoringOtherApps: true)
 
-        var jumpOffset: Int?
-        if let line = request.argInt("line"), line > 0 {
-            jumpOffset = offsetOfLine(line, in: content(of: url))
-        } else if let heading = request.argString("heading"), !heading.isEmpty {
-            jumpOffset = offsetOfHeading(heading, in: content(of: url))
-        }
-
-        if let off = jumpOffset {
-            // Defer jump until the editor has mounted the file.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                NotificationCenter.default.post(
-                    name: .editMDControlJump,
-                    object: nil,
-                    userInfo: ["offset": off, "url": url])
-            }
-        }
-
+        let line = request.argInt("line")
+        let heading = request.argString("heading")
         var data: [String: JSONValue] = ["path": .string(url.path)]
-        if let off = jumpOffset { data["offset"] = .int(off) }
-        if let line = request.argInt("line") { data["line"] = .int(line) }
-        if let h = request.argString("heading") { data["heading"] = .string(h) }
-        return .object(data)
+        if let line { data["line"] = .int(line) }
+        if let heading { data["heading"] = .string(heading) }
+
+        let wantsJump = (line ?? 0) > 0 || !(heading ?? "").isEmpty
+        guard wantsJump else { return .data(.object(data)) }
+
+        // Offset math needs the content: registry buffer if open (cheap,
+        // main), otherwise a disk read on the socket thread — never on main.
+        let buffered = DocumentRegistry.shared.contentIfOpen(url)
+        let requestID = request.id
+        let payload = data
+        return .deferred {
+            let content = buffered ?? ((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+            var out = payload
+            var offset: Int?
+            if let line, line > 0 {
+                offset = offsetOfLine(line, in: content)
+            } else if let heading, !heading.isEmpty {
+                offset = offsetOfHeading(heading, in: content)
+            }
+            if let offset {
+                out["offset"] = .int(offset)
+                DispatchQueue.main.async {
+                    AppState.shared.requestControlJump(url: url, offset: offset)
+                }
+            }
+            return .success(id: requestID, data: .object(out))
+        }
     }
 
     // MARK: reveal
 
-    private static func reveal(_ request: ControlRequest) throws -> JSONValue {
+    private static func reveal(_ request: ControlRequest) throws -> Dispatched {
         let url: URL
         if let path = request.argString("path"), !path.isEmpty {
-            url = resolvePath(path)
+            url = try resolvePath(path)
             AppState.shared.openInMainWindow(url)
         } else if let current = AppState.shared.currentURL, !AppState.isFolder(current) {
             url = current
@@ -181,32 +197,47 @@ enum ControlRouter {
         }
         NSApp.activate(ignoringOtherApps: true)
 
-        let content = content(of: url)
-        let offset: Int
-        if let line = request.argInt("line"), line > 0 {
-            offset = offsetOfLine(line, in: content) ?? 0
-        } else if let heading = request.argString("heading"), !heading.isEmpty {
-            guard let hOff = offsetOfHeading(heading, in: content) else {
-                throw ControlError("heading not found: \(heading)")
+        let line = request.argInt("line")
+        let heading = request.argString("heading")
+
+        if (line ?? 0) <= 0, (heading ?? "").isEmpty {
+            // Selection (bridge) or top — no content read needed.
+            var offset = 0
+            if let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
+               sel.url == url.standardizedFileURL {
+                offset = sel.range.location
             }
-            offset = hOff
-        } else if let sel = ClaudeIDEBridge.shared.reviewSelectionSource(),
-                  sel.url == url.standardizedFileURL {
-            offset = sel.range.location
-        } else {
-            offset = 0
+            AppState.shared.requestControlJump(url: url, offset: offset)
+            return .data(.object([
+                "path": .string(url.path),
+                "offset": .int(offset),
+            ]))
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            NotificationCenter.default.post(
-                name: .editMDControlJump,
-                object: nil,
-                userInfo: ["offset": offset, "url": url])
+        // --line / --heading need the content: buffer on main, disk off main.
+        let buffered = DocumentRegistry.shared.contentIfOpen(url)
+        let requestID = request.id
+        return .deferred {
+            let content = buffered ?? ((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+            let offset: Int
+            if let line, line > 0 {
+                offset = offsetOfLine(line, in: content) ?? 0
+            } else if let heading, !heading.isEmpty {
+                guard let hOff = offsetOfHeading(heading, in: content) else {
+                    return .failure(id: requestID, error: "heading not found: \(heading)")
+                }
+                offset = hOff
+            } else {
+                offset = 0
+            }
+            DispatchQueue.main.async {
+                AppState.shared.requestControlJump(url: url, offset: offset)
+            }
+            return .success(id: requestID, data: .object([
+                "path": .string(url.path),
+                "offset": .int(offset),
+            ]))
         }
-        return .object([
-            "path": .string(url.path),
-            "offset": .int(offset),
-        ])
     }
 
     // MARK: mode
@@ -224,15 +255,32 @@ enum ControlRouter {
 
     // MARK: marks
 
-    private static func marksList(_ request: ControlRequest) throws -> JSONValue {
+    private static func marksList(_ request: ControlRequest) throws -> Dispatched {
         let url = try fileURL(for: request)
-        let doc: ReviewDocument
-        if url.standardizedFileURL == ReviewModel.shared.fileURL {
-            doc = ReviewModel.shared.doc
-        } else {
-            doc = ReviewSidecar.loadOrEmpty(for: url)
-        }
         let openOnly = request.argBool("open") ?? true
+        let requestID = request.id
+        // Right after a file switch the model's doc is an empty placeholder
+        // until the async reload lands — reading it here returned count: 0 for
+        // a sidecar with marks. Wait out the pipeline for the active file,
+        // then read disk truth; for other files disk is the only truth anyway.
+        let isActive = url.standardizedFileURL == ReviewModel.shared.fileURL
+        return .deferred {
+            if isActive {
+                let sem = DispatchSemaphore(value: 0)
+                Task { @MainActor in
+                    await ReviewModel.shared.flushPipeline()
+                    sem.signal()
+                }
+                _ = sem.wait(timeout: .now() + 15)
+            }
+            let doc = ReviewSidecar.loadOrEmpty(for: url)
+            return .success(id: requestID,
+                            data: marksPayload(doc: doc, url: url, openOnly: openOnly))
+        }
+    }
+
+    nonisolated private static func marksPayload(doc: ReviewDocument, url: URL,
+                                                 openOnly: Bool) -> JSONValue {
         let marks = doc.marks.filter { openOnly ? $0.isOpen : true }
         let arr: [JSONValue] = marks.map { m in
             var o: [String: JSONValue] = [
@@ -349,39 +397,40 @@ enum ControlRouter {
 
     // MARK: diff
 
-    private static func diffShow(_ request: ControlRequest) throws -> JSONValue {
+    /// The diff itself (disk read + full lineDiff) runs on the socket thread —
+    /// a multi-MB buffer or a dead network mount must not beachball the app
+    /// (v35.3 invariant: full line-diffs never run on main).
+    private static func diffShow(_ request: ControlRequest) throws -> Dispatched {
         let url = try fileURL(for: request)
-        let buffer: String
-        if let open = DocumentRegistry.shared.contentIfOpen(url) {
-            buffer = open
-        } else {
-            buffer = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        }
-        // Prefer last-saved baseline from disk.
-        let disk = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        if buffer == disk {
-            return .object([
+        let buffered = DocumentRegistry.shared.contentIfOpen(url)
+        let requestID = request.id
+        return .deferred {
+            let disk = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            let buffer = buffered ?? disk
+            if buffer == disk {
+                return .success(id: requestID, data: .object([
+                    "path": .string(url.path),
+                    "dirty": .bool(false),
+                    "diff": .string(""),
+                    "message": .string("no changes vs disk"),
+                ]))
+            }
+            let unified = formatUnifiedDiff(old: disk, new: buffer,
+                                            oldName: url.lastPathComponent + " (disk)",
+                                            newName: url.lastPathComponent + " (buffer)")
+            return .success(id: requestID, data: .object([
                 "path": .string(url.path),
-                "dirty": .bool(false),
-                "diff": .string(""),
-                "message": .string("no changes vs disk"),
-            ])
+                "dirty": .bool(true),
+                "diff": .string(unified),
+            ]))
         }
-        let unified = formatUnifiedDiff(old: disk, new: buffer,
-                                        oldName: url.lastPathComponent + " (disk)",
-                                        newName: url.lastPathComponent + " (buffer)")
-        return .object([
-            "path": .string(url.path),
-            "dirty": .bool(true),
-            "diff": .string(unified),
-        ])
     }
 
     // MARK: Helpers
 
     private static func fileURL(for request: ControlRequest) throws -> URL {
         if let path = request.argString("path"), !path.isEmpty {
-            let url = resolvePath(path)
+            let url = try resolvePath(path)
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ControlError("file not found: \(url.path)")
             }
@@ -393,15 +442,16 @@ enum ControlRouter {
         return url
     }
 
-    private static func resolvePath(_ path: String) -> URL {
+    /// Absolute paths only: the app's own cwd is "/" under Finder, so
+    /// resolving a caller-relative path here silently targets the wrong file.
+    /// `editmdctl` absolutizes against the caller's cwd before sending.
+    private static func resolvePath(_ path: String) throws -> URL {
         let expanded = (path as NSString).expandingTildeInPath
-        if expanded.hasPrefix("/") {
-            return URL(fileURLWithPath: expanded).standardizedFileURL
+        guard expanded.hasPrefix("/") else {
+            throw ControlError(
+                "relative path \"\(path)\" would resolve against the app, not your shell — pass an absolute path")
         }
-        let cwd = FileManager.default.currentDirectoryPath
-        return URL(fileURLWithPath: cwd)
-            .appendingPathComponent(expanded)
-            .standardizedFileURL
+        return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
     private static func content(of url: URL) -> String {
@@ -410,7 +460,7 @@ enum ControlRouter {
     }
 
     /// 1-based line → UTF-16 offset of line start.
-    private static func offsetOfLine(_ line: Int, in text: String) -> Int? {
+    nonisolated private static func offsetOfLine(_ line: Int, in text: String) -> Int? {
         guard line >= 1 else { return nil }
         let ns = text as NSString
         if line == 1 { return 0 }
@@ -426,7 +476,7 @@ enum ControlRouter {
         return nil
     }
 
-    private static func offsetOfHeading(_ title: String, in text: String) -> Int? {
+    nonisolated private static func offsetOfHeading(_ title: String, in text: String) -> Int? {
         let items = markdownOutline(text)
         let needle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         // Exact, then case-insensitive contains.
@@ -448,8 +498,10 @@ struct ControlError: Error {
 }
 
 extension Notification.Name {
-    /// Control channel wants the editor to jump to a markdown offset.
-    /// userInfo: `offset` (Int), `url` (URL).
+    /// Control channel wants the editor to jump to a markdown offset. The
+    /// payload lives in `AppState.shared` (pending jump, consumed by the main
+    /// window when the target file is mounted) — the notification is only a
+    /// nudge for the already-mounted case.
     static let editMDControlJump = Notification.Name("editmd.control.jump")
     /// Control channel changed editor mode via UserDefaults.
     static let editMDControlModeDidChange = Notification.Name("editmd.control.mode")

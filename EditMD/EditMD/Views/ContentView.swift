@@ -189,6 +189,7 @@ struct ContentView: View {
             if isMain {
                 ClaudeIDEBridge.shared.setActiveURL(fileURL)
                 ReviewModel.shared.setActiveFile(fileURL, text: document.content)
+                consumePendingControlJump()
             }
         }
         .onChange(of: fileURL) { _ in
@@ -197,6 +198,7 @@ struct ContentView: View {
             if isMain {
                 ClaudeIDEBridge.shared.setActiveURL(fileURL)
                 ReviewModel.shared.setActiveFile(fileURL, text: document.content)
+                consumePendingControlJump()
             }
         }
         // Session marks only — no git Process (delta reuses cached HEAD).
@@ -226,13 +228,21 @@ struct ContentView: View {
             if isMain { ReviewModel.shared.reload() }
         }
         // editmdctl open/reveal → jump to markdown offset in this window.
-        .onReceive(NotificationCenter.default.publisher(for: .editMDControlJump)) { note in
-            guard isMain,
-                  let offset = note.userInfo?["offset"] as? Int else { return }
-            if let url = note.userInfo?["url"] as? URL,
-               url.standardizedFileURL != fileURL?.standardizedFileURL {
-                return
-            }
+        // The offset waits in AppState until the target file is mounted here
+        // (also consumed from onAppear / fileURL change) — no timers, no
+        // dropped jumps on slow opens.
+        .onReceive(NotificationCenter.default.publisher(for: .editMDControlJump)) { _ in
+            consumePendingControlJump()
+        }
+    }
+
+    /// Claims AppState's pending control jump when it targets this window's
+    /// file. Deferred one runloop turn so SwiftUI finishes mounting/reloading
+    /// the editors for the new file before they are poked.
+    private func consumePendingControlJump() {
+        guard isMain,
+              let offset = AppState.shared.consumeControlJump(for: fileURL) else { return }
+        DispatchQueue.main.async {
             positionStore.requestJump(toMarkdownOffset: offset)
         }
     }
