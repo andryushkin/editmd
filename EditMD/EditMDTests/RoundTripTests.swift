@@ -73,6 +73,13 @@ final class RoundTripTests: XCTestCase {
         assertStable("$$E = mc^2$$")
     }
 
+    func testDisplayMathMultilineVerbatim() {
+        // The whole block is one verbatim `.mdMath` run in Visual — `\\` and
+        // the `=` line survive (no setext H1, no escape mangling).
+        assertStable("$$\n\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\n=\n\\begin{pmatrix} x \\\\ y \\end{pmatrix}\n$$")
+        assertStable("before\n\n$$\nE = mc^2\n$$\n\nafter")
+    }
+
     func testInlineCode() { assertStable("run `cmd` now") }
     func testInlineCodeWithBacktick() { assertStable("``a`b``") }
     func testNestedBoldItalic() { assertStable("***both***") }

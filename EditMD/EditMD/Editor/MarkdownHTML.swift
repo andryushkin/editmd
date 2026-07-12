@@ -878,13 +878,23 @@ func previewHTMLPage(markdown: String,
     }
     .fm-empty { opacity: 0.4; }
     /* Math ($…$ / $$…$$): KaTeX replaces the span content when its assets are
-       embedded; before/without that the span shows the raw TeX source. */
+       embedded; before/without that the span shows the raw TeX source.
+       Display blocks are LEFT-aligned with an indent (not centered) — and
+       KaTeX's own .katex-display centering is overridden to match. */
     .math-display {
         display: block;
-        text-align: center;
+        text-align: left;
+        padding-left: 2em;
         margin: 0.4em 0;
         overflow-x: auto;
         overflow-y: hidden;
+    }
+    .math-display .katex-display {
+        text-align: left;
+        margin: 0.25em 0;
+    }
+    .math-display .katex-display > .katex {
+        text-align: left;
     }
     .math-error {
         color: #cb2431;

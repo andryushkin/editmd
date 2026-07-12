@@ -213,7 +213,9 @@ private func matchInline(_ ns: NSString, n: Int, at i: Int, lineEnd: Int) -> MDM
 }
 
 /// `$$…$$`: same-line always allowed; multiline only when the opener starts
-/// its line and no inner line is excluded / starts a blockquote.
+/// its line, the closer ends its line, and no inner line is excluded / starts
+/// a blockquote. "Span = whole lines" is what lets Source/Visual treat the
+/// masked block as an atomic unit.
 private func matchDisplay(_ ns: NSString, n: Int, at i: Int, lineEnd: Int,
                           lineStart: Int, lineStarts: [Int], lineExcluded: [Bool],
                           lineIndex: (Int) -> Int) -> MDMathSpan? {
@@ -222,6 +224,8 @@ private func matchDisplay(_ ns: NSString, n: Int, at i: Int, lineEnd: Int,
     let space: unichar = 0x20
     let tab: unichar = 0x09
     let gt: unichar = 0x3E
+    let newline: unichar = 0x0A
+    let cr: unichar = 0x0D
 
     func makeSpan(_ close: Int) -> MDMathSpan? {
         guard close > i + 2 else { return nil }  // $$$$ → empty, not math
@@ -255,6 +259,16 @@ private func matchDisplay(_ ns: NSString, n: Int, at i: Int, lineEnd: Int,
         let c = ns.character(at: j)
         if c == backslash { j += 2; continue }
         if c == dollar, ns.character(at: j + 1) == dollar {
+            // Closer must end its line (trailing whitespace only).
+            var t = j + 2
+            var closesLine = true
+            while t < n {
+                let tc = ns.character(at: t)
+                if tc == newline { break }
+                if tc != space, tc != tab, tc != cr { closesLine = false; break }
+                t += 1
+            }
+            if !closesLine { j += 2; continue }
             // Every line the span crosses must be usable.
             let firstLine = lineIndex(i)
             let lastLine = lineIndex(j)

@@ -455,16 +455,22 @@ private struct SpanCollector: MarkupWalker {
 /// Pure function — no dependency on any view or controller.
 func collectSpans(_ text: String) -> [Span] {
     guard !text.isEmpty else { return [] }
-    let lineIdx = LineIndex(text)
+    // Math is masked out BEFORE parsing (same trick as the Preview): otherwise
+    // cmark reads TeX as markdown — a `=` line inside `$$…$$` turns the whole
+    // block into a giant setext H1, `*`/`_` spawn phantom emphasis. The mask
+    // preserves the UTF-16 layout, so span offsets stay valid in the original.
+    let mathSpans = scanMathSpans(in: text)
+    let (parseText, _) = maskMathSpansForParsing(text, spans: mathSpans)
+    let lineIdx = LineIndex(parseText)
     // Document(parsing:) auto-enables GFM extensions: table, strikethrough, tasklist.
-    let document = Document(parsing: text)
-    var collector = SpanCollector(text: text, lineIdx: lineIdx)
+    let document = Document(parsing: parseText)
+    var collector = SpanCollector(text: parseText, lineIdx: lineIdx)
     collector.visit(document)
     var spans = collector.spans
     // Math ($…$ / $$…$$) is not in the AST — a document-level post-scan, like
-    // wiki-links but cross-node (a $$ block spans lines). scanMathSpans skips
-    // code itself; appended last so the wash wins over emphasis colors inside.
-    for m in scanMathSpans(in: text) {
+    // wiki-links but cross-node (a $$ block spans lines). Appended last so the
+    // wash wins over surrounding block colors.
+    for m in mathSpans {
         let d = m.display ? 2 : 1
         spans.append(Span(range: NSRange(location: m.range.location, length: d),
                           kind: .mathMarker))

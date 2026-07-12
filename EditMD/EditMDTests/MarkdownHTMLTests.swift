@@ -298,7 +298,9 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageEmbedsKaTeXOnlyForMath() {
         let with = previewHTMLPage(markdown: "$x$", fontSize: 15)
         let without = previewHTMLPage(markdown: "plain text", fontSize: 15)
-        XCTAssertFalse(without.contains("katex"), "KaTeX embedded without math")
+        // The base CSS mentions .katex-display (left-align override), so the
+        // marker for "assets embedded" is the render call, not "katex".
+        XCTAssertFalse(without.contains("katex.render"), "KaTeX embedded without math")
         XCTAssertTrue(with.contains("class=\"math math-inline\""))
         if KaTeXResources.isAvailable {
             XCTAssertTrue(with.contains("katex.render"))

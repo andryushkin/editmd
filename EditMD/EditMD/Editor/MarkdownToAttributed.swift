@@ -185,14 +185,34 @@ private final class VisualRenderer {
     let source: String
     let nsSource: NSString
     let lineIdx: LineIndex
+    /// Math spans in the ORIGINAL source; the parse runs on the masked text
+    /// (U+E000, layout-preserving) so cmark never reads TeX as markdown — a
+    /// `=` line inside `$$…$$` would otherwise make the block a setext H1 and
+    /// escape processing would eat `\\`/`\,`.
+    private let mathSpans: [MDMathSpan]
+    private let parseSource: String
+    /// Spans that cover whole lines (multiline `$$` blocks) — rendered as one
+    /// verbatim block run; per-span "already emitted" bookkeeping.
+    private let multilineMath: [Bool]
+    private var emittedMath = Set<Int>()
     let out = NSMutableAttributedString()
     private var groupCounter = 0
 
     init(source: String, style: VisualStyle) {
         self.source = source
         self.style = style
-        self.nsSource = source as NSString
-        self.lineIdx = LineIndex(source)
+        let ns = source as NSString
+        self.nsSource = ns
+        let math = scanMathSpans(in: source)
+        self.mathSpans = math
+        self.multilineMath = math.map {
+            $0.display && ns.range(of: "\n", options: [], range: $0.range).location != NSNotFound
+        }
+        let (masked, _) = maskMathSpansForParsing(source, spans: math)
+        self.parseSource = masked
+        // Masked and original have identical UTF-16 layout; the index must be
+        // built from what cmark parses (its columns are UTF-8 bytes of that).
+        self.lineIdx = LineIndex(masked)
     }
 
     private func nextGroup() -> Int {
@@ -207,7 +227,7 @@ private final class VisualRenderer {
     }
 
     func run() -> NSAttributedString {
-        let document = Document(parsing: source)
+        let document = Document(parsing: parseSource)
         // YAML frontmatter isn't in the markdown grammar — emit it as a
         // read-only properties island and skip the AST nodes it produced
         // (a thematic break + a setext heading) so it isn't rendered twice.
@@ -252,6 +272,16 @@ private final class VisualRenderer {
     // MARK: Block dispatch
 
     private func renderBlock(_ block: Markup, ctx: Ctx) {
+        // A block fully inside a multiline `$$` span (masked → sentinel
+        // paragraphs; blank lines inside TeX split it into several) becomes
+        // ONE verbatim math run; the follow-up pieces are dropped silently.
+        if let idx = multilineMathIndex(containing: block) {
+            if !emittedMath.contains(idx) {
+                emittedMath.insert(idx)
+                emitDisplayMathBlock(mathSpans[idx], ctx: ctx)
+            }
+            return
+        }
         switch block {
         case let paragraph as Paragraph:
             appendParagraph(makeBlock(.paragraph, ctx)) { b in
@@ -337,6 +367,42 @@ private final class VisualRenderer {
             for (column, cell) in row.cells.enumerated() where column < columns {
                 renderCell(cell, row: rowIndex + 1, column: column)
             }
+        }
+    }
+
+    // MARK: Multiline display math
+
+    private func blockNSRange(_ block: Markup) -> NSRange? {
+        guard let r = block.range else { return nil }
+        let loc = lineIdx.offset(r.lowerBound.line, r.lowerBound.column)
+        let end = lineIdx.offset(r.upperBound.line, r.upperBound.column)
+        guard end >= loc else { return nil }
+        return NSRange(location: loc, length: end - loc)
+    }
+
+    private func multilineMathIndex(containing block: Markup) -> Int? {
+        guard mathSpans.contains(where: { $0.display }) else { return nil }
+        guard let r = blockNSRange(block) else { return nil }
+        for (i, span) in mathSpans.enumerated() where multilineMath[i] {
+            if r.location >= span.range.location,
+               NSMaxRange(r) <= NSMaxRange(span.range) {
+                return i
+            }
+        }
+        return nil
+    }
+
+    /// The whole `$$…$$` block as one verbatim run: raw TeX with the fences
+    /// visible, newlines as U+2028 (paragraph model stays intact), `.mdMath`
+    /// for the mono/tint presentation and the no-escape serialization.
+    private func emitDisplayMathBlock(_ span: MDMathSpan, ctx: Ctx) {
+        let verbatim = nsSource.substring(with: span.range)
+        let display = verbatim.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: mdHardBreak)
+        appendParagraph(makeBlock(.paragraph, ctx)) { b in
+            var attrs = self.baseAttributes(block: b, styles: [], link: nil)
+            attrs[.mdMath] = 1
+            self.out.append(NSAttributedString(string: display, attributes: attrs))
         }
     }
 
@@ -578,7 +644,16 @@ private final class VisualRenderer {
         // nodes and stay plain text here (Preview still renders them).
         let mathMatches = scanMathSpans(in: source)
         guard !wikiMatches.isEmpty || !mathMatches.isEmpty else {
-            appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+            if text.string.utf16.contains(mathSentinelUnit) {
+                // Sentinels without a local match: the node overlaps a
+                // multiline span the block pass didn't own (lazy-continuation
+                // paragraph). Show the verbatim source slice, never U+E000.
+                var attrs = baseAttributes(block: block, styles: styles, link: link)
+                attrs[.mdMath] = 1
+                out.append(NSAttributedString(string: source, attributes: attrs))
+            } else {
+                appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+            }
             return
         }
         // Matches present: split source by match ranges; plain gaps use source

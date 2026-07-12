@@ -367,7 +367,9 @@ extension VisualMarkdownView.Coordinator {
             // Always re-derive font from block kind so demoting a heading
             // to body (or promoting body → H1) updates size/weight even on
             // runs that never carried .mdInline.
-            let fontStyles: MDInlineStyle = isHeaderCell ? styles.union(.bold) : styles
+            var fontStyles: MDInlineStyle = isHeaderCell ? styles.union(.bold) : styles
+            // Math runs read as raw TeX — monospace makes the syntax legible.
+            if attrs[.mdMath] != nil { fontStyles.insert(.code) }
             storage.addAttribute(.font,
                                  value: self.visualStyle.font(for: fontStyles, blockKind: block.kind),
                                  range: range)

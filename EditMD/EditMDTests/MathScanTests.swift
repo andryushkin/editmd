@@ -70,6 +70,29 @@ final class MathScanTests: XCTestCase {
         XCTAssertTrue(spans("text $$\na\n$$").isEmpty)
     }
 
+    func testDisplayMultilineCloserMustEndLine() {
+        // Trailing text after the closer breaks the "whole lines" contract.
+        XCTAssertTrue(spans("$$\na\n$$ tail").isEmpty)
+        // Trailing whitespace is fine.
+        XCTAssertEqual(spans("$$\na\n$$   ").count, 1)
+    }
+
+    // MARK: - collectSpans uses the masked parse
+
+    func testCollectSpansNoSetextHeadingInsideDisplayMath() {
+        // `=` line inside $$…$$ must NOT make the block a giant setext H1.
+        let text = "$$\n\\begin{pmatrix} a \\\\ b \\end{pmatrix}\n=\n\\begin{pmatrix} c \\end{pmatrix}\n$$"
+        let result = collectSpans(text)
+        XCTAssertFalse(result.contains { if case .headingBody = $0.kind { return true }; return false })
+        XCTAssertTrue(result.contains { if case .mathBody(display: true) = $0.kind { return true }; return false })
+    }
+
+    func testCollectSpansNoEmphasisInsideInlineMath() {
+        let result = collectSpans("count $a *b* c$ end")
+        XCTAssertFalse(result.contains { if case .italicBody = $0.kind { return true }; return false })
+        XCTAssertTrue(result.contains { if case .mathBody(display: false) = $0.kind { return true }; return false })
+    }
+
     func testDisplayInsideBlockquoteRejected() {
         // `>` would be masked away and break the quote — scanner refuses.
         XCTAssertTrue(spans("> $$\n> x\n> $$").isEmpty)

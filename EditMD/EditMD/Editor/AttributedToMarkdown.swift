@@ -339,8 +339,9 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             result += imageMarkdown(image)
         } else if run.isMath {
             // Verbatim TeX incl. delimiters — escaping would corrupt it
-            // (`\frac` → `\\frac`, `_` → `\_`).
-            result += run.text
+            // (`\frac` → `\\frac`, `_` → `\_`). Multiline `$$` blocks show
+            // U+2028 line breaks in Visual; the file gets real newlines back.
+            result += run.text.replacingOccurrences(of: mdHardBreak, with: "\n")
         } else if run.styles.contains(.code) {
             result += codeSpan(run.text)
         } else if run.styles.contains(.rawHTML) {
