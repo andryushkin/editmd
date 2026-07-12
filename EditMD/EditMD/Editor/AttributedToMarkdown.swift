@@ -263,6 +263,9 @@ private struct InlineRun {
     var wikiLink: MDWikiLinkPayload?
     /// Math run (`.mdMath`): the text is verbatim source incl. `$` delimiters.
     var isMath: Bool = false
+    /// Rendered-formula attachment (`.mdMathTex`): the display text is a
+    /// single U+FFFC; THIS string is the verbatim source to emit.
+    var mathTex: String?
 }
 
 private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
@@ -278,7 +281,8 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             link: attrs[.mdLink] as? String,
             image: attrs[.mdImage] as? [String: String],
             wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload,
-            isMath: attrs[.mdMath] != nil))
+            isMath: attrs[.mdMath] != nil,
+            mathTex: attrs[.mdMathTex] as? String))
     }
 
     // Autolink: a whole-paragraph unstyled link whose text equals its
@@ -333,6 +337,13 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             // reconstruct from parsed fields. After marker management so bold/
             // italic around a wiki-link keep their wrappers.
             result += "[[\(wiki.originalInner)]]"
+        } else if let tex = run.mathTex {
+            // Rendered formula attachment — the verbatim `$…$`/`$$…$$` source.
+            result += tex
+        } else if run.text == mdObjectChar, run.image == nil, !run.isMath {
+            // A bare attachment char with no semantic payload (e.g. an
+            // attachment pasted from outside): nothing sane to emit —
+            // U+FFFC must never reach the markdown file.
         } else if let image = run.image {
             // Emitted after marker management so an image inside a link keeps
             // its enclosing [..](..) wrapper.

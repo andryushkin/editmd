@@ -123,6 +123,37 @@ final class MathScanTests: XCTestCase {
         XCTAssertEqual(r.count, 1)
     }
 
+    // MARK: - Visual: rendered attachments
+
+    func testVisualRendersFormulaAsAttachment() {
+        let attributed = renderMarkdownToAttributed("до $\\frac{a}{b}$ после")
+        var found = false
+        attributed.enumerateAttribute(.mdMathTex,
+                                      in: NSRange(location: 0, length: attributed.length)) {
+            value, range, _ in
+            guard let tex = value as? String else { return }
+            XCTAssertEqual(tex, "$\\frac{a}{b}$")
+            XCTAssertEqual(range.length, 1, "attachment must be a single object char")
+            found = true
+        }
+        XCTAssertTrue(found, "SwiftMath should render the formula as an attachment")
+        XCTAssertTrue(serializeAttributedToMarkdown(attributed)
+            .contains("$\\frac{a}{b}$"))
+    }
+
+    func testVisualRendersMultilineDisplayAsAttachment() {
+        let md = "$$\n\\begin{pmatrix} a \\\\ b \\end{pmatrix}\n$$"
+        let attributed = renderMarkdownToAttributed(md)
+        var tex: String?
+        attributed.enumerateAttribute(.mdMathTex,
+                                      in: NSRange(location: 0, length: attributed.length)) {
+            value, _, _ in
+            if let v = value as? String { tex = v }
+        }
+        XCTAssertEqual(tex, md, "verbatim block incl. $$ fences and newlines")
+        XCTAssertEqual(serializeAttributedToMarkdown(attributed), md)
+    }
+
     // MARK: - Mask
 
     func testMaskPreservesUTF16LayoutAndNewlines() {

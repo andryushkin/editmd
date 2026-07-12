@@ -141,6 +141,10 @@ final class VisualNSTextView: NSTextView {
            !editor.frame.insetBy(dx: -editorSettings.editorCellInset, dy: -editorSettings.editorCellInset).contains(point) {
             finishActiveTableEditing(commit: true)
         }
+        if event.clickCount >= 2, let mathIndex = mathAttachmentIndex(at: point),
+           visualCoordinator?.editFormula(at: mathIndex) == true {
+            return
+        }
         if event.clickCount >= 2, startEditingTableCell(at: point) {
             return
         }
@@ -195,6 +199,27 @@ final class VisualNSTextView: NSTextView {
             islandHorizontalOffsets[key] = next
             needsDisplay = true
         }
+    }
+
+    /// Character index of a rendered-formula attachment under the point, or
+    /// nil. Unlike the wiki hit, the glyph's actual rect is verified — a
+    /// double-click in empty space next to a formula must select, not edit.
+    private func mathAttachmentIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length,
+              storage.attribute(.mdMathTex, at: charIndex, effectiveRange: nil) != nil
+        else { return nil }
+        let rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                                              in: textContainer)
+        guard rect.insetBy(dx: -2, dy: -2).contains(containerPoint) else { return nil }
+        return charIndex
     }
 
     private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {

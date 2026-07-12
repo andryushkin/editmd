@@ -392,17 +392,38 @@ private final class VisualRenderer {
         return nil
     }
 
-    /// The whole `$$…$$` block as one verbatim run: raw TeX with the fences
-    /// visible, newlines as U+2028 (paragraph model stays intact), `.mdMath`
-    /// for the mono/tint presentation and the no-escape serialization.
+    /// The whole `$$…$$` block as one run: rendered SwiftMath attachment when
+    /// the TeX parses (verbatim source in `.mdMathTex`), otherwise raw TeX
+    /// with U+2028 line breaks (paragraph model stays intact). `.mdMath`
+    /// drives the mono/tint presentation and the no-escape serialization.
     private func emitDisplayMathBlock(_ span: MDMathSpan, ctx: Ctx) {
         let verbatim = nsSource.substring(with: span.range)
-        let display = verbatim.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\n", with: mdHardBreak)
+        let tex = nsSource.substring(with: span.innerRange)
         appendParagraph(makeBlock(.paragraph, ctx)) { b in
             var attrs = self.baseAttributes(block: b, styles: [], link: nil)
             attrs[.mdMath] = 1
-            self.out.append(NSAttributedString(string: display, attributes: attrs))
+            self.appendMathRun(verbatim: verbatim, tex: tex, display: true,
+                               attrs: attrs)
+        }
+    }
+
+    /// A math run: rendered attachment (`.mdMathTex` = verbatim source for
+    /// the serializer) or, when SwiftMath can't parse the TeX, the verbatim
+    /// text itself (newlines → U+2028), still serialized via `.mdMath`.
+    private func appendMathRun(verbatim: String, tex: String, display: Bool,
+                               attrs: [NSAttributedString.Key: Any]) {
+        var attrs = attrs
+        let fontSize = (attrs[.font] as? NSFont)?.pointSize ?? style.baseSize
+        if let attachment = MathRender.attachment(tex: tex, display: display,
+                                                  fontSize: fontSize) {
+            attrs[.mdMathTex] = verbatim
+            let run = NSMutableAttributedString(attachment: attachment)
+            run.addAttributes(attrs, range: NSRange(location: 0, length: run.length))
+            out.append(run)
+        } else {
+            let text = verbatim.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\n", with: mdHardBreak)
+            out.append(NSAttributedString(string: text, attributes: attrs))
         }
     }
 
@@ -685,8 +706,9 @@ private final class VisualRenderer {
                                               attributes: attrs))
             case .math(let m):
                 attrs[.mdMath] = m.display ? 1 : 0
-                out.append(NSAttributedString(string: ns.substring(with: range),
-                                              attributes: attrs))
+                appendMathRun(verbatim: ns.substring(with: range),
+                              tex: ns.substring(with: m.innerRange),
+                              display: m.display, attrs: attrs)
             }
             cursor = NSMaxRange(range)
         }

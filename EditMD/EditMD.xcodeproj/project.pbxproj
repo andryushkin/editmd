@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = C751A146F893A369A160F144 /* Markdown */; };
+		02811E67FB1A8BD988BC7F49 /* MathEditorPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */; };
 		0701B0140BBD62012D50453D /* EditorPositionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */; };
 		07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A6510639C139A366128A045 /* WorkspaceModel.swift */; };
 		083C1DB0AA424C13903004D3 /* VisualNSTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */; };
@@ -21,6 +22,7 @@
 		103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */; };
 		1336942C491650E720695632 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD07144B2A6466FF2484C /* SettingsView.swift */; };
 		14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4840BC0DD8B410D784453BC /* GitSidebar.swift */; };
+		16A09F6624873FD33471F396 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 3502DDBEA215B3B26B719677 /* SwiftMath */; };
 		173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */; };
 		186E6C22B5D0D627F9A7A735 /* katex.css in Resources */ = {isa = PBXBuildFile; fileRef = 7876EB215E777CB863F2221B /* katex.css */; };
 		193F11852B92E034FAC48D21 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */; };
@@ -115,6 +117,7 @@
 		F36452C46E6391BD0D8D3D3C /* TableClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */; };
 		F3B77F354F484E4A6F73901D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053F962514802B8D344BB744 /* main.swift */; };
 		F7BFA4AE1F75E6FAA9D862D6 /* ReviewQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218590314138A42580FA6D8 /* ReviewQueue.swift */; };
+		F95B5B834A0F5AA1A54B44C2 /* MathAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DA7CE97E32CED7AB5D0F5E3 /* MathAttachment.swift */; };
 		FC3186EAE0C45CF6A7A4EFAC /* MarkdownHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */; };
 		FC4A116224111D4216CAE7CC /* ControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C47E9AF933CF0508B8CBBB /* ControlServer.swift */; };
 		FF4D69AEDEB33B1700E86B3C /* ControlRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2621A82FDDEF41681AC8F3B0 /* ControlRouter.swift */; };
@@ -135,6 +138,7 @@
 		0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorPresentation.swift; sourceTree = "<group>"; };
 		053F962514802B8D344BB744 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableGrid.swift; sourceTree = "<group>"; };
+		08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathEditorPopover.swift; sourceTree = "<group>"; };
 		0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableEditingTests.swift; sourceTree = "<group>"; };
 		0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
 		0E24489CEA45FF0DDABBBD39 /* MathScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScan.swift; sourceTree = "<group>"; };
@@ -192,6 +196,7 @@
 		92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEUI.swift; sourceTree = "<group>"; };
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9917191640BDEC49A4A21EBD /* ControlProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlProtocol.swift; sourceTree = "<group>"; };
+		9DA7CE97E32CED7AB5D0F5E3 /* MathAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathAttachment.swift; sourceTree = "<group>"; };
 		9E5DD70CA3310989A4D190EF /* IDELockFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFile.swift; sourceTree = "<group>"; };
 		9E846D593359014AA812A9A3 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		A11113E961095021DD99965B /* ReviewMarksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewMarksTests.swift; sourceTree = "<group>"; };
@@ -250,6 +255,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */,
+				16A09F6624873FD33471F396 /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -319,6 +325,8 @@
 				4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */,
 				07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */,
 				20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */,
+				9DA7CE97E32CED7AB5D0F5E3 /* MathAttachment.swift */,
+				08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */,
 				0E24489CEA45FF0DDABBBD39 /* MathScan.swift */,
 				336FFD4A0B5057982542467A /* PDFExporter.swift */,
 				40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */,
@@ -503,6 +511,7 @@
 			name = EditMD;
 			packageProductDependencies = (
 				C751A146F893A369A160F144 /* Markdown */,
+				3502DDBEA215B3B26B719677 /* SwiftMath */,
 			);
 			productName = EditMD;
 			productReference = 82D8BF400E9D538C51E10B8F /* EditMD.app */;
@@ -570,6 +579,7 @@
 			mainGroup = 61FDC8302754468698E412CF;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				0DC1BED920AC13F20D111C4E /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -685,6 +695,8 @@
 				0F96C47C1A1CCA1210F1BD5E /* MarkdownPreviewView.swift in Sources */,
 				73515EE18917982E12613A05 /* MarkdownTableGrid.swift in Sources */,
 				BBD7230A06F923D8C34F074B /* MarkdownToAttributed.swift in Sources */,
+				F95B5B834A0F5AA1A54B44C2 /* MathAttachment.swift in Sources */,
+				02811E67FB1A8BD988BC7F49 /* MathEditorPopover.swift in Sources */,
 				0B4B60BECF5579A56C7200E0 /* MathScan.swift in Sources */,
 				35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */,
 				D2AF156355D2EE1D1D574931 /* PDFExporter.swift in Sources */,
@@ -1023,6 +1035,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		0DC1BED920AC13F20D111C4E /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 		D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-markdown";
@@ -1038,6 +1058,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
+		};
+		3502DDBEA215B3B26B719677 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0DC1BED920AC13F20D111C4E /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 		C751A146F893A369A160F144 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;

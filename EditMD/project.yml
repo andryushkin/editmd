@@ -11,6 +11,11 @@ packages:
   swift-markdown:
     url: https://github.com/apple/swift-markdown
     from: "0.7.3"
+  # Нативный LaTeX-типограф (порт iosMath) — рендер формул в Visual
+  # (NSTextAttachment-картинки; Preview остаётся на KaTeX).
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    from: "1.0.0"
 
 targets:
   EditMD:
@@ -24,6 +29,8 @@ targets:
     dependencies:
       - package: swift-markdown
         product: Markdown
+      - package: SwiftMath
+        product: SwiftMath
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app

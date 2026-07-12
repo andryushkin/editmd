@@ -123,38 +123,114 @@ extension VisualMarkdownView.Coordinator {
         afterMutation()
     }
 
-    /// Inserts a `$…$` / `$$…$$` template at the caret (or wraps the
-    /// selection as the TeX body). The run carries `.mdMath`, so it tints
-    /// like math and serializes VERBATIM (no markdown escaping of `\`/`_`),
-    /// then selects the TeX for immediate editing. Preview renders it via
-    /// KaTeX; Visual shows the raw TeX with the delimiters visible.
+    /// Inserts a formula at the caret (or wraps the selection as the TeX
+    /// body) and immediately opens the popover editor on it. The formula is
+    /// a rendered SwiftMath attachment carrying the verbatim source in
+    /// `.mdMathTex`; when the TeX doesn't parse it stays a tinted raw run.
     private func insertFormulaTemplate(display: Bool) {
-        guard let textView, let storage = textView.textStorage else { return }
+        guard let textView else { return }
         let selection = textView.selectedRange()
-        let selected = selection.length > 0
+        var inner = selection.length > 0
             ? (textView.string as NSString).substring(with: selection)
-            : ""
-        let inner = selected.isEmpty ? (display ? "E = mc^2" : "x") : selected
-        // Single-line form only: a newline inside a Visual paragraph run
-        // would corrupt the block model. `$$…$$` on one line is still
-        // display math for the scanner/KaTeX.
-        guard !inner.contains("\n"), !inner.contains(mdHardBreak) else {
-            NSSound.beep()
-            return
+            : (display ? "E = mc^2" : "x")
+        if !display {
+            inner = inner.replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: mdHardBreak, with: " ")
         }
-        let marker = display ? "$$" : "$"
-        let text = marker + inner + marker
-        guard textView.shouldChangeText(in: selection, replacementString: text) else { return }
-        var attrs = textView.typingAttributes
+        replaceFormula(in: selection, tex: inner, display: display)
+        editFormula(at: selection.location)
+    }
+
+    /// Opens the popover editor when `charIndex` is a rendered formula
+    /// attachment. Returns false when it isn't (caller falls through).
+    @discardableResult
+    func editFormula(at charIndex: Int) -> Bool {
+        guard let textView, let storage = textView.textStorage,
+              charIndex >= 0, charIndex < storage.length,
+              let verbatim = storage.attribute(.mdMathTex, at: charIndex,
+                                               effectiveRange: nil) as? String
+        else { return false }
+        let display = (storage.attribute(.mdMath, at: charIndex,
+                                         effectiveRange: nil) as? Int ?? 0) == 1
+        let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont
+        MathEditorPopover.present(
+            over: textView,
+            charRange: NSRange(location: charIndex, length: 1),
+            tex: MathRender.innerTeX(of: verbatim),
+            display: display,
+            fontSize: font?.pointSize ?? EditorSettings.shared.visual.fontSize
+        ) { [weak self] newTeX in
+            guard let self, let textView = self.textView,
+                  let storage = textView.textStorage else { return }
+            // The document may have changed while the popover was open —
+            // only apply when the attachment is still the same formula.
+            guard charIndex < storage.length,
+                  (storage.attribute(.mdMathTex, at: charIndex,
+                                     effectiveRange: nil) as? String) == verbatim
+            else { NSSound.beep(); return }
+            let trimmed = newTeX.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                self.removeRun(at: NSRange(location: charIndex, length: 1))
+            } else {
+                self.replaceFormula(in: NSRange(location: charIndex, length: 1),
+                                    tex: newTeX, display: display)
+            }
+        }
+        return true
+    }
+
+    /// Replaces `range` with a formula run built from `tex` (rendered
+    /// attachment when it parses, tinted verbatim text otherwise). Undoable.
+    private func replaceFormula(in range: NSRange, tex: String, display: Bool) {
+        guard let textView, let storage = textView.textStorage else { return }
+        let cleaned = display
+            ? tex.trimmingCharacters(in: .whitespacesAndNewlines)
+            : tex.trimmingCharacters(in: .whitespaces)
+        let verbatim = MathRender.verbatim(tex: cleaned, display: display)
+        var attrs = range.location < storage.length
+            ? storage.attributes(at: range.location, effectiveRange: nil)
+            : textView.typingAttributes
+        // A formula must not inherit unrelated inline semantics from the
+        // insertion point.
+        for key: NSAttributedString.Key in [.attachment, .mdMathTex, .mdLink,
+                                            .mdWikiLink, .mdImage, .mdInline] {
+            attrs.removeValue(forKey: key)
+        }
         attrs[.mdMath] = display ? 1 : 0
+        let fontSize = (attrs[.font] as? NSFont)?.pointSize
+            ?? EditorSettings.shared.visual.fontSize
+        let replacement: NSAttributedString
+        if let attachment = MathRender.attachment(tex: cleaned, display: display,
+                                                  fontSize: fontSize) {
+            attrs[.mdMathTex] = verbatim
+            let run = NSMutableAttributedString(attachment: attachment)
+            run.addAttributes(attrs, range: NSRange(location: 0, length: run.length))
+            replacement = run
+        } else {
+            replacement = NSAttributedString(
+                string: verbatim.replacingOccurrences(of: "\n", with: mdHardBreak),
+                attributes: attrs)
+        }
+        guard textView.shouldChangeText(in: range, replacementString: replacement.string)
+        else { return }
         isMutating = true
-        storage.replaceCharacters(in: selection,
-                                  with: NSAttributedString(string: text, attributes: attrs))
+        storage.replaceCharacters(in: range, with: replacement)
         isMutating = false
         textView.didChangeText()
-        textView.setSelectedRange(NSRange(
-            location: selection.location + (marker as NSString).length,
-            length: (inner as NSString).length))
+        textView.setSelectedRange(NSRange(location: range.location + replacement.length,
+                                          length: 0))
+        afterMutation()
+    }
+
+    /// Deletes a run (empty TeX committed from the popover = remove formula).
+    private func removeRun(at range: NSRange) {
+        guard let textView, let storage = textView.textStorage,
+              NSMaxRange(range) <= storage.length else { return }
+        guard textView.shouldChangeText(in: range, replacementString: "") else { return }
+        isMutating = true
+        storage.replaceCharacters(in: range, with: "")
+        isMutating = false
+        textView.didChangeText()
         afterMutation()
     }
 
