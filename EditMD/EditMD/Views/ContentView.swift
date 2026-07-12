@@ -92,7 +92,8 @@ struct ContentView: View {
             stripActions.insertTable = nil
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
-            stripActions.formulaStub = nil
+            stripActions.insertInlineFormula = nil
+            stripActions.insertBlockFormula = nil
         }
         storedMode = newMode.rawValue
     }
@@ -443,12 +444,14 @@ struct ContentView: View {
             stripActions.insertTable = fa.insertTable
             stripActions.tableAddRow = fa.tableAddRow
             stripActions.tableDeleteRow = fa.tableDeleteRow
-            stripActions.formulaStub = fa.formulaStub
+            stripActions.insertInlineFormula = fa.insertInlineFormula
+            stripActions.insertBlockFormula = fa.insertBlockFormula
         } else {
             stripActions.insertTable = nil
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
-            stripActions.formulaStub = nil
+            stripActions.insertInlineFormula = nil
+            stripActions.insertBlockFormula = nil
         }
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }

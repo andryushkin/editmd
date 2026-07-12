@@ -37,15 +37,8 @@ extension VisualMarkdownView.Coordinator {
             insertTable: { [weak self] in self?.insertEmptyTable() },
             tableAddRow: { [weak self] in self?.tableAddRowAtCursor() },
             tableDeleteRow: { [weak self] in self?.tableDeleteRowAtCursor() },
-            formulaStub: {
-                NSSound.beep()
-                let alert = NSAlert()
-                alert.messageText = "Формулы"
-                alert.informativeText = "Редактирование формул появится позже."
-                alert.alertStyle = .informational
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
+            insertInlineFormula: { [weak self] in self?.insertFormulaTemplate(display: false) },
+            insertBlockFormula: { [weak self] in self?.insertFormulaTemplate(display: true) }
         )
         DispatchQueue.main.async { [parent] in
             parent.onFormatActions(actions)
@@ -127,6 +120,41 @@ extension VisualMarkdownView.Coordinator {
         storage.replaceCharacters(in: selection, with: rendered)
         isMutating = false
         textView.didChangeText()
+        afterMutation()
+    }
+
+    /// Inserts a `$…$` / `$$…$$` template at the caret (or wraps the
+    /// selection as the TeX body). The run carries `.mdMath`, so it tints
+    /// like math and serializes VERBATIM (no markdown escaping of `\`/`_`),
+    /// then selects the TeX for immediate editing. Preview renders it via
+    /// KaTeX; Visual shows the raw TeX with the delimiters visible.
+    private func insertFormulaTemplate(display: Bool) {
+        guard let textView, let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+        let selected = selection.length > 0
+            ? (textView.string as NSString).substring(with: selection)
+            : ""
+        let inner = selected.isEmpty ? (display ? "E = mc^2" : "x") : selected
+        // Single-line form only: a newline inside a Visual paragraph run
+        // would corrupt the block model. `$$…$$` on one line is still
+        // display math for the scanner/KaTeX.
+        guard !inner.contains("\n"), !inner.contains(mdHardBreak) else {
+            NSSound.beep()
+            return
+        }
+        let marker = display ? "$$" : "$"
+        let text = marker + inner + marker
+        guard textView.shouldChangeText(in: selection, replacementString: text) else { return }
+        var attrs = textView.typingAttributes
+        attrs[.mdMath] = display ? 1 : 0
+        isMutating = true
+        storage.replaceCharacters(in: selection,
+                                  with: NSAttributedString(string: text, attributes: attrs))
+        isMutating = false
+        textView.didChangeText()
+        textView.setSelectedRange(NSRange(
+            location: selection.location + (marker as NSString).length,
+            length: (inner as NSString).length))
         afterMutation()
     }
 

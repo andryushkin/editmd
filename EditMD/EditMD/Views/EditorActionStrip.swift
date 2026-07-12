@@ -34,7 +34,8 @@ final class EditorStripActions {
     var insertTable: (() -> Void)?
     var tableAddRow: (() -> Void)?
     var tableDeleteRow: (() -> Void)?
-    var formulaStub: (() -> Void)?
+    var insertInlineFormula: (() -> Void)?
+    var insertBlockFormula: (() -> Void)?
 
     /// Active inline formats at caret — drives accent tint on B/I/`/S (B6).
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
@@ -147,14 +148,12 @@ struct EditorActionStrip: View {
                             actions.run(actions.toggleQuote)
                         }
                     }
-                    // Visual-only: table + formula stub
+                    // Visual-only: table + formula insert
                     if showVisualExtras {
                         pill {
                             tableMenu
                             sep
-                            icon("function", "Формулы (скоро)") {
-                                actions.run(actions.formulaStub)
-                            }
+                            formulaMenu
                         }
                     }
                 }
@@ -187,6 +186,25 @@ struct EditorActionStrip: View {
         .menuStyle(.borderlessButton)
         .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
         .editMDHelp("Таблица")
+    }
+
+    // MARK: Formula menu (Visual)
+
+    private var formulaMenu: some View {
+        Menu {
+            Button("Встроенная формула  $…$") { actions.run(actions.insertInlineFormula) }
+            Button("Блочная формула  $$…$$") { actions.run(actions.insertBlockFormula) }
+        } label: {
+            Image(systemName: "function")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.primary)
+                .frame(width: SidebarChrome.iconButtonWidth,
+                       height: SidebarChrome.iconButtonHeight)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
+        .editMDHelp("Формула")
     }
 
     // MARK: Chrome

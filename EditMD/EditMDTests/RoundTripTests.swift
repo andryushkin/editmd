@@ -63,6 +63,16 @@ final class RoundTripTests: XCTestCase {
         assertStable("- a\n\n<!-- -->\n\n- b")
     }
 
+    func testInlineMathVerbatim() {
+        // `.mdMath` runs serialize verbatim — no `\frac` → `\\frac` mangling.
+        assertStable(#"Formula $\frac{a}{b}$ in text"#)
+        assertStable("Pythagoras: $x^2 + y^2 = z^2$.")
+    }
+
+    func testDisplayMathSameLineVerbatim() {
+        assertStable("$$E = mc^2$$")
+    }
+
     func testInlineCode() { assertStable("run `cmd` now") }
     func testInlineCodeWithBacktick() { assertStable("``a`b``") }
     func testNestedBoldItalic() { assertStable("***both***") }

@@ -378,7 +378,15 @@ extension VisualMarkdownView.Coordinator {
             } else {
                 storage.removeAttribute(.strikethroughStyle, range: range)
             }
-            if attrs[.mdWikiLink] != nil {
+            if attrs[.mdMath] != nil {
+                // Math runs show raw TeX (delimiters visible) tinted like
+                // inline code, but without the code background wash.
+                storage.addAttribute(.foregroundColor,
+                                     value: elements.inlineCode.color ?? theme.inlineCodeColor,
+                                     range: range)
+                storage.removeAttribute(.backgroundColor, range: range)
+                storage.removeAttribute(.underlineStyle, range: range)
+            } else if attrs[.mdWikiLink] != nil {
                 // Wiki-links look like links; navigation is Cmd+click (resolver).
                 storage.addAttributes([
                     .foregroundColor: elements.link.color ?? theme.accentColor,

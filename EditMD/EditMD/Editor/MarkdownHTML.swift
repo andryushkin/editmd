@@ -57,6 +57,26 @@ struct PreviewGutterOptions: Equatable {
 func markdownHTMLBody(_ text: String,
                       imageResolver: ((String) -> String?)? = nil,
                       gutter: PreviewGutterOptions = .off) -> String {
+    markdownHTMLRender(text, imageResolver: imageResolver, gutter: gutter).body
+}
+
+/// A math span prepared for the HTML visitor: full-document range, verbatim
+/// TeX, and the number of sentinel units its mask produced (the visitor
+/// consumes sentinel runs against this count — a multiline `$$` block is
+/// split across several Text nodes by softbreaks).
+struct HTMLMathSpan {
+    let range: NSRange
+    let tex: String
+    let display: Bool
+    let units: Int
+}
+
+/// Body fragment + whether the document contains math (`previewHTMLPage`
+/// embeds the KaTeX assets only when it does).
+func markdownHTMLRender(_ text: String,
+                        imageResolver: ((String) -> String?)? = nil,
+                        gutter: PreviewGutterOptions = .off)
+    -> (body: String, hasMath: Bool) {
     var source = text
     var prefix = ""
     var baseOffset = 0
@@ -88,16 +108,34 @@ func markdownHTMLBody(_ text: String,
         source = ns.substring(from: baseOffset)
         lineBase = ns.substring(to: baseOffset).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
     }
-    let document = Document(parsing: source)
-    // LineIndex maps AST SourceRanges → UTF-16 offsets in `source`; baseOffset
-    // rebases them into the original document (for Preview toolbar wrap).
+    // Math is extracted BEFORE parsing: cmark would mangle TeX (`\{`/`\\`
+    // escapes, `_`/`*` emphasis). The mask is UTF-16-length-preserving, so
+    // every offset from the masked parse is valid in the original document.
+    let mathSpans = scanMathSpans(in: source)
+    let (parseSource, sentinelUnits) = maskMathSpansForParsing(source, spans: mathSpans)
+    let sourceNS = source as NSString
+    let renderMath = mathSpans.enumerated().map { idx, span in
+        HTMLMathSpan(
+            range: NSRange(location: span.range.location + baseOffset,
+                           length: span.range.length),
+            tex: sourceNS.substring(with: span.innerRange),
+            display: span.display,
+            units: sentinelUnits[idx])
+    }
+    let document = Document(parsing: parseSource)
+    // LineIndex maps AST SourceRanges → UTF-16 offsets in the parsed string;
+    // it MUST be built from `parseSource` (cmark columns are UTF-8 bytes of
+    // what it parsed; the sentinel is 3 bytes vs the original chars). The
+    // resulting UTF-16 offsets are valid in the original document. baseOffset
+    // rebases them past stripped frontmatter (for Preview toolbar wrap).
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
-                                  lineIdx: LineIndex(source),
+                                  lineIdx: LineIndex(parseSource),
                                   baseOffset: baseOffset,
                                   lineBase: lineBase,
-                                  gutter: gutter)
+                                  gutter: gutter,
+                                  mathSpans: renderMath)
     visitor.visit(document)
-    return prefix + visitor.result
+    return (prefix + visitor.result, !mathSpans.isEmpty)
 }
 
 /// An Obsidian-style properties table for the frontmatter block.
@@ -161,6 +199,11 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// Newlines before the parsed `source` in the original document.
     let lineBase: Int
     let gutter: PreviewGutterOptions
+    /// Document-order math spans; Text nodes carry U+E000 sentinel runs that
+    /// are consumed against these (first run of a span emits its HTML).
+    let mathSpans: [HTMLMathSpan]
+    private var mathCursor = 0
+    private var pendingMathUnits = 0
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
@@ -170,12 +213,14 @@ private struct HTMLBodyVisitor: MarkupWalker {
          lineIdx: LineIndex,
          baseOffset: Int,
          lineBase: Int = 0,
-         gutter: PreviewGutterOptions = .off) {
+         gutter: PreviewGutterOptions = .off,
+         mathSpans: [HTMLMathSpan] = []) {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
         self.baseOffset = baseOffset
         self.lineBase = lineBase
         self.gutter = gutter
+        self.mathSpans = mathSpans
     }
 
     /// UTF-16 NSRange in the original markdown for a markup node's SourceRange.
@@ -361,7 +406,60 @@ private struct HTMLBodyVisitor: MarkupWalker {
         // Tag runs with source offsets so the Preview toolbar can wrap the
         // real selection (not the first plain-text match in the file).
         let base = mdNSRange(for: text)?.location
-        result += Self.inlineDecoratedHTML(s, sourceBase: base)
+        guard !mathSpans.isEmpty, s.utf16.contains(mathSentinelUnit) else {
+            result += Self.inlineDecoratedHTML(s, sourceBase: base)
+            return
+        }
+        // Masked math: split the run into plain segments and sentinel runs.
+        let ns = s as NSString
+        var i = 0
+        while i < ns.length {
+            if ns.character(at: i) == mathSentinelUnit {
+                var j = i
+                while j < ns.length, ns.character(at: j) == mathSentinelUnit { j += 1 }
+                consumeSentinelRun(j - i)
+                i = j
+            } else {
+                var j = i
+                while j < ns.length, ns.character(at: j) != mathSentinelUnit { j += 1 }
+                let sub = ns.substring(with: NSRange(location: i, length: j - i))
+                result += Self.inlineDecoratedHTML(sub, sourceBase: base.map { $0 + i })
+                i = j
+            }
+        }
+    }
+
+    /// Sentinel-run accounting: the FIRST run of a span emits its HTML; the
+    /// remaining runs (continuation lines of a `$$` block, split by
+    /// softbreaks/paragraphs) are consumed silently against `units`.
+    private mutating func consumeSentinelRun(_ count: Int) {
+        var remaining = count
+        while remaining > 0 {
+            if pendingMathUnits > 0 {
+                let take = min(pendingMathUnits, remaining)
+                pendingMathUnits -= take
+                remaining -= take
+                continue
+            }
+            // Orphan sentinels (a document that itself contains U+E000) —
+            // nothing sane to emit.
+            guard mathCursor < mathSpans.count else { return }
+            let span = mathSpans[mathCursor]
+            mathCursor += 1
+            emitMath(span)
+            pendingMathUnits = span.units
+        }
+    }
+
+    /// `data-md-lo/hi` keep scroll/review-wash working; `data-md-code` marks
+    /// the KaTeX DOM as a selection island (rendered text ≠ source offsets),
+    /// same as rendered code. The page script replaces the escaped TeX content
+    /// with KaTeX output (`katex.render` on textContent).
+    private mutating func emitMath(_ span: HTMLMathSpan) {
+        let cls = span.display ? "math math-display" : "math math-inline"
+        result += "<span class=\"\(cls)\" data-md-lo=\"\(span.range.location)\""
+            + " data-md-hi=\"\(NSMaxRange(span.range))\" data-md-code=\"1\">"
+            + htmlEscape(span.tex) + "</span>"
     }
 
     /// Wiki-links first, then `==highlight==` in the remaining plain segments.
@@ -546,7 +644,44 @@ func previewHTMLPage(markdown: String,
                      accentColorHex: String? = nil,
                      gutter: PreviewGutterOptions = .off,
                      imageResolver: ((String) -> String?)? = nil) -> String {
-    let body = markdownHTMLBody(markdown, imageResolver: imageResolver, gutter: gutter)
+    let (body, hasMath) = markdownHTMLRender(markdown, imageResolver: imageResolver,
+                                             gutter: gutter)
+    // KaTeX is ~640 KB inline (JS + CSS with data-URI fonts) — embedded only
+    // when the document actually contains math. Without the assets the page
+    // shows raw TeX (`.math` spans keep their escaped source text).
+    let mathAssets = hasMath && KaTeXResources.isAvailable
+    let mathHead = mathAssets ? "<style>\n\(KaTeXResources.css)\n</style>" : ""
+    let mathScripts = mathAssets ? """
+    <script>
+    \(KaTeXResources.js)
+    </script>
+    <script>
+    (function () {
+        if (typeof katex === 'undefined') return;
+        document.querySelectorAll('.math').forEach(function (el) {
+            var tex = el.textContent;
+            try {
+                katex.render(tex, el, {
+                    displayMode: el.classList.contains('math-display'),
+                    throwOnError: false
+                });
+                el.classList.add('math-rendered');
+            } catch (e) {
+                el.classList.add('math-error');
+                el.textContent = tex;
+            }
+        });
+        // Rendered math changes block heights — re-place the line-number
+        // gutter now and again once the KaTeX webfonts finish loading.
+        if (window.alignLineNumberGutter) window.alignLineNumberGutter();
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(function () {
+                if (window.alignLineNumberGutter) window.alignLineNumberGutter();
+            });
+        }
+    })();
+    </script>
+    """ : ""
     let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
     let margin = columnWidth > 0 ? "0 auto" : "0"
     let bodyColor = textColorHex ?? "CanvasText"
@@ -742,6 +877,20 @@ func previewHTMLPage(markdown: String,
         padding: 1px 8px; margin: 1px 4px 1px 0; font-size: 0.92em;
     }
     .fm-empty { opacity: 0.4; }
+    /* Math ($…$ / $$…$$): KaTeX replaces the span content when its assets are
+       embedded; before/without that the span shows the raw TeX source. */
+    .math-display {
+        display: block;
+        text-align: center;
+        margin: 0.4em 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+    .math-error {
+        color: #cb2431;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.9em;
+    }
     /* D4: copy button on code / quote (hover) */
     .copy-host { position: relative; }
     .copy-block-btn {
@@ -780,6 +929,7 @@ func previewHTMLPage(markdown: String,
         .yaml-punct { color: #8b949e; }
     }
     \(elementCSS)</style>
+    \(mathHead)
     </head>
     <body\(bodyGutterClass)>
     \(body)
@@ -949,6 +1099,7 @@ func previewHTMLPage(markdown: String,
         document.querySelectorAll('pre, blockquote').forEach(attach);
     })();
     </script>
+    \(mathScripts)
     </body>
     </html>
     """

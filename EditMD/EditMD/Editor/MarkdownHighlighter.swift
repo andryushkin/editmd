@@ -94,6 +94,8 @@ struct Span {
         case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
         case wikiLink(payload: MDWikiLinkPayload)  // inner content of a [[...]] wiki-link
         case wikiLinkSyntax                        // the `[[` and `]]` brackets
+        case mathBody(display: Bool)               // TeX between $…$ / $$…$$
+        case mathMarker                            // the $ / $$ delimiters
     }
     var range: NSRange
     var kind: Kind
@@ -458,5 +460,19 @@ func collectSpans(_ text: String) -> [Span] {
     let document = Document(parsing: text)
     var collector = SpanCollector(text: text, lineIdx: lineIdx)
     collector.visit(document)
-    return collector.spans
+    var spans = collector.spans
+    // Math ($…$ / $$…$$) is not in the AST — a document-level post-scan, like
+    // wiki-links but cross-node (a $$ block spans lines). scanMathSpans skips
+    // code itself; appended last so the wash wins over emphasis colors inside.
+    for m in scanMathSpans(in: text) {
+        let d = m.display ? 2 : 1
+        spans.append(Span(range: NSRange(location: m.range.location, length: d),
+                          kind: .mathMarker))
+        if m.innerRange.length > 0 {
+            spans.append(Span(range: m.innerRange, kind: .mathBody(display: m.display)))
+        }
+        spans.append(Span(range: NSRange(location: NSMaxRange(m.range) - d, length: d),
+                          kind: .mathMarker))
+    }
+    return spans
 }

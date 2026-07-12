@@ -91,6 +91,10 @@ extension NSAttributedString.Key {
     static let mdLink   = NSAttributedString.Key("md.link")    // String destination
     static let mdImage  = NSAttributedString.Key("md.image")   // [String: String] src/alt/title
     static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
+    /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. The run text
+    /// is the VERBATIM source including delimiters; the serializer re-emits it
+    /// without markdown escaping (cheap NSNumber value — v29 hash invariant).
+    static let mdMath = NSAttributedString.Key("md.math")
 }
 
 /// Intra-paragraph hard line break (markdown "  \n" / "\<newline>").
@@ -566,26 +570,50 @@ private final class VisualRenderer {
             return
         }
         let source = nsSource.substring(with: NSRange(location: loc, length: end - loc))
-        let matches = scanWikiLinks(in: source)
-        guard !matches.isEmpty else {
+        let wikiMatches = scanWikiLinks(in: source)
+        // Math on the same source slice: `$…$` (and same-line `$$…$$`) become
+        // VERBATIM runs carrying `.mdMath` — delimiters stay visible, and the
+        // serializer re-emits the text unescaped, so `$\frac{a}{b}$` survives
+        // the Visual round-trip. Multiline `$$` blocks span several Text
+        // nodes and stay plain text here (Preview still renders them).
+        let mathMatches = scanMathSpans(in: source)
+        guard !wikiMatches.isEmpty || !mathMatches.isEmpty else {
             appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
             return
         }
-        // Wiki present: split source for wiki ranges; plain gaps use source
+        // Matches present: split source by match ranges; plain gaps use source
         // substrings (pre-existing wiki path). Highlights still run on gaps.
+        // Document order; on overlap ($ inside [[…]] etc.) the earlier wins.
+        enum SourcePiece {
+            case wiki(WikiLinkMatch)
+            case math(MDMathSpan)
+        }
+        var pieces: [(range: NSRange, piece: SourcePiece)] =
+            wikiMatches.map { ($0.range, .wiki($0)) }
+            + mathMatches.map { ($0.range, .math($0)) }
+        pieces.sort { $0.range.location < $1.range.location }
         let ns = source as NSString
         var cursor = 0
-        for m in matches {
-            if m.range.location > cursor {
+        for (range, piece) in pieces {
+            guard range.location >= cursor else { continue }
+            if range.location > cursor {
                 appendTextWithHighlights(
                     ns.substring(with: NSRange(location: cursor,
-                                               length: m.range.location - cursor)),
+                                               length: range.location - cursor)),
                     block: block, styles: styles, link: link)
             }
             var attrs = baseAttributes(block: block, styles: styles, link: link)
-            attrs[.mdWikiLink] = m.payload
-            out.append(NSAttributedString(string: m.payload.displayText, attributes: attrs))
-            cursor = NSMaxRange(m.range)
+            switch piece {
+            case .wiki(let m):
+                attrs[.mdWikiLink] = m.payload
+                out.append(NSAttributedString(string: m.payload.displayText,
+                                              attributes: attrs))
+            case .math(let m):
+                attrs[.mdMath] = m.display ? 1 : 0
+                out.append(NSAttributedString(string: ns.substring(with: range),
+                                              attributes: attrs))
+            }
+            cursor = NSMaxRange(range)
         }
         if cursor < ns.length {
             appendTextWithHighlights(

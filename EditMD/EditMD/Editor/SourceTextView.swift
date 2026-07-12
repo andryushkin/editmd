@@ -859,6 +859,12 @@ struct SourceTextView: NSViewRepresentable {
                                          value: els.link.color ?? theme.accentColor, range: span.range)
                 case .wikiLinkSyntax:
                     storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
+                case .mathBody:
+                    storage.addAttribute(.foregroundColor,
+                                         value: els.inlineCode.color ?? theme.inlineCodeColor,
+                                         range: span.range)
+                case .mathMarker:
+                    storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
                 default:
                     break
                 }
@@ -1110,6 +1116,12 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
             storage.addAttribute(.foregroundColor,
                                  value: els.link.color ?? theme.accentColor, range: span.range)
         case .wikiLinkSyntax:
+            storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
+        case .mathBody:
+            storage.addAttribute(.foregroundColor,
+                                 value: els.inlineCode.color ?? theme.inlineCodeColor,
+                                 range: span.range)
+        case .mathMarker:
             storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
         default:
             break

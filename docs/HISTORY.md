@@ -914,3 +914,22 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Delimiter-строка в Source (line 1)**: операции строк задизейблены, столбцов — работают; `bodyIndex` для неё nil, «Строка ниже» вставляет body-строку с индексом 0.
 - **Grip-зона** — 22pt слева от левого края таблицы; у island при горизонтальном скролле уезжает вместе с краем (offset > 0 → ручка может скрыться).
 - **Hover-хит нативной строки** идёт через nearest-glyph: точка в жёлобе мапится на ближайший глиф строки — попадание подтверждается `zone.contains(point)`, иначе ручка просто не показывается.
+
+## Формулы-спринт (после pdf-спринта) — $…$ / $$…$$ с KaTeX в Preview
+
+Отображение LaTeX-формул: `$inline$` и `$$display$$` через все три режима. Preview — настоящий рендер (KaTeX, офлайн), Source/Visual — подсветка сырого TeX.
+
+- **`MathScan.swift`** — чистый сканер `scanMathSpans(in:)` (UTF-16, NSString): inline `$…$` (opener не перед пробелом, closer не после пробела и не перед цифрой — валютный гард `$20 и $30`), display `$$…$$` (однострочный — где угодно; многострочный — только если `$$` открывает строку и внутри нет `>`-строк, иначе маска сломала бы blockquote). Код пропускается: fenced (```/~~~), indented (4+ пробела вне параграфа), однострочные `` `код` ``. `\$` не открывает/не закрывает.
+- **Маскированный парс в Preview** (`maskMathSpansForParsing`): содержимое спанов заменяется U+E000 (PUA) **юнит-в-юнит** — UTF-16-длина и позиции переводов строк сохраняются, поэтому все оффсеты из парса маскированного текста валидны в оригинале (`data-md-lo/hi`, gutter `data-ln`). cmark не видит TeX → `\frac`/`_`/`*`/`\\` не калечатся. Ведущие пробелы строк внутри спана не маскируются (вложенность списков живёт). `LineIndex` строится от **маскированного** текста (колонки cmark = UTF-8 байты того, что он парсил; сентинел 3 байта).
+- **`HTMLBodyVisitor`**: `visitText` режет ран на плain-сегменты и сентинел-раны; учёт по счётчику юнитов (`HTMLMathSpan.units`) — первый ран спана эмитит `<span class="math math-inline|math-display" data-md-lo/hi data-md-code="1">TeX</span>`, хвосты (многострочный `$$` разрезан softbreak'ами) поглощаются молча. `data-md-code="1"` = selection-остров (как рендеренный код), wash ревью-меток по `data-md-lo` работает.
+- **KaTeX офлайн** (`Resources/katex/` + `KaTeXResources.swift`): katex.min.js 0.16.22 (277KB) + katex.css с woff2-шрифтами как data-URI (367KB, собран из npm-дистрибутива). Страница грузится `loadHTMLString(baseURL: nil)` — внешние файлы недоступны, поэтому всё инлайном, и **только когда формулы есть** (`markdownHTMLRender` → `hasMath`). Рендер-скрипт: `katex.render(textContent, el, {throwOnError:false})` + повторный `alignLineNumberGutter()` после рендера и `document.fonts.ready`. Без ассетов — graceful: виден сырой TeX.
+- **Source**: пост-скан в `collectSpans` → `.mathBody(display:)` (цвет `els.inlineCode.color ?? theme.inlineCodeColor`) + `.mathMarker` (secondary) — в обоих аппликаторах (Coordinator + `makeSourceHighlightedString`).
+- **Visual**: в `appendTextWithWikiLinks` math-матчи слиты с wiki-матчами (сорт по позиции, при оверлапе побеждает ранний); math-ран = **вербатим source-слайс с видимыми `$`** + атрибут `.mdMath` (Int 0/1 — дёшево хешируется, v29). Сериализатор эмитит `.mdMath`-раны без эскейпа — чинит доспринтовую порчу `$\frac{a}{b}$` → `$\\frac{a}{b}$` при round-trip. Презентация тонирует как inline-code (без фоновой плашки). Кнопка ∫ (function) в strip — теперь меню «Встроенная/Блочная формула»: вставка `$…$`/`$$…$$` с `.mdMath` и выделением TeX-тела (заглушка-алерт удалена).
+- **Тесты:** +18 `MathScanTests` (сканер/гарды/маска, всего 691) + 8 math-кейсов в `MarkdownHTMLTests` + 3 round-trip фикстуры.
+
+### Формулы-спринт — gotchas
+
+- **xcodegen плющит Resources в корень бандла** — `Resources/katex/katex.css` лежит как `Contents/Resources/katex.css`; `KaTeXResources.load` пробует subdirectory и падает на корень.
+- **Многострочный `$$`-блок в Visual остаётся plain text** (спан не влезает в один Text-узел) — редактирование такого документа в Visual по-прежнему может манглить бэкслэши при сериализации (доспринтовое поведение); Preview рендерит корректно.
+- **Многострочный `$$` в blockquote не поддержан** (сканер отказывает — маска съела бы `>`); однострочные формы работают везде, включая таблицы и заголовки.
+- **Сентинел-учёт полагается на документ-порядок** Text-узлов; документ, сам содержащий U+E000, may съесть спан (guard: молча ничего не эмитим, не падаем).

@@ -237,4 +237,71 @@ final class MarkdownHTMLTests: XCTestCase {
         // "# Hello" is line 5 in the original file
         XCTAssertTrue(html.contains("<h1") && html.contains("data-ln=\"5\""), html)
     }
+
+    // MARK: - Math (formulas sprint)
+
+    func testInlineMathKeepsVerbatimTeX() {
+        // `_` and `\f` would be mangled by a plain cmark parse — the masked
+        // parse must deliver the TeX untouched.
+        let (html, hasMath) = markdownHTMLRender("Формула $a_i + \\frac{x}{y}$ в тексте")
+        XCTAssertTrue(hasMath)
+        XCTAssertTrue(html.contains("class=\"math math-inline\""), html)
+        XCTAssertTrue(html.contains("a_i + \\frac{x}{y}"), html)
+        XCTAssertFalse(html.contains("<em>"), html)
+        XCTAssertFalse(html.contains("\u{E000}"), html)
+    }
+
+    func testMathSpanCarriesSourceOffsetsAndIslandFlag() {
+        let (html, _) = markdownHTMLRender("ab $x$ cd")
+        XCTAssertTrue(html.contains("data-md-lo=\"3\""), html)
+        XCTAssertTrue(html.contains("data-md-hi=\"6\""), html)
+        XCTAssertTrue(html.contains("data-md-code=\"1\""), html)
+        // Trailing text keeps its own source offset after the masked span.
+        XCTAssertTrue(html.contains("data-md-lo=\"6\""), html)
+    }
+
+    func testDisplayMathBlock() {
+        let (html, hasMath) = markdownHTMLRender("$$\nE = mc^2\n$$")
+        XCTAssertTrue(hasMath)
+        XCTAssertTrue(html.contains("class=\"math math-display\""), html)
+        XCTAssertTrue(html.contains("E = mc^2"), html)
+        XCTAssertFalse(html.contains("\u{E000}"), html)
+    }
+
+    func testCurrencyDollarsAreNotMath() {
+        let (html, hasMath) = markdownHTMLRender("цены $20 и $30 за штуку")
+        XCTAssertFalse(hasMath)
+        XCTAssertFalse(html.contains("class=\"math"), html)
+        XCTAssertTrue(html.contains("$20 и $30"), html)
+    }
+
+    func testMathInsideCodeStaysLiteral() {
+        let (html, hasMath) = markdownHTMLRender("```\n$x+y$\n```")
+        XCTAssertFalse(hasMath)
+        XCTAssertTrue(html.contains("$x+y$"), html)
+    }
+
+    func testMathTeXContentIsHTMLEscaped() {
+        let (html, _) = markdownHTMLRender("$a < b$")
+        XCTAssertTrue(html.contains("a &lt; b"), html)
+        XCTAssertFalse(html.contains("<b$"), html)
+    }
+
+    func testMathAfterFrontmatterKeepsOffsets() {
+        let md = "---\ntitle: x\n---\n$a$"
+        let (html, hasMath) = markdownHTMLRender(md)
+        XCTAssertTrue(hasMath)
+        let loc = (md as NSString).range(of: "$a$").location
+        XCTAssertTrue(html.contains("data-md-lo=\"\(loc)\""), html)
+    }
+
+    func testPreviewPageEmbedsKaTeXOnlyForMath() {
+        let with = previewHTMLPage(markdown: "$x$", fontSize: 15)
+        let without = previewHTMLPage(markdown: "plain text", fontSize: 15)
+        XCTAssertFalse(without.contains("katex"), "KaTeX embedded without math")
+        XCTAssertTrue(with.contains("class=\"math math-inline\""))
+        if KaTeXResources.isAvailable {
+            XCTAssertTrue(with.contains("katex.render"))
+        }
+    }
 }

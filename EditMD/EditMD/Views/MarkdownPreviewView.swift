@@ -395,7 +395,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
             actions.insertTable = nil
             actions.tableAddRow = nil
             actions.tableDeleteRow = nil
-            actions.formulaStub = nil
+            actions.insertInlineFormula = nil
+            actions.insertBlockFormula = nil
         }
 
         @objc func settingsDidChange() {

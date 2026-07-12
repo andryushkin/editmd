@@ -261,6 +261,8 @@ private struct InlineRun {
     var link: String?
     var image: [String: String]?
     var wikiLink: MDWikiLinkPayload?
+    /// Math run (`.mdMath`): the text is verbatim source incl. `$` delimiters.
+    var isMath: Bool = false
 }
 
 private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
@@ -275,7 +277,8 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             styles: MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0),
             link: attrs[.mdLink] as? String,
             image: attrs[.mdImage] as? [String: String],
-            wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload))
+            wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload,
+            isMath: attrs[.mdMath] != nil))
     }
 
     // Autolink: a whole-paragraph unstyled link whose text equals its
@@ -334,6 +337,10 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             // Emitted after marker management so an image inside a link keeps
             // its enclosing [..](..) wrapper.
             result += imageMarkdown(image)
+        } else if run.isMath {
+            // Verbatim TeX incl. delimiters — escaping would corrupt it
+            // (`\frac` → `\\frac`, `_` → `\_`).
+            result += run.text
         } else if run.styles.contains(.code) {
             result += codeSpan(run.text)
         } else if run.styles.contains(.rawHTML) {

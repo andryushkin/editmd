@@ -52,8 +52,9 @@ struct FormatActions {
     var insertTable: (() -> Void)? = nil
     var tableAddRow: (() -> Void)? = nil
     var tableDeleteRow: (() -> Void)? = nil
-    /// Placeholder for future math/formula editing (Visual).
-    var formulaStub: (() -> Void)? = nil
+    /// Insert `$…$` / `$$…$$` templates at the caret (Visual).
+    var insertInlineFormula: (() -> Void)? = nil
+    var insertBlockFormula: (() -> Void)? = nil
 }
 
 /// Save/Save As (+ git commit/push) for the focused window's document.
