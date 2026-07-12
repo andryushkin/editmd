@@ -43,6 +43,39 @@ struct TableGrid: Equatable {
         rows.remove(at: bodyIndex)
         return true
     }
+
+    mutating func insertColumn(at index: Int) {
+        let idx = max(0, min(index, columnCount))
+        headers.insert("", at: idx)
+        alignments.insert(.leading, at: min(idx, alignments.count))
+        for i in rows.indices {
+            rows[i].insert("", at: min(idx, rows[i].count))
+        }
+    }
+
+    /// Keeps at least one column — a zero-column pipe table is not a table.
+    @discardableResult
+    mutating func deleteColumn(at index: Int) -> Bool {
+        guard columnCount > 1, index >= 0, index < columnCount else { return false }
+        headers.remove(at: index)
+        if index < alignments.count { alignments.remove(at: index) }
+        for i in rows.indices where index < rows[i].count {
+            rows[i].remove(at: index)
+        }
+        return true
+    }
+
+    /// Moves a body row to an insertion gap (0…rows.count, indices in the
+    /// CURRENT array). Gaps `from` and `from + 1` are both no-ops — they
+    /// bracket the row itself.
+    @discardableResult
+    mutating func moveRow(from: Int, toGap gap: Int) -> Bool {
+        guard from >= 0, from < rows.count, gap >= 0, gap <= rows.count,
+              gap != from, gap != from + 1 else { return false }
+        let row = rows.remove(at: from)
+        rows.insert(row, at: gap > from ? gap - 1 : gap)
+        return true
+    }
 }
 
 /// Parses the verbatim text of a `.raw` island as a GFM pipe table. Returns
@@ -156,7 +189,7 @@ func splitTableRow(_ line: String) -> [String] {
 
 /// A delimiter row's cells are each `-`+ optionally wrapped by `:` (`:--`, `:-:`,
 /// `--:`, `---`). Requires at least one cell and rejects anything else.
-private func isTableDelimiterRow(_ line: String) -> Bool {
+func isTableDelimiterRow(_ line: String) -> Bool {
     let cells = splitTableRow(line)
     guard !cells.isEmpty else { return false }
     for cell in cells {
@@ -275,4 +308,87 @@ private func unescapedPipePositions(_ ns: NSString, in range: NSRange) -> [Int] 
 
 private func hasUnescapedPipe(_ ns: NSString, in range: NSRange) -> Bool {
     !unescapedPipePositions(ns, in: range).isEmpty
+}
+
+// MARK: - Cursor-relative table context (Source mode row/column ops)
+
+/// A GFM pipe table located around a text offset, with the cursor's position
+/// inside it. `line` counts physical table lines: 0 = header, 1 = delimiter,
+/// ≥2 = body. Replacing `tableRange` with `serializeGFMTable(grid)` after a
+/// grid mutation is the whole edit — canonical reformatting is intentional.
+struct SourceTableContext {
+    /// Full table text, first line start to last line end (no trailing \n).
+    let tableRange: NSRange
+    let grid: TableGrid
+    let line: Int
+    let column: Int
+
+    /// Body-row index for `line`, nil on the header/delimiter lines.
+    var bodyIndex: Int? { line >= 2 ? line - 2 : nil }
+}
+
+/// Finds the pipe table containing `offset` (same detection rules as
+/// `scanSourceTables`: a header line with an unescaped pipe, a `---` delimiter
+/// line, then body lines that keep pipes until a blank line). Local scan around
+/// the offset — never walks the whole document.
+func sourceTableContext(in text: String, at offset: Int) -> SourceTableContext? {
+    let ns = text as NSString
+    guard ns.length > 0 else { return nil }
+    let clamped = max(0, min(offset, ns.length))
+
+    func lineRange(at location: Int) -> NSRange {
+        var start = 0, contentEnd = 0
+        ns.getLineStart(&start, end: nil, contentsEnd: &contentEnd,
+                        for: NSRange(location: min(location, ns.length), length: 0))
+        return NSRange(location: start, length: contentEnd - start)
+    }
+    func isTableLine(_ range: NSRange) -> Bool {
+        guard !unescapedPipePositions(ns, in: range).isEmpty else { return false }
+        return !ns.substring(with: range).trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    let cursorLine = lineRange(at: clamped)
+    guard isTableLine(cursorLine) else { return nil }
+
+    // Walk up to the run's first table-looking line.
+    var lines: [NSRange] = [cursorLine]
+    while lines[0].location > 0 {
+        let previous = lineRange(at: lines[0].location - 1)
+        guard isTableLine(previous) else { break }
+        lines.insert(previous, at: 0)
+    }
+    // Walk down to the run's last table-looking line.
+    while true {
+        let end = NSMaxRange(lines[lines.count - 1])
+        guard end < ns.length else { break }
+        // Skip the newline; a second newline (blank line) ends the run.
+        let next = lineRange(at: end + 1)
+        guard next.location > end, isTableLine(next) else { break }
+        lines.append(next)
+    }
+
+    // The table starts at the line whose successor is the delimiter row —
+    // stray pipe-containing prose above the header is not part of the table.
+    guard let headerIdx = lines.indices.dropLast().first(where: {
+        isTableDelimiterRow(ns.substring(with: lines[$0 + 1]))
+    }) else { return nil }
+    let tableLines = Array(lines[headerIdx...])
+    let cursorIdx = tableLines.firstIndex { NSLocationInRange(clamped, $0) || NSMaxRange($0) == clamped }
+    guard let cursorIdx else { return nil }
+
+    let tableRange = NSRange(location: tableLines[0].location,
+                             length: NSMaxRange(tableLines[tableLines.count - 1]) - tableLines[0].location)
+    guard let grid = parseGFMTable(ns.substring(with: tableRange)) else { return nil }
+
+    // Column = unescaped pipes strictly before the cursor on its line, minus
+    // the border pipe when the row starts with one.
+    let cursorLineRange = tableLines[cursorIdx]
+    let pipes = unescapedPipePositions(ns, in: cursorLineRange)
+    let before = pipes.filter { $0 < clamped }.count
+    let hasLeadingPipe = ns.substring(with: cursorLineRange)
+        .trimmingCharacters(in: .whitespaces).hasPrefix("|")
+    let column = max(0, min(before - (hasLeadingPipe ? 1 : 0), grid.columnCount - 1))
+
+    return SourceTableContext(tableRange: tableRange, grid: grid,
+                              line: cursorIdx, column: column)
 }

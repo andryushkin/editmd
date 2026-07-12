@@ -119,7 +119,7 @@ extension VisualMarkdownView.Coordinator {
     private func insertDivider() {
         guard let textView, let storage = textView.textStorage else { return }
         let md = "\n\n---\n\n"
-        let rendered = renderMarkdownToAttributed(md, style: visualStyle)
+        let rendered = renderForInsertion(md, into: storage)
         let selection = textView.selectedRange()
         guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
         else { return }
@@ -157,7 +157,7 @@ extension VisualMarkdownView.Coordinator {
         |   |   |   |
 
         """
-        let rendered = renderMarkdownToAttributed(md, style: visualStyle)
+        let rendered = renderForInsertion(md, into: storage)
         let selection = textView.selectedRange()
         guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
         else { return }
@@ -170,16 +170,14 @@ extension VisualMarkdownView.Coordinator {
 
     private func tableAddRowAtCursor() {
         guard let textView, let storage = textView.textStorage else { return }
-        let paragraph = paragraphRange(at: textView.selectedRange().location,
-                                       in: storage.string as NSString)
-        let current = block(at: paragraph, in: storage)
-        if case .tableCell = current.kind {
-            if let newRow = appendTableRow(group: current.group) {
-                moveCursor(toCell: (newRow, 0), group: current.group)
-            }
+        let caret = textView.selectedRange().location
+        // Native table: insert below the cursor's row (cursor follows).
+        if let target = nativeTableTarget(atCharIndex: caret),
+           performTableOp(.insertRowBelow, on: target) {
             return
         }
-        // Large-table island: append a body row.
+        // Large-table island: append a body row (no caret inside islands).
+        let paragraph = paragraphRange(at: caret, in: storage.string as NSString)
         if let island = tableIsland(at: paragraph.location) {
             let at = island.grid.rows.count
             if insertTableIslandRow(paragraphLocation: paragraph.location, atBodyIndex: at) {
@@ -191,13 +189,13 @@ extension VisualMarkdownView.Coordinator {
 
     private func tableDeleteRowAtCursor() {
         guard let textView, let storage = textView.textStorage else { return }
-        let paragraph = paragraphRange(at: textView.selectedRange().location,
-                                       in: storage.string as NSString)
-        let current = block(at: paragraph, in: storage)
-        if case .tableCell(let row, _, _, _) = current.kind {
-            deleteTableRow(row, group: current.group)
+        let caret = textView.selectedRange().location
+        // Native table: delete the cursor's row (header stays).
+        if let target = nativeTableTarget(atCharIndex: caret) {
+            if !performTableOp(.deleteRow, on: target) { NSSound.beep() }
             return
         }
+        let paragraph = paragraphRange(at: caret, in: storage.string as NSString)
         if let island = tableIsland(at: paragraph.location), !island.grid.rows.isEmpty {
             let last = island.grid.rows.count - 1
             if deleteTableIslandRow(paragraphLocation: paragraph.location, atBodyIndex: last) {

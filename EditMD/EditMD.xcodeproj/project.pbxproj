@@ -43,6 +43,7 @@
 		46F16BFCEE41796A3DAC0568 /* KitchenSink.md in Resources */ = {isa = PBXBuildFile; fileRef = E376139687B7CCA83695B07F /* KitchenSink.md */; };
 		4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */; };
 		515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */; };
+		52198EC7AF2A09DC135DC864 /* VisualCoordinatorTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */; };
 		53FAFC3933BC24E2EADF3207 /* EditorToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB851CD26B911D4370D78D4C /* EditorToolbar.swift */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
@@ -85,6 +86,7 @@
 		C106C0911196133FE31E1962 /* WikiLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */; };
 		C35B91E1B819952B68AB3C3D /* ClaudeIDEToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */; };
 		C6F637E34B80A58ECDDF7D7F /* ControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9917191640BDEC49A4A21EBD /* ControlProtocol.swift */; };
+		CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */; };
 		CC5DCB8C753404B2696E4CB0 /* ClaudeIDEBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31548F0C4231C7F51D2F326 /* ClaudeIDEBridge.swift */; };
 		CEE95797B45754B164DD2E4A /* MarkdownOutlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37CE31BE8D22A8531D232CB8 /* MarkdownOutlineTests.swift */; };
 		D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */; };
@@ -104,6 +106,7 @@
 		EB1794B535F9012AA920A33C /* GitUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57F65113867F0DDDF47D9686 /* GitUI.swift */; };
 		EB3CCCB901409C444B32A78D /* ClaudeIDEServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */; };
 		F01D7B266D913201DAA10D4E /* EditorActionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA09CFB97A06931314CAEC0 /* EditorActionStrip.swift */; };
+		F36452C46E6391BD0D8D3D3C /* TableClipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */; };
 		F3B77F354F484E4A6F73901D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053F962514802B8D344BB744 /* main.swift */; };
 		F7BFA4AE1F75E6FAA9D862D6 /* ReviewQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218590314138A42580FA6D8 /* ReviewQueue.swift */; };
 		FC3186EAE0C45CF6A7A4EFAC /* MarkdownHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */; };
@@ -126,6 +129,7 @@
 		0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorPresentation.swift; sourceTree = "<group>"; };
 		053F962514802B8D344BB744 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableGrid.swift; sourceTree = "<group>"; };
+		0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableEditingTests.swift; sourceTree = "<group>"; };
 		0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
 		0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipSupport.swift; sourceTree = "<group>"; };
 		20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownToAttributed.swift; sourceTree = "<group>"; };
@@ -133,6 +137,7 @@
 		299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedValues.swift; sourceTree = "<group>"; };
 		336FFD4A0B5057982542467A /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
 		37CE31BE8D22A8531D232CB8 /* MarkdownOutlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownOutlineTests.swift; sourceTree = "<group>"; };
+		382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorTable.swift; sourceTree = "<group>"; };
 		3A6510639C139A366128A045 /* WorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceModel.swift; sourceTree = "<group>"; };
 		3AD04FD106876FC81FD7E786 /* ControlChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlChannelTests.swift; sourceTree = "<group>"; };
 		3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceModelTests.swift; sourceTree = "<group>"; };
@@ -152,7 +157,7 @@
 		683585ED84041D652B804F1F /* IDELockFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFileTests.swift; sourceTree = "<group>"; };
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
 		6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTML.swift; sourceTree = "<group>"; };
-		6CD98340498DA61A5DE1B2C9 /* editmdctl */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = editmdctl; sourceTree = BUILT_PRODUCTS_DIR; };
+		6CD98340498DA61A5DE1B2C9 /* editmdctl */ = {isa = PBXFileReference; includeInIndex = 0; path = editmdctl; sourceTree = BUILT_PRODUCTS_DIR; };
 		703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpersTests.swift; sourceTree = "<group>"; };
 		712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeDocumentTests.swift; sourceTree = "<group>"; };
 		73443608878228D727F6A239 /* MarkdownHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighter.swift; sourceTree = "<group>"; };
@@ -215,6 +220,7 @@
 		E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEToolsTests.swift; sourceTree = "<group>"; };
 		EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCommitWatcher.swift; sourceTree = "<group>"; };
 		EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServer.swift; sourceTree = "<group>"; };
+		ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableClipboard.swift; sourceTree = "<group>"; };
 		F218590314138A42580FA6D8 /* ReviewQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewQueue.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 		F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeUI.swift; sourceTree = "<group>"; };
@@ -296,9 +302,11 @@
 				FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */,
 				F218590314138A42580FA6D8 /* ReviewQueue.swift */,
 				F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */,
+				ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */,
 				B07A13AEA492FEA0C2B1942F /* TextDiff.swift */,
 				C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */,
 				0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */,
+				382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */,
 				B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */,
 				4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */,
 				A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */,
@@ -430,6 +438,7 @@
 				557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */,
 				A11113E961095021DD99965B /* ReviewMarksTests.swift */,
 				902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */,
+				0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */,
 				749088093E0AF04AA2B75E48 /* TextDiffTests.swift */,
 				DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */,
 				7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */,
@@ -517,7 +526,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2660;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A83F4158108B6E92D2C81AB7 = {
 						DevelopmentTeam = "";
@@ -589,6 +598,7 @@
 				84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */,
 				8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */,
 				33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */,
+				CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */,
 				9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */,
 				173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */,
 				D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */,
@@ -656,11 +666,13 @@
 				38A47C74B7F33C780835BC54 /* SidebarRows.swift in Sources */,
 				E766B8DC9A8DCFF0048B5748 /* SkillInstaller.swift in Sources */,
 				3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */,
+				F36452C46E6391BD0D8D3D3C /* TableClipboard.swift in Sources */,
 				7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */,
 				9DE7A630C9EC839C33AD8147 /* TextDiff.swift in Sources */,
 				99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */,
 				D94A6524993EEBECE6CEBE28 /* VisualCoordinatorFormat.swift in Sources */,
 				42505A20070C47BBC76F9974 /* VisualCoordinatorPresentation.swift in Sources */,
+				52198EC7AF2A09DC135DC864 /* VisualCoordinatorTable.swift in Sources */,
 				083C1DB0AA424C13903004D3 /* VisualNSTextView.swift in Sources */,
 				88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */,
 				DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */,
@@ -697,7 +709,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -717,7 +728,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -737,7 +747,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -757,7 +766,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -788,11 +796,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -806,7 +812,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -817,7 +822,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -848,11 +852,9 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -873,7 +875,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -887,7 +888,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 381;
-				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -910,7 +910,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -932,7 +931,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 381;
-				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;

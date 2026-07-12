@@ -279,9 +279,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// setAttributedString during (re)load resets the selection; the
         /// callback must not clobber the cross-mode cursor store.
         private var isLoadingDocument = false
-        /// Row append / row delete restructure tables legally — bypass the
-        /// cell-integrity guard in shouldChangeTextIn.
-        private var isProgrammaticTableEdit = false
+        /// Row append / row delete / table rebuild restructure tables legally —
+        /// bypass the cell-integrity guard in shouldChangeTextIn.
+        var isProgrammaticTableEdit = false
         /// Display-paragraph → markdown-range map from the last serialization.
         private var lastParagraphRanges: [NSRange] = []
         /// One NSTextAttachment per image source — reused across presentation
@@ -755,14 +755,14 @@ struct VisualMarkdownView: NSViewRepresentable {
             updateStats()
         }
 
-        /// Visual paste keeps ordinary clipboard text plain, but converts
-        /// recognizable Markdown through the same semantic renderer used when
-        /// opening a document. Returning false lets NSTextView use its existing
-        /// plain-text fallback.
+        /// Visual paste: a clipboard table (HTML from web/Word/Excel, or TSV)
+        /// becomes a real table; recognizable Markdown renders through the same
+        /// semantic renderer used when opening a document; everything else
+        /// keeps NSTextView's plain-text fallback (return false).
         func pasteMarkdownFromPasteboard() -> Bool {
-            guard let textView, let storage = textView.textStorage,
-                  let markdown = NSPasteboard.general.string(forType: .string)
-            else { return false }
+            guard let textView, let storage = textView.textStorage else { return false }
+            let pasteboard = NSPasteboard.general
+            let plain = pasteboard.string(forType: .string)
             let selection = textView.selectedRange()
             let blockKind: MDBlock.Kind
             if storage.length > 0 {
@@ -772,8 +772,22 @@ struct VisualMarkdownView: NSViewRepresentable {
             } else {
                 blockKind = .paragraph
             }
-            guard shouldFormatVisualPaste(markdown, in: blockKind) else { return false }
-            let rendered = renderMarkdownToAttributed(markdown, style: visualStyle)
+            // Table cells are single-line — structured payloads can't land
+            // there; the plain path pastes what fits.
+            if case .tableCell = blockKind { return false }
+
+            var markdown: String?
+            if case .codeBlock = blockKind {
+                markdown = nil   // literal context: keep every marker as text
+            } else {
+                markdown = markdownTableFromPasteboard(
+                    html: pasteboard.string(forType: .html), plain: plain)
+            }
+            if markdown == nil, let plain, shouldFormatVisualPaste(plain, in: blockKind) {
+                markdown = plain
+            }
+            guard let markdown else { return false }
+            let rendered = renderForInsertion(markdown, into: storage)
             guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
             else { return true }
             isMutating = true
@@ -789,7 +803,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         // MARK: Tables
 
         /// All cell paragraphs of a table, in document order.
-        private func tableCells(group: Int, in storage: NSTextStorage)
+        func tableCells(group: Int, in storage: NSTextStorage)
             -> [(row: Int, column: Int, columns: Int, alignment: Int, range: NSRange)] {
             let nsText = storage.string as NSString
             var cells: [(Int, Int, Int, Int, NSRange)] = []
@@ -807,7 +821,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             return cells
         }
 
-        private func tableRange(group: Int, in storage: NSTextStorage) -> NSRange {
+        func tableRange(group: Int, in storage: NSTextStorage) -> NSRange {
             let cells = tableCells(group: group, in: storage)
             guard let first = cells.first, let last = cells.last else {
                 return NSRange(location: 0, length: 0)
@@ -833,7 +847,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             return lines.joined(separator: mdHardBreak)
         }
 
-        private func replaceTableIsland(paragraph: NSRange, oldBlock: MDBlock, grid: TableGrid) -> Bool {
+        func replaceTableIsland(paragraph: NSRange, oldBlock: MDBlock, grid: TableGrid) -> Bool {
             guard let textView, let storage = textView.textStorage else { return false }
             var block = oldBlock
             block.kind = .raw(serializeGFMTable(grid))

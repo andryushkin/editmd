@@ -76,7 +76,12 @@ final class VisualNSTextView: NSTextView {
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
     var tableIslandEntries: [TableIslandEntry] = [] {
-        didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
+        didSet {
+            tableCellAttrCache.removeAll(keepingCapacity: true)
+            // Reassigned by every presentation pass — cheap proxy for "text
+            // or layout changed", which also invalidates cached row frames.
+            nativeRowFrameCache.removeAll(keepingCapacity: true)
+        }
     }
     var propertiesPanelRanges: [NSRange] = []
     private var islandHorizontalOffsets: [Int: CGFloat] = [:]
@@ -86,6 +91,22 @@ final class VisualNSTextView: NSTextView {
     /// Cache of rendered cell attributed strings for the current island set
     /// (invalidated when `tableIslandEntries` is reassigned).
     private var tableCellAttrCache: [String: NSAttributedString] = [:]
+    /// Native table row frames ("group:row" → view rect) for the grip gutter —
+    /// recomputing on every mouseMoved would walk the whole storage.
+    private var nativeRowFrameCache: [String: NSRect] = [:]
+    /// Context-menu table ops (items reference `menuTableOps` by tag).
+    private var menuTableTarget: TableTarget?
+    private var menuTableOps: [TableStructureOp] = []
+    /// Live row drag-reorder session (grip in the left gutter of body rows).
+    private struct RowDragSession {
+        let target: TableTarget
+        let sourceBody: Int
+        let rowFrames: [NSRect]
+        var gap: Int
+    }
+    private var rowDrag: RowDragSession?
+    private var hoverRowHandle: (frame: NSRect, target: TableTarget, body: Int)?
+    private var rowHandleTracking: NSTrackingArea?
 
     private var visualCoordinator: VisualMarkdownView.Coordinator? {
         delegate as? VisualMarkdownView.Coordinator
@@ -103,6 +124,11 @@ final class VisualNSTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let handle = rowHandle(at: point) {
+            finishActiveTableEditing(commit: true)
+            beginRowDrag(handle: handle)
+            return
+        }
         if activeEditor != nil, let hit = tableCellHit(at: point) {
             // Fast path: switch editor directly to another cell.
             finishActiveTableEditing(commit: true)
@@ -418,6 +444,260 @@ final class VisualNSTextView: NSTextView {
         return cells[column]
     }
 
+    // MARK: - Table structure ops (context menu)
+
+    /// Table cell (native or island) under a point — context-menu anchor.
+    private func tableTarget(at point: NSPoint) -> TableTarget? {
+        if let hit = tableCellHit(at: point) {
+            return .island(paragraphLocation: hit.entry.range.location,
+                           row: hit.row, column: hit.column,
+                           rows: hit.entry.grid.rows.count + 1,
+                           columns: hit.entry.grid.columnCount)
+        }
+        guard let index = nearestCharacterIndex(at: point),
+              let target = visualCoordinator?.nativeTableTarget(atCharIndex: index),
+              case .native(let group, let row, _, _, _) = target,
+              let rowFrame = nativeRowFrame(group: group, row: row),
+              rowFrame.insetBy(dx: -8, dy: -2).contains(point)
+        else { return nil }
+        return target
+    }
+
+    /// Character index of the glyph nearest to a view point (no containment
+    /// check — the row-frame test above rejects far-away hits).
+    private func nearestCharacterIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return charIndex < storage.length ? charIndex : nil
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        let point = convert(event.locationInWindow, from: nil)
+        guard let target = tableTarget(at: point) else { return menu }
+        menuTableTarget = target
+        menuTableOps = []
+        var insertAt = 0
+        func add(_ title: String, _ op: TableStructureOp, enabled: Bool = true) {
+            // action == nil → the item auto-disables (header-row restrictions).
+            let item = NSMenuItem(title: title,
+                                  action: enabled ? #selector(applyTableMenuOp(_:)) : nil,
+                                  keyEquivalent: "")
+            if enabled { item.target = self }
+            item.tag = menuTableOps.count
+            menuTableOps.append(op)
+            menu.insertItem(item, at: insertAt)
+            insertAt += 1
+        }
+        let isHeader = target.row == 0
+        add("Строка выше", .insertRowAbove, enabled: !isHeader)
+        add("Строка ниже", .insertRowBelow)
+        add("Удалить строку", .deleteRow, enabled: !isHeader)
+        menu.insertItem(.separator(), at: insertAt); insertAt += 1
+        add("Столбец слева", .insertColumnLeft)
+        add("Столбец справа", .insertColumnRight)
+        add("Удалить столбец", .deleteColumn, enabled: target.columns > 1)
+        menu.insertItem(.separator(), at: insertAt)
+        return menu
+    }
+
+    @objc private func applyTableMenuOp(_ sender: NSMenuItem) {
+        guard let target = menuTableTarget,
+              sender.tag >= 0, sender.tag < menuTableOps.count else { return }
+        finishActiveTableEditing(commit: true)
+        if visualCoordinator?.performTableOp(menuTableOps[sender.tag], on: target) != true {
+            NSSound.beep()
+        }
+    }
+
+    // MARK: - Table row geometry
+
+    private func islandTop(_ entry: TableIslandEntry) -> CGFloat? {
+        guard let layoutManager else { return nil }
+        let totalLength = (string as NSString).length
+        guard entry.range.location < totalLength else { return nil }
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range,
+                                                  actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return nil }
+        return layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
+                                              effectiveRange: nil).minY
+            + textContainerInset.height
+    }
+
+    private func islandRowFrame(_ entry: TableIslandEntry, row: Int) -> NSRect? {
+        guard let top = islandTop(entry), entry.columnEdges.count >= 2 else { return nil }
+        let offset = islandHorizontalOffsets[entry.range.location] ?? 0
+        let left = entry.columnEdges[0] - offset
+        let right = (entry.columnEdges.last ?? left) - offset
+        return NSRect(x: left, y: top + CGFloat(row) * entry.rowHeight,
+                      width: right - left, height: entry.rowHeight)
+    }
+
+    /// Union frame of a native table row's cells (view coordinates, cached —
+    /// hover hit-testing runs on every mouseMoved).
+    private func nativeRowFrame(group: Int, row: Int) -> NSRect? {
+        let key = "\(group):\(row)"
+        if let cached = nativeRowFrameCache[key] { return cached }
+        guard let coordinator = visualCoordinator, let layoutManager, let textContainer,
+              let storage = textStorage else { return nil }
+        var union = NSRect.null
+        for cell in coordinator.tableCells(group: group, in: storage) where cell.row == row {
+            let glyphs = layoutManager.glyphRange(forCharacterRange: cell.range,
+                                                  actualCharacterRange: nil)
+            guard glyphs.length > 0 else { continue }
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+            union = union.isNull ? rect : union.union(rect)
+        }
+        guard !union.isNull else { return nil }
+        let frame = union.offsetBy(dx: textContainerInset.width, dy: textContainerInset.height)
+        nativeRowFrameCache[key] = frame
+        return frame
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        nativeRowFrameCache.removeAll(keepingCapacity: true)
+    }
+
+    // MARK: - Row drag reorder (grip in the left gutter of body rows)
+
+    /// Grip zone left of a table body row; header rows have no grip.
+    private func rowHandle(at point: NSPoint) -> (frame: NSRect, target: TableTarget, body: Int)? {
+        // Islands: arithmetic row rects.
+        for entry in tableIslandEntries
+        where entry.columnEdges.count >= 2 && entry.grid.rows.count > 1 {
+            guard let top = islandTop(entry) else { continue }
+            let totalRows = entry.grid.rows.count + 1
+            guard point.y >= top, point.y < top + CGFloat(totalRows) * entry.rowHeight
+            else { continue }
+            let offset = islandHorizontalOffsets[entry.range.location] ?? 0
+            let left = entry.columnEdges[0] - offset
+            guard point.x >= left - 26, point.x <= left - 4 else { continue }
+            let row = min(totalRows - 1, max(0, Int((point.y - top) / entry.rowHeight)))
+            guard row >= 1 else { return nil }
+            let frame = NSRect(x: left - 26, y: top + CGFloat(row) * entry.rowHeight,
+                               width: 22, height: entry.rowHeight)
+            let target = TableTarget.island(paragraphLocation: entry.range.location,
+                                            row: row, column: 0,
+                                            rows: totalRows, columns: entry.grid.columnCount)
+            return (frame, target, row - 1)
+        }
+        // Native tables: nearest glyph → cell block → row frame → gutter zone.
+        guard let index = nearestCharacterIndex(at: point),
+              let target = visualCoordinator?.nativeTableTarget(atCharIndex: index),
+              case .native(let group, let row, _, let rows, _) = target,
+              row >= 1, rows > 2,
+              let rowFrame = nativeRowFrame(group: group, row: row) else { return nil }
+        let zone = NSRect(x: rowFrame.minX - 26, y: rowFrame.minY,
+                          width: 22, height: rowFrame.height)
+        guard zone.contains(point) else { return nil }
+        return (zone, target, row - 1)
+    }
+
+    private func bodyRowFrames(for target: TableTarget) -> [NSRect] {
+        switch target {
+        case .native(let group, _, _, let rows, _):
+            return (1..<max(1, rows)).compactMap { nativeRowFrame(group: group, row: $0) }
+        case .island(let paragraphLocation, _, _, let rows, _):
+            guard let entry = tableIslandEntries.first(where: {
+                $0.range.location == paragraphLocation
+            }) else { return [] }
+            return (1..<max(1, rows)).compactMap { islandRowFrame(entry, row: $0) }
+        }
+    }
+
+    /// Synchronous drag loop (standard AppKit tracking): indicator follows the
+    /// mouse, mouse-up commits the move through the coordinator.
+    private func beginRowDrag(handle: (frame: NSRect, target: TableTarget, body: Int)) {
+        let frames = bodyRowFrames(for: handle.target)
+        guard frames.count > 1, handle.body < frames.count, let window else { return }
+        setHoverRowHandle(nil)
+        rowDrag = RowDragSession(target: handle.target, sourceBody: handle.body,
+                                 rowFrames: frames, gap: handle.body)
+        needsDisplay = true
+        NSCursor.closedHand.set()
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if next.type == .leftMouseUp { break }
+            let p = convert(next.locationInWindow, from: nil)
+            let gap = dropGap(for: p.y, frames: frames)
+            if gap != rowDrag?.gap {
+                rowDrag?.gap = gap
+                needsDisplay = true
+            }
+            autoscroll(with: next)
+        }
+        let finalGap = rowDrag?.gap
+        rowDrag = nil
+        needsDisplay = true
+        NSCursor.arrow.set()
+        if let finalGap, finalGap != handle.body, finalGap != handle.body + 1 {
+            if visualCoordinator?.moveTableRow(target: handle.target,
+                                               fromBody: handle.body,
+                                               toGap: finalGap) != true {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func dropGap(for y: CGFloat, frames: [NSRect]) -> Int {
+        for (index, frame) in frames.enumerated() where y < frame.midY { return index }
+        return frames.count
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let rowHandleTracking { removeTrackingArea(rowHandleTracking) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .mouseEnteredAndExited,
+                                            .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        rowHandleTracking = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard rowDrag == nil else { return }
+        let handle = rowHandle(at: convert(event.locationInWindow, from: nil))
+        setHoverRowHandle(handle)
+        if handle != nil { NSCursor.openHand.set() }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHoverRowHandle(nil)
+    }
+
+    private func setHoverRowHandle(_ handle: (frame: NSRect, target: TableTarget, body: Int)?) {
+        guard hoverRowHandle?.frame != handle?.frame else {
+            hoverRowHandle = handle
+            return
+        }
+        if let old = hoverRowHandle?.frame { setNeedsDisplay(old.insetBy(dx: -4, dy: -4)) }
+        hoverRowHandle = handle
+        if let new = handle?.frame { setNeedsDisplay(new.insetBy(dx: -4, dy: -4)) }
+    }
+
+    /// Six-dot grip glyph centered in the gutter zone.
+    private func drawRowHandle(in frame: NSRect, active: Bool) {
+        theme.secondaryColor.withAlphaComponent(active ? 0.9 : 0.6).setFill()
+        let dot: CGFloat = 2.4
+        let stepX: CGFloat = 4, stepY: CGFloat = 4.5
+        for column in 0..<2 {
+            for row in 0..<3 {
+                let x = frame.midX - stepX / 2 - dot / 2 + CGFloat(column) * stepX
+                let y = frame.midY - stepY - dot / 2 + CGFloat(row) * stepY
+                NSBezierPath(ovalIn: NSRect(x: x, y: y, width: dot, height: dot)).fill()
+            }
+        }
+    }
+
     /// Rect of the drawn marker (bullet/checkbox/number) for a paragraph:
     /// in the indent margin, on the first line fragment.
     private func markerRect(forParagraph range: NSRange) -> NSRect? {
@@ -653,6 +933,24 @@ final class VisualNSTextView: NSTextView {
         // Large tables (drawn as virtualized read-only grids)
         for entry in tableIslandEntries {
             drawTableIsland(entry, dirty: rect, inset: inset, layoutManager: layoutManager)
+        }
+
+        // Row drag-reorder affordances: hover grip / dragged-row wash + gap line.
+        if rowDrag == nil, let hover = hoverRowHandle {
+            drawRowHandle(in: hover.frame, active: false)
+        }
+        if let drag = rowDrag, let first = drag.rowFrames.first {
+            theme.accentColor.withAlphaComponent(0.08).setFill()
+            if drag.sourceBody < drag.rowFrames.count {
+                drag.rowFrames[drag.sourceBody].fill()
+            }
+            let minX = drag.rowFrames.map(\.minX).min() ?? first.minX
+            let maxX = drag.rowFrames.map(\.maxX).max() ?? first.maxX
+            let y = drag.gap < drag.rowFrames.count
+                ? drag.rowFrames[drag.gap].minY
+                : (drag.rowFrames.last?.maxY ?? first.maxY)
+            theme.accentColor.setFill()
+            NSRect(x: minX, y: y - 1, width: maxX - minX, height: 2).fill()
         }
     }
 
