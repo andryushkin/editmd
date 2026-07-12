@@ -89,8 +89,11 @@ extension VisualMarkdownView.Coordinator {
 
         // Margin = white between cards. Independent of panel padding.
         // Must be large enough that even if pad steals ~6pt each side, a
-        // clear gap remains (and neighboring lines stay unpainted).
-        let codeBlockMargin: CGFloat = max(24, 24 * spacingScale)
+        // clear gap remains (and neighboring lines stay unpainted). Works in
+        // tandem with drawBackground's clamp margin (18): glyph-to-glyph gap
+        // is THIS value, the panel edge sits 18pt from the neighboring text,
+        // and the difference (~14pt) becomes the panel's inner top/bottom pad.
+        let codeBlockMargin: CGFloat = max(32, 32 * spacingScale)
 
         isMutating = true
         storage.beginEditing()

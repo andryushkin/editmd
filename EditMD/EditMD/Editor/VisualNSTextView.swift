@@ -775,8 +775,10 @@ final class VisualNSTextView: NSTextView {
         // padding = gray around glyphs only (fixed).
         // margin = enforced white gap between panel outer edges + clamp so a
         // panel never paints over a neighboring (non-member) line fragment.
+        // Paired with the presentation's paragraph margin (32): white gap to
+        // the neighboring text = 18, the rest becomes inner gray padding.
         let codePanelPadding: CGFloat = 6
-        let codeBlockMargin: CGFloat = 12
+        let codeBlockMargin: CGFloat = 18
         var panelRects: [NSRect] = []
         panelRects.reserveCapacity(codePanelRanges.count)
         for range in codePanelRanges {
