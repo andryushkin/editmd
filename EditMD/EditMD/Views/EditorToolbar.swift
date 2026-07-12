@@ -4,11 +4,12 @@ import AppKit
 /// Window toolbar for the document editor (agterm-style flat icon buttons).
 /// Extracted from `ContentView` so format buttons and active-state styling
 /// can grow without bloating the layout host (B1).
+///
+/// The mode switcher is NOT here — it lives pinned to the trailing edge of
+/// `EditorActionStrip`, on the same line as the format tools.
 struct EditorToolbar: ToolbarContent {
     let allowsSidebar: Bool
     @Binding var sidebarVisible: Bool
-    let mode: EditorMode
-    let setEditorMode: (EditorMode) -> Void
     @Binding var splitPreview: Bool
     /// Shared with View menu: turning split ON while in Preview leaves Preview.
     let onToggleSplit: () -> Void
@@ -24,20 +25,6 @@ struct EditorToolbar: ToolbarContent {
                     Label("Toggle Sidebar", systemImage: "sidebar.left")
                 }
                 .help("Toggle Sidebar (⌃⌘S)")
-            }
-        }
-        ToolbarItemGroup(placement: .navigation) {
-            ForEach(EditorMode.allCases) { candidate in
-                Button {
-                    setEditorMode(candidate)
-                } label: {
-                    Label(candidate.title,
-                          systemImage: mode == candidate
-                              ? candidate.activeSystemImage
-                              : candidate.systemImage)
-                        .foregroundStyle(mode == candidate ? Color.accentColor : Color.primary)
-                }
-                .help("\(candidate.title) (\(candidate.shortcutHint))")
             }
         }
         ToolbarItemGroup {

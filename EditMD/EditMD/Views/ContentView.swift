@@ -134,8 +134,6 @@ struct ContentView: View {
             EditorToolbar(
                 allowsSidebar: allowsSidebar,
                 sidebarVisible: $sidebarVisible,
-                mode: mode,
-                setEditorMode: setEditorMode,
                 splitPreview: $splitPreview,
                 onToggleSplit: { splitBinding.wrappedValue.toggle() },
                 editorSettings: editorSettings,
@@ -345,7 +343,9 @@ struct ContentView: View {
                               insetH: stripInset.h,
                               columnWidth: stripInset.column,
                               showVisualExtras: mode == .visual,
-                              activeFormats: activeFormats)
+                              activeFormats: activeFormats,
+                              mode: mode,
+                              setEditorMode: setEditorMode)
             if mode == .preview {
                 // Line numbers / dirty marks are baked into the HTML (`data-ln`)
                 // so they scroll with the page — no separate rail to sync.

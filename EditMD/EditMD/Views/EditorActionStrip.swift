@@ -62,12 +62,36 @@ struct EditorActionStrip: View {
     var showVisualExtras: Bool = false
     /// B6: tint B/I/`/S when caret is inside those styles.
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
+    /// Mode switcher — pinned to the trailing edge of the strip (the window
+    /// toolbar no longer carries it).
+    var mode: EditorMode
+    var setEditorMode: (EditorMode) -> Void
 
     var body: some View {
         GeometryReader { geo in
             let lead = contentLeading(for: geo.size.width)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    toolGroups
+                        .padding(.leading, lead)
+                        .padding(.trailing, 8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Pinned: the tools scroll under it, the switcher stays put.
+                modePill
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.trailing, SidebarChrome.barPaddingH)
+            .padding(.top, SidebarChrome.barPaddingTop)
+            .padding(.bottom, SidebarChrome.barPaddingBottom)
+        }
+        .frame(height: stripHeight)
+    }
+
+    // MARK: Tool groups (scrolling)
+
+    private var toolGroups: some View {
+        HStack(alignment: .center, spacing: 8) {
                     // Inline styles
                     pill {
                         icon("bold", "Жирный (**…**)",
@@ -156,15 +180,23 @@ struct EditorActionStrip: View {
                             formulaMenu
                         }
                     }
-                }
-                .padding(.leading, lead)
-                .padding(.trailing, lead)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.top, SidebarChrome.barPaddingTop)
-            .padding(.bottom, SidebarChrome.barPaddingBottom)
         }
-        .frame(height: stripHeight)
+    }
+
+    // MARK: Mode switcher (pinned trailing)
+
+    private var modePill: some View {
+        pill {
+            ForEach(Array(EditorMode.allCases.enumerated()), id: \.element.id) { index, candidate in
+                if index > 0 { sep }
+                icon(mode == candidate ? candidate.activeSystemImage : candidate.systemImage,
+                     "\(candidate.title) (\(candidate.shortcutHint))",
+                     active: mode == candidate) {
+                    setEditorMode(candidate)
+                }
+            }
+        }
+        .fixedSize()
     }
 
     // MARK: Table menu (Visual)
