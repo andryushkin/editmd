@@ -19,45 +19,55 @@ enum MathRender {
     /// the tinted raw-text run (still verbatim-serialized via `.mdMath`).
     static func attachment(tex: String, display: Bool,
                            fontSize: CGFloat) -> NSTextAttachment? {
-        let trimmed = tex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        var renderer = MathImage(latex: trimmed, fontSize: fontSize,
-                                 textColor: resolvedLabelColor(),
-                                 labelMode: display ? .display : .text,
-                                 textAlignment: .left)
-        let (error, image, layout) = renderer.asImage()
-        guard error == nil, let image, image.size.width > 0 else { return nil }
+        guard let (mask, layout) = renderMask(tex: tex, display: display,
+                                              fontSize: fontSize) else { return nil }
         let attachment = NSTextAttachment()
-        attachment.image = image
+        attachment.image = tinted(mask)
         attachment.bounds = CGRect(x: 0, y: -(layout?.descent ?? 0),
-                                   width: image.size.width, height: image.size.height)
+                                   width: mask.size.width, height: mask.size.height)
         return attachment
     }
 
     /// Render just the image (popover live preview).
     static func previewImage(tex: String, display: Bool,
                              fontSize: CGFloat) -> NSImage? {
+        guard let (mask, _) = renderMask(tex: tex, display: display,
+                                         fontSize: fontSize) else { return nil }
+        return tinted(mask)
+    }
+
+    /// SwiftMath bakes `textColor` into the bitmap, so the formula is typeset
+    /// ONCE as an opaque silhouette; the color lands at draw time instead.
+    private static func renderMask(tex: String, display: Bool,
+                                   fontSize: CGFloat) -> (NSImage, MathImage.LayoutInfo?)? {
         let trimmed = tex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         var renderer = MathImage(latex: trimmed, fontSize: fontSize,
-                                 textColor: resolvedLabelColor(),
+                                 textColor: .black,
                                  labelMode: display ? .display : .text,
                                  textAlignment: .left)
-        let (error, image, _) = renderer.asImage()
-        guard error == nil else { return nil }
-        return image
+        let (error, image, layout) = renderer.asImage()
+        guard error == nil, let image, image.size.width > 0 else { return nil }
+        return (image, layout)
     }
 
-    /// The image bakes its color in, so the dynamic labelColor must be
-    /// resolved against the app's appearance NOW (a theme switch later shows
-    /// the old color until the document re-renders — known cosmetic gap).
-    private static func resolvedLabelColor() -> NSColor {
-        var resolved = NSColor.labelColor
-        let appearance = NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
-        appearance.performAsCurrentDrawingAppearance {
-            resolved = NSColor(cgColor: NSColor.labelColor.cgColor) ?? .labelColor
+    /// Tint the silhouette with `labelColor` inside a drawing handler: the
+    /// handler runs per draw, with the *view's* current appearance, so ☀/🌙
+    /// overrides and system theme flips are honoured. Resolving the color up
+    /// front against `NSApp.effectiveAppearance` baked white glyphs into a
+    /// light window (same trap as the code-highlight palettes).
+    private static func tinted(_ mask: NSImage) -> NSImage {
+        nonisolated(unsafe) let silhouette = mask
+        let image = NSImage(size: mask.size, flipped: false) { rect in
+            silhouette.draw(in: rect)
+            NSColor.labelColor.setFill()
+            rect.fill(using: .sourceAtop)
+            return true
         }
-        return resolved
+        // Without this the first-drawn bitmap is reused after an appearance
+        // flip and the glyphs keep the stale color.
+        image.cacheMode = .never
+        return image
     }
 
     /// Rebuild the verbatim source from edited TeX. Inline math is single-line

@@ -937,13 +937,17 @@ func previewHTMLPage(markdown: String,
         display: block;
         text-align: left;
         padding-left: 2em;
-        margin: 0.4em 0;
+        /* Bigger than the 0.6em paragraph margin it collapses with, so a
+           display block gets real air instead of reading as one more line. */
+        margin: 1.1em 0;
         overflow-x: auto;
         overflow-y: hidden;
     }
     .math-display .katex-display {
         text-align: left;
-        margin: 0.25em 0;
+        /* overflow-x above makes .math-display a BFC — this margin would add
+           to the outer one instead of collapsing into it. */
+        margin: 0;
     }
     .math-display .katex-display > .katex {
         text-align: left;
