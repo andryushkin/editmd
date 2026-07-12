@@ -107,6 +107,10 @@ struct FileEditor: View {
 /// `AppState` on appear so AppKit-side callers can drive windows.
 struct MainWindowView: View {
     @ObservedObject private var appState = AppState.shared
+    // Appearance is applied at the window root so EVERY pane — welcome,
+    // folder card, PDF viewer, editor — follows Settings ▸ General; applying
+    // it only inside the editor left the launch screen on the system theme.
+    @ObservedObject private var editorSettings = EditorSettings.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -127,6 +131,7 @@ struct MainWindowView: View {
                     .id(appState.currentURL?.absoluteString ?? "·untitled·")
             }
         }
+        .preferredColorScheme(editorSettings.general.appearance.colorScheme)
         .onAppear { appState.bindOpenWindow(openWindow) }
         // Claude's `openDiff` can target any file, not just the one on screen —
         // the sheet belongs to the window, not to the current document view.

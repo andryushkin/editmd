@@ -127,7 +127,8 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
             statusBar
         }
-        .preferredColorScheme(editorSettings.general.appearance.colorScheme)
+        // Appearance override lives on the window root (MainWindowView /
+        // LiteWindowContent) so non-editor panes follow it too.
         .toolbar {
             EditorToolbar(
                 allowsSidebar: allowsSidebar,

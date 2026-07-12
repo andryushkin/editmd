@@ -398,15 +398,29 @@ struct EditMDApp: App {
         // Separate (lite) windows — one file each, sidebar-less. Opened via the
         // Lite-mode Finder route and the sidebar's "Open in separate window".
         WindowGroup(for: URL.self) { $url in
+            LiteWindowContent(url: url)
+        }
+
+        Settings {
+            SettingsView()
+        }
+    }
+}
+
+/// Content of one lite window. A separate view so the appearance override
+/// (Settings ▸ General) applies at the window root — same as MainWindowView.
+private struct LiteWindowContent: View {
+    let url: URL?
+    @ObservedObject private var editorSettings = EditorSettings.shared
+
+    var body: some View {
+        Group {
             if let url, isPDFFile(url) {
                 PDFViewerHost(fileURL: url, allowsSidebar: false)
             } else {
                 FileEditor(url: url, allowsSidebar: false, isMain: false)
             }
         }
-
-        Settings {
-            SettingsView()
-        }
+        .preferredColorScheme(editorSettings.general.appearance.colorScheme)
     }
 }

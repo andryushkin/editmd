@@ -26,6 +26,9 @@ struct SettingsView: View {
                 .tabItem { Label("Preview", systemImage: "eye") }
         }
         .frame(width: 720, height: 720)
+        // The Settings window is its own scene — follow the appearance
+        // override too, or it stays on the system theme while editing it.
+        .preferredColorScheme(settings.general.appearance.colorScheme)
     }
 }
 
