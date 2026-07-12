@@ -52,6 +52,12 @@ private struct GeneralTab: View {
                 }
                 .pickerStyle(.segmented)
             }
+            Section("Code highlighting") {
+                Toggle("Syntax highlighting in fenced code blocks",
+                       isOn: $settings.general.syntaxHighlighting)
+                Text("Uses the language after the opening fence, for example ```bash or ```swift. Unlabelled blocks stay plain for predictable results.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Base colors") {
                 ColorOverrideRow(title: "Text", hex: $settings.general.textColorHex,
                                  fallback: preset.textColor)
@@ -491,5 +497,4 @@ private func doubleBinding(_ binding: Binding<CGFloat>) -> Binding<Double> {
 private func doubleRange(_ range: ClosedRange<CGFloat>) -> ClosedRange<Double> {
     Double(range.lowerBound)...Double(range.upperBound)
 }
-
 

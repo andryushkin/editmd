@@ -37,6 +37,7 @@ enum PDFExporter {
             textColorHex: general.textColorHex,
             accentColorHex: general.accentColorHex,
             gutter: .off,
+            syntaxHighlighting: general.syntaxHighlighting,
             imageResolver: { MarkdownPreviewView.dataURI(for: $0, baseDir: assetBase) }
         )
 

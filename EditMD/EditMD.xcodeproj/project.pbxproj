@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A015E7E9B1B24E60A56A7001 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = A015E7E9B1B24E60A56A7002 /* Highlighter */; };
+		A015E7E9B1B24E60A56A7003 /* CodeSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A015E7E9B1B24E60A56A7004 /* CodeSyntaxHighlighter.swift */; };
+		A015E7E9B1B24E60A56A7005 /* CodeSyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A015E7E9B1B24E60A56A7006 /* CodeSyntaxHighlighterTests.swift */; };
 		00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = C751A146F893A369A160F144 /* Markdown */; };
 		02811E67FB1A8BD988BC7F49 /* MathEditorPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */; };
 		0701B0140BBD62012D50453D /* EditorPositionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */; };
@@ -134,6 +137,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A015E7E9B1B24E60A56A7004 /* CodeSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighter.swift; sourceTree = "<group>"; };
+		A015E7E9B1B24E60A56A7006 /* CodeSyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		04300EC4050C4FAC5095E833 /* EditorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSettings.swift; sourceTree = "<group>"; };
 		0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorPresentation.swift; sourceTree = "<group>"; };
 		053F962514802B8D344BB744 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -254,6 +259,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A015E7E9B1B24E60A56A7001 /* Highlighter in Frameworks */,
 				00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */,
 				16A09F6624873FD33471F396 /* SwiftMath in Frameworks */,
 			);
@@ -311,6 +317,7 @@
 		45FF45112BA24B394DC47DE6 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
+				A015E7E9B1B24E60A56A7004 /* CodeSyntaxHighlighter.swift */,
 				6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */,
 				0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */,
 				699B6916CC8820D33D30549E /* FormattingHelpers.swift */,
@@ -449,6 +456,7 @@
 		BB2D9D688B6394A586DDEF3F /* EditMDTests */ = {
 			isa = PBXGroup;
 			children = (
+				A015E7E9B1B24E60A56A7006 /* CodeSyntaxHighlighterTests.swift */,
 				BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */,
 				E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */,
 				3AD04FD106876FC81FD7E786 /* ControlChannelTests.swift */,
@@ -512,6 +520,7 @@
 			packageProductDependencies = (
 				C751A146F893A369A160F144 /* Markdown */,
 				3502DDBEA215B3B26B719677 /* SwiftMath */,
+				A015E7E9B1B24E60A56A7002 /* Highlighter */,
 			);
 			productName = EditMD;
 			productReference = 82D8BF400E9D538C51E10B8F /* EditMD.app */;
@@ -581,6 +590,7 @@
 			packageReferences = (
 				0DC1BED920AC13F20D111C4E /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				D2483951BCC336A88DEFE4A8 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				A015E7E9B1B24E60A56A7007 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A1087D93804719B777F561BA /* Products */;
@@ -615,6 +625,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A015E7E9B1B24E60A56A7005 /* CodeSyntaxHighlighterTests.swift in Sources */,
 				21CCD5D29689C467770C05BE /* ClaudeIDEServerTests.swift in Sources */,
 				C35B91E1B819952B68AB3C3D /* ClaudeIDEToolsTests.swift in Sources */,
 				0D51E0A809EEF94EDBEBD078 /* ControlChannelTests.swift in Sources */,
@@ -650,6 +661,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A015E7E9B1B24E60A56A7003 /* CodeSyntaxHighlighter.swift in Sources */,
 				B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */,
 				7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */,
 				2DC3DD70D9EABD4B0A3F79BB /* AttributedToMarkdown.swift in Sources */,
@@ -1051,6 +1063,14 @@
 				minimumVersion = 0.7.3;
 			};
 		};
+		A015E7E9B1B24E60A56A7007 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/smittytone/HighlighterSwift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1063,6 +1083,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0DC1BED920AC13F20D111C4E /* XCRemoteSwiftPackageReference "SwiftMath" */;
 			productName = SwiftMath;
+		};
+		A015E7E9B1B24E60A56A7002 /* Highlighter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A015E7E9B1B24E60A56A7007 /* XCRemoteSwiftPackageReference "HighlighterSwift" */;
+			productName = Highlighter;
 		};
 		C751A146F893A369A160F144 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -12,9 +12,24 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testCodeBlockIsEscapedWithLanguageClass() {
         let html = markdownHTMLBody("```html\n<div class=\"x\">\n```")
-        XCTAssertTrue(html.contains("<pre><code class=\"language-html\">"), html)
-        XCTAssertTrue(html.contains("&lt;div class=\"x\"&gt;"), html)
+        XCTAssertTrue(html.contains("<pre><code class=\"language-html hljs\">"), html)
+        XCTAssertTrue(html.contains("&lt;"), html)
+        XCTAssertTrue(html.contains("div"), html)
+        XCTAssertTrue(html.contains("&gt;"), html)
         XCTAssertFalse(html.contains("<div class=\"x\">"), html)
+    }
+
+    func testCodeBlockUsesSyntaxHighlighterForBash() {
+        let html = markdownHTMLBody("```bash\necho '<tag>'\n```")
+        XCTAssertTrue(html.contains("class=\"language-bash hljs\""), html)
+        XCTAssertTrue(html.contains("hljs-token"), html)
+        XCTAssertTrue(html.contains("&lt;tag&gt;"), html)
+    }
+
+    func testCodeHighlightingCanBeDisabledInPreviewHTML() {
+        let html = markdownHTMLBody("```bash\necho hello\n```", syntaxHighlighting: false)
+        XCTAssertFalse(html.contains("hljs-token"), html)
+        XCTAssertTrue(html.contains("echo hello"), html)
     }
 
     func testInlineCodeIsEscaped() {

@@ -56,8 +56,10 @@ struct PreviewGutterOptions: Equatable {
 /// local files); returning nil keeps the original source.
 func markdownHTMLBody(_ text: String,
                       imageResolver: ((String) -> String?)? = nil,
-                      gutter: PreviewGutterOptions = .off) -> String {
-    markdownHTMLRender(text, imageResolver: imageResolver, gutter: gutter).body
+                      gutter: PreviewGutterOptions = .off,
+                      syntaxHighlighting: Bool = true) -> String {
+    markdownHTMLRender(text, imageResolver: imageResolver, gutter: gutter,
+                       syntaxHighlighting: syntaxHighlighting).body
 }
 
 /// A math span prepared for the HTML visitor: full-document range, verbatim
@@ -75,7 +77,8 @@ struct HTMLMathSpan {
 /// embeds the KaTeX assets only when it does).
 func markdownHTMLRender(_ text: String,
                         imageResolver: ((String) -> String?)? = nil,
-                        gutter: PreviewGutterOptions = .off)
+                        gutter: PreviewGutterOptions = .off,
+                        syntaxHighlighting: Bool = true)
     -> (body: String, hasMath: Bool) {
     var source = text
     var prefix = ""
@@ -92,17 +95,10 @@ func markdownHTMLRender(_ text: String,
             let dirty = gutter.highlightChangedLines && gutter.dirtyLines.contains(fmLine)
             let wantMark = gutter.showLineNumbers
                 || (dirty && gutter.showDirtyBulletsWhenNoNumbers)
-            var fmAttrs = ""
-            if wantMark { fmAttrs += " data-ln=\"\(fmLine)\"" }
-            if dirty { fmAttrs += " class=\"ln-dirty\"" }
-            let table = frontmatterTableHTML(props)
-            // Inject attrs onto the opening <table>
-            if table.hasPrefix("<table") {
-                let afterTable = table.index(table.startIndex, offsetBy: 6)
-                prefix = "<table\(fmAttrs)" + table[afterTable...]
-            } else {
-                prefix = table
-            }
+            let fmAttributes = wantMark ? " data-ln=\"\(fmLine)\"" : ""
+            let fmClasses = dirty ? " ln-dirty" : ""
+            prefix = frontmatterPropertiesHTML(props, additionalClasses: fmClasses,
+                                               attributes: fmAttributes)
         }
         baseOffset = NSMaxRange(fm.full)
         source = ns.substring(from: baseOffset)
@@ -133,13 +129,17 @@ func markdownHTMLRender(_ text: String,
                                   baseOffset: baseOffset,
                                   lineBase: lineBase,
                                   gutter: gutter,
+                                  syntaxHighlighting: syntaxHighlighting,
                                   mathSpans: renderMath)
     visitor.visit(document)
     return (prefix + visitor.result, !mathSpans.isEmpty)
 }
 
-/// An Obsidian-style properties table for the frontmatter block.
-func frontmatterTableHTML(_ props: [FMProperty]) -> String {
+/// An Obsidian-inspired properties panel for the frontmatter block. It is
+/// deliberately not a bordered table: lengthy values and tag collections need
+/// room to breathe, while the source YAML remains untouched in Source mode.
+func frontmatterPropertiesHTML(_ props: [FMProperty], additionalClasses: String = "",
+                               attributes: String = "") -> String {
     var rows = ""
     for property in props {
         let valueHTML: String
@@ -152,41 +152,34 @@ func frontmatterTableHTML(_ props: [FMProperty]) -> String {
         } else {
             valueHTML = htmlEscapeBreakingUnderscores(property.value)
         }
-        rows += "<tr><td class=\"fm-key\">\(htmlEscape(property.key))</td>"
-            + "<td class=\"fm-val\">\(valueHTML)</td></tr>\n"
+        rows += "<div class=\"fm-row\">\(frontmatterIconHTML(for: property))"
+            + "<div class=\"fm-key\">\(htmlEscape(property.key))</div>"
+            + "<div class=\"fm-val\">\(valueHTML)</div></div>\n"
     }
-    return "<table class=\"frontmatter\"><tbody>\n\(rows)</tbody></table>\n"
+    return "<section class=\"frontmatter\(additionalClasses)\"\(attributes)><h2 class=\"fm-title\">Свойства</h2>"
+        + "<div class=\"fm-list\">\n\(rows)</div></section>\n"
 }
 
-/// Colors a `yaml`/`yml` code block: keys / values / comments become spans the
-/// preview's CSS tints. Concatenated segment texts reproduce the source, so
-/// nothing is lost.
-func highlightYAMLToHTML(_ code: String) -> String {
-    var out = ""
-    for (index, line) in code.components(separatedBy: "\n").enumerated() {
-        if index > 0 { out += "\n" }
-        for (text, kind) in yamlLineSegments(line) {
-            if let cssClass = yamlCSSClass(kind) {
-                out += "<span class=\"\(cssClass)\">\(htmlEscape(text))</span>"
-            } else {
-                out += htmlEscape(text)
-            }
-        }
+/// Small inline SVGs keep the Preview independent of system font glyphs while
+/// giving familiar frontmatter fields the same visual scanability as Obsidian.
+private func frontmatterIconHTML(for property: FMProperty) -> String {
+    let key = property.key.lowercased()
+    let svg: String
+    if key == "tags" || key == "tag" || key == "aliases" {
+        svg = #"<svg viewBox="0 0 24 24"><path d="M20 13.5 13.5 20a2.1 2.1 0 0 1-3 0L3 12.5V4h8.5L20 10.5a2.1 2.1 0 0 1 0 3Z"/><circle cx="7.5" cy="8.5" r="1"/></svg>"#
+    } else if key.contains("date") || key == "created" || key == "updated" {
+        svg = #"<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4m8-4v4"/></svg>"#
+    } else if key == "pdf" || key.contains("file") || key == "doi" || key == "pmid" {
+        svg = #"<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h5M9 13h6m-6 4h6"/></svg>"#
+    } else if key.contains("graph") || key.contains("node") {
+        svg = #"<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="m7.7 7.1 2.8 9M16.2 8.4l-2.8 8M8 6.3l8 .5"/></svg>"#
+    } else if key.contains("year") || key.contains("level") || key.contains("count")
+                || key.hasSuffix("_n") || (!property.value.isEmpty && property.value.allSatisfy({ $0.isNumber })) {
+        svg = #"<svg viewBox="0 0 24 24"><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></svg>"#
+    } else {
+        svg = #"<svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h14"/></svg>"#
     }
-    return out
-}
-
-private func yamlCSSClass(_ kind: YAMLTokenKind) -> String? {
-    switch kind {
-    case .key: return "yaml-key"
-    case .punctuation: return "yaml-punct"
-    case .string: return "yaml-string"
-    case .number: return "yaml-number"
-    case .bool: return "yaml-bool"
-    case .null: return "yaml-null"
-    case .comment: return "yaml-comment"
-    case .plain: return nil
-    }
+    return "<span class=\"fm-icon\" aria-hidden=\"true\">\(svg)</span>"
 }
 
 private struct HTMLBodyVisitor: MarkupWalker {
@@ -199,6 +192,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// Newlines before the parsed `source` in the original document.
     let lineBase: Int
     let gutter: PreviewGutterOptions
+    let syntaxHighlighting: Bool
     /// Document-order math spans; Text nodes carry U+E000 sentinel runs that
     /// are consumed against these (first run of a span emits its HTML).
     let mathSpans: [HTMLMathSpan]
@@ -214,12 +208,14 @@ private struct HTMLBodyVisitor: MarkupWalker {
          baseOffset: Int,
          lineBase: Int = 0,
          gutter: PreviewGutterOptions = .off,
+         syntaxHighlighting: Bool = true,
          mathSpans: [HTMLMathSpan] = []) {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
         self.baseOffset = baseOffset
         self.lineBase = lineBase
         self.gutter = gutter
+        self.syntaxHighlighting = syntaxHighlighting
         self.mathSpans = mathSpans
     }
 
@@ -285,16 +281,15 @@ private struct HTMLBodyVisitor: MarkupWalker {
         openBlock("pre", codeBlock)
         let language = codeBlock.language ?? ""
         if !language.isEmpty {
-            result += "<code class=\"language-\(htmlAttributeEscape(language))\">"
+            // Keep language-* first for existing integrations that match the
+            // literal class prefix, then add the highlighter marker.
+            result += "<code class=\"language-\(htmlAttributeEscape(language)) hljs\">"
         } else {
             result += "<code>"
         }
-        let lower = language.lowercased()
-        if lower == "yaml" || lower == "yml" {
-            result += highlightYAMLToHTML(codeBlock.code)
-        } else {
-            result += htmlEscape(codeBlock.code)
-        }
+        result += syntaxHighlighting
+            ? CodeSyntaxHighlighter.shared.html(codeBlock.code, language: language)
+            : htmlEscape(codeBlock.code)
         result += "</code></pre>\n"
     }
 
@@ -643,9 +638,11 @@ func previewHTMLPage(markdown: String,
                      textColorHex: String? = nil,
                      accentColorHex: String? = nil,
                      gutter: PreviewGutterOptions = .off,
+                     syntaxHighlighting: Bool = true,
                      imageResolver: ((String) -> String?)? = nil) -> String {
     let (body, hasMath) = markdownHTMLRender(markdown, imageResolver: imageResolver,
-                                             gutter: gutter)
+                                             gutter: gutter,
+                                             syntaxHighlighting: syntaxHighlighting)
     // KaTeX is ~640 KB inline (JS + CSS with data-URI fonts) — embedded only
     // when the document actually contains math. Without the assets the page
     // shows raw TeX (`.math` spans keep their escaped source text).
@@ -857,26 +854,80 @@ func previewHTMLPage(markdown: String,
         outline: 2px solid rgba(0, 122, 255, 0.55);
         outline-offset: 1px;
     }
-    /* Obsidian-style frontmatter properties */
-    table.frontmatter {
-        display: table; width: 100%; border-collapse: collapse;
-        margin: 0 0 1.4em; font-size: 0.9em;
-        background: rgba(128,128,128,0.05);
-        border: 1px solid rgba(128,128,128,0.22); border-radius: 8px; overflow: hidden;
+    /* Obsidian-inspired frontmatter properties. This is a definition-list
+       grid rather than a table: no boxed rows, clearer scanning and proper
+       wrapping for long paper titles. */
+    .frontmatter {
+        margin: 0 0 2.1em;
+        max-width: none;
     }
-    table.frontmatter td {
-        border: none; border-bottom: 1px solid rgba(128,128,128,0.12);
-        padding: 6px 12px; vertical-align: top;
+    .fm-title {
+        margin: 0 0 1.05em;
+        padding: 0;
+        border: none;
+        font-size: 1.45em;
+        font-weight: 650;
+        line-height: 1.2;
     }
-    table.frontmatter tr:last-child td { border-bottom: none; }
-    table.frontmatter tbody tr { background: none; }
-    td.fm-key { color: rgba(128,128,128,0.95); font-weight: 500; width: 1%; white-space: nowrap; }
-    td.fm-val { color: inherit; }
+    .fm-list { margin: 0; }
+    .fm-row {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 120px) minmax(0, 1fr);
+        column-gap: 0;
+        align-items: start;
+        margin: 0 0 0.82em;
+    }
+    .fm-row:last-child { margin-bottom: 0; }
+    .fm-key {
+        grid-column: 2;
+        margin: 0;
+        min-width: 0;
+        color: rgba(128,128,128,0.96);
+        font-size: 0.94em;
+        font-weight: 500;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+    .fm-icon {
+        grid-column: 1;
+        display: flex;
+        width: 20px;
+        height: 1.5em;
+        color: rgba(128,128,128,0.82);
+        align-items: center;
+        padding: 0;
+    }
+    .fm-icon svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .fm-val {
+        grid-column: 3;
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
     .fm-chip {
-        display: inline-block; background: rgba(128,128,128,0.16); border-radius: 4px;
-        padding: 1px 8px; margin: 1px 4px 1px 0; font-size: 0.92em;
+        display: inline-block;
+        border: 1px solid rgba(128,128,128,0.28);
+        border-radius: 999px;
+        padding: 0.08em 0.62em;
+        margin: 0.05em 0.32em 0.18em 0;
+        font-size: 0.9em;
+        line-height: 1.35;
     }
     .fm-empty { opacity: 0.4; }
+    @media (max-width: 620px) {
+        .fm-row { grid-template-columns: 20px 1fr; row-gap: 0.22em; margin-bottom: 0.95em; }
+        .fm-key { font-size: 0.88em; }
+        .fm-val { grid-column: 2; }
+    }
     /* Math ($…$ / $$…$$): KaTeX replaces the span content when its assets are
        embedded; before/without that the span shows the raw TeX source.
        Display blocks are LEFT-aligned with an indent (not centered) — and

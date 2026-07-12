@@ -360,11 +360,14 @@ struct GeneralSettings: Codable, Equatable {
     /// only write the queue and copy the terminal command — matches smotr
     /// without `--agent`.
     var claudeReviewAutoSpawn: Bool
+    /// Applies language-aware colors to fenced code blocks in Source, Visual,
+    /// Preview and PDF. Turning it off preserves code panels and fonts.
+    var syntaxHighlighting: Bool
 
     init(themePreset: String, appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
          liteMode: Bool = true, claudeIDEEnabled: Bool = true,
-         claudeReviewAutoSpawn: Bool = false) {
+         claudeReviewAutoSpawn: Bool = false, syntaxHighlighting: Bool = true) {
         self.themePreset = themePreset
         self.appearance = appearance
         self.textColorHex = textColorHex
@@ -372,6 +375,7 @@ struct GeneralSettings: Codable, Equatable {
         self.liteMode = liteMode
         self.claudeIDEEnabled = claudeIDEEnabled
         self.claudeReviewAutoSpawn = claudeReviewAutoSpawn
+        self.syntaxHighlighting = syntaxHighlighting
     }
 
     init(from decoder: Decoder) throws {
@@ -384,6 +388,7 @@ struct GeneralSettings: Codable, Equatable {
         liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? true
         claudeIDEEnabled = try c.decodeIfPresent(Bool.self, forKey: .claudeIDEEnabled) ?? true
         claudeReviewAutoSpawn = try c.decodeIfPresent(Bool.self, forKey: .claudeReviewAutoSpawn) ?? false
+        syntaxHighlighting = try c.decodeIfPresent(Bool.self, forKey: .syntaxHighlighting) ?? true
     }
 }
 

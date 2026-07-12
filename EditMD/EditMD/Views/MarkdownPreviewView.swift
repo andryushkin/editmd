@@ -270,6 +270,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             textColorHex: general.textColorHex,
             accentColorHex: general.accentColorHex,
             gutter: gutter,
+            syntaxHighlighting: general.syntaxHighlighting,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }
         )
 

@@ -116,10 +116,12 @@ final class FrontmatterTests: XCTestCase {
 
     // MARK: - HTML rendering
 
-    func testFrontmatterRendersAsPropertiesTable() {
+    func testFrontmatterRendersAsPropertiesPanel() {
         let html = markdownHTMLBody("---\ntitle: A\n---\n\n# H\n")
-        XCTAssertTrue(html.contains("table class=\"frontmatter\""), html)
-        XCTAssertTrue(html.contains("<td class=\"fm-key\">title</td>"), html)
+        XCTAssertTrue(html.contains("section class=\"frontmatter\""), html)
+        XCTAssertTrue(html.contains("<h2 class=\"fm-title\">Свойства</h2>"), html)
+        XCTAssertTrue(html.contains("<span class=\"fm-icon\""), html)
+        XCTAssertTrue(html.contains("<div class=\"fm-key\">title</div>"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule
         // Heading text is wrapped in a click-to-edit source span (<h1><span
         // data-md-lo…>H</span></h1>) — match structurally, not literally.
@@ -129,14 +131,17 @@ final class FrontmatterTests: XCTestCase {
 
     func testFrontmatterListRendersChips() {
         let html = markdownHTMLBody("---\ntags: [a, b]\n---\n")
+        XCTAssertTrue(html.contains("<circle cx=\"7.5\" cy=\"8.5\" r=\"1\"/>"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-chip\">a</span>"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-chip\">b</span>"), html)
     }
 
     func testYAMLCodeBlockGetsSyntaxSpans() {
         let html = markdownHTMLBody("```yaml\nkey: false\n```")
-        XCTAssertTrue(html.contains("<span class=\"yaml-key\">key</span>"), html)
-        XCTAssertTrue(html.contains("<span class=\"yaml-bool\">false</span>"), html)
+        XCTAssertTrue(html.contains("class=\"language-yaml hljs\""), html)
+        XCTAssertTrue(html.contains("hljs-token"), html)
+        XCTAssertTrue(html.contains("key:"), html)
+        XCTAssertTrue(html.contains("false"), html)
     }
 
     func testNonYAMLCodeBlockUnchanged() {

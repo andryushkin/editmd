@@ -49,6 +49,7 @@ extension VisualMarkdownView.Coordinator {
         var tasks: [(range: NSRange, depth: Int, done: Bool)] = []
         var quotes: [(range: NSRange, depth: Int)] = []
         var codeGroups: [Int: NSRange] = [:]
+        var codeLanguages: [Int: String] = [:]
         var ruleRanges: [NSRange] = []
         var headingDividers: [NSRange] = []
         var tableIslands: [TableIslandEntry] = []
@@ -161,7 +162,7 @@ extension VisualMarkdownView.Coordinator {
                 lastListGroupDepth = (blockValue.group, depth)
             case .listContinuation(let indent):
                 markerIndent = 24 + CGFloat(max(0, indent - 2) / 4) * 22
-            case .codeBlock:
+            case .codeBlock(let language):
                 markerIndent = 10
                 // Tight lines inside one fence. Margin only on group edges.
                 style.paragraphSpacing = 0
@@ -174,6 +175,7 @@ extension VisualMarkdownView.Coordinator {
                 }
                 let existing = codeGroups[blockValue.group]
                 codeGroups[blockValue.group] = existing.map { NSUnionRange($0, paragraph) } ?? paragraph
+                codeLanguages[blockValue.group] = language
             case .thematicBreak:
                 ruleRanges.append(paragraph)
             case .tableCell(let row, let column, let columns, let alignment):
@@ -258,6 +260,17 @@ extension VisualMarkdownView.Coordinator {
                 } else {
                     applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
                 }
+            }
+        }
+
+        // Apply token colours after the normal presentation pass so code panels,
+        // paragraph layout and all md.* metadata remain owned by this editor.
+        // One request per group preserves multi-line strings/comments.
+        if EditorSettings.shared.general.syntaxHighlighting {
+            for (group, range) in codeGroups {
+                CodeSyntaxHighlighter.shared.apply(
+                    to: storage, codeRange: range, language: codeLanguages[group],
+                    darkAppearance: CodeSyntaxHighlighter.shared.currentAppearanceIsDark())
             }
         }
 
