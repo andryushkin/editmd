@@ -159,8 +159,8 @@ final class VisualNSTextView: NSTextView {
             return
         }
         if event.modifierFlags.contains(.command),
-           let url = linkURL(at: point) {
-            NSWorkspace.shared.open(url)
+           let dest = linkDestination(at: point) {
+            visualCoordinator?.openLink(destination: dest)
             return
         }
         super.mouseDown(with: event)
@@ -210,7 +210,9 @@ final class VisualNSTextView: NSTextView {
         return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
     }
 
-    private func linkURL(at point: NSPoint) -> URL? {
+    /// Raw `[text](destination)` under the cursor — scheme URLs and local
+    /// paths alike; the coordinator decides how to open (v: pdf-спринт).
+    private func linkDestination(at point: NSPoint) -> String? {
         guard let layoutManager, let textContainer, let storage = textStorage,
               storage.length > 0 else { return nil }
         let containerPoint = NSPoint(x: point.x - textContainerInset.width,
@@ -219,10 +221,8 @@ final class VisualNSTextView: NSTextView {
         let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
                                                   fractionOfDistanceThroughGlyph: &fraction)
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        guard charIndex < storage.length,
-              let dest = storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String,
-              let url = URL(string: dest), url.scheme != nil else { return nil }
-        return url
+        guard charIndex < storage.length else { return nil }
+        return storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String
     }
 
     private func taskParagraph(at point: NSPoint) -> NSRange? {

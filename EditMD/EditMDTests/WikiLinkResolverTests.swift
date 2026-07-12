@@ -121,6 +121,67 @@ final class WikiLinkResolverTests: XCTestCase {
         XCTAssertEqual(md.map { $0.lastPathComponent }, ["Note.md"])
     }
 
+    // MARK: - Plain local links (research_md → research_pdf style)
+
+    func testVaultAbsoluteLinkResolvesAgainstVaultRoot() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mdDir = try subdir("research_md", in: root)
+        let pdfDir = try subdir("research_pdf", in: root)
+        try writePDF("doc.pdf", in: pdfDir)
+
+        let hit = resolveLocalLinkDestination("/research_pdf/doc.pdf",
+                                              fileDir: mdDir, vaultRoot: root)
+        XCTAssertEqual(hit?.standardizedFileURL,
+                       pdfDir.appendingPathComponent("doc.pdf").standardizedFileURL)
+        XCTAssertNil(resolveLocalLinkDestination("/research_pdf/missing.pdf",
+                                                 fileDir: mdDir, vaultRoot: root))
+    }
+
+    func testRelativeLinkResolvesAgainstFileDirThenVaultRoot() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mdDir = try subdir("research_md", in: root)
+        let pdfDir = try subdir("research_pdf", in: root)
+        try writePDF("doc.pdf", in: pdfDir)
+        try write("sibling.md", in: mdDir)
+
+        // Plain relative from the file's folder.
+        XCTAssertNotNil(resolveLocalLinkDestination("sibling.md",
+                                                    fileDir: mdDir, vaultRoot: root))
+        // `../` climbs out of the folder.
+        XCTAssertNotNil(resolveLocalLinkDestination("../research_pdf/doc.pdf",
+                                                    fileDir: mdDir, vaultRoot: root))
+        // Not next to the file — falls back to the vault root (Obsidian does both).
+        XCTAssertNotNil(resolveLocalLinkDestination("research_pdf/doc.pdf",
+                                                    fileDir: mdDir, vaultRoot: root))
+    }
+
+    func testFragmentAndPercentEncodingAreStripped() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pdfDir = try subdir("research_pdf", in: root)
+        try writePDF("my doc.pdf", in: pdfDir)
+
+        let hit = resolveLocalLinkDestination("/research_pdf/my%20doc.pdf#page=3",
+                                              fileDir: nil, vaultRoot: root)
+        XCTAssertEqual(hit?.lastPathComponent, "my doc.pdf")
+    }
+
+    func testNearestVaultRootFindsObsidianMarker() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try subdir(".obsidian", in: root)
+        let nested = try subdir("research_md", in: root)
+
+        XCTAssertEqual(nearestVaultRoot(startingAt: nested)?.path,
+                       root.standardizedFileURL.path)
+        // No marker anywhere up the temp tree → nil.
+        let bare = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: bare) }
+        XCTAssertNil(nearestVaultRoot(startingAt: bare))
+    }
+
     func testTextbundleIsIndexedNotDescended() async throws {
         let root = try makeTempVault()
         defer { try? FileManager.default.removeItem(at: root) }

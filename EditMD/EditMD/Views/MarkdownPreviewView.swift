@@ -35,6 +35,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                   name: "taskToggle")
         userContentController.add(WikiLinkClickHandler(coordinator: coordinator),
                                   name: "wikiLinkClick")
+        userContentController.add(LocalLinkClickHandler(coordinator: coordinator),
+                                  name: "localLinkClick")
         userContentController.add(PreviewSelectionHandler(coordinator: coordinator),
                                   name: "previewSelection")
         // Cache selection + source offsets (data-md-lo/hi). Keep last non-empty
@@ -418,6 +420,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
             navigateToWikiLink(target: target, from: fileURL)
         }
 
+        /// A schemeless `[text](path)` link was clicked: resolve vault-absolute
+        /// or file-relative and open (markdown/PDF in EditMD, rest system).
+        func openLocalLink(href: String) {
+            openMarkdownLink(destination: href, from: fileURL)
+        }
+
         /// Accepts a non-empty selection (and optional source offsets). Empty
         /// updates are ignored so toolbar / Review ▸ + clicks keep the last range
         /// after WebKit collapses the selection on focus change.
@@ -772,6 +780,25 @@ private final class WikiLinkClickHandler: NSObject, WKScriptMessageHandler {
         guard let body = message.body as? [String: Any],
               let target = body["target"] as? String, !target.isEmpty else { return }
         coordinator?.openWikiLink(target: target)
+    }
+}
+
+/// Bridges clicks on schemeless local links (`[pdf](/research_pdf/x.pdf)`) to
+/// the coordinator. Held strongly by WKUserContentController, hence the weak
+/// coordinator reference.
+@MainActor
+private final class LocalLinkClickHandler: NSObject, WKScriptMessageHandler {
+    weak var coordinator: MarkdownPreviewView.Coordinator?
+
+    init(coordinator: MarkdownPreviewView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any],
+              let href = body["href"] as? String, !href.isEmpty else { return }
+        coordinator?.openLocalLink(href: href)
     }
 }
 

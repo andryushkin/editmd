@@ -832,6 +832,23 @@ func previewHTMLPage(markdown: String,
             }
         });
     });
+    // Local file links ([pdf](/research_pdf/x.pdf)): schemeless hrefs cannot
+    // resolve against loadHTMLString's about:blank base, so report the raw
+    // href; the Swift side resolves it Obsidian-style (vault-absolute /
+    // file-relative) and opens the target. Scheme links keep the default
+    // navigation path (decidePolicyFor → system).
+    document.querySelectorAll('a[href]').forEach(function (el) {
+        if (el.classList.contains('wikilink')) return;
+        var href = el.getAttribute('href');
+        if (!href || href.charAt(0) === '#' || /^[a-zA-Z][a-zA-Z0-9+.\\-]*:/.test(href)) return;
+        el.addEventListener('click', function (e) {
+            e.preventDefault();
+            var handlers = window.webkit && window.webkit.messageHandlers;
+            if (handlers && handlers.localLinkClick) {
+                handlers.localLinkClick.postMessage({ href: href });
+            }
+        });
+    });
     // Review marks (v37): paint open anchors on tagged spans and jump by
     // markdown UTF-16 offset. Called from Swift after load / mark changes.
     // marks = [{start, end, type, id}]

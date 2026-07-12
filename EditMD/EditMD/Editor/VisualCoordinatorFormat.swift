@@ -472,4 +472,10 @@ extension VisualMarkdownView.Coordinator {
         navigateToWikiLink(target: payload.target, from: parent.fileURL)
     }
 
+    /// Cmd+click on a regular `[text](destination)` link: scheme URLs go to
+    /// the system, local paths resolve vault-absolute / file-relative.
+    func openLink(destination: String) {
+        openMarkdownLink(destination: destination, from: parent.fileURL)
+    }
+
 }

@@ -126,3 +126,79 @@ func navigateToWikiLink(target: String, from currentURL: URL?) {
         AppState.shared.openInMainWindow(chosen)
     }
 }
+
+// MARK: - Plain markdown links to local files
+
+/// Opens a regular markdown link destination (`[pdf](/research_pdf/x.pdf)`).
+/// Scheme links (`https:`, `mailto:` …) go to the system as before. Schemeless
+/// paths resolve Obsidian-style: leading `/` is vault-absolute — against the
+/// workspace root that owns `currentURL` (fallback: the nearest ancestor with
+/// an `.obsidian` folder, so un-adopted vaults still work) — otherwise relative
+/// to the file's folder. Files EditMD displays (markdown / PDF) open in the
+/// main window; any other existing file opens with its system app.
+@MainActor
+func openMarkdownLink(destination: String, from currentURL: URL?) {
+    let trimmed = destination.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { NSSound.beep(); return }
+    if let url = URL(string: trimmed), url.scheme != nil {
+        NSWorkspace.shared.open(url)
+        return
+    }
+    let fileDir = currentURL?.deletingLastPathComponent()
+    var root = currentURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url }
+    if root == nil, let fileDir { root = nearestVaultRoot(startingAt: fileDir) }
+    guard let resolved = resolveLocalLinkDestination(trimmed, fileDir: fileDir, vaultRoot: root)
+    else { NSSound.beep(); return }
+    let ext = resolved.pathExtension.lowercased()
+    if ["md", "markdown", "textbundle", "pdf"].contains(ext) {
+        AppState.shared.openInMainWindow(resolved)
+    } else {
+        NSWorkspace.shared.open(resolved)
+    }
+}
+
+/// Filesystem resolution for a schemeless link destination. Drops a `#…`
+/// fragment, undoes percent-encoding (`%20`), then probes candidates in order:
+/// leading `/` → vault root + path, then the literal absolute path; otherwise
+/// file's folder + path, then vault root + path (Obsidian resolves both).
+/// Returns the first existing file, nil when nothing matches.
+func resolveLocalLinkDestination(_ destination: String,
+                                 fileDir: URL?,
+                                 vaultRoot: URL?) -> URL? {
+    var path = destination
+    if let hash = path.firstIndex(of: "#") { path = String(path[..<hash]) }
+    path = (path.removingPercentEncoding ?? path).trimmingCharacters(in: .whitespaces)
+    guard !path.isEmpty else { return nil }
+
+    var candidates: [URL] = []
+    if path.hasPrefix("/") {
+        let rel = String(path.dropFirst())
+        if let vaultRoot { candidates.append(vaultRoot.appendingPathComponent(rel)) }
+        candidates.append(URL(fileURLWithPath: path))
+    } else {
+        if let fileDir { candidates.append(fileDir.appendingPathComponent(path)) }
+        if let vaultRoot { candidates.append(vaultRoot.appendingPathComponent(path)) }
+    }
+    for candidate in candidates {
+        let std = candidate.standardizedFileURL
+        if FileManager.default.fileExists(atPath: std.path) { return std }
+    }
+    return nil
+}
+
+/// Nearest ancestor of `dir` (inclusive) containing an `.obsidian` folder —
+/// the vault marker, so `/vault/absolute` links work for files opened outside
+/// any adopted workspace. Bounded walk to filesystem root.
+func nearestVaultRoot(startingAt dir: URL) -> URL? {
+    var probe = dir.standardizedFileURL
+    for _ in 0..<64 {
+        if FileManager.default.fileExists(
+            atPath: probe.appendingPathComponent(".obsidian").path) {
+            return probe
+        }
+        let parent = probe.deletingLastPathComponent()
+        if parent.path == probe.path { return nil }
+        probe = parent
+    }
+    return nil
+}
