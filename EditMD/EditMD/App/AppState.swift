@@ -114,6 +114,8 @@ final class AppState: ObservableObject {
             if !Self.isFolder(std) {
                 WorkspaceModel.shared.noteOpened(std)
             }
+            // The branch the next launch reopens (the sidebar collapses the rest).
+            WorkspaceModel.shared.noteActive(std)
             DocumentHistory.shared.recordVisit(std)
         } else {
             // Explicit nil → welcome (not a scratch). Callers that want New

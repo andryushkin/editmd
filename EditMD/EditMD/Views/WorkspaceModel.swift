@@ -10,7 +10,10 @@ import AppKit
 @MainActor
 final class WorkspaceModel: ObservableObject {
 
-    static let shared = WorkspaceModel()
+    /// The XCTest host must not write the developer's real snapshot file — it
+    /// runs with `.standard` defaults like the app does (see `AppDelegate`).
+    static let shared = WorkspaceModel(
+        snapshotURL: AppDelegate.isRunningUnitTests ? nil : SidebarSnapshotStore.defaultURL())
 
     struct Workspace: Codable, Equatable, Identifiable {
         var folderPath: String
@@ -36,10 +39,16 @@ final class WorkspaceModel: ObservableObject {
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
     /// Session-only loose files (opened this run, not in any workspace).
     @Published var looseFiles: [URL] = []
-    /// Paths of subfolders the user expanded in the tree (persisted). The tree
-    /// is lazy — a subfolder's contents are only scanned while it is expanded —
-    /// so adopting a folder with thousands of nested files stays cheap.
-    @Published var expandedFolders: Set<String> { didSet { persist(expandedFolders, Keys.expanded) } }
+    /// Paths of subfolders expanded in the tree. Session state, not persisted:
+    /// a launch derives the open branch from `lastActivePath` instead (see
+    /// `normalizeStartupTree`). The tree is lazy — a subfolder's contents are
+    /// only scanned while it is expanded — so adopting a folder with thousands
+    /// of nested files stays cheap.
+    @Published var expandedFolders: Set<String> = []
+
+    /// Last file or folder the main window showed (persisted). Startup reopens
+    /// this branch and collapses everything else — see `normalizeStartupTree`.
+    @Published private(set) var lastActivePath: String? { didSet { persist(lastActivePath, Keys.lastActive) } }
 
     /// D11: tag → files (frontmatter only). Filled off-main; read from UI.
     @Published private(set) var tagIndex: [String: [URL]] = [:]
@@ -53,15 +62,22 @@ final class WorkspaceModel: ObservableObject {
         static let folders = "workspace.folders"
         static let hidden = "workspace.hidden"
         static let pinned = "workspace.pinned"
-        static let expanded = "workspace.expanded"
+        static let lastActive = "workspace.lastActive"
     }
 
-    init(defaults: UserDefaults = .standard) {
+    /// First frame of the tree, carried over from the previous run.
+    /// `snapshotURL: nil` keeps it in memory — the default, so only the app's
+    /// `shared` instance (and a test that asks for a temp file) touches disk.
+    let snapshot: SidebarSnapshotStore
+
+    init(defaults: UserDefaults = .standard, snapshotURL: URL? = nil) {
         self.defaults = defaults
+        snapshot = SidebarSnapshotStore(fileURL: snapshotURL)
         workspaces = Self.load(defaults, Keys.folders) ?? []
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
-        expandedFolders = Self.load(defaults, Keys.expanded) ?? []
+        lastActivePath = Self.load(defaults, Keys.lastActive)
+        normalizeStartupTree()
         // Folder contents may change in Finder/Terminal while EditMD is in the
         // background — re-validate listings lazily on return (selector-based:
         // the block API's @Sendable closure clashes with @MainActor).
@@ -70,6 +86,55 @@ final class WorkspaceModel: ObservableObject {
             selector: #selector(appDidBecomeActive),
             name: NSApplication.didBecomeActiveNotification,
             object: nil)
+    }
+
+    // MARK: - Startup tree
+
+    /// Records the main window's target so the next launch reopens this branch.
+    func noteActive(_ url: URL) {
+        lastActivePath = url.standardizedFileURL.path
+    }
+
+    /// Launch state of the tree: exactly one branch open — the one holding
+    /// `lastActivePath` — and every other root collapsed.
+    ///
+    /// Restoring every expanded folder verbatim (the old behaviour) meant the
+    /// first frame asked for a recursive scan of every open root at once, and
+    /// each of those roots showed up empty until its walk returned. Reopening
+    /// one branch is both what the user left behind and the cheapest scan.
+    private func normalizeStartupTree() {
+        guard !workspaces.isEmpty else {
+            expandedFolders = []
+            return
+        }
+        guard let active = lastActivePath,
+              let owner = workspaceOwning(URL(fileURLWithPath: active)) else {
+            // No remembered branch: show the first root's own contents, nothing
+            // nested (a fresh adopt looks the same way).
+            for i in workspaces.indices { workspaces[i].collapsed = (i != 0) }
+            expandedFolders = []
+            return
+        }
+        for i in workspaces.indices {
+            workspaces[i].collapsed = (workspaces[i].id != owner.id)
+        }
+        expandedFolders = Self.ancestorFolders(of: active, under: owner.folderPath)
+    }
+
+    /// Folders between a workspace root (exclusive) and `path` — plus `path`
+    /// itself when it is a folder — as expanded-tree paths.
+    static func ancestorFolders(of path: String, under root: String) -> Set<String> {
+        var result: Set<String> = []
+        var url = URL(fileURLWithPath: path).standardizedFileURL
+        if !AppState.isFolder(url) {
+            url = url.deletingLastPathComponent()
+        }
+        let rootPath = URL(fileURLWithPath: root).standardizedFileURL.path
+        while url.path != rootPath, url.path.hasPrefix(rootPath + "/") {
+            result.insert(url.path)
+            url = url.deletingLastPathComponent()
+        }
+        return result
     }
 
     @objc private func appDidBecomeActive() {
@@ -103,7 +168,9 @@ final class WorkspaceModel: ObservableObject {
             return hit.files
         }
         scheduleListingScan(path: path, folder: key, epoch: contentEpoch)
-        return []
+        // Cold launch: serve last run's listing while the scan runs, so a
+        // restored branch draws its files in the first frame.
+        return snapshot.entry(for: path)?.urls.files ?? []
     }
 
     /// Synchronous list + cache fill — for tests and explicit refresh paths
@@ -128,6 +195,7 @@ final class WorkspaceModel: ObservableObject {
             guard self.contentEpoch == epoch else { return }
             let changed = self.folderListings[path]?.files != files
             self.folderListings[path] = (epoch, files)
+            self.snapshot.update(path: path) { $0.files = files.map(\.path) }
             if changed {
                 self.objectWillChange.send()
             }
@@ -184,6 +252,17 @@ final class WorkspaceModel: ObservableObject {
             return entry.stats
         }
         scheduleTreeStatsScan(path: path, folder: folder.standardizedFileURL, epoch: epoch)
+        // Cold launch: last run's subfolder split (md-bearing vs empty) stands
+        // in until the recursive walk lands — that walk is what used to leave a
+        // restored root drawn open but empty for seconds. `folderTree` stays
+        // empty: only the folder card reads it, and it rescans on appear.
+        if let entry = snapshot.entry(for: path) {
+            let urls = entry.urls
+            return FolderTreeStats(markdownCount: entry.markdownCount,
+                                   subfolderCount: entry.subfolderCount,
+                                   directMarkdownFolders: urls.mdFolders,
+                                   directEmptyFolders: urls.emptyFolders)
+        }
         return FolderTreeStats(markdownCount: 0, subfolderCount: 0,
                                directMarkdownFolders: [], directEmptyFolders: [])
     }
@@ -204,6 +283,12 @@ final class WorkspaceModel: ObservableObject {
             guard self.contentEpoch == epoch else { return }
             let changed = FolderStatsCache.lookupAny(path: path)?.stats != stats
             FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
+            self.snapshot.update(path: path) {
+                $0.mdFolders = stats.directMarkdownFolders.map(\.path)
+                $0.emptyFolders = stats.directEmptyFolders.map(\.path)
+                $0.markdownCount = stats.markdownCount
+                $0.subfolderCount = stats.subfolderCount
+            }
             if changed {
                 self.objectWillChange.send()
             }

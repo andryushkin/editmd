@@ -142,17 +142,88 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertFalse(subs.contains(".git"))   // hidden folder skipped
     }
 
-    func testExpandedFoldersPersist() {
+    func testExpandedFoldersAreSessionStateNotPersisted() {
         let child = dir.appendingPathComponent("notes")
         let m1 = WorkspaceModel(defaults: defaults)
         XCTAssertFalse(m1.isExpanded(child))
         m1.toggleExpanded(child)
         XCTAssertTrue(m1.isExpanded(child))
 
-        let m2 = WorkspaceModel(defaults: defaults)   // reloads from the same suite
-        XCTAssertTrue(m2.isExpanded(child))
-        m2.toggleExpanded(child)
+        // A launch rebuilds the open branch from `lastActivePath` — restoring
+        // every expanded folder is what left several roots open and empty.
+        let m2 = WorkspaceModel(defaults: defaults)
         XCTAssertFalse(m2.isExpanded(child))
+    }
+
+    // MARK: - Startup tree (one branch open, the rest collapsed)
+
+    func testStartupExpandsOnlyTheBranchOfTheLastActiveFile() throws {
+        let nested = dir.appendingPathComponent("notes/deep", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let file = nested.appendingPathComponent("note.md")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        let other = dir.deletingLastPathComponent()
+            .appendingPathComponent("editmd-other-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: other) }
+
+        let m1 = WorkspaceModel(defaults: defaults)
+        m1.addWorkspace(dir)
+        m1.addWorkspace(other)
+        m1.noteActive(file)
+
+        let m2 = WorkspaceModel(defaults: defaults)   // relaunch
+        let owner = try XCTUnwrap(m2.workspaces.first { $0.folderPath == dir.standardizedFileURL.path })
+        let stranger = try XCTUnwrap(m2.workspaces.first { $0.folderPath == other.standardizedFileURL.path })
+        XCTAssertFalse(owner.collapsed)          // branch of the last active file
+        XCTAssertTrue(stranger.collapsed)        // every other root starts closed
+        XCTAssertTrue(m2.isExpanded(dir.appendingPathComponent("notes")))
+        XCTAssertTrue(m2.isExpanded(nested))     // path down to the file, not the file
+        XCTAssertEqual(m2.expandedFolders.count, 2)
+    }
+
+    func testStartupExpandsTheLastActiveFolderItself() throws {
+        let notes = dir.appendingPathComponent("notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+
+        let m1 = WorkspaceModel(defaults: defaults)
+        m1.addWorkspace(dir)
+        m1.noteActive(notes)                     // a folder, not a file
+
+        let m2 = WorkspaceModel(defaults: defaults)
+        XCTAssertTrue(m2.isExpanded(notes))      // the folder opens, not just its parent
+    }
+
+    func testStartupWithoutLastActiveOpensFirstRootOnly() throws {
+        let other = dir.deletingLastPathComponent()
+            .appendingPathComponent("editmd-other-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: other) }
+
+        let m1 = WorkspaceModel(defaults: defaults)
+        m1.addWorkspace(dir)
+        m1.addWorkspace(other)
+
+        let m2 = WorkspaceModel(defaults: defaults)
+        XCTAssertFalse(m2.workspaces[0].collapsed)
+        XCTAssertTrue(m2.workspaces[1].collapsed)
+        XCTAssertTrue(m2.expandedFolders.isEmpty)
+    }
+
+    // MARK: - Startup snapshot (first frame comes from disk)
+
+    func testSnapshotServesListingBeforeTheScanLands() async throws {
+        let snapshotURL = dir.appendingPathComponent("snapshot.json")
+        let m1 = WorkspaceModel(defaults: defaults, snapshotURL: snapshotURL)
+        m1.addWorkspace(dir)
+        // A real background scan fills the caches, which feed the snapshot.
+        _ = m1.markdownFiles(in: dir)
+        try await Task.sleep(for: .milliseconds(300))
+        m1.snapshot.flushSync()
+
+        // Relaunch: caches are empty, so without the snapshot this is [].
+        let m2 = WorkspaceModel(defaults: defaults, snapshotURL: snapshotURL)
+        XCTAssertEqual(names(m2.markdownFiles(in: dir)), ["a.md", "b.md", "sub.textbundle"])
     }
 
     func testNoteOpenedSkipsFilesInsideAWorkspace() {

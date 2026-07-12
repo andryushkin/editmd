@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // CLI dial a dead port on the next `/ide`.
         ClaudeIDEService.shared.stopBeforeTerminate()
         ControlService.shared.stopBeforeTerminate()
+        // Whatever the debounce hasn't written yet is the next launch's first
+        // frame — write it synchronously, the process is going away.
+        WorkspaceModel.shared.snapshot.flushSync()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
