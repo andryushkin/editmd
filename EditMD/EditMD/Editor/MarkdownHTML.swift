@@ -156,7 +156,8 @@ func frontmatterPropertiesHTML(_ props: [FMProperty], additionalClasses: String 
             + "<div class=\"fm-key\">\(htmlEscape(property.key))</div>"
             + "<div class=\"fm-val\">\(valueHTML)</div></div>\n"
     }
-    return "<section class=\"frontmatter\(additionalClasses)\"\(attributes)><h2 class=\"fm-title\">Свойства</h2>"
+    return "<section class=\"frontmatter\(additionalClasses)\"\(attributes)>"
+        + "<h2 class=\"fm-title\">Properties</h2>"
         + "<div class=\"fm-list\">\n\(rows)</div></section>\n"
 }
 
@@ -974,21 +975,9 @@ func previewHTMLPage(markdown: String,
     }
     .copy-host:hover > .copy-block-btn { opacity: 1; }
     .copy-block-btn:hover { background: rgba(128,128,128,0.32); }
-    /* yaml code-block syntax colors */
-    .yaml-key { color: #6f42c1; }
-    .yaml-string { color: #0a7d33; }
-    .yaml-number { color: #0550ae; }
-    .yaml-bool, .yaml-null { color: #953800; }
-    .yaml-comment { color: #6e7781; font-style: italic; }
-    .yaml-punct { color: #57606a; }
-    @media (prefers-color-scheme: dark) {
-        .yaml-key { color: #d2a8ff; }
-        .yaml-string { color: #7ee787; }
-        .yaml-number { color: #79c0ff; }
-        .yaml-bool, .yaml-null { color: #ffa657; }
-        .yaml-comment { color: #8b949e; }
-        .yaml-punct { color: #8b949e; }
-    }
+    /* Code tokens carry both palettes (--tl / --td); the page picks one, so a
+       Dark Mode switch needs no re-render. */
+    \(CodeSyntaxHighlighter.tokenCSS)
     \(elementCSS)</style>
     \(mathHead)
     </head>

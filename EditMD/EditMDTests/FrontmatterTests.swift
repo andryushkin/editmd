@@ -119,7 +119,7 @@ final class FrontmatterTests: XCTestCase {
     func testFrontmatterRendersAsPropertiesPanel() {
         let html = markdownHTMLBody("---\ntitle: A\n---\n\n# H\n")
         XCTAssertTrue(html.contains("section class=\"frontmatter\""), html)
-        XCTAssertTrue(html.contains("<h2 class=\"fm-title\">Свойства</h2>"), html)
+        XCTAssertTrue(html.contains("<h2 class=\"fm-title\">Properties</h2>"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-icon\""), html)
         XCTAssertTrue(html.contains("<div class=\"fm-key\">title</div>"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule

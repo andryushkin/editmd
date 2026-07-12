@@ -16,6 +16,11 @@ packages:
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath
     from: "1.0.0"
+  # Обёртка highlight.js в JavaScriptCore — подсветка код-блоков во всех
+  # трёх режимах (Source/Visual красят storage, Preview/PDF — HTML-спаны).
+  HighlighterSwift:
+    url: https://github.com/smittytone/HighlighterSwift
+    from: "3.1.0"
 
 targets:
   EditMD:
@@ -31,6 +36,8 @@ targets:
         product: Markdown
       - package: SwiftMath
         product: SwiftMath
+      - package: HighlighterSwift
+        product: Highlighter
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app

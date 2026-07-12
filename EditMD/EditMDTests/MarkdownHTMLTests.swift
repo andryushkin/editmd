@@ -10,20 +10,48 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("5 &lt; 6 &amp; 7 &gt; 3"), html)
     }
 
+    /// The token spans must concatenate back to the code verbatim — that
+    /// invariant is what lets Source/Visual paint the same runs over untouched
+    /// storage, so assert it structurally instead of grepping for fragments.
+    private func codeText(in html: String) -> String {
+        guard let openTag = html.range(of: "<code"),
+              let contentStart = html.range(of: ">", range: openTag.upperBound..<html.endIndex),
+              let close = html.range(of: "</code>", range: contentStart.upperBound..<html.endIndex)
+        else { return "" }
+        let inner = String(html[contentStart.upperBound..<close.lowerBound])
+        return inner
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
     func testCodeBlockIsEscapedWithLanguageClass() {
         let html = markdownHTMLBody("```html\n<div class=\"x\">\n```")
         XCTAssertTrue(html.contains("<pre><code class=\"language-html hljs\">"), html)
-        XCTAssertTrue(html.contains("&lt;"), html)
-        XCTAssertTrue(html.contains("div"), html)
-        XCTAssertTrue(html.contains("&gt;"), html)
         XCTAssertFalse(html.contains("<div class=\"x\">"), html)
+        XCTAssertEqual(codeText(in: html), "<div class=\"x\">\n", html)
     }
 
     func testCodeBlockUsesSyntaxHighlighterForBash() {
-        let html = markdownHTMLBody("```bash\necho '<tag>'\n```")
+        let html = markdownHTMLBody("```bash\necho '<tag>' && exit 0\n```")
         XCTAssertTrue(html.contains("class=\"language-bash hljs\""), html)
         XCTAssertTrue(html.contains("hljs-token"), html)
         XCTAssertTrue(html.contains("&lt;tag&gt;"), html)
+        XCTAssertEqual(codeText(in: html), "echo '<tag>' && exit 0\n", html)
+    }
+
+    /// Both palettes ride along on every token, so the page flips with
+    /// `prefers-color-scheme` instead of baking the light theme onto a dark page.
+    func testCodeTokensCarryLightAndDarkColors() {
+        let html = markdownHTMLBody("```swift\nlet x = 1\n```")
+        XCTAssertTrue(html.contains("--tl:#"), html)
+        XCTAssertTrue(html.contains("--td:#"), html)
+        let page = previewHTMLPage(markdown: "```swift\nlet x = 1\n```", fontSize: 14)
+        XCTAssertTrue(page.contains(".hljs-token { color: var(--tl); }"), "token CSS missing")
+        XCTAssertTrue(page.contains(".hljs-token { color: var(--td); }"), "dark token CSS missing")
     }
 
     func testCodeHighlightingCanBeDisabledInPreviewHTML() {

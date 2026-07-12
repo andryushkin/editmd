@@ -147,6 +147,14 @@ struct SourceTextView: NSViewRepresentable {
             name: .lineChangeMarksDidChange,
             object: nil
         )
+        // A big code block highlighted off main — repaint now that its runs are
+        // cached (the pass itself is a cache hit, no JS).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.codeHighlightingDidWarm),
+            name: .codeHighlightingDidWarm,
+            object: nil
+        )
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.windowBecameKey(_:)),
@@ -760,6 +768,11 @@ struct SourceTextView: NSViewRepresentable {
             refreshGutter()
         }
 
+        @objc func codeHighlightingDidWarm() {
+            guard EditorSettings.shared.general.syntaxHighlighting else { return }
+            highlightSource()
+        }
+
         // MARK: Source highlighting
 
         /// Re-styles the raw markdown from `collectSpans` + the Source mode's
@@ -802,6 +815,11 @@ struct SourceTextView: NSViewRepresentable {
             storage.beginEditing()
             storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
 
+            // Identity of a code block across keystrokes, so a block that is
+            // still warming keeps its previous colors instead of flashing plain.
+            var codeBlockIndex = 0
+            let blockKeyPrefix = "source:\(parent.fileURL?.path ?? "untitled")#"
+
             // Pass A — block level.
             for span in spans where NSMaxRange(span.range) <= full.length {
                 switch span.kind {
@@ -816,12 +834,13 @@ struct SourceTextView: NSViewRepresentable {
                         storage.addAttribute(.foregroundColor, value: c, range: span.range)
                     }
                 case .codeBlockBody(let language):
+                    defer { codeBlockIndex += 1 }
                     if EditorSettings.shared.general.syntaxHighlighting,
                        let body = CodeSyntaxHighlighter.shared.fencedBodyRange(in: nsText,
                                                                                 blockRange: span.range) {
                         CodeSyntaxHighlighter.shared.apply(
                             to: storage, codeRange: body, language: language,
-                            darkAppearance: CodeSyntaxHighlighter.shared.currentAppearanceIsDark())
+                            stableKey: blockKeyPrefix + String(codeBlockIndex))
                     }
                 default:
                     break
@@ -897,7 +916,7 @@ struct SourceTextView: NSViewRepresentable {
                 if EditorSettings.shared.general.syntaxHighlighting {
                     CodeSyntaxHighlighter.shared.apply(
                         to: storage, codeRange: frontmatter.body, language: "yaml",
-                        darkAppearance: CodeSyntaxHighlighter.shared.currentAppearanceIsDark())
+                        stableKey: blockKeyPrefix + "frontmatter")
                 }
             }
 
@@ -1009,12 +1028,12 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
                 storage.addAttribute(.foregroundColor, value: c, range: span.range)
             }
         case .codeBlockBody(let language):
+            // A one-shot render (no view to repaint later) — highlight inline.
             if EditorSettings.shared.general.syntaxHighlighting,
                let body = CodeSyntaxHighlighter.shared.fencedBodyRange(in: nsText,
                                                                         blockRange: span.range) {
-                CodeSyntaxHighlighter.shared.apply(
-                    to: storage, codeRange: body, language: language,
-                    darkAppearance: CodeSyntaxHighlighter.shared.currentAppearanceIsDark())
+                CodeSyntaxHighlighter.shared.apply(to: storage, codeRange: body, language: language,
+                                                   blocking: true)
             }
         default:
             break
@@ -1080,9 +1099,8 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
                                  range: NSRange(location: closeStart, length: closeLen))
         }
         if EditorSettings.shared.general.syntaxHighlighting {
-            CodeSyntaxHighlighter.shared.apply(
-                to: storage, codeRange: frontmatter.body, language: "yaml",
-                darkAppearance: CodeSyntaxHighlighter.shared.currentAppearanceIsDark())
+            CodeSyntaxHighlighter.shared.apply(to: storage, codeRange: frontmatter.body,
+                                               language: "yaml", blocking: true)
         }
     }
     storage.endEditing()

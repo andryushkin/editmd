@@ -209,6 +209,12 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.lineMarksDidChange),
             name: .lineChangeMarksDidChange,
             object: nil)
+        // A big code block highlighted off main — repaint from the warmed cache.
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.codeHighlightingDidWarm),
+            name: .codeHighlightingDidWarm,
+            object: nil)
         // Outline-sidebar jumps, object-scoped to this window's store (a nil
         // object would subscribe to every window's jumps).
         if let store = positionStore {
@@ -1263,6 +1269,11 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         @objc func lineMarksDidChange() {
             refreshGutter()
+        }
+
+        @objc func codeHighlightingDidWarm() {
+            guard EditorSettings.shared.general.syntaxHighlighting else { return }
+            applyPresentation()
         }
     }
 }
