@@ -114,6 +114,10 @@ struct MainWindowView: View {
             if appState.isWelcome {
                 WelcomeHost()
                     .id("·welcome·")
+            } else if let url = appState.currentURL, isPDFFile(url) {
+                // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
+                PDFViewerHost(fileURL: url, allowsSidebar: true)
+                    .id("pdf:" + url.absoluteString)
             } else if let url = appState.currentURL, AppState.isFolder(url) {
                 FolderInfoHost(folderURL: url)
                     .id("folder:" + url.absoluteString)

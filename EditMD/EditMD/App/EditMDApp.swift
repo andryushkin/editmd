@@ -32,7 +32,7 @@ struct EditMDApp: App {
     /// into the main window (Lite mode is only about Finder double-clicks).
     @MainActor private func openFilePanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.markdown, .textBundle]
+        panel.allowedContentTypes = [.markdown, .textBundle, .pdf]
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             AppState.shared.openInMainWindow(url.standardizedFileURL)
@@ -398,7 +398,11 @@ struct EditMDApp: App {
         // Separate (lite) windows — one file each, sidebar-less. Opened via the
         // Lite-mode Finder route and the sidebar's "Open in separate window".
         WindowGroup(for: URL.self) { $url in
-            FileEditor(url: url, allowsSidebar: false, isMain: false)
+            if let url, isPDFFile(url) {
+                PDFViewerHost(fileURL: url, allowsSidebar: false)
+            } else {
+                FileEditor(url: url, allowsSidebar: false, isMain: false)
+            }
         }
 
         Settings {

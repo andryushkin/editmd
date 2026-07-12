@@ -77,6 +77,50 @@ final class WikiLinkResolverTests: XCTestCase {
         XCTAssertTrue(hits[0].path < hits[1].path)
     }
 
+    // MARK: - PDF targets
+
+    private func writePDF(_ name: String, in dir: URL) throws {
+        try Data("%PDF-1.4".utf8).write(to: dir.appendingPathComponent(name))
+    }
+
+    func testPDFResolvesByBasename() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writePDF("Paper.pdf", in: try subdir("nested", in: root))
+
+        let resolver = WikiLinkResolver()
+        await resolver.setRoots([root])
+        let hits = await resolver.resolve("paper")
+        XCTAssertEqual(hits.map { $0.lastPathComponent }, ["Paper.pdf"])
+    }
+
+    func testBareTargetListsNoteBeforePDF() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // PDF sorts before md by path — the md-first preference must win.
+        try writePDF("Note.pdf", in: try subdir("a", in: root))
+        try write("Note.md", in: try subdir("b", in: root))
+
+        let resolver = WikiLinkResolver()
+        await resolver.setRoots([root])
+        let hits = await resolver.resolve("note")
+        XCTAssertEqual(hits.map { $0.lastPathComponent }, ["Note.md", "Note.pdf"])
+    }
+
+    func testExplicitExtensionFiltersMatches() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("Note.md", in: root)
+        try writePDF("Note.pdf", in: root)
+
+        let resolver = WikiLinkResolver()
+        await resolver.setRoots([root])
+        let pdf = await resolver.resolve("Note.pdf")
+        let md = await resolver.resolve("Note.md")
+        XCTAssertEqual(pdf.map { $0.lastPathComponent }, ["Note.pdf"])
+        XCTAssertEqual(md.map { $0.lastPathComponent }, ["Note.md"])
+    }
+
     func testTextbundleIsIndexedNotDescended() async throws {
         let root = try makeTempVault()
         defer { try? FileManager.default.removeItem(at: root) }

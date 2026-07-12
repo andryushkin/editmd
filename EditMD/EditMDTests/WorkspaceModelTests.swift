@@ -41,6 +41,15 @@ final class WorkspaceModelTests: XCTestCase {
                        ["a.md", "b.md", "sub.textbundle"])   // note.txt excluded, sorted
     }
 
+    func testScanListsPDFsAlongsideMarkdown() throws {
+        try Data("%PDF-1.4".utf8).write(to: dir.appendingPathComponent("paper.pdf"))
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        model.primeFolderListing(dir)
+        XCTAssertEqual(names(model.visibleFiles(model.workspaces[0])),
+                       ["a.md", "b.md", "paper.pdf", "sub.textbundle"])
+    }
+
     func testHideUnhide() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)

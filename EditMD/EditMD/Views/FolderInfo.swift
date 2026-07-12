@@ -91,7 +91,9 @@ struct FolderTreeStats: Equatable, Sendable {
 /// Checks `Task.isCancelled` so the UI can abandon a stale scan.
 func scanFolderTreeStats(at root: URL,
                          fileManager: FileManager = .default) -> FolderTreeStats {
-    let mdExt: Set<String> = ["md", "markdown", "textbundle"]
+    // PDFs count as documents: the sidebar lists them, so a folder holding
+    // only PDFs must not be classified as "empty".
+    let mdExt: Set<String> = ["md", "markdown", "textbundle", "pdf"]
     let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey]
 
     /// `hasMarkdown` — this directory's subtree has ≥1 md (not counting the
@@ -632,6 +634,7 @@ struct FolderInfoCard: View {
                     }
                     ForEach(visible, id: \.self) { file in
                         FolderGridTile(kind: .file, name: file.lastPathComponent,
+                                       fileIcon: sidebarFileIcon(for: file),
                                        dimmed: false, showHide: true, showUnhide: false,
                                        onTap: { AppState.shared.openInMainWindow(file) },
                                        onTrailing: { workspace.hide(file) })
@@ -659,6 +662,7 @@ struct FolderInfoCard: View {
                     LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
                         ForEach(hidden, id: \.self) { file in
                             FolderGridTile(kind: .file, name: file.lastPathComponent,
+                                           fileIcon: sidebarFileIcon(for: file),
                                            dimmed: true, showHide: false, showUnhide: true,
                                            onTap: { AppState.shared.openInMainWindow(file) },
                                            onTrailing: { workspace.unhide(file) })
@@ -782,6 +786,8 @@ private struct FolderGridTile: View {
 
     let kind: Kind
     let name: String
+    /// SF Symbol for `.file` tiles (PDF tiles pass `sidebarFileIcon(for:)`).
+    var fileIcon: String = "doc.text"
     var dimmed = false
     var showHide = false
     var showUnhide = false
@@ -793,7 +799,7 @@ private struct FolderGridTile: View {
     var body: some View {
         VStack(spacing: 4) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: kind == .folder ? "folder.fill" : "doc.text")
+                Image(systemName: kind == .folder ? "folder.fill" : fileIcon)
                     .font(.system(size: Self.iconSize))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(kind == .folder ? Color.accentColor : Color.secondary)

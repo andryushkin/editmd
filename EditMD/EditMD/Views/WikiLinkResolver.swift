@@ -16,7 +16,12 @@ actor WikiLinkResolver {
     private var built = false
     private var roots: [URL] = []
 
-    private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
+    /// Markdown documents + PDF — everything a `[[target]]` may point at.
+    private static let indexedExtensions: Set<String> = ["md", "markdown", "textbundle", "pdf"]
+
+    /// Extensions the user may type explicitly in a target (`[[doc.pdf]]`).
+    /// An explicit extension filters matches to that file type.
+    private static let explicitExtensions = ["md", "pdf"]
 
     init() {}
 
@@ -36,12 +41,18 @@ actor WikiLinkResolver {
         index = [:]
     }
 
-    /// File URLs whose basename matches `target`, sorted by path for stable
-    /// ordering. A `folder/Note` target resolves by its last path component; a
-    /// trailing `.md` the user typed is ignored.
+    /// File URLs whose basename matches `target`, notes before PDFs, then by
+    /// path for stable ordering. A `folder/Note` target resolves by its last
+    /// path component; an explicit `.md` / `.pdf` the user typed narrows the
+    /// matches to that file type.
     func resolve(_ target: String) -> [URL] {
         buildIfNeeded()
-        return index[normalizeKey(target)] ?? []
+        let (key, ext) = Self.normalizeTarget(target)
+        var matches = index[key] ?? []
+        if let ext {
+            matches = matches.filter { $0.pathExtension.lowercased() == ext }
+        }
+        return matches
     }
 
     private func buildIfNeeded() {
@@ -54,23 +65,35 @@ actor WikiLinkResolver {
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
             for case let url as URL in enumerator
-            where Self.markdownExtensions.contains(url.pathExtension.lowercased()) {
+            where Self.indexedExtensions.contains(url.pathExtension.lowercased()) {
                 let key = url.deletingPathExtension().lastPathComponent.lowercased()
                 newIndex[key, default: []].append(url)
             }
         }
         for key in newIndex.keys {
-            newIndex[key]?.sort { $0.path < $1.path }
+            newIndex[key]?.sort {
+                // A bare [[Name]] shared by note.md and note.pdf opens the note.
+                let aPDF = $0.pathExtension.lowercased() == "pdf"
+                let bPDF = $1.pathExtension.lowercased() == "pdf"
+                if aPDF != bPDF { return bPDF }
+                return $0.path < $1.path
+            }
         }
         index = newIndex
         built = true
     }
 
-    private func normalizeKey(_ target: String) -> String {
+    private static func normalizeTarget(_ target: String) -> (key: String, ext: String?) {
         var t = target
         if let slash = t.lastIndex(of: "/") { t = String(t[t.index(after: slash)...]) }
-        if t.lowercased().hasSuffix(".md") { t = String(t.dropLast(3)) }
-        return t.trimmingCharacters(in: .whitespaces).lowercased()
+        t = t.trimmingCharacters(in: .whitespaces)
+        var ext: String?
+        for candidate in explicitExtensions where t.lowercased().hasSuffix("." + candidate) {
+            ext = candidate
+            t = String(t.dropLast(candidate.count + 1))
+            break
+        }
+        return (t.trimmingCharacters(in: .whitespaces).lowercased(), ext)
     }
 }
 

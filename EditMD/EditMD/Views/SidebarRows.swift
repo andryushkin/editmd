@@ -22,6 +22,8 @@ struct FileRow: View {
     enum Trailing: Equatable { case hide, unhide, pin(Bool), none }
 
     let name: String
+    /// SF Symbol for the doc glyph (PDF rows pass `sidebarFileIcon(for:)`).
+    var icon: String = "doc.text"
     var subtitle: String?
     let isActive: Bool
     /// Hidden file shown in review mode — soften label, keep eye button crisp.
@@ -42,7 +44,7 @@ struct FileRow: View {
             if depth > 0 {
                 Color.clear.frame(width: SidebarTree.chevronWidth, height: 1)
             }
-            Image(systemName: "doc.text")
+            Image(systemName: icon)
                 .font(.system(size: 12))
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
                 .opacity(dimmed ? 0.55 : 1)

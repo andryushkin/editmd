@@ -78,7 +78,9 @@ final class WorkspaceModel: ObservableObject {
 
     // MARK: - Folder scan
 
-    nonisolated private static let markdownExtensions: Set<String> = ["md", "markdown", "textbundle"]
+    /// Everything the sidebar lists and the app opens in place: markdown
+    /// documents + PDF (read-only PDFKit viewer, wiki-link target).
+    nonisolated private static let listedExtensions: Set<String> = ["md", "markdown", "textbundle", "pdf"]
 
     /// path → (epoch, direct md children). Views read listings through this
     /// cache: a single blocked `contentsOfDirectory` (TCC arbitration, dead
@@ -138,7 +140,7 @@ final class WorkspaceModel: ObservableObject {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles])) ?? []
         return items
-            .filter { markdownExtensions.contains($0.pathExtension.lowercased()) }
+            .filter { listedExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 

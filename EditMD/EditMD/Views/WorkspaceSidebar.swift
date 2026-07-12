@@ -387,6 +387,7 @@ struct WorkspaceSidebar: View {
         // depth 1 = same column as root subfolders (chevron slot reserved).
         // Visible → eye.slash hides. Hidden (only listed in review mode) → eye unhides.
         FileRow(name: url.lastPathComponent,
+                icon: sidebarFileIcon(for: url),
                 subtitle: nil,
                 isActive: isActive(url),
                 dimmed: hidden,
@@ -415,6 +416,7 @@ struct WorkspaceSidebar: View {
         let pinned = workspace.isPinned(url)
         let dir = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
         return FileRow(name: url.lastPathComponent,
+                       icon: sidebarFileIcon(for: url),
                        subtitle: dir,
                        isActive: isActive(url),
                        dimmed: false,
@@ -585,6 +587,7 @@ private struct SubfolderNode: View {
 
     private func nestedFileRow(_ file: URL, hidden: Bool) -> some View {
         FileRow(name: file.lastPathComponent,
+                icon: sidebarFileIcon(for: file),
                 isActive: file.standardizedFileURL == activeURL?.standardizedFileURL,
                 dimmed: hidden,
                 depth: depth + 1,
