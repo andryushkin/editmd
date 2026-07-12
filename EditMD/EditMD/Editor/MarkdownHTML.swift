@@ -51,6 +51,26 @@ struct PreviewGutterOptions: Equatable {
     static let off = PreviewGutterOptions()
 }
 
+/// Geometry of the Preview line-number rail. It lives in the body's left
+/// padding (not in a ruler view like Source/Visual), so the action strip has
+/// to add it to reach the text — same numbers as the CSS below.
+enum PreviewGutterMetrics {
+    /// Gap between the numbers column and the text.
+    static let gapPx: CGFloat = 18
+
+    static func columnPx(for gutter: PreviewGutterOptions) -> CGFloat {
+        let font = GutterTypography.fontSize.rounded()
+        let digits = max(2, String(max(99, gutter.dirtyLines.max() ?? 999)).count)
+        return max(28, font * CGFloat(digits) + 10)
+    }
+
+    /// Left offset the rail adds to the text. RESERVED even with numbers off:
+    /// they appear in the margin instead of pushing the text sideways.
+    static func railPx(for gutter: PreviewGutterOptions) -> CGFloat {
+        columnPx(for: gutter) + gapPx
+    }
+}
+
 /// Renders markdown to an HTML body fragment.
 /// `imageResolver` may replace an image's `src` (e.g. with a data: URI for
 /// local files); returning nil keeps the original source.
@@ -691,12 +711,12 @@ func previewHTMLPage(markdown: String,
     let gutterOn = gutter.isVisible
     // Same digit size as Source/Visual ruler (`GutterTypography.fontSize`).
     let lnFontPx = Int(GutterTypography.fontSize.rounded())
-    let lnColPx = max(28, lnFontPx * max(2, String(max(99, gutter.dirtyLines.max() ?? 999)).count) + 10)
+    let lnColPx = Int(PreviewGutterMetrics.columnPx(for: gutter))
     let dirtyColor = gutter.dirtyMarkColorHex.isEmpty ? "#1a8f3c" : gutter.dirtyMarkColorHex
     let bodyGutterClass = gutterOn ? " class=\"\(gutter.modeClass)\"" : ""
     // Extra left padding reserves one shared gutter plus a comfortable gap.
-    let lineNumberGapPx = 18
-    let padHLeft = gutterOn ? padH + lnColPx + lineNumberGapPx : padH
+    let lineNumberGapPx = Int(PreviewGutterMetrics.gapPx)
+    let padHLeft = padH + Int(PreviewGutterMetrics.railPx(for: gutter))
 
     // Per-element rules generated from ElementStyles — appended after the base
     // rules so they win. Heading size uses `em` (= the scale), matching how
@@ -798,9 +818,16 @@ func previewHTMLPage(markdown: String,
     pre {
         background: rgba(175,82,222,0.09);
         border: 1px solid rgba(175,82,222,0.28);
-        border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+        border-radius: 8px; padding: 14px 16px;
+        /* NOT overflow-x here: that clips the gutter number, which is an
+           absolutely-positioned ::before sitting left of the block. The code
+           itself scrolls instead. */
+        overflow: visible;
     }
-    pre code { background: none; padding: 0; font-size: 0.875em; }
+    pre code {
+        background: none; padding: 0; font-size: 0.875em;
+        display: block; overflow-x: auto;
+    }
     blockquote {
         margin: 0.8em 0; padding: 0.1em 1em;
         border-left: 4px solid rgba(0,122,255,0.68);

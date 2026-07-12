@@ -42,9 +42,18 @@ struct SourceTextView: NSViewRepresentable {
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
     /// D5: top-of-viewport markdown offset for split-preview scroll sync.
     var onVisibleOffset: ((Int) -> Void)? = nil
+    /// Left edge of the text (incl. the reserved gutter margin) — the action
+    /// strip and the gutter toggle line up with it.
+    var onTextLeading: ((CGFloat) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
+    }
+
+    /// Room the numbers need beside the text — reserved whether or not they're
+    /// shown, so toggling them doesn't move the column.
+    private var gutterReserve: CGFloat {
+        GutterMetrics.reserve(lineCountHint: max(1, countDiffLines(document.content)))
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -98,7 +107,8 @@ struct SourceTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
         Self.applyReadingInsets(textView: textView, scrollView: scrollView,
-                                insetH: insetH, insetV: insetV, columnWidth: columnWidth)
+                                insetH: insetH, insetV: insetV, columnWidth: columnWidth,
+                                gutterReserve: gutterReserve)
 
         let coordinator = context.coordinator
         coordinator.textView = textView
@@ -199,7 +209,8 @@ struct SourceTextView: NSViewRepresentable {
 
         guard let textView = coordinator.textView else { return }
         Self.applyReadingInsets(textView: textView, scrollView: scrollView,
-                                insetH: insetH, insetV: insetV, columnWidth: columnWidth)
+                                insetH: insetH, insetV: insetV, columnWidth: columnWidth,
+                                gutterReserve: gutterReserve)
 
         // External change (Revert, or another window editing the shared
         // document). A background window defers the reload until it becomes key
@@ -222,15 +233,19 @@ struct SourceTextView: NSViewRepresentable {
                                                scrollView: NSScrollView,
                                                insetH: CGFloat,
                                                insetV: CGFloat,
-                                               columnWidth: CGFloat) {
+                                               columnWidth: CGFloat,
+                                               gutterReserve: CGFloat = 0) {
         let width = scrollView.contentView.bounds.width
         var mode = EditorSettings.shared.source
         mode.insetH = insetH
         mode.insetV = insetV
         mode.columnWidth = columnWidth
         let inset = mode.textContainerInset(forWidth: width)
+        // Numbers live in this margin; reserving it unconditionally keeps the
+        // text still when they're toggled.
+        let leading = max(inset.width, gutterReserve)
 
-        textView.textContainerInset = NSSize(width: inset.width, height: 0)
+        textView.textContainerInset = NSSize(width: leading, height: 0)
         scrollView.automaticallyAdjustsContentInsets = false
         let v = inset.height
         let current = scrollView.contentInsets
@@ -298,26 +313,30 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         func refreshGutter() {
-            guard let textView else { return }
-            let settings = EditorSettings.shared.gutter
+            guard let textView = textView as? SourceNSTextView else { return }
             // Source: display line ≡ source line (identity map).
-            let dirty = LineChangeTracker.shared.dirtyLines(for: parent.fileURL)
-            let font = EditorSettings.shared.source.resolvedFont(defaultMono: true)
-            let sourceLines = max(1, countDiffLines(parent.document.content))
-            textView.installOrUpdateLineNumberRuler(
-                fileURL: parent.fileURL,
-                dirtySourceLines: dirty,
-                settings: settings,
-                bodyFont: font,
-                displayToSourceLine: [],
-                sourceLineCountHint: sourceLines)
+            textView.gutterState = GutterState(
+                settings: EditorSettings.shared.gutter,
+                dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
+                displayToSourceLine: [])
+            textView.needsDisplay = true
+            reportTextLeading(textView.textContainerInset.width)
         }
 
+        /// The strip lines its tools up with the text. Reported async: this runs
+        /// from `updateNSView`, and writing SwiftUI state there warns.
+        private func reportTextLeading(_ leading: CGFloat) {
+            guard abs(lastTextLeading - leading) > 0.5 else { return }
+            lastTextLeading = leading
+            let report = parent.onTextLeading
+            DispatchQueue.main.async { report?(leading) }
+        }
+
+        private var lastTextLeading: CGFloat = -1
         private var scrollSyncTask: Task<Void, Never>?
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
-            (textView?.enclosingScrollView?.verticalRulerView as? LineNumberRulerView)?
-                .needsDisplay = true
+            textView?.needsDisplay = true
             // D5: debounce visible-offset publish for split preview.
             guard parent.onVisibleOffset != nil, let textView else { return }
             scrollSyncTask?.cancel()
@@ -1148,6 +1167,15 @@ extension NSFont {
 }
 
 fileprivate final class SourceNSTextView: NSTextView {
+
+    /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
+    /// AppKit would pin it to the pane edge, far from a centred column).
+    var gutterState = GutterState()
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawGutterNumbers(in: rect, state: gutterState)
+    }
 
     var lintDiagnostics: [LintDiagnostic] = []
     private var menuFixes: [LintFix] = []

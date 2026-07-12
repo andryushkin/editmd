@@ -6,116 +6,92 @@ enum GutterTypography {
     static let fontSize: CGFloat = 11
 }
 
-/// Vertical ruler for an `NSTextView`: optional **source** line numbers and
-/// session dirty marks (bold colored number or a bullet when numbers are off).
+/// Geometry of the Source/Visual line-number gutter.
 ///
-/// In Source mode display line ≡ source line (identity map).
-/// In Visual mode pass `displayToSourceLine` so the gutter shows the markdown
-/// line number for each display paragraph. Gaps between source lines (blank
-/// lines collapsed to paragraph spacing in Visual) are filled by drawing the
-/// intermediate numbers in the vertical gap.
-final class LineNumberRulerView: NSRulerView {
+/// The numbers used to live in an `NSRulerView`, which AppKit pins to the left
+/// edge of the scroll view — far from a centred reading column. They are drawn
+/// inside the text view now, in its left inset, right next to the text (the
+/// Preview CSS rail works the same way). The inset RESERVES room for them
+/// whether or not they're shown, so toggling never shifts the text.
+enum GutterMetrics {
+    /// Numbers → text. Matches `PreviewGutterMetrics.gapPx` so the three modes
+    /// place their digits identically.
+    static let gap: CGFloat = 18
+    /// Text view's left edge → numbers, when the reading column leaves no slack.
+    static let edgePad: CGFloat = 6
 
-    weak var hostTextView: NSTextView?
-    var fileURL: URL?
+    static func numbersWidth(lineCountHint: Int) -> CGFloat {
+        let digits = max(2, String(max(1, lineCountHint)).count)
+        let sample = String(repeating: "0", count: digits) as NSString
+        let font = NSFont.monospacedDigitSystemFont(ofSize: GutterTypography.fontSize,
+                                                    weight: .regular)
+        return ceil(sample.size(withAttributes: [.font: font]).width)
+    }
+
+    /// Minimum left inset the text needs so the numbers fit beside it.
+    static func reserve(lineCountHint: Int) -> CGFloat {
+        numbersWidth(lineCountHint: lineCountHint) + gap + edgePad
+    }
+}
+
+/// What a text view needs to draw its gutter — set by the editor's
+/// `refreshGutter`, read by `drawBackground`.
+struct GutterState {
+    var settings = GutterSettings()
     /// 1-based **source** line numbers that are dirty (`LineChangeTracker`).
     var dirtySourceLines: Set<Int> = []
-    var gutter = GutterSettings()
-    /// Kept for API compatibility; digit size uses `GutterTypography.fontSize`.
-    var bodyFont: NSFont = .monospacedSystemFont(ofSize: 14, weight: .regular)
-    /// Index 0 = display hard-line 1 → source line number.
-    /// Empty = identity (Source).
+    /// Index 0 = display hard-line 1 → source line number. Empty = identity
+    /// (Source); Visual passes the paragraph→markdown map.
     var displayToSourceLine: [Int] = []
+}
 
-    private let minThicknessNumbers: CGFloat = 36
-    private let minThicknessBullets: CGFloat = 16
-    private let trailingPad: CGFloat = 8
+// MARK: - Drawing
 
-    override init(scrollView: NSScrollView?, orientation: NSRulerView.Orientation) {
-        super.init(scrollView: scrollView, orientation: orientation)
-        clientView = scrollView?.documentView
-        ruleThickness = minThicknessNumbers
-        needsDisplay = true
-    }
+private struct GutterAnchor {
+    var y: CGFloat          // vertical center of the number
+    var sourceLine: Int
+}
 
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) not used") }
+extension NSTextView {
 
-    func applySettings(_ settings: GutterSettings, bodyFont: NSFont, lineCountHint: Int) {
-        gutter = settings
-        self.bodyFont = bodyFont
-        let thick: CGFloat
-        if settings.showLineNumbers {
-            let digits = max(2, String(max(1, lineCountHint)).count)
-            let sample = String(repeating: "0", count: digits) as NSString
-            let digitFont = numberFont(bold: false)
-            let w = sample.size(withAttributes: [.font: digitFont]).width
-            thick = max(minThicknessNumbers, ceil(w) + trailingPad + 6)
-        } else if settings.gutterVisible {
-            thick = minThicknessBullets
-        } else {
-            thick = 0
-        }
-        if abs(ruleThickness - thick) > 0.5 {
-            ruleThickness = thick
-        }
-        needsDisplay = true
-    }
-
-    private func numberFont(bold: Bool) -> NSFont {
-        .monospacedDigitSystemFont(ofSize: GutterTypography.fontSize,
-                                   weight: bold ? .bold : .regular)
-    }
-
-    /// Source line for a 1-based display hard-line index.
-    private func sourceLine(forDisplay displayLine: Int) -> Int {
-        let idx = displayLine - 1
-        if idx >= 0, idx < displayToSourceLine.count {
-            return displayToSourceLine[idx]
-        }
-        return displayLine  // identity
-    }
-
-    /// Fill the whole ruler (no default NSRuler hash/separator chrome).
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
-        bounds.fill()
-        if gutter.gutterVisible {
-            drawHashMarksAndLabels(in: dirtyRect)
-        }
-    }
-
-    private struct Anchor {
-        var y: CGFloat          // vertical center of the number
-        var height: CGFloat     // line fragment height
-        var sourceLine: Int
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard gutter.gutterVisible,
-              let textView = hostTextView ?? clientView as? NSTextView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer
+    /// Draws source line numbers (or dirty bullets) in the left inset, right
+    /// aligned `GutterMetrics.gap` before the text. Call from `drawBackground`.
+    @MainActor
+    func drawGutterNumbers(in rect: NSRect, state: GutterState) {
+        guard state.settings.gutterVisible,
+              let layoutManager,
+              let textContainer
         else { return }
 
-        let dirtyColor = gutter.dirtyMarkNSColor
+        let dirtyColor = state.settings.dirtyMarkNSColor
         let normalColor = NSColor.tertiaryLabelColor
-        let normalFont = numberFont(bold: false)
-        let dirtyFont = numberFont(bold: true)
+        let normalFont = NSFont.monospacedDigitSystemFont(ofSize: GutterTypography.fontSize,
+                                                          weight: .regular)
+        let dirtyFont = NSFont.monospacedDigitSystemFont(ofSize: GutterTypography.fontSize,
+                                                         weight: .bold)
         let fontSize = GutterTypography.fontSize
 
-        let visibleRect = textView.visibleRect
         let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
         guard glyphRange.location != NSNotFound else { return }
 
-        let ns = textView.string as NSString
-        let inset = textView.textContainerInset
-        let yOffset = inset.height - visibleRect.origin.y
+        let ns = string as NSString
+        let inset = textContainerInset
+        // Fragments are container-relative; the text view's own inset puts them
+        // where they're drawn.
+        let yOffset = inset.height
+        let rightEdge = inset.width - GutterMetrics.gap
 
-        var anchors: [Anchor] = []
-        // Running newline count — O(visible) total, not O(visible × doc)
-        // (the old per-fragment `pre.reduce` over the whole prefix pegged CPU
-        // on large Source files like Claude.md).
+        func sourceLine(forDisplay displayLine: Int) -> Int {
+            let idx = displayLine - 1
+            if idx >= 0, idx < state.displayToSourceLine.count {
+                return state.displayToSourceLine[idx]
+            }
+            return displayLine  // identity (Source)
+        }
+
+        var anchors: [GutterAnchor] = []
+        // Running newline count — O(visible) total, not O(visible × doc) (the
+        // old per-fragment prefix walk pegged CPU on large Source files).
         var lastHardLineStart = -1
         var lastDisplayLine = 0
 
@@ -173,64 +149,53 @@ final class LineNumberRulerView: NSRulerView {
                 lastHardLineStart = hardLine.location
                 lastDisplayLine = dl
             }
-            let srcLine = self.sourceLine(forDisplay: displayLine)
 
             let y = fragmentRect.minY + yOffset
                 + (fragmentRect.height - fontSize) * 0.5
                 - 1
-            anchors.append(Anchor(y: y, height: fragmentRect.height, sourceLine: srcLine))
+            anchors.append(GutterAnchor(y: y, sourceLine: sourceLine(forDisplay: displayLine)))
         }
 
-        // Draw anchors + fill source-line gaps (blank lines collapsed in Visual).
         guard !anchors.isEmpty else { return }
         anchors.sort { $0.y < $1.y }
 
         func drawNumber(_ src: Int, at y: CGFloat) {
             guard y + fontSize >= rect.minY - 2, y <= rect.maxY + 2 else { return }
-            let isDirty = self.gutter.highlightChangedLines
-                && self.dirtySourceLines.contains(src)
-            if self.gutter.showLineNumbers {
+            let isDirty = state.settings.highlightChangedLines
+                && state.dirtySourceLines.contains(src)
+            if state.settings.showLineNumbers {
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: isDirty ? dirtyFont : normalFont,
                     .foregroundColor: isDirty ? dirtyColor : normalColor,
                 ]
                 let s = "\(src)" as NSString
                 let size = s.size(withAttributes: attrs)
-                let x = self.ruleThickness - self.trailingPad - size.width
-                s.draw(at: NSPoint(x: max(2, x), y: y), withAttributes: attrs)
-            } else if isDirty, self.gutter.showDirtyBulletsWhenNoNumbers {
+                s.draw(at: NSPoint(x: max(2, rightEdge - size.width), y: y),
+                       withAttributes: attrs)
+            } else if isDirty, state.settings.showDirtyBulletsWhenNoNumbers {
                 let r: CGFloat = max(2.5, fontSize * 0.22)
-                let cx = self.ruleThickness * 0.5
+                let cx = rightEdge - r
                 let cy = y + fontSize * 0.5
                 dirtyColor.setFill()
                 NSBezierPath(ovalIn: NSRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)).fill()
             }
         }
 
-        for (i, a) in anchors.enumerated() {
+        // One number per block, like the Preview rail. Source lines with no
+        // fragment of their own (blank lines Visual folds into paragraph
+        // spacing) are NOT back-filled into the gaps: squeezing them in turned
+        // dense stretches into an unreadable stack of digits.
+        var lastDrawnLine = Int.min
+        var lastDrawnY = -CGFloat.greatestFiniteMagnitude
+        for a in anchors {
+            // Several display paragraphs can map to one source line (table rows,
+            // islands) — draw it once.
+            guard a.sourceLine != lastDrawnLine,
+                  a.y - lastDrawnY >= fontSize * 1.1
+            else { continue }
             drawNumber(a.sourceLine, at: a.y)
-
-            // Intermediate source lines between this anchor and the next
-            // (e.g. blank lines between H1 and H2 that Visual folded into spacing).
-            guard i + 1 < anchors.count else { continue }
-            let b = anchors[i + 1]
-            let gapStart = a.sourceLine + 1
-            let gapEnd = b.sourceLine - 1
-            guard gapStart <= gapEnd else { continue }
-
-            let top = a.y + fontSize  // below first number
-            let bottom = b.y          // above next number
-            let gapH = bottom - top
-            let missing = gapEnd - gapStart + 1
-            // Need room for at least a tiny digit; if spacing is tight, still try.
-            guard gapH > fontSize * 0.35 else { continue }
-
-            for k in 0..<missing {
-                let src = gapStart + k
-                let t = (CGFloat(k) + 0.5) / CGFloat(missing)
-                let y = top + gapH * t - fontSize * 0.5
-                drawNumber(src, at: y)
-            }
+            lastDrawnLine = a.sourceLine
+            lastDrawnY = a.y
         }
     }
 }
@@ -253,8 +218,6 @@ func displayToSourceLineMap(paragraphRanges: [NSRange], markdown: String) -> [In
     if paragraphRanges.isEmpty { return [] }
     let ns = markdown as NSString
     let n = ns.length
-    // Precompute source line at every character offset is too big; walk once
-    // in offset order (paragraphRanges are in document order).
     var result: [Int] = []
     result.reserveCapacity(paragraphRanges.count)
     var line = 1
@@ -273,42 +236,4 @@ func displayToSourceLineMap(paragraphRanges: [NSRange], markdown: String) -> [In
         result.append(line)
     }
     return result
-}
-
-// MARK: - Attach / refresh helpers
-
-extension NSTextView {
-    /// Installs (or updates) a line-number ruler on the enclosing scroll view.
-    @MainActor
-    func installOrUpdateLineNumberRuler(fileURL: URL?,
-                                        dirtySourceLines: Set<Int>,
-                                        settings: GutterSettings,
-                                        bodyFont: NSFont,
-                                        displayToSourceLine: [Int] = [],
-                                        sourceLineCountHint: Int? = nil) {
-        guard let scroll = enclosingScrollView else { return }
-        scroll.hasVerticalRuler = settings.gutterVisible
-        scroll.rulersVisible = settings.gutterVisible
-        if !settings.gutterVisible {
-            scroll.verticalRulerView = nil
-            return
-        }
-        let ruler: LineNumberRulerView
-        if let existing = scroll.verticalRulerView as? LineNumberRulerView {
-            ruler = existing
-        } else {
-            ruler = LineNumberRulerView(scrollView: scroll, orientation: .verticalRuler)
-            scroll.verticalRulerView = ruler
-        }
-        ruler.hostTextView = self
-        ruler.clientView = self
-        ruler.fileURL = fileURL
-        ruler.dirtySourceLines = dirtySourceLines
-        ruler.displayToSourceLine = displayToSourceLine
-        let hint = sourceLineCountHint
-            ?? displayToSourceLine.max()
-            ?? max(1, (string as NSString).components(separatedBy: "\n").count)
-        ruler.applySettings(settings, bodyFont: bodyFont, lineCountHint: hint)
-        ruler.needsDisplay = true
-    }
 }

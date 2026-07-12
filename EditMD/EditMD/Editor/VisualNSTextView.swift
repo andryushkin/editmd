@@ -68,6 +68,9 @@ private final class TableCellEditorCell: NSTextFieldCell {
 
 final class VisualNSTextView: NSTextView {
     var theme: EditorTheme = .system
+    /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
+    /// AppKit would pin it to the pane edge, far from a centred column).
+    var gutterState = GutterState()
     var bulletEntries: [(range: NSRange, depth: Int)] = []
     var numberEntries: [(range: NSRange, depth: Int, number: Int)] = []
     var taskEntries: [(range: NSRange, depth: Int, done: Bool)] = []
@@ -747,6 +750,7 @@ final class VisualNSTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawGutterNumbers(in: rect, state: gutterState)
         if activeEditor != nil {
             editorSettings.overlayColor.setFill()
             (enclosingScrollView?.contentView.documentVisibleRect ?? bounds).fill()

@@ -49,7 +49,10 @@ final class EditorStripActions {
 // MARK: - Strip UI
 
 /// Top action pill(s) — folder-info chrome, Notes-like tool groups.
-/// Always above the editor; leading inset matches the active mode's reading field.
+/// Always above the editor; leading inset matches the active mode's reading
+/// field, and the mode switcher mirrors it on the trailing side. Tool groups
+/// that no longer fit the space between them collapse into an "…" menu — the
+/// switcher must never be overlapped.
 struct EditorActionStrip: View {
     /// Closures only — not observed for UI identity (mutating them must not
     /// republish during `updateNSView` or SwiftUI freezes).
@@ -57,6 +60,14 @@ struct EditorActionStrip: View {
     /// Source / Visual / Preview inset for column alignment.
     var insetH: CGFloat
     var columnWidth: CGFloat
+    /// Left edge of the text as reported by Source/Visual (their inset already
+    /// reserves the numbers margin). nil → compute it (Preview).
+    var textLeading: CGFloat? = nil
+    /// Numbers → text gap, so the toggle lands over the digits.
+    var railGap: CGFloat = 0
+    /// Preview only: its rail (numbers + gap) widens the text's left padding,
+    /// and nobody reports the result — so the strip adds it itself.
+    var previewRailWidth: CGFloat = 0
     /// Table + formula tools (Visual only). Driven by mode, not by nil-ing
     /// closures on the actions bag.
     var showVisualExtras: Bool = false
@@ -66,124 +77,178 @@ struct EditorActionStrip: View {
     /// toolbar no longer carries it).
     var mode: EditorMode
     var setEditorMode: (EditorMode) -> Void
+    /// Line-number toggle, drawn over the gutter it controls.
+    var showLineNumbers: Bool
+    var toggleLineNumbers: () -> Void
+
+    /// Measured pill widths, keyed by `StripGroup.rawValue` + the two reserved
+    /// keys below. Filled by the hidden measurement layer; pill widths don't
+    /// depend on the available width, so this settles on the first pass.
+    @State private var widths: [String: CGFloat] = [:]
+
+    private static let modeKey = "__mode"
+    private static let overflowKey = "__overflow"
+    private static let gutterKey = "__gutter"
+    private static let groupSpacing: CGFloat = 8
+    /// Optical nudge for the toggle: half the empty space around its glyph.
+    private static let gutterGlyphInset: CGFloat = 7
 
     var body: some View {
         GeometryReader { geo in
-            let lead = contentLeading(for: geo.size.width)
-            HStack(alignment: .center, spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    toolGroups
-                        .padding(.leading, lead)
-                        .padding(.trailing, 8)
+            let field = field(for: geo.size.width)
+            let lead = field.textLeading
+            // Mirror of the tools' inset — measured from the column's right
+            // edge, which the rail does NOT shift.
+            let trail = max(field.textTrailing, SidebarChrome.barPaddingH)
+            let modeWidth = widths[Self.modeKey] ?? 0
+            let available = max(0, geo.size.width - lead - trail
+                                   - modeWidth - Self.groupSpacing)
+            let plan = plan(available: available)
+            HStack(alignment: .center, spacing: Self.groupSpacing) {
+                HStack(alignment: .center, spacing: Self.groupSpacing) {
+                    ForEach(plan.visible) { group in
+                        groupPill(group)
+                    }
+                    if !plan.overflow.isEmpty {
+                        overflowPill(plan.overflow)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Pinned: the tools scroll under it, the switcher stays put.
+                // Belt and braces: even if a pill measures wider than planned,
+                // it gets clipped instead of drawing over the switcher.
+                .clipped()
                 modePill
             }
+            .padding(.leading, lead)
+            .padding(.trailing, trail)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.trailing, SidebarChrome.barPaddingH)
             .padding(.top, SidebarChrome.barPaddingTop)
             .padding(.bottom, SidebarChrome.barPaddingBottom)
+            // Sits in the left margin, centred over the numbers column — the
+            // rail is reserved either way, so it never moves.
+            .overlay(alignment: .leading) {
+                gutterPill
+                    // The glyph is centred in a 28pt hit target, so aligning the
+                    // BOX with the digits leaves the symbol visibly left of them
+                    // — nudge back by half the slack.
+                    .offset(x: max(0, field.railTrailingX
+                                      - (widths[Self.gutterKey] ?? 0)
+                                      + Self.gutterGlyphInset))
+            }
+            .background(alignment: .leading) { measurementLayer }
+            .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
         .frame(height: stripHeight)
     }
 
-    // MARK: Tool groups (scrolling)
+    // MARK: Overflow planning
 
-    private var toolGroups: some View {
-        HStack(alignment: .center, spacing: 8) {
-                    // Inline styles
-                    pill {
-                        icon("bold", "Жирный (**…**)",
-                             active: activeFormats.bold) { actions.run(actions.toggleBold) }
-                        sep
-                        icon("italic", "Курсив (*…*)",
-                             active: activeFormats.italic) { actions.run(actions.toggleItalic) }
-                        sep
-                        icon("strikethrough", "Зачёркивание (~~…~~)",
-                             active: activeFormats.strikethrough) {
-                            actions.run(actions.toggleStrikethrough)
-                        }
-                        sep
-                        labelBtn("<>", "Инлайн-код (`…`)",
-                                 active: activeFormats.code) {
-                            actions.run(actions.toggleCodeSpan)
-                        }
-                        sep
-                        icon("highlighter", "Выделение (==…==)",
-                             active: activeFormats.highlight) {
-                            actions.run(actions.toggleHighlight)
-                        }
-                        sep
-                        icon("doc.on.doc", "Копировать") { actions.run(actions.copySelection) }
-                    }
-                    // Paragraph styles (markdown-relevant)
-                    pill {
-                        labelBtn("H1", "Заголовок 1 (#)", active: activeFormats.headingLevel == 1) {
-                            if let h = actions.setHeading { h(1) } else { NSSound.beep() }
-                        }
-                        sep
-                        labelBtn("H2", "Заголовок 2 (##)", active: activeFormats.headingLevel == 2) {
-                            if let h = actions.setHeading { h(2) } else { NSSound.beep() }
-                        }
-                        sep
-                        labelBtn("H3", "Заголовок 3 (###)", active: activeFormats.headingLevel == 3) {
-                            if let h = actions.setHeading { h(3) } else { NSSound.beep() }
-                        }
-                        sep
-                        labelBtn("T", "Обычный текст (снять inline-разметку)") {
-                            actions.run(actions.clearInlineFormatting)
-                        }
-                        sep
-                        labelBtn("Aa", "Снять заголовок/список") {
-                            actions.run(actions.setBody)
-                        }
-                        sep
-                        labelBtn("aA", "Регистр: UPPER → lower → Capitalized") {
-                            actions.run(actions.cycleCase)
-                        }
-                        sep
-                        icon("minus", "Линия-разделитель (---)") {
-                            actions.run(actions.insertDivider)
-                        }
-                        sep
-                        icon("chevron.left.forwardslash.chevron.right", "Блок кода",
-                             active: activeFormats.codeBlock) {
-                            actions.run(actions.toggleCodeBlock)
-                        }
-                    }
-                    // Lists + quote
-                    pill {
-                        icon("list.bullet", "Маркированный список",
-                             active: activeFormats.bulletList) {
-                            actions.run(actions.toggleBulletList)
-                        }
-                        sep
-                        icon("checklist", "Чеклист", active: activeFormats.checklist) {
-                            actions.run(actions.toggleChecklist)
-                        }
-                        sep
-                        icon("list.number", "Нумерованный список",
-                             active: activeFormats.numberedList) {
-                            actions.run(actions.toggleNumberedList)
-                        }
-                        sep
-                        icon("text.quote", "Цитата", active: activeFormats.quote) {
-                            actions.run(actions.toggleQuote)
-                        }
-                    }
-                    // Visual-only: table + formula insert
-                    if showVisualExtras {
-                        pill {
-                            tableMenu
-                            sep
-                            formulaMenu
-                        }
-                    }
+    private var activeGroups: [StripGroup] {
+        StripGroup.allCases.filter { $0 != .extras || showVisualExtras }
+    }
+
+    /// Greedy left-to-right fit. Until the measurement layer reports (first
+    /// frame) every group is shown — `.clipped()` covers that one frame.
+    private func plan(available: CGFloat) -> (visible: [StripGroup], overflow: [StripGroup]) {
+        let groups = activeGroups
+        let measured = groups.map { widths[$0.rawValue] ?? 0 }
+        guard !measured.contains(where: { $0 <= 0 }) else { return (groups, []) }
+        let total = measured.reduce(0, +)
+            + Self.groupSpacing * CGFloat(max(0, groups.count - 1))
+        if total <= available { return (groups, []) }
+
+        let budget = available - (widths[Self.overflowKey] ?? 0) - Self.groupSpacing
+        var visible: [StripGroup] = []
+        var used: CGFloat = 0
+        for (group, width) in zip(groups, measured) {
+            let cost = visible.isEmpty ? width : width + Self.groupSpacing
+            guard used + cost <= budget else { break }
+            visible.append(group)
+            used += cost
+        }
+        return (visible, groups.filter { !visible.contains($0) })
+    }
+
+    /// Every pill laid out at its natural size, off-screen: a group that lives
+    /// in the "…" menu still needs a width, or it could never come back.
+    private var measurementLayer: some View {
+        HStack(spacing: Self.groupSpacing) {
+            ForEach(activeGroups) { group in
+                groupPill(group).measureWidth(key: group.rawValue)
+            }
+            overflowPill([]).measureWidth(key: Self.overflowKey)
+            modePill.measureWidth(key: Self.modeKey)
+            gutterPill.measureWidth(key: Self.gutterKey)
+        }
+        .fixedSize()
+        .hidden()
+        .allowsHitTesting(false)
+    }
+
+    // MARK: Groups
+
+    @ViewBuilder private func groupPill(_ group: StripGroup) -> some View {
+        if group == .extras {
+            // Table / formula stay menus in the strip; the "…" menu flattens
+            // them into plain items.
+            pill {
+                tableMenu
+                sep
+                formulaMenu
+            }
+        } else {
+            pill {
+                ForEach(Array(items(for: group).enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { sep }
+                    itemButton(item)
+                }
+            }
         }
     }
 
-    // MARK: Mode switcher (pinned trailing)
+    private func overflowPill(_ groups: [StripGroup]) -> some View {
+        pill {
+            Menu {
+                ForEach(groups) { group in
+                    Section(group.title) {
+                        ForEach(items(for: group)) { item in
+                            Button {
+                                item.action()
+                            } label: {
+                                Label(item.title, systemImage: item.menuIcon)
+                                    // macOS menus drop the icon unless the
+                                    // style asks for both.
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.primary)
+                    .frame(width: SidebarChrome.iconButtonWidth,
+                           height: SidebarChrome.iconButtonHeight)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
+            .editMDHelp("Ещё инструменты")
+        }
+    }
+
+    /// Line-number toggle. Lives in the left margin instead of a tool group:
+    /// it belongs to the gutter it sits over, and must never collapse into "…".
+    private var gutterPill: some View {
+        // Bare glyph, no pill: it belongs to the margin, not to the tool
+        // groups. State carried by the tint — same as B/I/lists.
+        icon("textformat.123",
+             showLineNumbers ? "Скрыть номера строк" : "Показать номера строк",
+             active: showLineNumbers) {
+            toggleLineNumbers()
+        }
+        .fixedSize()
+    }
 
     private var modePill: some View {
         pill {
@@ -197,6 +262,131 @@ struct EditorActionStrip: View {
             }
         }
         .fixedSize()
+    }
+
+    // MARK: Items (one model for the pill and the "…" menu)
+
+    private func items(for group: StripGroup) -> [StripItem] {
+        switch group {
+        case .inline:
+            return [
+                StripItem(id: "bold", glyph: .symbol("bold"), title: "Жирный",
+                          help: "Жирный (**…**)", menuIcon: "bold",
+                          active: activeFormats.bold,
+                          action: { actions.run(actions.toggleBold) }),
+                StripItem(id: "italic", glyph: .symbol("italic"), title: "Курсив",
+                          help: "Курсив (*…*)", menuIcon: "italic",
+                          active: activeFormats.italic,
+                          action: { actions.run(actions.toggleItalic) }),
+                StripItem(id: "strike", glyph: .symbol("strikethrough"), title: "Зачёркивание",
+                          help: "Зачёркивание (~~…~~)", menuIcon: "strikethrough",
+                          active: activeFormats.strikethrough,
+                          action: { actions.run(actions.toggleStrikethrough) }),
+                StripItem(id: "code", glyph: .text("<>"), title: "Инлайн-код",
+                          help: "Инлайн-код (`…`)",
+                          menuIcon: "chevron.left.forwardslash.chevron.right",
+                          active: activeFormats.code,
+                          action: { actions.run(actions.toggleCodeSpan) }),
+                StripItem(id: "highlight", glyph: .symbol("highlighter"), title: "Выделение",
+                          help: "Выделение (==…==)", menuIcon: "highlighter",
+                          active: activeFormats.highlight,
+                          action: { actions.run(actions.toggleHighlight) }),
+                StripItem(id: "copy", glyph: .symbol("doc.on.doc"), title: "Копировать",
+                          help: "Копировать", menuIcon: "doc.on.doc",
+                          action: { actions.run(actions.copySelection) }),
+            ]
+        case .paragraph:
+            return [
+                StripItem(id: "h1", glyph: .text("H1"), title: "Заголовок 1",
+                          help: "Заголовок 1 (#)", menuIcon: "textformat.size.larger",
+                          active: activeFormats.headingLevel == 1,
+                          action: { runHeading(1) }),
+                StripItem(id: "h2", glyph: .text("H2"), title: "Заголовок 2",
+                          help: "Заголовок 2 (##)", menuIcon: "textformat.size",
+                          active: activeFormats.headingLevel == 2,
+                          action: { runHeading(2) }),
+                StripItem(id: "h3", glyph: .text("H3"), title: "Заголовок 3",
+                          help: "Заголовок 3 (###)", menuIcon: "textformat.size.smaller",
+                          active: activeFormats.headingLevel == 3,
+                          action: { runHeading(3) }),
+                StripItem(id: "plain", glyph: .text("T"), title: "Снять inline-разметку",
+                          help: "Обычный текст (снять inline-разметку)", menuIcon: "eraser",
+                          action: { actions.run(actions.clearInlineFormatting) }),
+                StripItem(id: "body", glyph: .text("Aa"), title: "Снять заголовок/список",
+                          help: "Снять заголовок/список", menuIcon: "paragraphsign",
+                          action: { actions.run(actions.setBody) }),
+                StripItem(id: "case", glyph: .text("aA"), title: "Регистр",
+                          help: "Регистр: UPPER → lower → Capitalized",
+                          menuIcon: "characters.uppercase",
+                          action: { actions.run(actions.cycleCase) }),
+                StripItem(id: "divider", glyph: .symbol("minus"), title: "Линия-разделитель",
+                          help: "Линия-разделитель (---)", menuIcon: "minus",
+                          action: { actions.run(actions.insertDivider) }),
+                StripItem(id: "codeblock",
+                          glyph: .symbol("chevron.left.forwardslash.chevron.right"),
+                          title: "Блок кода", help: "Блок кода",
+                          menuIcon: "chevron.left.forwardslash.chevron.right",
+                          active: activeFormats.codeBlock,
+                          action: { actions.run(actions.toggleCodeBlock) }),
+            ]
+        case .lists:
+            return [
+                StripItem(id: "bullet", glyph: .symbol("list.bullet"),
+                          title: "Маркированный список", help: "Маркированный список",
+                          menuIcon: "list.bullet",
+                          active: activeFormats.bulletList,
+                          action: { actions.run(actions.toggleBulletList) }),
+                StripItem(id: "checklist", glyph: .symbol("checklist"),
+                          title: "Чеклист", help: "Чеклист", menuIcon: "checklist",
+                          active: activeFormats.checklist,
+                          action: { actions.run(actions.toggleChecklist) }),
+                StripItem(id: "numbered", glyph: .symbol("list.number"),
+                          title: "Нумерованный список", help: "Нумерованный список",
+                          menuIcon: "list.number",
+                          active: activeFormats.numberedList,
+                          action: { actions.run(actions.toggleNumberedList) }),
+                StripItem(id: "quote", glyph: .symbol("text.quote"),
+                          title: "Цитата", help: "Цитата", menuIcon: "text.quote",
+                          active: activeFormats.quote,
+                          action: { actions.run(actions.toggleQuote) }),
+            ]
+        case .extras:
+            return [
+                StripItem(id: "table", glyph: .symbol("tablecells"),
+                          title: "Вставить таблицу 3×3", help: "Таблица",
+                          menuIcon: "tablecells",
+                          action: { actions.run(actions.insertTable) }),
+                StripItem(id: "table.addRow", glyph: .symbol("tablecells"),
+                          title: "Добавить строку", help: "Добавить строку",
+                          menuIcon: "plus.rectangle",
+                          action: { actions.run(actions.tableAddRow) }),
+                StripItem(id: "table.delRow", glyph: .symbol("tablecells"),
+                          title: "Удалить строку", help: "Удалить строку",
+                          menuIcon: "minus.rectangle",
+                          action: { actions.run(actions.tableDeleteRow) }),
+                StripItem(id: "math.inline", glyph: .symbol("function"),
+                          title: "Встроенная формула  $…$", help: "Встроенная формула",
+                          menuIcon: "function",
+                          action: { actions.run(actions.insertInlineFormula) }),
+                StripItem(id: "math.block", glyph: .symbol("function"),
+                          title: "Блочная формула  $$…$$", help: "Блочная формула",
+                          menuIcon: "sum",
+                          action: { actions.run(actions.insertBlockFormula) }),
+            ]
+        }
+    }
+
+    private func runHeading(_ level: Int) {
+        if let setHeading = actions.setHeading { setHeading(level) } else { NSSound.beep() }
+    }
+
+    @ViewBuilder private func itemButton(_ item: StripItem) -> some View {
+        switch item.glyph {
+        case .symbol(let name):
+            icon(name, item.help, active: item.active, action: item.action)
+        case .text(let title):
+            labelBtn(title, item.help, active: item.active, action: item.action)
+        }
     }
 
     // MARK: Table menu (Visual)
@@ -248,11 +438,17 @@ struct EditorActionStrip: View {
             + SidebarChrome.iconButtonHeight
     }
 
-    private func contentLeading(for width: CGFloat) -> CGFloat {
-        guard columnWidth > 0, width > 0 else { return insetH }
-        let bodyWidth = min(columnWidth, width)
-        let bodyOrigin = max(0, (width - bodyWidth) / 2)
-        return bodyOrigin + insetH
+    /// Preview reports nothing — its column is centred in CSS, and the rail
+    /// (numbers + gap) sits inside the body's left padding.
+    private func field(for width: CGFloat) -> EditorFieldGeometry {
+        let sideMargin: CGFloat = columnWidth > 0 && width > 0
+            ? max(0, (width - min(columnWidth, width)) / 2)
+            : 0
+        let trailing = sideMargin + insetH
+        let leading = textLeading ?? (trailing + previewRailWidth)
+        return EditorFieldGeometry(textLeading: leading,
+                                   textTrailing: trailing,
+                                   railGap: railGap)
     }
 
     private func pill<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -300,5 +496,64 @@ struct EditorActionStrip: View {
         }
         .buttonStyle(.plain)
         .editMDHelp(help)
+    }
+}
+
+// MARK: - Strip model
+
+/// Tool groups, in strip order. The trailing ones collapse into "…" first.
+private enum StripGroup: String, CaseIterable, Identifiable {
+    case inline, paragraph, lists, extras
+
+    var id: String { rawValue }
+
+    /// Section header inside the "…" menu.
+    var title: String {
+        switch self {
+        case .inline:    return "Начертание"
+        case .paragraph: return "Абзац"
+        case .lists:     return "Списки"
+        case .extras:    return "Таблицы и формулы"
+        }
+    }
+}
+
+/// One button: drawn as a glyph in the strip, as an icon + title in the "…"
+/// menu. Text-glyph buttons (H1, `<>`, Aa…) have no symbol to reuse there, so
+/// `menuIcon` names one explicitly.
+private struct StripItem: Identifiable {
+    enum Glyph {
+        case symbol(String)
+        case text(String)
+    }
+
+    let id: String
+    let glyph: Glyph
+    let title: String
+    let help: String
+    let menuIcon: String
+    var active: Bool = false
+    let action: () -> Void
+}
+
+// MARK: - Width measurement
+
+private struct StripWidthKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat],
+                       nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private extension View {
+    func measureWidth(key: String) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: StripWidthKey.self,
+                                       value: [key: proxy.size.width])
+            }
+        )
     }
 }

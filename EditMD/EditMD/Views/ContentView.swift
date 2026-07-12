@@ -28,6 +28,9 @@ struct ContentView: View {
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
+    /// Left edge of the text reported by Source/Visual (their reading inset —
+    /// it already reserves the numbers margin). Preview computes its own.
+    @State private var editorTextLeading: CGFloat = 0
     @State private var showLintPopover = false
     @State private var positionStore = EditorPositionStore()
     /// Shared Notes-style action strip (all three modes). Held in a ref box so
@@ -337,15 +340,36 @@ struct ContentView: View {
         }
     }
 
+    /// Same numbers the Preview CSS uses for its line-number rail — the strip
+    /// mirrors them instead of guessing.
+    private var previewRailWidth: CGFloat {
+        let g = editorSettings.gutter
+        let options = PreviewGutterOptions(
+            showLineNumbers: g.showLineNumbers,
+            highlightChangedLines: g.highlightChangedLines,
+            showDirtyBulletsWhenNoNumbers: g.showDirtyBulletsWhenNoNumbers,
+            dirtyLines: lineChanges.dirtyLines(for: fileURL)
+        )
+        return PreviewGutterMetrics.railPx(for: options)
+    }
+
     @ViewBuilder private var editorArea: some View {
         VStack(spacing: 0) {
             EditorActionStrip(actions: stripActions,
                               insetH: stripInset.h,
                               columnWidth: stripInset.column,
+                              textLeading: mode == .preview ? nil : editorTextLeading,
+                              railGap: mode == .preview
+                                  ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
+                              previewRailWidth: mode == .preview ? previewRailWidth : 0,
                               showVisualExtras: mode == .visual,
                               activeFormats: activeFormats,
                               mode: mode,
-                              setEditorMode: setEditorMode)
+                              setEditorMode: setEditorMode,
+                              showLineNumbers: editorSettings.gutter.showLineNumbers,
+                              toggleLineNumbers: {
+                                  editorSettings.gutter.showLineNumbers.toggle()
+                              })
             if mode == .preview {
                 // Line numbers / dirty marks are baked into the HTML (`data-ln`)
                 // so they scroll with the page — no separate rail to sync.
@@ -401,7 +425,8 @@ struct ContentView: View {
                 onActiveFormats: { activeFormats = $0 },
                 onVisibleOffset: splitPreview
                     ? { offset in positionStore.requestPreviewScroll(toMarkdownOffset: offset) }
-                    : nil
+                    : nil,
+                onTextLeading: { editorTextLeading = $0 }
             )
         case .visual:
             VisualMarkdownView(
@@ -414,7 +439,8 @@ struct ContentView: View {
                     formatActions = actions
                     bindStrip(from: actions, visualExtras: true)
                 },
-                onActiveFormats: { activeFormats = $0 }
+                onActiveFormats: { activeFormats = $0 },
+                onTextLeading: { editorTextLeading = $0 }
             )
         case .preview:
             // unreachable: editorArea routes .preview to the full preview

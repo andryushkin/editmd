@@ -51,6 +51,7 @@
 		52198EC7AF2A09DC135DC864 /* VisualCoordinatorTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */; };
 		53FAFC3933BC24E2EADF3207 /* EditorToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB851CD26B911D4370D78D4C /* EditorToolbar.swift */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
+		5DF3620561EB18DD158495CD /* EditorFieldGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */; };
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
 		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
@@ -224,6 +225,7 @@
 		BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServerTests.swift; sourceTree = "<group>"; };
 		BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffApprovalControllerTests.swift; sourceTree = "<group>"; };
 		BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfoTests.swift; sourceTree = "<group>"; };
+		C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFieldGeometry.swift; sourceTree = "<group>"; };
 		C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorFormat.swift; sourceTree = "<group>"; };
 		CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLintTests.swift; sourceTree = "<group>"; };
 		CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStoreTests.swift; sourceTree = "<group>"; };
@@ -379,6 +381,7 @@
 				92161BAEF22CB4D7970B98F1 /* ContentView.swift */,
 				AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */,
 				CEA09CFB97A06931314CAEC0 /* EditorActionStrip.swift */,
+				C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */,
 				76CFD41043AC7BDE423F87F1 /* EditorMode.swift */,
 				DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */,
 				04300EC4050C4FAC5095E833 /* EditorSettings.swift */,
@@ -683,6 +686,7 @@
 				E7C7AFCDD89E1CBC12830916 /* DocumentStore.swift in Sources */,
 				E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */,
 				F01D7B266D913201DAA10D4E /* EditorActionStrip.swift in Sources */,
+				5DF3620561EB18DD158495CD /* EditorFieldGeometry.swift in Sources */,
 				72C6BA1720506EAE368C880C /* EditorMode.swift in Sources */,
 				0701B0140BBD62012D50453D /* EditorPositionStore.swift in Sources */,
 				6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */,
@@ -947,7 +951,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 392;
+				CURRENT_PROJECT_VERSION = 393;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -957,7 +961,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.39.2;
+				MARKETING_VERSION = 0.39.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -990,7 +994,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 392;
+				CURRENT_PROJECT_VERSION = 393;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -1000,7 +1004,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.39.2;
+				MARKETING_VERSION = 0.39.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

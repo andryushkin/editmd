@@ -150,6 +150,21 @@ struct VisualMarkdownView: NSViewRepresentable {
     var onFormatActions: (FormatActions) -> Void
     /// B6: active md.inline styles at caret.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
+    /// Left edge of the text (incl. the reserved gutter margin) — the action
+    /// strip and the gutter toggle line up with it.
+    var onTextLeading: ((CGFloat) -> Void)? = nil
+
+    /// Room the numbers need beside the text — reserved whether or not they're
+    /// shown, so toggling them doesn't move the column.
+    private var gutterReserve: CGFloat {
+        GutterMetrics.reserve(lineCountHint: max(1, countDiffLines(document.content)))
+    }
+
+    /// Reading inset, widened so the numbers fit in the left margin.
+    private func readingInset(forWidth width: CGFloat) -> NSSize {
+        let inset = EditorSettings.shared.visual.textContainerInset(forWidth: width)
+        return NSSize(width: max(inset.width, gutterReserve), height: inset.height)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -174,7 +189,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        textView.textContainerInset = readingInset(forWidth: scrollView.contentView.bounds.width)
         // Large documents: lay out only the ranges TextKit needs, not the whole
         // storage up front (Apple's recommended big-document win).
         textView.layoutManager?.allowsNonContiguousLayout = true
@@ -250,7 +265,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         guard let textView = coordinator.textView else { return }
-        textView.textContainerInset = EditorSettings.shared.visual.textContainerInset(forWidth: scrollView.contentView.bounds.width)
+        textView.textContainerInset = readingInset(forWidth: scrollView.contentView.bounds.width)
         if textView.theme.name != theme.name {
             textView.theme = theme
             coordinator.applyPresentation()
@@ -531,24 +546,30 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// Visual gutter shows **source** line numbers (via paragraph→md map), not 1…N of the WYSIWYG buffer.
         func refreshGutter() {
             guard let textView else { return }
-            let settings = EditorSettings.shared.gutter
             let md = parent.document.content
-            let sourceDirty = LineChangeTracker.shared.dirtyLines(for: parent.fileURL)
-            let map = displayToSourceLineMap(paragraphRanges: lastParagraphRanges, markdown: md)
-            let font = EditorSettings.shared.visual.resolvedFont(defaultMono: false)
-            let sourceLines = max(1, countDiffLines(md))
-            textView.installOrUpdateLineNumberRuler(
-                fileURL: parent.fileURL,
-                dirtySourceLines: sourceDirty,
-                settings: settings,
-                bodyFont: font,
-                displayToSourceLine: map,
-                sourceLineCountHint: sourceLines)
+            textView.gutterState = GutterState(
+                settings: EditorSettings.shared.gutter,
+                dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
+                // Visual shows SOURCE line numbers: paragraphs → markdown lines.
+                displayToSourceLine: displayToSourceLineMap(paragraphRanges: lastParagraphRanges,
+                                                            markdown: md))
+            textView.needsDisplay = true
+            reportTextLeading(textView.textContainerInset.width)
         }
 
+        /// The strip lines its tools up with the text. Reported async: this runs
+        /// from `updateNSView`, and writing SwiftUI state there warns.
+        private func reportTextLeading(_ leading: CGFloat) {
+            guard abs(lastTextLeading - leading) > 0.5 else { return }
+            lastTextLeading = leading
+            let report = parent.onTextLeading
+            DispatchQueue.main.async { report?(leading) }
+        }
+
+        private var lastTextLeading: CGFloat = -1
+
         @objc func scrollOrBoundsChanged(_ note: Notification) {
-            (textView?.enclosingScrollView?.verticalRulerView as? LineNumberRulerView)?
-                .needsDisplay = true
+            textView?.needsDisplay = true
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
