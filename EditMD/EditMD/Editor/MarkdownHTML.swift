@@ -717,6 +717,20 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
 // MARK: - Full page for Preview's WKWebView
 
+/// A rendered Preview page plus the one capability of its shell that outlives
+/// the load: whether the KaTeX assets are actually embedded in it.
+///
+/// The live `innerHTML` path needs that bit to decide when a document that
+/// grew its first formula requires a new shell. It MUST come from here rather
+/// than a second scan of the markdown: `markdownHTMLRender` strips YAML
+/// frontmatter before it looks for math, so `$…$` inside frontmatter would
+/// otherwise claim assets the page never received — and every later formula in
+/// the body would sit there as raw TeX, because no reload was ever triggered.
+struct PreviewPageRender {
+    let html: String
+    let hasMathAssets: Bool
+}
+
 /// Wraps the rendered body in a standalone page. Colors follow the system
 /// appearance via `color-scheme` + CSS system colors, so the WKWebView tracks
 /// the app's light/dark toggle without reloading.
@@ -729,23 +743,46 @@ private struct HTMLBodyVisitor: MarkupWalker {
 func previewHTMLPage(markdown: String,
                      fontSize: CGFloat,
                      insetH: CGFloat = 32,
-                     /// Top (and minimum bottom) page padding — Settings ▸ Vertical.
                      insetV: CGFloat = 24,
                      lineHeight: CGFloat = 1.6,
-                     /// A centered reading column; `0` disables it (full width,
-                     /// left-aligned to `insetH` — matches the editor's inset
-                     /// so toggling edit↔preview doesn't shift the text).
                      columnWidth: CGFloat = 0,
                      fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
                      fontWeight: Int = 400,
                      elements: ElementStyles = ElementStyles(),
-                     /// Base text / link color overrides (hex). Nil keeps the
-                     /// adaptive system colors (Canvas/CanvasText/LinkText).
                      textColorHex: String? = nil,
                      accentColorHex: String? = nil,
                      gutter: PreviewGutterOptions = .off,
                      syntaxHighlighting: Bool = true,
                      imageResolver: ((String) -> String?)? = nil) -> String {
+    previewHTMLPageRender(
+        markdown: markdown, fontSize: fontSize, insetH: insetH, insetV: insetV,
+        lineHeight: lineHeight, columnWidth: columnWidth, fontFamily: fontFamily,
+        fontWeight: fontWeight, elements: elements, textColorHex: textColorHex,
+        accentColorHex: accentColorHex, gutter: gutter,
+        syntaxHighlighting: syntaxHighlighting, imageResolver: imageResolver).html
+}
+
+/// `previewHTMLPage` plus the shell's KaTeX capability bit (see `PreviewPageRender`).
+func previewHTMLPageRender(markdown: String,
+                           fontSize: CGFloat,
+                           insetH: CGFloat = 32,
+                           /// Top (and minimum bottom) page padding — Settings ▸ Vertical.
+                           insetV: CGFloat = 24,
+                           lineHeight: CGFloat = 1.6,
+                           /// A centered reading column; `0` disables it (full width,
+                           /// left-aligned to `insetH` — matches the editor's inset
+                           /// so toggling edit↔preview doesn't shift the text).
+                           columnWidth: CGFloat = 0,
+                           fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
+                           fontWeight: Int = 400,
+                           elements: ElementStyles = ElementStyles(),
+                           /// Base text / link color overrides (hex). Nil keeps the
+                           /// adaptive system colors (Canvas/CanvasText/LinkText).
+                           textColorHex: String? = nil,
+                           accentColorHex: String? = nil,
+                           gutter: PreviewGutterOptions = .off,
+                           syntaxHighlighting: Bool = true,
+                           imageResolver: ((String) -> String?)? = nil) -> PreviewPageRender {
     let (body, hasMath) = markdownHTMLRender(markdown, imageResolver: imageResolver,
                                              gutter: gutter,
                                              syntaxHighlighting: syntaxHighlighting)
@@ -754,11 +791,26 @@ func previewHTMLPage(markdown: String,
     // shows raw TeX (`.math` spans keep their escaped source text).
     let mathAssets = hasMath && KaTeXResources.isAvailable
     let mathHead = mathAssets ? "<style>\n\(KaTeXResources.css)\n</style>" : ""
+    // Preview is a document viewer, not a script host — and a markdown file is
+    // untrusted input (a vault syncs, a repo is cloned). A nonce'd script-src
+    // is what actually enforces that: the shell's own scripts carry the nonce,
+    // while raw-HTML `<script>` AND inline event handlers (`<img onerror=…>`,
+    // the vector `previewSafeRawHTML` alone cannot reach) have none and never
+    // run. Verified against WebKit: WKUserScript (the selection bridge) and
+    // evaluateJavaScript/callAsyncJavaScript are host-privileged and bypass CSP,
+    // and `el.onclick = fn` from our own script keeps working — only handlers
+    // parsed out of markup are blocked. Styles stay 'unsafe-inline': the page
+    // bakes its CSS inline and hljs tokens carry `style="--tl:…"`.
+    let scriptNonce = UUID().uuidString
+    let csp = "default-src 'none'; "
+        + "img-src data: https: http:; media-src data: https: http:; "
+        + "style-src 'unsafe-inline'; font-src data:; "
+        + "script-src 'nonce-\(scriptNonce)'"
     // The library stays outside #preview-content so live innerHTML replacement
     // cannot remove it. Rendering newly inserted math is handled by the shared
     // hydrate function below rather than a one-shot page-load script.
     let mathScripts = mathAssets ? """
-    <script>
+    <script nonce="\(scriptNonce)">
     \(KaTeXResources.js)
     </script>
     """ : ""
@@ -800,11 +852,12 @@ func previewHTMLPage(markdown: String,
     if let c = elements.link.colorHex ?? accentColorHex { elementCSS += "a { color: \(c); }\n" }
     if let c = elements.quote.colorHex { elementCSS += "blockquote { color: \(c); opacity: 1; }\n" }
 
-    return """
+    let html = """
     <!DOCTYPE html>
     <html>
     <head>
     <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="\(csp)">
     <style>
     :root {
         color-scheme: light dark;
@@ -1077,9 +1130,8 @@ func previewHTMLPage(markdown: String,
     <body\(bodyGutterClass)>
     <main id="preview-content">\(body)</main>
     \(mathScripts)
-    <script>
+    <script nonce="\(scriptNonce)">
     window.editMDPreviewRevision = 0;
-    window.editMDHasKaTeXAssets = \(mathAssets ? "true" : "false");
     // Align every source-line marker to one document-global column. `data-ln`
     // lives on blocks with different local x origins (nested lists/quotes), so
     // pure element-relative CSS produces a ragged gutter. Recompute on resize
@@ -1290,6 +1342,10 @@ func previewHTMLPage(markdown: String,
         return mdPositionForY(window.scrollY + 8);
     };
 
+    // Set by any scroll the user drives, cleared by each fragment swap: a late
+    // settle pass consults it before touching the viewport (see settlePreviewLayout).
+    var userScrolledSinceSettle = false;
+
     // Programmatic scrolls must not be reported back as user scrolls; the flag
     // clears on the next frame, by which time WebKit has fired the event.
     var suppressScrollReport = 0;
@@ -1340,7 +1396,12 @@ func previewHTMLPage(markdown: String,
         } catch (e) {}
     }
     window.addEventListener('scroll', function () {
-        if (suppressScrollReport > 0 || scrollReportQueued) return;
+        if (suppressScrollReport > 0) return;   // our own restore, not the user
+        // The user has taken the viewport: a late settle pass (an image or the
+        // KaTeX webfonts landing seconds after the edit) must not yank them back
+        // to the anchor captured when the fragment was swapped in.
+        userScrolledSinceSettle = true;
+        if (scrollReportQueued) return;
         scrollReportQueued = true;
         requestAnimationFrame(function () {
             scrollReportQueued = false;
@@ -1415,6 +1476,9 @@ func previewHTMLPage(markdown: String,
         });
     }
 
+    // Make the DOM live again. Deliberately cheap: no geometry is read here,
+    // because hydrate runs BEFORE the new content has been laid out. Everything
+    // that depends on final geometry belongs in settlePreviewLayout.
     window.editMDHydratePreviewContent = function () {
         hydrateTaskCheckboxes();
         hydrateWikiLinks();
@@ -1422,8 +1486,37 @@ func previewHTMLPage(markdown: String,
         hydratePreviewCopyButtons();
         hydratePreviewMath();
         invalidateMdAnchors();
-        alignLineNumberGutter();
     };
+
+    // One settle pass over final geometry: drop the anchor cache, re-place the
+    // line-number gutter, and (optionally) restore the scroll anchor. Both the
+    // gutter walk and the anchor table read getBoundingClientRect for every
+    // tagged element, so this must run ONCE per layout — not once in hydrate
+    // (pre-layout, therefore wrong) and again afterwards.
+    function settlePreviewLayout(position) {
+        invalidateMdAnchors();
+        alignLineNumberGutter();
+        if (position === null || position === undefined) return;
+        if (userScrolledSinceSettle) return;   // the user owns the viewport now
+        window.syncScrollToMdPosition(position);
+    }
+
+    // Images and the KaTeX webfonts land after first layout and change block
+    // heights, which moves every anchor below them. Replay the settle when they
+    // do — on the first page load as well as after a fragment swap; before, only
+    // the fragment path did this and a freshly opened math document kept a stale
+    // anchor table (split-scroll sync drifted until the next resize).
+    function replayPreviewSettle(root, position) {
+        root.querySelectorAll('img').forEach(function (image) {
+            if (image.complete) return;
+            image.addEventListener('load', function () {
+                settlePreviewLayout(position);
+            }, { once: true });
+        });
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(function () { settlePreviewLayout(position); });
+        }
+    }
 
     function waitForPreviewLayout() {
         return new Promise(function (resolve) {
@@ -1444,27 +1537,19 @@ func previewHTMLPage(markdown: String,
         root.innerHTML = payload.html;
         window.editMDPreviewRevision = payload.revision;
         window.editMDHydratePreviewContent();
-        function settleLayout() {
-            invalidateMdAnchors();
-            alignLineNumberGutter();
-            if (position !== null && position !== undefined) {
-                window.syncScrollToMdPosition(position);
-            }
-        }
+        userScrolledSinceSettle = false;
         await waitForPreviewLayout();
-        settleLayout();
-        root.querySelectorAll('img').forEach(function (image) {
-            if (!image.complete) image.addEventListener('load', settleLayout, { once: true });
-        });
-        if (document.fonts && document.fonts.ready) {
-            document.fonts.ready.then(settleLayout);
-        }
+        settlePreviewLayout(position);
+        replayPreviewSettle(root, position);
         return true;
     };
 
     window.editMDHydratePreviewContent();
+    settlePreviewLayout(null);
+    replayPreviewSettle(document.getElementById('preview-content'), null);
     </script>
     </body>
     </html>
     """
+    return PreviewPageRender(html: html, hasMathAssets: mathAssets)
 }

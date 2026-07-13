@@ -1,4 +1,5 @@
 import XCTest
+import WebKit
 @testable import EditMD
 
 final class MarkdownHTMLTests: XCTestCase {
@@ -78,7 +79,8 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPagePushesScrollAnchorAndFlagsProgrammaticScrolls() {
         let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
         XCTAssertTrue(page.contains("messageHandlers.previewScroll.postMessage"), page)
-        XCTAssertTrue(page.contains("if (suppressScrollReport > 0 || scrollReportQueued) return"), page)
+        XCTAssertTrue(page.contains("if (suppressScrollReport > 0) return;"), page)
+        XCTAssertTrue(page.contains("userScrolledSinceSettle = true;"), page)
         XCTAssertTrue(page.contains("function programmaticScroll(y)"), page)
     }
 
@@ -212,6 +214,25 @@ final class MarkdownHTMLTests: XCTestCase {
         let rootEnd = page.range(of: "</main>")!.upperBound
         let bridge = page.range(of: "window.editMDReplacePreview")!.lowerBound
         XCTAssertLessThan(rootEnd, bridge)
+    }
+
+    /// Geometry is read ONCE per layout. `alignLineNumberGutter` walks every
+    /// `[data-ln]` element with getBoundingClientRect, so calling it from
+    /// hydrate (pre-layout, therefore wrong anyway) *and* from the settle pass
+    /// meant two forced full-document layouts per fragment, every ~90 ms.
+    func testHydrateReadsNoGeometryAndSettleOwnsTheGutter() {
+        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        let hydrate = page.range(of: "window.editMDHydratePreviewContent = function () {")!
+        let hydrateBody = String(page[hydrate.upperBound...].prefix(
+            while: { $0 != "}" }))
+        XCTAssertFalse(hydrateBody.contains("alignLineNumberGutter"), hydrateBody)
+        XCTAssertTrue(page.contains("function settlePreviewLayout(position) {"), page)
+        XCTAssertTrue(page.contains("if (userScrolledSinceSettle) return;"), page)
+        // The first full load replays the settle too — a freshly opened math
+        // document used to keep the anchor table it built before the KaTeX
+        // webfonts landed, and split-scroll drifted until the next resize.
+        XCTAssertTrue(page.contains("replayPreviewSettle(document.getElementById('preview-content'), null)"),
+                      page)
     }
 
     /// The follow interpolates a FRACTIONAL markdown offset between anchors, in
@@ -446,14 +467,142 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testPreviewPageEmbedsKaTeXOnlyForMath() {
-        let with = previewHTMLPage(markdown: "$x$", fontSize: 15)
-        let without = previewHTMLPage(markdown: "plain text", fontSize: 15)
+        let with = previewHTMLPageRender(markdown: "$x$", fontSize: 15)
+        let without = previewHTMLPageRender(markdown: "plain text", fontSize: 15)
         // The reusable hydrate bridge mentions katex.render even without the
-        // library, so the shell publishes an explicit asset capability bit.
-        XCTAssertTrue(without.contains("window.editMDHasKaTeXAssets = false"))
-        XCTAssertTrue(with.contains("class=\"math math-inline\""))
+        // library, so "assets embedded" is reported by the page itself.
+        XCTAssertFalse(without.hasMathAssets)
+        XCTAssertTrue(with.html.contains("class=\"math math-inline\""))
+        XCTAssertEqual(with.hasMathAssets, KaTeXResources.isAvailable)
+    }
+
+    /// The live shell's KaTeX bit must be the one the page acted on. Scanning
+    /// the RAW markdown instead sees `$…$` inside YAML frontmatter — which the
+    /// renderer strips before it looks for math — and would claim assets the
+    /// page never got, leaving every later formula in the body as raw TeX
+    /// because no shell reload was ever triggered.
+    func testFrontmatterMathDoesNotClaimKaTeXAssets() {
+        let md = "---\nformula: $x^2$\n---\n\nPlain body, no math.\n"
+        XCTAssertFalse(markdownHTMLRender(md).hasMath)
+        XCTAssertFalse(previewHTMLPageRender(markdown: md, fontSize: 15).hasMathAssets)
+
+        // …and once the body really has math, the page does embed them.
+        let withBodyMath = md + "\nNow $E=mc^2$ lands.\n"
+        XCTAssertTrue(markdownHTMLRender(withBodyMath).hasMath)
+        XCTAssertEqual(previewHTMLPageRender(markdown: withBodyMath, fontSize: 15).hasMathAssets,
+                       KaTeXResources.isAvailable)
+    }
+
+    /// Preview renders untrusted markdown (a synced vault, a cloned repo). A
+    /// nonce'd script-src is what makes it a viewer rather than a script host:
+    /// it blocks raw-HTML `<script>` AND inline event handlers, which no amount
+    /// of tag-escaping reaches. Host-side JS (WKUserScript, evaluateJavaScript)
+    /// bypasses CSP, so the selection bridge and the fragment bridge keep working.
+    func testPreviewPageLocksDownScriptExecutionWithNoncedCSP() throws {
+        let page = previewHTMLPage(markdown: "$x$\n\n<img src=x onerror=\"alert(1)\">",
+                                   fontSize: 15)
+        let meta = try XCTUnwrap(page.range(of: "<meta http-equiv=\"Content-Security-Policy\""))
+        let header = String(page[meta.lowerBound...].prefix(400))
+        XCTAssertTrue(header.contains("default-src 'none'"), header)
+
+        // script-src carries a nonce and NOT 'unsafe-inline' — with a nonce
+        // present, browsers ignore 'unsafe-inline', and inline event handlers
+        // (`onerror=`) have no way to carry a nonce, so they never run.
+        let scriptSrc = try XCTUnwrap(header.components(separatedBy: "script-src ")
+            .last?.components(separatedBy: "\"").first)
+        XCTAssertTrue(scriptSrc.hasPrefix("'nonce-"), scriptSrc)
+        XCTAssertFalse(scriptSrc.contains("unsafe-inline"), scriptSrc)
+
+        // Every script the page ships must carry the nonce, or the shell itself
+        // would be blocked by its own policy.
+        let nonce = try XCTUnwrap(scriptSrc.dropFirst("'nonce-".count)
+            .components(separatedBy: "'").first)
+        XCTAssertFalse(nonce.isEmpty)
+        let scriptTags = page.components(separatedBy: "<script").dropFirst()
+        XCTAssertFalse(scriptTags.isEmpty)
+        for tag in scriptTags {
+            XCTAssertTrue(tag.hasPrefix(" nonce=\"\(nonce)\""),
+                          "script tag without the page nonce: \(tag.prefix(60))")
+        }
+    }
+}
+
+/// The CSP is only worth anything if it holds in a real WebKit page: the shell's
+/// own bridge must survive it while injected markup does not. Asserting on the
+/// HTML string cannot tell those apart — so load the page the app actually ships.
+@MainActor
+final class PreviewPageCSPWebKitTests: XCTestCase {
+
+    func testShellScriptsRunUnderCSPWhileInjectedMarkupDoesNot() throws {
+        let controller = WKUserContentController()
+        // Stands in for the real selection bridge (a WKUserScript, like the one
+        // MarkdownPreviewView installs): host-injected scripts must bypass CSP.
+        controller.addUserScript(WKUserScript(
+            source: "window.__userScriptRan = true;",
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true))
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = controller
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800),
+                                configuration: configuration)
+
+        // Raw HTML an untrusted document could carry: a script tag and — the
+        // vector escaping cannot reach — an inline error handler.
+        let markdown = """
+        # Title
+
+        <img src="does-not-exist.png" onerror="window.__inlineHandlerRan = true;">
+
+        <script>window.__injectedScriptRan = true;</script>
+
+        Body with $x^2$ math.
+        """
+        let page = previewHTMLPage(markdown: markdown, fontSize: 14)
+
+        let loaded = expectation(description: "page loaded")
+        let delegate = LoadWaiter { loaded.fulfill() }
+        webView.navigationDelegate = delegate
+        webView.loadHTMLString(page, baseURL: nil)
+        wait(for: [loaded], timeout: 20)
+
+        let probe = """
+        JSON.stringify({
+          userScript: !!window.__userScriptRan,
+          injectedScript: !!window.__injectedScriptRan,
+          inlineHandler: !!window.__inlineHandlerRan,
+          bridge: typeof window.editMDReplacePreview === 'function',
+          hydrate: typeof window.editMDHydratePreviewContent === 'function',
+          mathRendered: !!document.querySelector('.math-rendered')
+        })
+        """
+        let answered = expectation(description: "probe answered")
+        var result: [String: Bool] = [:]
+        webView.evaluateJavaScript(probe) { value, _ in
+            if let json = value as? String,
+               let data = json.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] {
+                result = parsed
+            }
+            answered.fulfill()
+        }
+        wait(for: [answered], timeout: 20)
+
+        XCTAssertEqual(result["userScript"], true, "WKUserScript must bypass CSP")
+        XCTAssertEqual(result["bridge"], true, "the shell's nonce'd bridge must run")
+        XCTAssertEqual(result["hydrate"], true)
+        XCTAssertEqual(result["injectedScript"], false, "raw <script> must not execute")
+        XCTAssertEqual(result["inlineHandler"], false, "inline onerror must not execute")
         if KaTeXResources.isAvailable {
-            XCTAssertTrue(with.contains("window.editMDHasKaTeXAssets = true"))
+            XCTAssertEqual(result["mathRendered"], true, "KaTeX must still render under CSP")
+        }
+    }
+
+    private final class LoadWaiter: NSObject, WKNavigationDelegate {
+        private let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            onFinish()
         }
     }
 }
@@ -492,7 +641,10 @@ final class PreviewRenderSchedulerTests: XCTestCase {
         let new = scheduler.startLatest()!
         XCTAssertTrue(scheduler.markApplied(new))
         XCTAssertFalse(scheduler.markApplied(old))
-        XCTAssertEqual(scheduler.appliedContent, "new")
+        XCTAssertEqual(scheduler.appliedRevision, new.revision)
+        // Strictly forward: the same revision cannot land twice (the shell's
+        // didFinish and a fragment completion must not both claim it).
+        XCTAssertFalse(scheduler.markApplied(new))
     }
 
     func testHeavyDocumentsUseLongerThrottleButKeepPendingRevision() {

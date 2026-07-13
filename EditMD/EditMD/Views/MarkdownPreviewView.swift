@@ -18,7 +18,6 @@ struct PreviewRenderScheduler {
     private(set) var startedRevision: UInt64 = 0
     private(set) var appliedRevision: UInt64 = 0
     private(set) var requestedContent: String?
-    private(set) var appliedContent: String?
     private(set) var lastStartedAt = Date.distantPast
 
     @discardableResult
@@ -41,11 +40,12 @@ struct PreviewRenderScheduler {
         return Request(revision: requestedRevision, content: requestedContent)
     }
 
+    /// Revisions land strictly forward: a result that lost the race to a newer
+    /// one is dropped, and the same revision is never applied twice.
     @discardableResult
     mutating func markApplied(_ request: Request) -> Bool {
-        guard request.revision >= appliedRevision else { return false }
+        guard request.revision > appliedRevision else { return false }
         appliedRevision = request.revision
-        appliedContent = request.content
         return true
     }
 
@@ -73,36 +73,54 @@ private struct PreviewFragmentResult: Sendable {
 
 /// Thread-safe data-URI cache. A live fragment render must not read and
 /// base64-encode every local image again at 90 ms intervals.
+///
+/// NSCache, not a dictionary: it is byte-bounded and purged under memory
+/// pressure. Base64 of the 8 MB inline cap is ~10.7 MB per image, so a plain
+/// 64-entry map would pin ~680 MB for the life of the process.
 private final class PreviewImageDataCache: @unchecked Sendable {
     static let shared = PreviewImageDataCache()
 
-    private struct Entry {
+    /// A resolved image: its data: URI, or nil when the file is missing,
+    /// unreadable, or over the inline cap. **Misses are cached too** — an
+    /// oversized image whose failure isn't remembered gets read from disk in
+    /// full on every fragment render, i.e. ~11 times a second while typing.
+    private final class Entry {
         let modificationDate: Date?
         let fileSize: Int?
-        let dataURI: String
+        let dataURI: String?
+
+        init(modificationDate: Date?, fileSize: Int?, dataURI: String?) {
+            self.modificationDate = modificationDate
+            self.fileSize = fileSize
+            self.dataURI = dataURI
+        }
     }
 
-    private let lock = NSLock()
-    private var entries: [URL: Entry] = [:]
-    private let capacity = 64
+    private let cache = NSCache<NSString, Entry>()
+
+    private init() {
+        cache.totalCostLimit = 64_000_000
+    }
 
     func dataURI(for url: URL, mime: String, maximumBytes: Int) -> String? {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let date = values?.contentModificationDate
         let size = values?.fileSize
-        lock.lock()
-        if let cached = entries[url], cached.modificationDate == date, cached.fileSize == size {
-            lock.unlock()
+        let key = url.path as NSString
+        if let cached = cache.object(forKey: key),
+           cached.modificationDate == date, cached.fileSize == size {
             return cached.dataURI
         }
-        lock.unlock()
 
-        guard let data = try? Data(contentsOf: url), data.count <= maximumBytes else { return nil }
-        let uri = "data:\(mime);base64,\(data.base64EncodedString())"
-        lock.lock()
-        if entries.count >= capacity, let victim = entries.keys.first { entries.removeValue(forKey: victim) }
-        entries[url] = Entry(modificationDate: date, fileSize: size, dataURI: uri)
-        lock.unlock()
+        var uri: String?
+        // The size is already in hand from the stat above: an oversized file is
+        // rejected without ever reading its bytes.
+        if size == nil || size! <= maximumBytes,
+           let data = try? Data(contentsOf: url), data.count <= maximumBytes {
+            uri = "data:\(mime);base64,\(data.base64EncodedString())"
+        }
+        cache.setObject(Entry(modificationDate: date, fileSize: size, dataURI: uri),
+                        forKey: key, cost: uri?.utf8.count ?? 1)
         return uri
     }
 }
@@ -276,14 +294,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
-        coordinator.scheduleLatest = { [weak coordinator] in
-            guard let coordinator else { return }
-            self.scheduleNextRender(coordinator: coordinator)
-        }
-        coordinator.rerender = { [weak coordinator] in
-            guard let coordinator else { return }
-            self.forceFullReload(coordinator: coordinator)
-        }
+        bindRenderCallbacks(to: coordinator)
         // Preview settings changes must re-render: the page bakes font size/
         // insets/line-height/column width into its CSS, so no content change
         // would otherwise trigger an update.
@@ -338,14 +349,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
-        coordinator.scheduleLatest = { [weak coordinator] in
-            guard let coordinator else { return }
-            self.scheduleNextRender(coordinator: coordinator)
-        }
-        coordinator.rerender = { [weak coordinator] in
-            guard let coordinator else { return }
-            self.forceFullReload(coordinator: coordinator)
-        }
+        bindRenderCallbacks(to: coordinator)
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         (webView as? PreviewWebView)?.documentForUndo = document
         // A coordinator can be reused while the split turns into full Preview.
@@ -353,6 +357,20 @@ struct MarkdownPreviewView: NSViewRepresentable {
         if onRequestEdit != nil { coordinator.lastFollowedPosition = nil }
         if coordinator.scheduler.request(document.content) != nil {
             scheduleNextRender(coordinator: coordinator)
+        }
+    }
+
+    /// The coordinator outlives any single `MarkdownPreviewView` value, so it
+    /// reaches back into the current one through these. Bound from both
+    /// `makeNSView` and `updateNSView` — one place, so the two can't drift.
+    private func bindRenderCallbacks(to coordinator: Coordinator) {
+        coordinator.scheduleLatest = { [weak coordinator] in
+            guard let coordinator else { return }
+            self.scheduleNextRender(coordinator: coordinator)
+        }
+        coordinator.rerender = { [weak coordinator] in
+            guard let coordinator else { return }
+            self.forceFullReload(coordinator: coordinator)
         }
     }
 
@@ -368,11 +386,11 @@ struct MarkdownPreviewView: NSViewRepresentable {
         )
     }
 
-    private func fullPageHTML(for content: String) -> String {
+    private func fullPageRender(for content: String) -> PreviewPageRender {
         let baseDir = assetBaseDir
         let settings = EditorSettings.shared.preview
         let general = EditorSettings.shared.general
-        return previewHTMLPage(
+        return previewHTMLPageRender(
             markdown: content,
             fontSize: settings.fontSize,
             insetH: settings.insetH,
@@ -405,25 +423,33 @@ struct MarkdownPreviewView: NSViewRepresentable {
               !coordinator.shellLoading, coordinator.scheduler.hasPendingRequest
         else { return }
         let wait = coordinator.scheduler.delay(heavy: document.isHeavy)
+        // Every exit — including cancellation — must release the slot and pick
+        // up whatever queued behind it, or one stray return wedges Preview for
+        // the rest of the session. The generation stamp is what makes that safe:
+        // a task cancelled and replaced by a newer one must not clear the newer
+        // one's registration when it finally unwinds.
+        coordinator.renderGeneration &+= 1
+        let generation = coordinator.renderGeneration
         coordinator.renderTask = Task { @MainActor [weak coordinator] in
+            defer {
+                if let coordinator, coordinator.renderGeneration == generation {
+                    coordinator.renderTask = nil
+                    coordinator.scheduleLatest?()
+                }
+            }
             if wait > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
             guard !Task.isCancelled, let coordinator, coordinator.shellReady,
                   !coordinator.shellLoading,
                   let scheduled = coordinator.scheduler.startLatest()
-            else {
-                coordinator?.renderTask = nil
-                return
-            }
+            else { return }
             let request = makeFragmentRequest(scheduled)
             let result = await Task.detached(priority: .userInitiated) {
                 Self.renderFragment(request)
             }.value
             guard !Task.isCancelled else { return }
             await applyFragment(result, coordinator: coordinator)
-            coordinator.renderTask = nil
-            coordinator.scheduleLatest?()
         }
     }
 
@@ -493,13 +519,18 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.shellLoading = true
         coordinator.shellReady = false
         coordinator.pendingShellRequest = scheduled
-        coordinator.shellHasMathAssets = !scanMathSpans(in: scheduled.content).isEmpty
-            && KaTeXResources.isAvailable
-        let html = fullPageHTML(for: scheduled.content)
+        // The capability bit comes from the page that was actually built, never
+        // from a second scan of the markdown (see `PreviewPageRender`).
+        let render = fullPageRender(for: scheduled.content)
+        coordinator.shellHasMathAssets = render.hasMathAssets
         let load = {
+            // A superseded navigation must not be mistaken for this one:
+            // stopLoading fails it, and that failure arrives with no shell
+            // navigation on record, so the delegate ignores it.
+            coordinator.shellNavigation = nil
             webView.stopLoading()
             coordinator.hasRenderedOnce = true
-            webView.loadHTMLString(html, baseURL: nil)
+            coordinator.shellNavigation = webView.loadHTMLString(render.html, baseURL: nil)
         }
         if coordinator.hasRenderedOnce {
             webView.evaluateJavaScript("window.editMDCurrentScrollPosition && window.editMDCurrentScrollPosition()") {
@@ -561,11 +592,20 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var lastRenderedContent: String?
         var scheduler = PreviewRenderScheduler()
         var renderTask: Task<Void, Never>?
+        /// Stamps the task holding the render slot, so a cancelled predecessor
+        /// unwinding late cannot clear its successor's registration.
+        var renderGeneration: UInt64 = 0
         var hasRenderedOnce = false
         var shellReady = false
         var shellLoading = false
         var shellHasMathAssets = false
         var pendingShellRequest: PreviewRenderScheduler.Request?
+        /// The shell navigation in flight. didFinish / didFail must ignore any
+        /// other navigation — a superseded load failing is not this load failing.
+        var shellNavigation: WKNavigation?
+        /// Guards the retry-on-failed-load path against a reload loop.
+        var shellReloadAttempts = 0
+        static let maxShellReloadAttempts = 3
         var scheduleLatest: (() -> Void)?
         /// Forces a full re-render (font size changes: same content,
         /// different CSS).
@@ -971,8 +1011,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // Ignore a navigation we did not start (or one already superseded);
+            // with none on record, the page in front of the user is ours anyway.
+            if let current = shellNavigation, navigation !== current { return }
+            shellNavigation = nil
             shellLoading = false
             shellReady = true
+            shellReloadAttempts = 0
             if let loaded = pendingShellRequest {
                 pendingShellRequest = nil
                 if scheduler.markApplied(loaded) {
@@ -999,11 +1044,43 @@ struct MarkdownPreviewView: NSViewRepresentable {
             scheduleLatest?()
         }
 
+        // A shell that fails to load leaves `shellLoading` pinned, and every
+        // later fragment render is gated behind it — Preview would freeze for
+        // the rest of the session with nothing to un-stick it. (Before the
+        // persistent shell, each render simply issued its own loadHTMLString,
+        // so a failure healed itself.) Retry a bounded number of times.
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
+                     withError error: Error) {
+            handleShellLoadFailure(navigation)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                     withError error: Error) {
+            handleShellLoadFailure(navigation)
+        }
+
+        private func handleShellLoadFailure(_ navigation: WKNavigation!) {
+            guard let current = shellNavigation, navigation === current else { return }
+            shellNavigation = nil
+            shellLoading = false
+            shellReady = false
+            pendingShellRequest = nil
+            guard shellReloadAttempts < Self.maxShellReloadAttempts else { return }
+            shellReloadAttempts += 1
+            let rerender = rerender
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                rerender?()
+            }
+        }
+
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             shellReady = false
             shellLoading = false
             shellHasMathAssets = false
             hasRenderedOnce = false
+            shellNavigation = nil
+            shellReloadAttempts = 0
             pendingShellRequest = nil
             pendingScrollPosition = nil
             pendingScrollFraction = nil
