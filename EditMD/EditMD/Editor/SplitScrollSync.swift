@@ -46,6 +46,7 @@ enum SplitScrollSync {
     /// Computed from the clip view, not `verticalScroller.doubleValue`: a
     /// scroller reports 0 both at the top AND when the content fits on one
     /// screen, which pinned Preview to the top for every short document.
+    @MainActor
     static func position(of textView: NSTextView) -> Position {
         guard let scroll = textView.enclosingScrollView,
               let documentView = scroll.documentView else { return .unscrollable }
@@ -65,6 +66,7 @@ enum SplitScrollSync {
         let fraction: Double
     }
 
+    @MainActor
     static func visibleParagraphAnchor(in textView: NSTextView) -> ParagraphAnchor? {
         guard let scroll = textView.enclosingScrollView,
               let layout = textView.layoutManager,
@@ -89,6 +91,7 @@ enum SplitScrollSync {
     /// Scrolls the viewport only — selection and first responder are untouched,
     /// so following Preview never steals the caret. Exactly inverts
     /// `visibleParagraphAnchor`.
+    @MainActor
     static func scrollViewport(_ textView: NSTextView,
                                toParagraph paragraph: NSRange,
                                fraction: Double,
@@ -123,6 +126,7 @@ enum SplitScrollSync {
     }
 
     /// Union rect of a character range, in container coordinates.
+    @MainActor
     private static func boundingRect(of range: NSRange, in textView: NSTextView) -> NSRect? {
         guard let layout = textView.layoutManager,
               let container = textView.textContainer else { return nil }
