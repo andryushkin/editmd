@@ -1353,13 +1353,19 @@ func previewHTMLPageRender(markdown: String,
     // Programmatic scrolls must not be reported back as user scrolls; the flag
     // clears on the next frame, by which time WebKit has fired the event.
     var suppressScrollReport = 0;
-    function programmaticScroll(y) {
-        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    function beginScrollReportSuppression() {
         suppressScrollReport++;
-        window.scrollTo(0, Math.max(0, Math.min(y, maxY)));
+    }
+    function endScrollReportSuppressionAfterFrame() {
         requestAnimationFrame(function () {
             suppressScrollReport = Math.max(0, suppressScrollReport - 1);
         });
+    }
+    function programmaticScroll(y) {
+        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        beginScrollReportSuppression();
+        window.scrollTo(0, Math.max(0, Math.min(y, maxY)));
+        endScrollReportSuppressionAfterFrame();
     }
     window.programmaticScroll = programmaticScroll;
 
@@ -1513,15 +1519,18 @@ func previewHTMLPageRender(markdown: String,
     // do — on the first page load as well as after a fragment swap; before, only
     // the fragment path did this and a freshly opened math document kept a stale
     // anchor table (split-scroll sync drifted until the next resize).
-    function replayPreviewSettle(root, position, pixelY) {
+    function replayPreviewSettle(root, position) {
         root.querySelectorAll('img').forEach(function (image) {
             if (image.complete) return;
             image.addEventListener('load', function () {
-                settlePreviewLayout(position, pixelY);
+                settlePreviewLayout(position, null);
             }, { once: true });
         });
-        if (document.fonts && document.fonts.ready) {
-            document.fonts.ready.then(function () { settlePreviewLayout(position, pixelY); });
+        // A resolved FontFaceSet promise would replay immediately on every edit
+        // and defeat the pixel-stable first settle. Replay only while this DOM
+        // actually has fonts still landing.
+        if (document.fonts && document.fonts.status === 'loading') {
+            document.fonts.ready.then(function () { settlePreviewLayout(position, null); });
         }
     }
 
@@ -1542,24 +1551,37 @@ func previewHTMLPageRender(markdown: String,
         if (!root) return false;
         var position = payload.position;
         var pixelY = null;
+        var replayPosition = position;
         if (position === null || position === undefined) {
             // Typing is a content update, not a scroll gesture. Preserve the
             // exact viewport instead of re-interpreting its old markdown offset
             // in the new DOM (which visibly nudged the first edit after a click).
             pixelY = window.scrollY;
+            // Late image/font layout needs the semantic point that occupied the
+            // viewport before the swap; replaying pixelY after heights change
+            // would show different content.
+            replayPosition = window.editMDCurrentScrollPosition();
         }
-        root.innerHTML = payload.html;
-        window.editMDPreviewRevision = payload.revision;
-        window.editMDHydratePreviewContent();
-        userScrolledSinceSettle = false;
-        settlePreviewLayout(position, pixelY);
-        replayPreviewSettle(root, position, pixelY);
-        return true;
+        // Replacing a long document with a shorter one can make WebKit clamp
+        // scrollY before our explicit restore. That implicit scroll belongs to
+        // this update transaction and must never be reported back to Source.
+        beginScrollReportSuppression();
+        try {
+            root.innerHTML = payload.html;
+            window.editMDPreviewRevision = payload.revision;
+            window.editMDHydratePreviewContent();
+            userScrolledSinceSettle = false;
+            settlePreviewLayout(position, pixelY);
+            replayPreviewSettle(root, replayPosition);
+            return true;
+        } finally {
+            endScrollReportSuppressionAfterFrame();
+        }
     };
 
     window.editMDHydratePreviewContent();
     settlePreviewLayout(null, null);
-    replayPreviewSettle(document.getElementById('preview-content'), null, null);
+    replayPreviewSettle(document.getElementById('preview-content'), null);
     </script>
     </body>
     </html>

@@ -60,6 +60,10 @@ struct EditorActionStrip: View {
     /// Source / Visual / Preview inset for column alignment.
     var insetH: CGFloat
     var columnWidth: CGFloat
+    /// Width of the pane whose text/gutter the editing tools belong to. In
+    /// split mode the strip itself is wider (it spans Source + Preview), while
+    /// this lane stops at the divider. nil means the whole strip.
+    var editingPaneWidth: CGFloat? = nil
     /// Left edge of the text as reported by Source/Visual (their inset already
     /// reserves the numbers margin). nil → compute it (Preview).
     var textLeading: CGFloat? = nil
@@ -95,16 +99,22 @@ struct EditorActionStrip: View {
 
     var body: some View {
         GeometryReader { geo in
-            let field = field(for: geo.size.width)
+            let editingWidth = Self.resolvedEditingPaneWidth(
+                stripWidth: geo.size.width, editingPaneWidth: editingPaneWidth)
+            let field = field(for: editingWidth)
             let lead = field.textLeading
-            // Mirror of the tools' inset — measured from the column's right
-            // edge, which the rail does NOT shift.
-            let trail = max(field.textTrailing, SidebarChrome.barPaddingH)
+            // Editing tools mirror Source's right inset and stop at the split
+            // divider. The mode switch remains global, at the strip's far edge.
+            let fieldTrail = max(field.textTrailing, SidebarChrome.barPaddingH)
+            let stripTrail = editingPaneWidth == nil
+                ? fieldTrail : SidebarChrome.barPaddingH
             let modeWidth = widths[Self.modeKey] ?? 0
-            let available = max(0, geo.size.width - lead - trail
-                                   - modeWidth - Self.groupSpacing)
-            let plan = plan(available: available)
-            HStack(alignment: .center, spacing: Self.groupSpacing) {
+            let laneBeforeMode = max(0, geo.size.width - lead - stripTrail
+                                       - modeWidth - Self.groupSpacing)
+            let laneInsideEditor = max(0, editingWidth - lead - fieldTrail)
+            let toolLaneWidth = min(laneBeforeMode, laneInsideEditor)
+            let plan = plan(available: toolLaneWidth)
+            HStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .center, spacing: Self.groupSpacing) {
                     ForEach(plan.visible) { group in
                         groupPill(group)
@@ -113,14 +123,15 @@ struct EditorActionStrip: View {
                         overflowPill(plan.overflow)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: toolLaneWidth, alignment: .leading)
                 // Belt and braces: even if a pill measures wider than planned,
                 // it gets clipped instead of drawing over the switcher.
                 .clipped()
+                Spacer(minLength: Self.groupSpacing)
                 modePill
             }
             .padding(.leading, lead)
-            .padding(.trailing, trail)
+            .padding(.trailing, stripTrail)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .padding(.top, SidebarChrome.barPaddingTop)
             .padding(.bottom, SidebarChrome.barPaddingBottom)
@@ -139,6 +150,11 @@ struct EditorActionStrip: View {
             .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
         .frame(height: stripHeight)
+    }
+
+    nonisolated static func resolvedEditingPaneWidth(stripWidth: CGFloat,
+                                                     editingPaneWidth: CGFloat?) -> CGFloat {
+        min(max(0, editingPaneWidth ?? stripWidth), max(0, stripWidth))
     }
 
     // MARK: Overflow planning

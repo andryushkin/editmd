@@ -310,9 +310,10 @@ struct SourceTextView: NSViewRepresentable {
         func textView(_ textView: NSTextView,
                       shouldChangeTextIn affectedCharRange: NSRange,
                       replacementString: String?) -> Bool {
-            // Bounds changes can be posted during the TextKit mutation, before
-            // textDidChange. Suppress layout-driven scroll sync from here.
-            suppressScrollSyncUntil = Date().addingTimeInterval(0.08)
+            // Capture the viewport before TextKit mutates/layouts the line. A
+            // tiny metrics correction is visual jitter; a larger move is
+            // AppKit following the caret and must be forwarded to Preview.
+            viewportOriginBeforeEdit = textView.enclosingScrollView?.contentView.bounds.origin
             parent.document.beginContentEdit()
             return true
         }
@@ -320,7 +321,6 @@ struct SourceTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             guard !isInternalUpdate else { return }
-            suppressScrollSyncUntil = Date().addingTimeInterval(0.08)
             isInternalUpdate = true
             parent.document.content = tv.string
             isInternalUpdate = false
@@ -333,6 +333,7 @@ struct SourceTextView: NSViewRepresentable {
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke repaint here.
             refreshGutter()
+            finishViewportEditOnNextRunLoop()
         }
 
         func refreshGutter() {
@@ -357,9 +358,9 @@ struct SourceTextView: NSViewRepresentable {
 
         private var lastTextLeading: CGFloat = -1
         private var scrollSyncPublishScheduled = false
-        /// TextKit can move/resize the clip view while laying out a typed
-        /// character. That is not a user scroll and must not reposition Preview.
-        private var suppressScrollSyncUntil = Date.distantPast
+        /// Viewport before TextKit mutates a Source line. Bounds notifications
+        /// posted during that mutation are classified after layout settles.
+        private var viewportOriginBeforeEdit: NSPoint?
         /// Raised while Preview's scroll is being applied here. Our own
         /// `clip.scroll` posts a bounds notification, and publishing from it
         /// would send the position straight back to Preview — a feedback ring
@@ -368,7 +369,41 @@ struct SourceTextView: NSViewRepresentable {
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
+            // The edit completion classifies this movement as tiny layout drift
+            // or real caret-follow. Publishing it here would race that decision.
+            guard viewportOriginBeforeEdit == nil else { return }
             scheduleVisibleOffsetPublish()
+        }
+
+        private func finishViewportEditOnNextRunLoop() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                defer { self.viewportOriginBeforeEdit = nil }
+                guard let original = self.viewportOriginBeforeEdit,
+                      let scroll = self.textView?.enclosingScrollView else { return }
+                let clip = scroll.contentView
+                let current = clip.bounds.origin
+                let drift = current.y - original.y
+                guard abs(drift) > 0.01 else { return }
+
+                if SplitScrollSync.isMinorLayoutDrift(drift) {
+                    var proposed = clip.bounds
+                    proposed.origin.y = original.y
+                    let constrained = clip.constrainBoundsRect(proposed)
+                    // Deleting near the bottom can invalidate the old origin.
+                    // That clamp is real geometry, so publish it instead of
+                    // forcing an impossible viewport.
+                    if abs(constrained.origin.y - original.y) <= 0.5 {
+                        clip.scroll(to: constrained.origin)
+                        scroll.reflectScrolledClipView(clip)
+                        return
+                    }
+                }
+
+                // A line-sized move is AppKit keeping the caret visible (or a
+                // real geometry clamp). Keep Preview alongside Source.
+                self.scheduleVisibleOffsetPublish()
+            }
         }
 
         /// Coalesce AppKit's burst of bounds notifications once per run-loop
@@ -376,14 +411,12 @@ struct SourceTextView: NSViewRepresentable {
         /// continuous trackpad gesture instead of waiting for it to stop.
         func scheduleVisibleOffsetPublish() {
             guard parent.onVisibleOffset != nil, !isFollowingPreviewScroll,
-                  Date() >= suppressScrollSyncUntil,
                   !scrollSyncPublishScheduled else { return }
             scrollSyncPublishScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
                 guard !self.isFollowingPreviewScroll,
-                      Date() >= self.suppressScrollSyncUntil,
                       let textView = self.textView,
                       let position = self.visibleMarkdownPosition(in: textView) else { return }
                 self.parent.onVisibleOffset?(position)

@@ -83,6 +83,8 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("if (suppressScrollReport > 0) return;"), page)
         XCTAssertTrue(page.contains("userScrolledSinceSettle = true;"), page)
         XCTAssertTrue(page.contains("function programmaticScroll(y)"), page)
+        XCTAssertTrue(page.contains("function beginScrollReportSuppression()"), page)
+        XCTAssertTrue(page.contains("function endScrollReportSuppressionAfterFrame()"), page)
     }
 
     /// A fenced block's opening fence is not a rendered line; an indented
@@ -239,8 +241,41 @@ final class MarkdownHTMLTests: XCTestCase {
         // The first full load replays the settle too — a freshly opened math
         // document used to keep the anchor table it built before the KaTeX
         // webfonts landed, and split-scroll drifted until the next resize.
-        XCTAssertTrue(page.contains("replayPreviewSettle(document.getElementById('preview-content'), null, null)"),
+        XCTAssertTrue(page.contains("replayPreviewSettle(document.getElementById('preview-content'), null)"),
                       page)
+        XCTAssertTrue(page.contains("settlePreviewLayout(position, null);"), page)
+        XCTAssertTrue(page.contains("document.fonts.status === 'loading'"), page)
+    }
+
+    /// Ordinary typing keeps the exact pixel immediately, while resources that
+    /// land later restore the semantic point captured from the old DOM.
+    func testFragmentSettleSeparatesImmediatePixelFromLateSemanticReplay() {
+        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        XCTAssertTrue(page.contains("pixelY = window.scrollY;"), page)
+        XCTAssertTrue(page.contains(
+            "replayPosition = window.editMDCurrentScrollPosition();"), page)
+        XCTAssertTrue(page.contains("settlePreviewLayout(position, pixelY);"), page)
+        XCTAssertTrue(page.contains("replayPreviewSettle(root, replayPosition);"), page)
+
+        let capture = page.range(of: "replayPosition = window.editMDCurrentScrollPosition();")!
+        let swap = page.range(of: "root.innerHTML = payload.html;")!
+        XCTAssertLessThan(capture.lowerBound, swap.lowerBound,
+                          "the semantic point must be read from the old DOM")
+    }
+
+    /// The fragment swap itself is programmatic: WebKit may clamp scrollY while
+    /// innerHTML is changing, before the explicit settle has a chance to run.
+    func testFragmentSwapSuppressesClampFeedbackForWholeDOMTransaction() {
+        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        let begin = page.range(of: "beginScrollReportSuppression();", options: [],
+                               range: page.range(of: "window.editMDReplacePreview")!.lowerBound..<page.endIndex)!
+        let swap = page.range(of: "root.innerHTML = payload.html;")!
+        let end = page.range(of: "endScrollReportSuppressionAfterFrame();", options: .backwards)!
+        XCTAssertLessThan(begin.lowerBound, swap.lowerBound)
+        XCTAssertLessThan(swap.lowerBound, end.lowerBound)
+        let transaction = String(page[begin.lowerBound..<end.upperBound])
+        XCTAssertTrue(transaction.contains("try {"), transaction)
+        XCTAssertTrue(transaction.contains("} finally {"), transaction)
     }
 
     /// The follow interpolates a FRACTIONAL markdown offset between anchors, in

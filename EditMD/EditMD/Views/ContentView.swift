@@ -335,37 +335,39 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var editorArea: some View {
-        VStack(spacing: 0) {
-            EditorActionStrip(actions: stripActions,
-                              insetH: stripInset.h,
-                              columnWidth: stripInset.column,
-                              textLeading: mode == .preview ? nil : editorTextLeading,
-                              railGap: mode == .preview
-                                  ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
-                              previewRailWidth: mode == .preview ? previewRailWidth : 0,
-                              showVisualExtras: mode == .visual,
-                              activeFormats: activeFormats,
-                              mode: mode,
-                              setEditorMode: setEditorMode,
-                              showLineNumbers: editorSettings.gutter.showLineNumbers,
-                              toggleLineNumbers: {
-                                  editorSettings.gutter.showLineNumbers.toggle()
-                              })
-            switch mode {
-            case .preview:
-                // Line numbers / dirty marks are baked into the HTML (`data-ln`)
-                // so they scroll with the page — no separate rail to sync.
-                MarkdownPreviewView(document: document, fileURL: fileURL,
-                                    positionStore: positionStore,
-                                    onRequestEdit: { setEditorMode(.visual) },
-                                    toolbarActions: stripActions,
-                                    onActiveFormats: { activeFormats = $0 })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .split:
-                GeometryReader { geo in
+        GeometryReader { geo in
+            let splitEditorWidth = max(160, geo.size.width * splitFraction)
+            VStack(spacing: 0) {
+                EditorActionStrip(actions: stripActions,
+                                  insetH: stripInset.h,
+                                  columnWidth: stripInset.column,
+                                  editingPaneWidth: mode == .split ? splitEditorWidth : nil,
+                                  textLeading: mode == .preview ? nil : editorTextLeading,
+                                  railGap: mode == .preview
+                                      ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
+                                  previewRailWidth: mode == .preview ? previewRailWidth : 0,
+                                  showVisualExtras: mode == .visual,
+                                  activeFormats: activeFormats,
+                                  mode: mode,
+                                  setEditorMode: setEditorMode,
+                                  showLineNumbers: editorSettings.gutter.showLineNumbers,
+                                  toggleLineNumbers: {
+                                      editorSettings.gutter.showLineNumbers.toggle()
+                                  })
+                switch mode {
+                case .preview:
+                    // Line numbers / dirty marks are baked into the HTML (`data-ln`)
+                    // so they scroll with the page — no separate rail to sync.
+                    MarkdownPreviewView(document: document, fileURL: fileURL,
+                                        positionStore: positionStore,
+                                        onRequestEdit: { setEditorMode(.visual) },
+                                        toolbarActions: stripActions,
+                                        onActiveFormats: { activeFormats = $0 })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .split:
                     HStack(spacing: 0) {
                         editorPane
-                            .frame(width: max(160, geo.size.width * splitFraction))
+                            .frame(width: splitEditorWidth)
                         paneDivider(space: .named("editorSplit")) { x in
                             splitFraction = min(Self.splitFractionRange.upperBound,
                                                 max(Self.splitFractionRange.lowerBound,
@@ -377,35 +379,19 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .coordinateSpace(name: "editorSplit")
+                case .source, .visual:
+                    editorPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            case .source, .visual:
-                editorPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder private var editorPane: some View {
         switch mode {
         case .source:
-            SourceTextView(
-                document: document,
-                fileURL: fileURL,
-                positionStore: positionStore,
-                insetH: editorSettings.source.insetH,
-                insetV: editorSettings.source.insetV,
-                columnWidth: editorSettings.source.columnWidth,
-                onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                onFormatActions: { actions in
-                    formatActions = actions
-                    bindStrip(from: actions, visualExtras: false)
-                },
-                onLintUpdate: { summary in lintSummary = summary },
-                onActiveFormats: { activeFormats = $0 },
-                onVisibleOffset: nil,
-                onTextLeading: { editorTextLeading = $0 }
-            )
+            sourceEditorPane(syncsPreview: false)
         case .visual:
             VisualMarkdownView(
                 document: document,
@@ -424,26 +410,33 @@ struct ContentView: View {
             // unreachable: editorArea routes .preview to the full preview
             EmptyView()
         case .split:
-            SourceTextView(
-                document: document,
-                fileURL: fileURL,
-                positionStore: positionStore,
-                insetH: editorSettings.source.insetH,
-                insetV: editorSettings.source.insetV,
-                columnWidth: editorSettings.source.columnWidth,
-                onStatsUpdate: { w, c in wordCount = w; charCount = c },
-                onFormatActions: { actions in
-                    formatActions = actions
-                    bindStrip(from: actions, visualExtras: false)
-                },
-                onLintUpdate: { summary in lintSummary = summary },
-                onActiveFormats: { activeFormats = $0 },
-                onVisibleOffset: { position in
-                    positionStore.requestPreviewScroll(toMarkdownPosition: position)
-                },
-                onTextLeading: { editorTextLeading = $0 }
-            )
+            sourceEditorPane(syncsPreview: true)
         }
+    }
+
+    private func sourceEditorPane(syncsPreview: Bool) -> some View {
+        let visibleOffset: ((Double) -> Void)? = syncsPreview
+            ? { position in
+                positionStore.requestPreviewScroll(toMarkdownPosition: position)
+            }
+            : nil
+        return SourceTextView(
+            document: document,
+            fileURL: fileURL,
+            positionStore: positionStore,
+            insetH: editorSettings.source.insetH,
+            insetV: editorSettings.source.insetV,
+            columnWidth: editorSettings.source.columnWidth,
+            onStatsUpdate: { w, c in wordCount = w; charCount = c },
+            onFormatActions: { actions in
+                formatActions = actions
+                bindStrip(from: actions, visualExtras: false)
+            },
+            onLintUpdate: { summary in lintSummary = summary },
+            onActiveFormats: { activeFormats = $0 },
+            onVisibleOffset: visibleOffset,
+            onTextLeading: { editorTextLeading = $0 }
+        )
     }
 
     /// Mirrors FormatActions into the shared strip bag.

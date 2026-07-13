@@ -19,6 +19,15 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertFalse(SplitScrollSync.isMinorLayoutDrift(20))
     }
 
+    func testSplitActionStripMeasuresToolsAgainstTheSourcePane() {
+        XCTAssertEqual(EditorActionStrip.resolvedEditingPaneWidth(
+            stripWidth: 1200, editingPaneWidth: 600), 600)
+        XCTAssertEqual(EditorActionStrip.resolvedEditingPaneWidth(
+            stripWidth: 1200, editingPaneWidth: nil), 1200)
+        XCTAssertEqual(EditorActionStrip.resolvedEditingPaneWidth(
+            stripWidth: 500, editingPaneWidth: 700), 500)
+    }
+
     // MARK: - Autoformat triggers
 
     func testDashBecomesBullet() {
