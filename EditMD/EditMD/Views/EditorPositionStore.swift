@@ -22,21 +22,26 @@ final class EditorPositionStore {
     /// D5: transport for the split-mode scroll follow. Deliberately NOT
     /// `markdownOffset` — that field is the caret restored on mode switches,
     /// and a passive scroll must never move the caret.
-    var previewScrollOffset: Int = 0
+    ///
+    /// A FRACTIONAL markdown offset: whole part = character, fraction = how far
+    /// between it and the next. Syncing whole characters (or whole lines) can
+    /// only ever step, since a position only changes once the viewport edge has
+    /// crossed one — the follow visibly waited, then jumped.
+    var previewScrollPosition: Double = 0
 
     /// Editor→Preview transport. The publishers coalesce bounds notifications
     /// once per main-loop turn, so this can stay un-debounced.
-    func requestPreviewScroll(toMarkdownOffset offset: Int) {
-        previewScrollOffset = offset
+    func requestPreviewScroll(toMarkdownPosition position: Double) {
+        previewScrollPosition = position
         NotificationCenter.default.post(name: .editMDPreviewScrollSync, object: self)
     }
 
     /// Preview→editor transport. Kept separate from `markdownOffset` so a
     /// passive Preview scroll never moves the caret or changes mode continuity.
-    var editorScrollOffset: Int = 0
+    var editorScrollPosition: Double = 0
 
-    func requestEditorScroll(toMarkdownOffset offset: Int) {
-        editorScrollOffset = offset
+    func requestEditorScroll(toMarkdownPosition position: Double) {
+        editorScrollPosition = position
         NotificationCenter.default.post(name: .editMDEditorScrollSync, object: self)
     }
 }

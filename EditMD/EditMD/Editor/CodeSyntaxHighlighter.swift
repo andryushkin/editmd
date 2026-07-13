@@ -249,24 +249,61 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
     /// `prefers-color-scheme`, so a theme switch needs no re-render and the page
     /// is never light-on-dark. Rendering is always synchronous — the HTML string
     /// has no second chance to repaint.
-    func html(_ code: String, language infoString: String?) -> String {
-        guard let runs = tokenRuns(for: code, language: infoString, blocking: true),
-              !runs.isEmpty else { return htmlEscape(code) }
+    ///
+    /// With `lineRanges` (the SOURCE range of each code line) every line is also
+    /// wrapped in its own `data-md-lo/hi` span, giving split-scroll sync an
+    /// anchor per line. Token runs are cut at the line boundaries they cross.
+    func html(_ code: String, language infoString: String?,
+              lineRanges: [NSRange]? = nil) -> String {
+        let runs = tokenRuns(for: code, language: infoString, blocking: true) ?? []
         let ns = code as NSString
-        var output = ""
-        var cursor = 0
-        for run in runs where run.range.location >= cursor && NSMaxRange(run.range) <= ns.length {
-            if run.range.location > cursor {
-                let gap = NSRange(location: cursor, length: run.range.location - cursor)
-                output += htmlEscape(ns.substring(with: gap))
+
+        func tokenized(_ range: NSRange) -> String {
+            guard !runs.isEmpty else { return htmlEscape(ns.substring(with: range)) }
+            var output = ""
+            var cursor = range.location
+            for run in runs {
+                let hit = NSIntersectionRange(run.range, range)
+                guard hit.length > 0, hit.location >= cursor else { continue }
+                if hit.location > cursor {
+                    output += htmlEscape(ns.substring(
+                        with: NSRange(location: cursor, length: hit.location - cursor)))
+                }
+                output += "<span class=\"hljs-token\" "
+                    + "style=\"--tl:\(run.lightHex);--td:\(run.darkHex)\">"
+                    + htmlEscape(ns.substring(with: hit)) + "</span>"
+                cursor = NSMaxRange(hit)
             }
-            let text = htmlEscape(ns.substring(with: run.range))
-            output += "<span class=\"hljs-token\" style=\"--tl:\(run.lightHex);--td:\(run.darkHex)\">"
-                + text + "</span>"
-            cursor = NSMaxRange(run.range)
+            if cursor < NSMaxRange(range) {
+                output += htmlEscape(ns.substring(
+                    with: NSRange(location: cursor, length: NSMaxRange(range) - cursor)))
+            }
+            return output
         }
-        if cursor < ns.length {
-            output += htmlEscape(ns.substring(from: cursor))
+
+        guard let lineRanges else { return tokenized(NSRange(location: 0, length: ns.length)) }
+
+        var output = ""
+        var lineStart = 0
+        var line = 0
+        while lineStart <= ns.length {
+            let newline = ns.range(of: "\n", options: [],
+                                   range: NSRange(location: lineStart,
+                                                  length: ns.length - lineStart))
+            let end = newline.location == NSNotFound ? ns.length : newline.location
+            let body = NSRange(location: lineStart, length: end - lineStart)
+            if line < lineRanges.count {
+                let source = lineRanges[line]
+                output += "<span class=\"cl\" data-md-lo=\"\(source.location)\""
+                    + " data-md-hi=\"\(NSMaxRange(source))\">"
+                    + tokenized(body) + "</span>"
+            } else {
+                output += tokenized(body)
+            }
+            if newline.location == NSNotFound { break }
+            output += "\n"           // outside the span: it is not part of the line
+            lineStart = end + 1
+            line += 1
         }
         return output
     }

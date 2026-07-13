@@ -146,6 +146,7 @@ func markdownHTMLRender(_ text: String,
     // rebases them past stripped frontmatter (for Preview toolbar wrap).
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
                                   lineIdx: LineIndex(parseSource),
+                                  parsedSource: parseSource as NSString,
                                   baseOffset: baseOffset,
                                   lineBase: lineBase,
                                   gutter: gutter,
@@ -207,6 +208,9 @@ private struct HTMLBodyVisitor: MarkupWalker {
     var result = ""
     let imageResolver: ((String) -> String?)?
     let lineIdx: LineIndex
+    /// The text cmark parsed (masked, frontmatter stripped) — read for the few
+    /// decisions the AST doesn't carry, e.g. is this code block fenced?
+    let parsedSource: NSString
     /// Added to every AST-derived offset so ranges land in the original
     /// document when frontmatter was stripped before parsing.
     let baseOffset: Int
@@ -226,6 +230,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     init(imageResolver: ((String) -> String?)?,
          lineIdx: LineIndex,
+         parsedSource: NSString,
          baseOffset: Int,
          lineBase: Int = 0,
          gutter: PreviewGutterOptions = .off,
@@ -233,6 +238,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
          mathSpans: [HTMLMathSpan] = []) {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
+        self.parsedSource = parsedSource
         self.baseOffset = baseOffset
         self.lineBase = lineBase
         self.gutter = gutter
@@ -255,24 +261,40 @@ private struct HTMLBodyVisitor: MarkupWalker {
         return lineBase + src.lowerBound.line
     }
 
-    /// Source offset of each RENDERED code line, in document order.
+    /// SOURCE range of each RENDERED code line, in document order.
     ///
-    /// A fenced block's first source line is the opening fence, which the DOM
-    /// never shows; an indented block starts with code straight away. The two
-    /// are told apart by line count — the fence lines are exactly the source
-    /// lines the code doesn't account for.
-    private func codeLineOffsets(_ codeBlock: CodeBlock) -> [Int]? {
+    /// Taken from the source text, not from `codeBlock.code`: an indented
+    /// block's code has had its indent stripped, so the two disagree on where a
+    /// line ends. A fenced block's first source line is the opening fence, which
+    /// the DOM never shows; an indented block starts with code straight away.
+    /// Counting lines cannot tell them apart (a source range may include a
+    /// trailing blank line), so read the opening line and look for a fence.
+    private func codeLineRanges(_ codeBlock: CodeBlock) -> [NSRange]? {
         guard let src = codeBlock.range else { return nil }
         var lines = codeBlock.code.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
         guard !lines.isEmpty else { return nil }
+
         let firstLine = src.lowerBound.line
-        let lastLine = src.upperBound.line
-        let blockLines = lastLine - firstLine + 1
-        guard blockLines >= lines.count else { return nil }
-        let start = blockLines > lines.count ? firstLine + 1 : firstLine
-        guard start + lines.count - 1 <= lastLine else { return nil }
-        return (0..<lines.count).map { lineIdx.lineStart(start + $0) + baseOffset }
+        let opening = lineText(firstLine).trimmingCharacters(in: .whitespaces)
+        let isFenced = opening.hasPrefix("```") || opening.hasPrefix("~~~")
+        let start = isFenced ? firstLine + 1 : firstLine
+
+        return (0..<lines.count).map { index in
+            let lineStart = lineIdx.lineStart(start + index)
+            let body = lineText(start + index)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+            return NSRange(location: lineStart + baseOffset,
+                           length: (body as NSString).length)
+        }
+    }
+
+    /// One line of the parsed source, newline included (1-based, as cmark).
+    private func lineText(_ line: Int) -> String {
+        let start = lineIdx.lineStart(line)
+        guard start < parsedSource.length else { return "" }
+        let range = parsedSource.lineRange(for: NSRange(location: start, length: 0))
+        return parsedSource.substring(with: range)
     }
 
     /// Opens a block tag with optional `data-ln` / `ln-dirty` for the Preview gutter.
@@ -319,23 +341,16 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        // Code has no Text children carrying source offsets (highlighting also
-        // replaces it with token spans), so tag the whole island. `data-md-cl`
-        // additionally lists the source offset of every rendered code LINE:
-        // code lines don't wrap (`pre code { overflow-x: auto }`), so scroll
-        // sync divides the <pre> height by the line count and lands exactly.
-        // Interpolating by CHARACTER instead would drift by however much the
-        // line lengths differ.
-        var sourceAttrs: String
+        // Every rendered code LINE gets its own `data-md-lo/hi` span: without
+        // anchors inside the block, split-scroll sync has nothing to interpolate
+        // between and the follow stalls until the block ends.
+        let lineRanges = codeLineRanges(codeBlock)
+        let sourceAttrs: String
         if let range = mdNSRange(for: codeBlock) {
             sourceAttrs = " data-md-lo=\"\(range.location)\""
                 + " data-md-hi=\"\(NSMaxRange(range))\" data-md-code=\"1\""
         } else {
             sourceAttrs = " data-md-code=\"1\""
-        }
-        if let lineOffsets = codeLineOffsets(codeBlock) {
-            sourceAttrs += " data-md-cl=\""
-                + lineOffsets.map(String.init).joined(separator: ",") + "\""
         }
         openBlock("pre", codeBlock, extraAttrs: sourceAttrs)
         let language = codeBlock.language ?? ""
@@ -347,9 +362,30 @@ private struct HTMLBodyVisitor: MarkupWalker {
             result += "<code>"
         }
         result += syntaxHighlighting
-            ? CodeSyntaxHighlighter.shared.html(codeBlock.code, language: language)
-            : htmlEscape(codeBlock.code)
+            ? CodeSyntaxHighlighter.shared.html(codeBlock.code, language: language,
+                                                lineRanges: lineRanges)
+            : Self.plainCodeHTML(codeBlock.code, lineRanges: lineRanges)
         result += "</code></pre>\n"
+    }
+
+    /// Same per-line spans as the highlighter emits, for `syntaxHighlighting`
+    /// off — scroll sync must not depend on a display setting.
+    private static func plainCodeHTML(_ code: String, lineRanges: [NSRange]?) -> String {
+        guard let lineRanges else { return htmlEscape(code) }
+        let lines = code.components(separatedBy: "\n")
+        var out = ""
+        for (index, line) in lines.enumerated() {
+            if index < lineRanges.count {
+                let range = lineRanges[index]
+                out += "<span class=\"cl\" data-md-lo=\"\(range.location)\""
+                    + " data-md-hi=\"\(NSMaxRange(range))\">"
+                    + htmlEscape(line) + "</span>"
+            } else {
+                out += htmlEscape(line)
+            }
+            if index < lines.count - 1 { out += "\n" }
+        }
+        return out
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
@@ -1188,24 +1224,17 @@ func previewHTMLPage(markdown: String,
         var scrollY = window.scrollY;
         document.querySelectorAll('[data-md-lo]').forEach(function (el) {
             var lo = parseInt(el.getAttribute('data-md-lo'), 10);
-            var hi = parseInt(el.getAttribute('data-md-hi'), 10);
-            if (isNaN(lo) || isNaN(hi)) return;
+            if (isNaN(lo)) return;
             var rect = el.getBoundingClientRect();
-            if (rect.height <= 0) return;  // display:none / empty run
-            var codeLines = null;
-            var cl = el.getAttribute('data-md-cl');
-            if (cl) {
-                codeLines = cl.split(',').map(function (n) { return parseInt(n, 10); });
-            }
-            list.push({
-                lo: lo, hi: hi,
-                top: rect.top + scrollY,
-                bottom: rect.bottom + scrollY,
-                height: rect.height,
-                codeLines: codeLines
-            });
+            if (rect.width <= 0 && rect.height <= 0) return;  // not laid out
+            list.push({ lo: lo, top: rect.top + scrollY, bottom: rect.bottom + scrollY });
         });
-        list.sort(function (a, b) { return a.lo - b.lo || a.hi - b.hi; });
+        list.sort(function (a, b) { return a.lo - b.lo; });
+        // Keep the table monotonic in Y: an anchor can only ever be at or below
+        // its predecessor, and the interpolation below relies on that.
+        for (var i = 1; i < list.length; i++) {
+            if (list[i].top < list[i - 1].top) list[i].top = list[i - 1].top;
+        }
         mdAnchorTable = list;
         return list;
     }
@@ -1216,84 +1245,110 @@ func previewHTMLPage(markdown: String,
     document.addEventListener('load', invalidateMdAnchors, true);
     window.invalidateMdAnchors = invalidateMdAnchors;
 
-    // Document-space Y where `offset` should sit, or null when unknown.
-    function mdAnchorBottom(offset) {
+    // Y (document space) for a FRACTIONAL markdown offset, by interpolating
+    // between the two anchors around it. Both scales are monotonic, so the
+    // result is monotonic: the follow can neither stall nor run backwards.
+    //
+    // Anchoring to a rendered LINE (an earlier cut) could do both, because a
+    // source line and a rendered line are different objects — the two panes
+    // wrap at different widths.
+    function mdYForPosition(position) {
         var anchors = mdAnchors();
-        var contain = null, near = null;
-        for (var i = 0; i < anchors.length; i++) {
-            var a = anchors[i];
-            if (a.lo > offset) break;  // sorted by lo
-            if (offset < a.hi) {
-                // Deepest (latest-starting) containing run wins.
-                if (!contain || a.lo >= contain.lo) contain = a;
-            } else {
-                near = a;
-            }
+        if (!anchors.length) return null;
+        var lo = 0, hi = anchors.length - 1;
+        if (position <= anchors[0].lo) return anchors[0].top;
+        if (position >= anchors[hi].lo) {
+            var last = anchors[hi];
+            return last.bottom > last.top ? last.bottom : last.top;
         }
-        var best = contain || near;
-        if (!best) return null;
-        if (best !== contain) return best.bottom;
-        // Code lines never wrap, so the row grid is exact — interpolating by
-        // character inside a code block would drift with line length.
-        if (best.codeLines && best.codeLines.length) {
-            var rowH = best.height / best.codeLines.length;
-            var row = 0;
-            for (var j = 0; j < best.codeLines.length; j++) {
-                if (best.codeLines[j] <= offset) row = j; else break;
-            }
-            return best.top + rowH * (row + 1);
+        while (lo + 1 < hi) {                     // binary search: last anchor <= position
+            var mid = (lo + hi) >> 1;
+            if (anchors[mid].lo <= position) lo = mid; else hi = mid;
         }
-        if (best.hi > best.lo) {
-            var fraction = Math.max(0, Math.min(1,
-                (offset - best.lo) / (best.hi - best.lo)));
-            return best.top + best.height * fraction;
-        }
-        return best.bottom;
+        var a = anchors[lo], b = anchors[lo + 1];
+        var span = b.lo - a.lo;
+        if (span <= 0) return a.top;
+        var t = Math.max(0, Math.min(1, (position - a.lo) / span));
+        return a.top + (b.top - a.top) * t;
     }
 
-    window.syncScrollToMdOffset = function (offset) {
-        var anchorBottom = mdAnchorBottom(offset);
-        if (anchorBottom === null) return false;
-        // The editor publishes its last visible source line, so the matching
-        // run goes to Preview's bottom edge; clamping then makes both panes
-        // reach the document end together.
-        window.scrollTo(0, Math.max(0, anchorBottom - window.innerHeight + 8));
+    // The inverse: the fractional markdown offset at a document-space Y.
+    function mdPositionForY(y) {
+        var anchors = mdAnchors();
+        if (!anchors.length) return null;
+        if (y <= anchors[0].top) return anchors[0].lo;
+        var last = anchors[anchors.length - 1];
+        if (y >= last.top) return last.lo;
+        var lo = 0, hi = anchors.length - 1;
+        while (lo + 1 < hi) {
+            var mid = (lo + hi) >> 1;
+            if (anchors[mid].top <= y) lo = mid; else hi = mid;
+        }
+        var a = anchors[lo], b = anchors[lo + 1];
+        var span = b.top - a.top;
+        if (span <= 0) return b.lo;
+        var t = Math.max(0, Math.min(1, (y - a.top) / span));
+        return a.lo + (b.lo - a.lo) * t;
+    }
+
+    // Programmatic scrolls must not be reported back as user scrolls; the flag
+    // clears on the next frame, by which time WebKit has fired the event.
+    var suppressScrollReport = 0;
+    function programmaticScroll(y) {
+        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        suppressScrollReport++;
+        window.scrollTo(0, Math.max(0, Math.min(y, maxY)));
+        requestAnimationFrame(function () {
+            suppressScrollReport = Math.max(0, suppressScrollReport - 1);
+        });
+    }
+    window.programmaticScroll = programmaticScroll;
+
+    // The editor reports the position at ITS TOP edge, so put the matching point
+    // at ours. Aligning bottom edges instead pinned Preview to zero for the
+    // whole first screenful (the target Y minus a viewport height is negative).
+    // No easing: the position is already continuous, and smoothing only adds lag
+    // behind the gesture.
+    window.syncScrollToMdPosition = function (position) {
+        var y = mdYForPosition(position);
+        if (y === null) return false;
+        programmaticScroll(y - 8);
         return true;
     };
-    // Reverse lookup for user-driven Preview scrolling: the markdown offset at
-    // the bottom of the viewport, or an edge marker.
-    window.mdOffsetAtViewportBottom = function () {
-        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        if (maxY <= 0.5) return null;   // nothing to scroll — no position to share
-        if (window.scrollY <= 0.5) return { edge: 'top' };
-        if (window.scrollY >= maxY - 0.5) return { edge: 'bottom' };
-        var y = window.scrollY + window.innerHeight - 8;
-        var anchors = mdAnchors();
-        var contain = null, preceding = null;
-        for (var i = 0; i < anchors.length; i++) {
-            var a = anchors[i];
-            if (a.top <= y && a.bottom >= y) {
-                // Tightest run around y — an inline span beats its paragraph.
-                if (!contain || a.height < contain.height) contain = a;
-            } else if (a.bottom < y && (!preceding || a.bottom > preceding.bottom)) {
-                preceding = a;
-            }
-        }
-        var best = contain || preceding;
-        if (!best) return null;
-        if (best !== contain) return { offset: Math.max(best.lo, best.hi - 1) };
-        if (best.codeLines && best.codeLines.length && best.height > 0) {
-            var rowH = best.height / best.codeLines.length;
-            var row = Math.floor((y - best.top) / rowH);
-            row = Math.max(0, Math.min(best.codeLines.length - 1, row));
-            return { offset: best.codeLines[row] };
-        }
-        if (best.hi > best.lo && best.height > 0) {
-            var fraction = Math.max(0, Math.min(1, (y - best.top) / best.height));
-            return { offset: Math.round(best.lo + (best.hi - best.lo) * fraction) };
-        }
-        return { offset: Math.max(best.lo, best.hi - 1) };
+    window.syncScrollToEdge = function (edge) {
+        programmaticScroll(edge === 'top' ? 0 : document.documentElement.scrollHeight);
     };
+
+    // PUSH the position on every frame of a user scroll. Polling it from Swift
+    // per wheel event meant one round trip in flight at a time and the rest of
+    // the gesture's frames dropped — the editor moved in visible jerks.
+    var scrollReportQueued = false;
+    function reportScroll() {
+        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        if (maxY <= 0.5) return;      // nothing to scroll — no position to share
+        var payload;
+        if (window.scrollY <= 0.5) {
+            payload = { edge: 'top' };
+        } else if (window.scrollY >= maxY - 0.5) {
+            payload = { edge: 'bottom' };
+        } else {
+            var position = mdPositionForY(window.scrollY + 8);   // our TOP edge
+            if (position === null) return;
+            payload = { position: position };
+        }
+        try {
+            window.webkit.messageHandlers.previewScroll.postMessage(payload);
+        } catch (e) {}
+    }
+    window.addEventListener('scroll', function () {
+        if (suppressScrollReport > 0 || scrollReportQueued) return;
+        scrollReportQueued = true;
+        requestAnimationFrame(function () {
+            scrollReportQueued = false;
+            reportScroll();
+        });
+    }, { passive: true });
+
     // D4: hover copy button on code blocks and blockquotes.
     (function () {
         function copyText(text, btn) {

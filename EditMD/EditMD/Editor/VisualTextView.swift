@@ -150,8 +150,9 @@ struct VisualMarkdownView: NSViewRepresentable {
     var onFormatActions: (FormatActions) -> Void
     /// B6: active md.inline styles at caret.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
-    /// Last-visible-line markdown offset for split-preview scroll sync.
-    var onVisibleOffset: ((Int) -> Void)? = nil
+    /// Fractional markdown offset at the bottom of the viewport, for
+    /// split-preview scroll sync.
+    var onVisibleOffset: ((Double) -> Void)? = nil
     /// Left edge of the text (incl. the reserved gutter margin) — the action
     /// strip and the gutter toggle line up with it.
     var onTextLeading: ((CGFloat) -> Void)? = nil
@@ -342,6 +343,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
             lastParagraphRanges = serializeAttributedToMarkdownDetailed(storage).paragraphRanges
+            rebuildParagraphMaps()   // stays parallel to the map above
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
@@ -390,6 +392,94 @@ struct VisualMarkdownView: NSViewRepresentable {
                   (note.object as? NSWindow) === tv.window else { return }
             pendingExternalReload = false
             loadDocument()
+        }
+
+        // MARK: Split scroll sync (paragraph-indexed, like Preview's anchors)
+
+        /// Display ranges of the paragraphs, parallel to `lastParagraphRanges`
+        /// (same index — both are "the Nth display paragraph"). Split sync reads
+        /// the two tables side by side and interpolates, which is exactly what
+        /// Preview does with its DOM anchors, so the two panes agree on where a
+        /// fractional markdown offset lives.
+        ///
+        /// Going through `markdownOffset(atDisplayLocation:)` instead added the
+        /// block's marker length to one end of the paragraph and, at its far
+        /// end, landed in the NEXT block — a per-paragraph error that made
+        /// Preview lag further behind the further Visual scrolled. It also cost
+        /// two O(offset) scans per frame.
+        private var displayParagraphRanges: [NSRange] = []
+        /// Markdown start of each display paragraph, strictly increasing.
+        ///
+        /// NOT just `lastParagraphRanges[i].location`: the serializer emits a
+        /// code block (or a table) as ONE piece and gives every display
+        /// paragraph inside it that whole piece's range. Reading the location
+        /// straight out means every line of a code block reports the same
+        /// position — the follow froze at the top of the block and only resumed
+        /// once the block was scrolled past. Here a group's range is shared out
+        /// among its paragraphs, weighted by their lengths.
+        private var paragraphMarkdownStarts: [Double] = []
+
+        func rebuildParagraphMaps() {
+            guard let textView else { return }
+            let text = textView.string as NSString
+            var ranges: [NSRange] = []
+            var start = 0
+            for i in 0..<text.length where text.character(at: i) == 0x0A {
+                ranges.append(NSRange(location: start, length: i - start + 1))
+                start = i + 1
+            }
+            ranges.append(NSRange(location: start, length: text.length - start))
+            displayParagraphRanges = ranges
+
+            var starts = [Double](repeating: 0, count: lastParagraphRanges.count)
+            var index = 0
+            while index < lastParagraphRanges.count {
+                let piece = lastParagraphRanges[index]
+                var last = index
+                while last + 1 < lastParagraphRanges.count,
+                      lastParagraphRanges[last + 1].location == piece.location,
+                      lastParagraphRanges[last + 1].length == piece.length {
+                    last += 1
+                }
+                // Display lengths give the split its shape — a long code line
+                // covers more source than a short one.
+                let weights: [Double] = (index...last).map { paragraph in
+                    paragraph < ranges.count ? Double(max(1, ranges[paragraph].length)) : 1
+                }
+                let total = weights.reduce(0, +)
+                var consumed = 0.0
+                for (offset, paragraph) in (index...last).enumerated() {
+                    starts[paragraph] = Double(piece.location)
+                        + Double(piece.length) * (consumed / total)
+                    consumed += weights[offset]
+                }
+                index = last + 1
+            }
+            paragraphMarkdownStarts = starts
+        }
+
+        /// Markdown start of display paragraph `index`, and of the one after it
+        /// — the bracket a fractional position is interpolated in.
+        private func markdownSpan(ofParagraph index: Int) -> (start: Double, next: Double)? {
+            guard index >= 0, index < paragraphMarkdownStarts.count else { return nil }
+            let start = paragraphMarkdownStarts[index]
+            let next = index + 1 < paragraphMarkdownStarts.count
+                ? paragraphMarkdownStarts[index + 1]
+                : Double(NSMaxRange(lastParagraphRanges[index]))
+            return (start, max(next, start + 1))
+        }
+
+        /// Last paragraph starting at or before `position` (binary search —
+        /// `paragraphMarkdownStarts` is increasing).
+        private func paragraphIndex(forMarkdownPosition position: Double) -> Int? {
+            guard !paragraphMarkdownStarts.isEmpty else { return nil }
+            guard paragraphMarkdownStarts[0] <= position else { return 0 }
+            var low = 0, high = paragraphMarkdownStarts.count - 1
+            while low + 1 < high {
+                let mid = (low + high) / 2
+                if paragraphMarkdownStarts[mid] <= position { low = mid } else { high = mid }
+            }
+            return paragraphMarkdownStarts[high] <= position ? high : low
         }
 
         // MARK: Cursor continuity across modes
@@ -488,25 +578,34 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// scrolls only the viewport, preserving caret and first responder.
         @objc func followPreviewScroll() {
             guard let store = parent.positionStore, let textView else { return }
-            let target = store.editorScrollOffset
+            let position = store.editorScrollPosition
             let markdownLength = (parent.document.content as NSString).length
-            let display: Int
+            var paragraph = NSRange(location: 0, length: 0)
+            var fraction = 0.0
             let edge: SplitScrollSync.Edge?
-            if target <= 0 {
-                (display, edge) = (0, .top)
-            } else if target >= markdownLength {
-                (display, edge) = ((textView.string as NSString).length, .bottom)
-            } else if let mapped = displayLocation(forMarkdownOffset: target) {
-                (display, edge) = (mapped, nil)
+            if position <= 0 {
+                edge = .top
+            } else if position >= Double(markdownLength) {
+                edge = .bottom
             } else {
-                return  // no paragraph map yet — leave the viewport alone
+                edge = nil
+                // Inverse of `visibleMarkdownPosition`: the paragraph whose
+                // SOURCE span brackets the position, then the same fraction of
+                // that paragraph's DISPLAY height.
+                guard let index = paragraphIndex(forMarkdownPosition: position),
+                      let span = markdownSpan(ofParagraph: index),
+                      index < displayParagraphRanges.count
+                else { return }  // no paragraph map yet — leave the viewport alone
+                paragraph = displayParagraphRanges[index]
+                fraction = (position - span.start) / (span.next - span.start)
             }
 
             // Same ring guard as Source: our own scroll posts boundsDidChange,
             // and republishing from it would push Preview past where the user
-            // left it, one anchor line per wheel event.
+            // left it.
             isFollowingPreviewScroll = true
-            SplitScrollSync.scrollViewport(textView, toCharacterIndex: display, edge: edge)
+            SplitScrollSync.scrollViewport(textView, toParagraph: paragraph,
+                                           fraction: fraction, edge: edge)
             DispatchQueue.main.async { [weak self] in
                 self?.isFollowingPreviewScroll = false
             }
@@ -626,24 +725,30 @@ struct VisualMarkdownView: NSViewRepresentable {
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
                 guard !self.isFollowingPreviewScroll, let textView = self.textView,
-                      let offset = self.visibleMarkdownOffset(in: textView) else { return }
-                self.parent.onVisibleOffset?(offset)
+                      let position = self.visibleMarkdownPosition(in: textView) else { return }
+                self.parent.onVisibleOffset?(position)
             }
         }
 
-        /// Markdown offset at the bottom anchor line. Visual's display text is
-        /// not the markdown, so the anchor goes through `lastParagraphRanges`.
-        private func visibleMarkdownOffset(in textView: NSTextView) -> Int? {
+        /// Fractional markdown offset at the bottom of the viewport. Visual's
+        /// display text is not the markdown, so the anchor paragraph is looked
+        /// up in the two parallel tables and the fraction spends the SOURCE
+        /// characters between this paragraph and the next.
+        private func visibleMarkdownPosition(in textView: NSTextView) -> Double? {
             switch SplitScrollSync.position(of: textView) {
             case .unscrollable:
                 return nil
             case .atEdge(.top):
                 return 0
             case .atEdge(.bottom):
-                return (parent.document.content as NSString).length
+                return Double((parent.document.content as NSString).length)
             case .middle:
-                let display = SplitScrollSync.visibleAnchorIndex(in: textView)
-                return markdownOffset(atDisplayLocation: display)
+                guard let anchor = SplitScrollSync.visibleParagraphAnchor(in: textView)
+                else { return nil }
+                let index = paragraphIndex(at: anchor.range.location,
+                                           in: textView.string as NSString).index
+                guard let span = markdownSpan(ofParagraph: index) else { return nil }
+                return span.start + anchor.fraction * (span.next - span.start)
             }
         }
 
@@ -1327,6 +1432,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard let storage = textView?.textStorage else { return }
             let detailed = serializeAttributedToMarkdownDetailed(storage)
             lastParagraphRanges = detailed.paragraphRanges
+            rebuildParagraphMaps()   // stays parallel to the map above
             var serialized = detailed.markdown
             // Single trailing newline (POSIX text files). Do not append a second
             // one when the serializer already ended with \n — that grew blank

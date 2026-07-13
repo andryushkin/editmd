@@ -21,8 +21,6 @@ final class RoundTripTests: XCTestCase {
             // the fingerprint compares semantics, not positions.
             .replacingOccurrences(of: #" data-md-(lo|hi)="\d+""#, with: "",
                                   options: .regularExpression)
-            .replacingOccurrences(of: #" data-md-cl="[\d,]+""#, with: "",
-                                  options: .regularExpression)
             .replacingOccurrences(of: #" data-ln="\d+""#, with: "",
                                   options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)

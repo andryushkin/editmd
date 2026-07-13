@@ -38,23 +38,53 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertEqual(codeText(in: html), "<div class=\"x\">\n", html)
     }
 
-    /// Split sync divides a `<pre>`'s height by its line count, so the block
-    /// must publish the source offset of every RENDERED line — the opening
-    /// fence is not one of them.
-    func testFencedCodeBlockListsSourceOffsetOfEachCodeLine() {
+    /// Sync needs a real DOM box per code line, so each line is its own anchor
+    /// — token runs get cut at the line boundaries they cross, and the code text
+    /// still concatenates back verbatim (`codeText`).
+    func testCodeLinesAreIndividuallyAnchored() {
         let markdown = "```swift\nlet a = 1\nlet b = 2\n```"
         let html = markdownHTMLBody(markdown)
-        let expectedFirst = (markdown as NSString).range(of: "let a").location
-        let expectedSecond = (markdown as NSString).range(of: "let b").location
-        XCTAssertTrue(html.contains("data-md-cl=\"\(expectedFirst),\(expectedSecond)\""), html)
+        let first = (markdown as NSString).range(of: "let a = 1")
+        let second = (markdown as NSString).range(of: "let b = 2")
+        XCTAssertTrue(html.contains(
+            "<span class=\"cl\" data-md-lo=\"\(first.location)\" "
+                + "data-md-hi=\"\(NSMaxRange(first))\">"), html)
+        XCTAssertTrue(html.contains(
+            "<span class=\"cl\" data-md-lo=\"\(second.location)\" "
+                + "data-md-hi=\"\(NSMaxRange(second))\">"), html)
+        XCTAssertEqual(codeText(in: html), "let a = 1\nlet b = 2\n", html)
     }
 
+    /// Scroll sync must not depend on a display setting: line anchors exist with
+    /// highlighting off too.
+    func testCodeLinesAreAnchoredWithoutSyntaxHighlighting() {
+        let markdown = "```swift\nlet a = 1\n```"
+        let html = markdownHTMLBody(markdown, syntaxHighlighting: false)
+        let line = (markdown as NSString).range(of: "let a = 1")
+        XCTAssertTrue(html.contains(
+            "<span class=\"cl\" data-md-lo=\"\(line.location)\" "
+                + "data-md-hi=\"\(NSMaxRange(line))\">let a = 1</span>"), html)
+        XCTAssertFalse(html.contains("hljs-token"), html)
+    }
+
+    /// The page pushes its anchor per frame instead of Swift polling it per
+    /// wheel event (one round trip in flight dropped most of the gesture).
+    func testPreviewPagePushesScrollAnchorAndFlagsProgrammaticScrolls() {
+        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        XCTAssertTrue(page.contains("messageHandlers.previewScroll.postMessage"), page)
+        XCTAssertTrue(page.contains("if (suppressScrollReport > 0 || scrollReportQueued) return"), page)
+        XCTAssertTrue(page.contains("function programmaticScroll(y)"), page)
+    }
+
+    /// A fenced block's opening fence is not a rendered line; an indented
+    /// block's first line IS code. Anchors must line up with what's on screen.
     func testIndentedCodeBlockCountsItsFirstLineAsCode() {
         let markdown = "text\n\n    one\n    two\n"
         let html = markdownHTMLBody(markdown)
-        let expectedFirst = (markdown as NSString).range(of: "    one").location
-        let expectedSecond = (markdown as NSString).range(of: "    two").location
-        XCTAssertTrue(html.contains("data-md-cl=\"\(expectedFirst),\(expectedSecond)\""), html)
+        let first = (markdown as NSString).range(of: "    one")
+        XCTAssertTrue(html.contains(
+            "<span class=\"cl\" data-md-lo=\"\(first.location)\" "
+                + "data-md-hi=\"\(NSMaxRange(first))\">"), html)
     }
 
     func testCodeBlockUsesSyntaxHighlighterForBash() {
@@ -161,11 +191,18 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
     }
 
+    /// The follow interpolates a FRACTIONAL markdown offset between anchors, in
+    /// both directions. Anchoring to a rendered line instead makes the follow
+    /// stall or run backwards, because the two panes wrap at different widths.
     func testPreviewPageIncludesImmediateSplitScrollBridge() {
         let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
-        XCTAssertTrue(page.contains("window.syncScrollToMdOffset = function (offset)"), page)
-        XCTAssertTrue(page.contains("window.mdOffsetAtViewportBottom = function ()"), page)
-        XCTAssertTrue(page.contains("- window.innerHeight + 8"), page)
+        XCTAssertTrue(page.contains("window.syncScrollToMdPosition = function (position)"), page)
+        XCTAssertTrue(page.contains("function mdYForPosition(position)"), page)
+        XCTAssertTrue(page.contains("function mdPositionForY(y)"), page)
+        // TOP edges are what the two panes share: aligning bottom edges pins
+        // Preview to zero for a whole screenful when the panes differ in height.
+        XCTAssertTrue(page.contains("programmaticScroll(y - 8)"), page)
+        XCTAssertTrue(page.contains("mdPositionForY(window.scrollY + 8)"), page)
     }
 
     /// The anchor table is what keeps a scroll gesture off a per-frame DOM walk

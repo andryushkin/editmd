@@ -40,8 +40,9 @@ struct SourceTextView: NSViewRepresentable {
     var onLintUpdate: ((LintSummary) -> Void)? = nil
     /// B6: active inline styles at caret (from cached spans — no re-parse).
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
-    /// Last-visible-line markdown offset for split-preview scroll sync.
-    var onVisibleOffset: ((Int) -> Void)? = nil
+    /// Fractional markdown offset at the bottom of the viewport, for
+    /// split-preview scroll sync.
+    var onVisibleOffset: ((Double) -> Void)? = nil
     /// Left edge of the text (incl. the reserved gutter margin) — the action
     /// strip and the gutter toggle line up with it.
     var onTextLeading: ((CGFloat) -> Void)? = nil
@@ -365,20 +366,29 @@ struct SourceTextView: NSViewRepresentable {
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
                 guard !self.isFollowingPreviewScroll, let textView = self.textView,
-                      let offset = self.visibleMarkdownOffset(in: textView) else { return }
-                self.parent.onVisibleOffset?(offset)
+                      let position = self.visibleMarkdownPosition(in: textView) else { return }
+                self.parent.onVisibleOffset?(position)
             }
         }
 
-        /// Markdown offset at the bottom anchor line (UTF-16); nil when the
-        /// content fits on one screen and there is no scroll position to share.
-        /// Source's display text IS the markdown, so no mapping is needed.
-        private func visibleMarkdownOffset(in textView: NSTextView) -> Int? {
+        /// Fractional markdown offset at the bottom of the viewport; nil when
+        /// the content fits on one screen and there is no scroll position to
+        /// share. Source's display text IS the markdown, so no mapping needed.
+        private func visibleMarkdownPosition(in textView: NSTextView) -> Double? {
             switch SplitScrollSync.position(of: textView) {
-            case .unscrollable: return nil
-            case .atEdge(.top): return 0
-            case .atEdge(.bottom): return (textView.string as NSString).length
-            case .middle: return SplitScrollSync.visibleAnchorIndex(in: textView)
+            case .unscrollable:
+                return nil
+            case .atEdge(.top):
+                return 0
+            case .atEdge(.bottom):
+                return Double((textView.string as NSString).length)
+            case .middle:
+                guard let anchor = SplitScrollSync.visibleParagraphAnchor(in: textView)
+                else { return nil }
+                // Spend the paragraph's characters at the rate the edge crosses
+                // its height.
+                return Double(anchor.range.location)
+                    + anchor.fraction * Double(max(1, anchor.range.length))
             }
         }
 
@@ -478,16 +488,29 @@ struct SourceTextView: NSViewRepresentable {
         /// display text is the markdown itself, so the offset needs no mapping.
         @objc func followPreviewScroll() {
             guard let store = parent.positionStore, let textView else { return }
-            let target = store.editorScrollOffset
-            let length = (textView.string as NSString).length
-            let edge: SplitScrollSync.Edge? = target <= 0 ? .top
-                : (target >= length ? .bottom : nil)
+            let text = textView.string as NSString
+            let position = store.editorScrollPosition
+            var paragraph = NSRange(location: 0, length: 0)
+            var fraction = 0.0
+            let edge: SplitScrollSync.Edge?
+            if position <= 0 {
+                edge = .top
+            } else if position >= Double(text.length) {
+                edge = .bottom
+            } else {
+                edge = nil
+                let index = min(Int(position), max(0, text.length - 1))
+                paragraph = text.paragraphRange(for: NSRange(location: index, length: 0))
+                fraction = (position - Double(paragraph.location))
+                    / Double(max(1, paragraph.length))
+            }
 
             // The scroll below posts boundsDidChange synchronously; hold the
             // flag until the next run-loop turn so neither that notification
             // nor an already-queued publish bounces this position back.
             isFollowingPreviewScroll = true
-            SplitScrollSync.scrollViewport(textView, toCharacterIndex: target, edge: edge)
+            SplitScrollSync.scrollViewport(textView, toParagraph: paragraph,
+                                           fraction: fraction, edge: edge)
             DispatchQueue.main.async { [weak self] in
                 self?.isFollowingPreviewScroll = false
             }

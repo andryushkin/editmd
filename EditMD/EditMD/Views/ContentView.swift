@@ -424,7 +424,9 @@ struct ContentView: View {
                 onLintUpdate: { summary in lintSummary = summary },
                 onActiveFormats: { activeFormats = $0 },
                 onVisibleOffset: splitPreview
-                    ? { offset in positionStore.requestPreviewScroll(toMarkdownOffset: offset) }
+                    ? { position in
+                        positionStore.requestPreviewScroll(toMarkdownPosition: position)
+                    }
                     : nil,
                 onTextLeading: { editorTextLeading = $0 }
             )
@@ -441,7 +443,9 @@ struct ContentView: View {
                 },
                 onActiveFormats: { activeFormats = $0 },
                 onVisibleOffset: splitPreview
-                    ? { offset in positionStore.requestPreviewScroll(toMarkdownOffset: offset) }
+                    ? { position in
+                        positionStore.requestPreviewScroll(toMarkdownPosition: position)
+                    }
                     : nil,
                 onTextLeading: { editorTextLeading = $0 }
             )
