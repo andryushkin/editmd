@@ -476,9 +476,19 @@ struct MarkdownPreviewView: NSViewRepresentable {
             return
         }
         let position: Any = coordinator.lastFollowedPosition.map { NSNumber(value: $0) } ?? NSNull()
+        // The page function is synchronous, so this answers on the next hop. The
+        // watchdog is the backstop: a bridge that never answers (a wedged web
+        // process, a promise nothing settles) must not hold the single render
+        // slot forever — that is exactly how Preview froze on the first edit.
+        let watchdog = Task { @MainActor [weak coordinator] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let coordinator else { return }
+            forceFullReload(coordinator: coordinator)
+        }
+        defer { watchdog.cancel() }
         do {
             let applied = try await webView.callAsyncJavaScript(
-                "return await window.editMDReplacePreview({html: html, revision: revision, position: position});",
+                "return window.editMDReplacePreview({html: html, revision: revision, position: position});",
                 arguments: [
                     "html": result.body,
                     "revision": NSNumber(value: result.scheduled.revision),
@@ -498,15 +508,20 @@ struct MarkdownPreviewView: NSViewRepresentable {
             coordinator.applyReviewHighlights()
         } catch {
             guard !Task.isCancelled else { return }
-            // A stale/missing JS shell must never leave Preview frozen. Rebuild
-            // it once; didFinish resumes the latest queued revision.
+            // A stale/missing/hung JS shell must never leave Preview frozen.
+            // Rebuild it; didFinish resumes the latest queued revision.
             forceFullReload(coordinator: coordinator)
         }
     }
 
+
     private func forceFullReload(coordinator: Coordinator) {
         guard let webView = coordinator.webView else { return }
         coordinator.renderTask?.cancel()
+        // Retire the slot's generation as well: a task abandoned here (one stuck
+        // in an unanswered JS call) must not clear its successor's registration
+        // if it ever unwinds.
+        coordinator.renderGeneration &+= 1
         coordinator.renderTask = nil
         _ = coordinator.scheduler.request(document.content, force: true)
         guard let scheduled = coordinator.scheduler.startLatest() else { return }

@@ -57,7 +57,7 @@ enum MathRender {
     /// front against `NSApp.effectiveAppearance` baked white glyphs into a
     /// light window (same trap as the code-highlight palettes).
     private static func tinted(_ mask: NSImage) -> NSImage {
-        nonisolated(unsafe) let silhouette = mask
+        let silhouette = mask
         let image = NSImage(size: mask.size, flipped: false) { rect in
             silhouette.draw(in: rect)
             NSColor.labelColor.setFill()

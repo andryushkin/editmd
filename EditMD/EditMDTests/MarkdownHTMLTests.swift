@@ -1,5 +1,6 @@
 import XCTest
 import WebKit
+import SwiftUI
 @testable import EditMD
 
 final class MarkdownHTMLTests: XCTestCase {
@@ -204,7 +205,13 @@ final class MarkdownHTMLTests: XCTestCase {
         let page = previewHTMLPage(markdown: "- [ ] Task", fontSize: 14)
         XCTAssertTrue(page.contains("window.editMDPreviewRevision = 0"), page)
         XCTAssertTrue(page.contains("window.editMDHydratePreviewContent = function ()"), page)
-        XCTAssertTrue(page.contains("window.editMDReplacePreview = async function (payload)"), page)
+        // SYNCHRONOUS: the bridge is the Swift render task's continuation, so it
+        // must never wait on a frame the web view may not produce (an awaited
+        // requestAnimationFrame froze Preview on the first edit — see
+        // testTypingIntoTheDocumentUpdatesTheLivePreview).
+        XCTAssertTrue(page.contains("window.editMDReplacePreview = function (payload)"), page)
+        XCTAssertFalse(page.contains("editMDReplacePreview = async"), page)
+        XCTAssertFalse(page.contains("requestAnimationFrame(resolve)"), page)
         XCTAssertTrue(page.contains("root.innerHTML = payload.html"), page)
         XCTAssertTrue(page.contains("box.onchange = function ()"), page)
         XCTAssertTrue(page.contains("btn.onclick = function (e)"), page)
@@ -597,12 +604,153 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         }
     }
 
+    /// The live fragment path end to end, exactly as `applyFragment` drives it:
+    /// callAsyncJavaScript → editMDReplacePreview → #preview-content. If this
+    /// breaks, editing in the split silently stops updating Preview.
+    func testFragmentReplacementSwapsTheContentRoot() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        let loaded = expectation(description: "page loaded")
+        let delegate = LoadWaiter { loaded.fulfill() }
+        webView.navigationDelegate = delegate
+        webView.loadHTMLString(previewHTMLPage(markdown: "# Before", fontSize: 14),
+                               baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 20)
+
+        // didFinish stamps the shell's revision; the fragment must be newer.
+        _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
+
+        let applied = try await webView.callAsyncJavaScript(
+            "return window.editMDReplacePreview({html: html, revision: revision, position: position});",
+            arguments: [
+                "html": markdownHTMLBody("# After"),
+                "revision": NSNumber(value: UInt64(2)),
+                // No editor anchor to follow — the app sends NSNull here, and the
+                // page falls back to its own current position.
+                "position": NSNull(),
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+        XCTAssertEqual(applied as? Bool, true, "editMDReplacePreview must report success")
+
+        let html = try await webView.evaluateJavaScript(
+            "document.getElementById('preview-content').innerHTML") as? String ?? ""
+        XCTAssertTrue(html.contains("After"), html)
+        XCTAssertFalse(html.contains("Before"), html)
+    }
+
+    /// `didFinish` attributes the load by WKNavigation identity, and a shell that
+    /// is never marked ready freezes every later fragment render. That guard is
+    /// only sound if WebKit hands back the very object `loadHTMLString` returned.
+    func testLoadHTMLStringNavigationIsTheOneDidFinishReports() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        let finished = expectation(description: "navigation finished")
+        nonisolated(unsafe) var reported: WKNavigation?
+        let delegate = LoadWaiter(onFinishNavigation: { navigation in
+            reported = navigation
+            finished.fulfill()
+        })
+        webView.navigationDelegate = delegate
+        let started = webView.loadHTMLString(previewHTMLPage(markdown: "# Title", fontSize: 14),
+                                             baseURL: nil)
+        await fulfillment(of: [finished], timeout: 20)
+
+        let issued = try XCTUnwrap(started, "loadHTMLString returned no navigation")
+        XCTAssertTrue(issued === reported,
+                      "didFinish must report the navigation loadHTMLString returned")
+    }
+
+    /// The whole split path, in a real window: SwiftUI observes the document,
+    /// updateNSView schedules, the fragment renders off-main and lands in the DOM.
+    /// This is the loop the user drives by typing — if it stalls, Preview freezes
+    /// on the first render and never catches up.
+    func testTypingIntoTheDocumentUpdatesTheLivePreview() throws {
+        let document = MarkdownDocument()
+        document.content = "# Before\n"
+
+        struct Host: View {
+            @ObservedObject var document: MarkdownDocument
+            var body: some View {
+                MarkdownPreviewView(document: document, fileURL: nil)
+            }
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: Host(document: document))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            // Tear the hosted tree down deterministically and let the runloop
+            // drain: dropping a live WKWebView + SwiftUI host on the floor and
+            // moving on took the whole test host down several suites later.
+            window.orderOut(nil)
+            window.contentView = nil
+            pump(0.3)
+        }
+
+        let webView = try XCTUnwrap(findWebView(in: window), "no WKWebView was hosted")
+        XCTAssertTrue(waitForPreviewText("Before", in: webView),
+                      "the first full page never rendered")
+
+        // What typing does, minus the keyboard: Source writes the buffer.
+        document.content = "# After\n"
+        XCTAssertTrue(waitForPreviewText("After", in: webView),
+                      "Preview never picked up the edit — the live update path is stalled")
+    }
+
+    /// The test runs on the main thread, so nothing else pumps it: WebKit
+    /// callbacks, SwiftUI's updateNSView and main-actor Tasks only advance while
+    /// the runloop spins. Awaiting instead of pumping hangs the whole harness.
+    private func pump(_ seconds: TimeInterval) {
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    private func findWebView(in window: NSWindow) -> WKWebView? {
+        func find(_ view: NSView) -> WKWebView? {
+            if let webView = view as? WKWebView { return webView }
+            for sub in view.subviews {
+                if let hit = find(sub) { return hit }
+            }
+            return nil
+        }
+        for _ in 0..<50 {
+            if let root = window.contentView, let webView = find(root) { return webView }
+            pump(0.1)
+        }
+        return nil
+    }
+
+    private func waitForPreviewText(_ needle: String, in webView: WKWebView) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            var html: String?
+            var answered = false
+            webView.evaluateJavaScript(
+                "var r = document.getElementById('preview-content'); r ? r.innerHTML : ''"
+            ) { value, _ in
+                html = value as? String
+                answered = true
+            }
+            while !answered, Date() < deadline { pump(0.02) }
+            if let html, html.contains(needle) { return true }
+            pump(0.05)
+        }
+        return false
+    }
+
     private final class LoadWaiter: NSObject, WKNavigationDelegate {
-        private let onFinish: () -> Void
-        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+        private let onFinish: (WKNavigation?) -> Void
+
+        init(onFinish: @escaping () -> Void) {
+            self.onFinish = { _ in onFinish() }
+        }
+
+        init(onFinishNavigation: @escaping (WKNavigation?) -> Void) {
+            self.onFinish = onFinishNavigation
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            onFinish()
+            onFinish(navigation)
         }
     }
 }

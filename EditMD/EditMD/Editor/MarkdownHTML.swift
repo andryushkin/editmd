@@ -1518,15 +1518,18 @@ func previewHTMLPageRender(markdown: String,
         }
     }
 
-    function waitForPreviewLayout() {
-        return new Promise(function (resolve) {
-            requestAnimationFrame(function () {
-                requestAnimationFrame(resolve);
-            });
-        });
-    }
-
-    window.editMDReplacePreview = async function (payload) {
+    // SYNCHRONOUS on purpose. This function is the Swift side's continuation:
+    // whatever it waits on, the render task waits on too. It used to await two
+    // requestAnimationFrames "for layout" — and a WKWebView that is not
+    // producing frames (occluded, off-screen, a suspended rendering update)
+    // never fires them, so the promise never settled, the awaiting task never
+    // released the render slot, and Preview froze on the first edit for the rest
+    // of the session. Nothing here needs a frame: reading geometry in
+    // settlePreviewLayout forces a synchronous layout, which is exactly the
+    // "after layout" state we wanted. Late shifts (images, webfonts) are picked
+    // up by replayPreviewSettle, which is fire-and-forget — if frames never
+    // come, we lose a scroll-anchor touch-up, never the content update.
+    window.editMDReplacePreview = function (payload) {
         if (!payload || payload.revision < window.editMDPreviewRevision) return false;
         var root = document.getElementById('preview-content');
         if (!root) return false;
@@ -1538,7 +1541,6 @@ func previewHTMLPageRender(markdown: String,
         window.editMDPreviewRevision = payload.revision;
         window.editMDHydratePreviewContent();
         userScrolledSinceSettle = false;
-        await waitForPreviewLayout();
         settlePreviewLayout(position);
         replayPreviewSettle(root, position);
         return true;

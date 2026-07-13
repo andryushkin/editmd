@@ -323,7 +323,7 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         func refreshGutter() {
-            guard let textView = textView as? SourceNSTextView else { return }
+            guard let textView else { return }
             // Source: display line ≡ source line (identity map).
             textView.gutterState = GutterState(
                 settings: EditorSettings.shared.gutter,

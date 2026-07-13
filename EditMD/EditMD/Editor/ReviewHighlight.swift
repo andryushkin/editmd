@@ -29,6 +29,7 @@ enum ReviewHighlight {
     ///
     /// Only `backgroundColor` is touched — lint owns temporary tooltips /
     /// underlines, and the two must not wipe each other out.
+    @MainActor
     static func apply(to textView: NSTextView, highlights: [ReviewAnchorHighlight]) {
         guard let lm = textView.layoutManager else { return }
         let len = (textView.string as NSString).length
