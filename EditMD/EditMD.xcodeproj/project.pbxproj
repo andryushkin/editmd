@@ -14,6 +14,7 @@
 		083C1DB0AA424C13903004D3 /* VisualNSTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */; };
 		0B4B60BECF5579A56C7200E0 /* MathScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E24489CEA45FF0DDABBBD39 /* MathScan.swift */; };
 		0B705C9F75A23ED9D50F32B1 /* IDELockFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E5DD70CA3310989A4D190EF /* IDELockFile.swift */; };
+		0BE78951095165D933AD6E0B /* SplitScrollSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4747C247B5CF59D5F73A751 /* SplitScrollSync.swift */; };
 		0D51E0A809EEF94EDBEBD078 /* ControlChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AD04FD106876FC81FD7E786 /* ControlChannelTests.swift */; };
 		0D9CBEED29BD9DB77F8AC60A /* EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */; };
 		0DD6DA29F4094F4E998AA8FB /* ControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9917191640BDEC49A4A21EBD /* ControlProtocol.swift */; };
@@ -226,6 +227,7 @@
 		BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffApprovalControllerTests.swift; sourceTree = "<group>"; };
 		BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfoTests.swift; sourceTree = "<group>"; };
 		C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFieldGeometry.swift; sourceTree = "<group>"; };
+		C4747C247B5CF59D5F73A751 /* SplitScrollSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitScrollSync.swift; sourceTree = "<group>"; };
 		C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorFormat.swift; sourceTree = "<group>"; };
 		CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLintTests.swift; sourceTree = "<group>"; };
 		CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStoreTests.swift; sourceTree = "<group>"; };
@@ -344,6 +346,7 @@
 				FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */,
 				F218590314138A42580FA6D8 /* ReviewQueue.swift */,
 				F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */,
+				C4747C247B5CF59D5F73A751 /* SplitScrollSync.swift */,
 				ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */,
 				B07A13AEA492FEA0C2B1942F /* TextDiff.swift */,
 				C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */,
@@ -730,6 +733,7 @@
 				AA1618A105AF5DD84C831328 /* SidebarSnapshot.swift in Sources */,
 				E766B8DC9A8DCFF0048B5748 /* SkillInstaller.swift in Sources */,
 				3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */,
+				0BE78951095165D933AD6E0B /* SplitScrollSync.swift in Sources */,
 				F36452C46E6391BD0D8D3D3C /* TableClipboard.swift in Sources */,
 				7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */,
 				9DE7A630C9EC839C33AD8147 /* TextDiff.swift in Sources */,
@@ -951,7 +955,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 394;
+				CURRENT_PROJECT_VERSION = 393;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -961,7 +965,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.39.4;
+				MARKETING_VERSION = 0.39.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -994,7 +998,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 394;
+				CURRENT_PROJECT_VERSION = 393;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -1004,7 +1008,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.39.4;
+				MARKETING_VERSION = 0.39.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

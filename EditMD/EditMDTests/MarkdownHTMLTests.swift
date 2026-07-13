@@ -32,9 +32,29 @@ final class MarkdownHTMLTests: XCTestCase {
         let html = markdownHTMLBody("```html\n<div class=\"x\">\n```")
         XCTAssertTrue(html.contains("<pre data-md-lo=\"0\""), html)
         XCTAssertTrue(html.contains("data-md-hi="), html)
-        XCTAssertTrue(html.contains("data-md-code=\"1\"><code class=\"language-html hljs\">"), html)
+        XCTAssertTrue(html.contains("data-md-code=\"1\""), html)
+        XCTAssertTrue(html.contains("<code class=\"language-html hljs\">"), html)
         XCTAssertFalse(html.contains("<div class=\"x\">"), html)
         XCTAssertEqual(codeText(in: html), "<div class=\"x\">\n", html)
+    }
+
+    /// Split sync divides a `<pre>`'s height by its line count, so the block
+    /// must publish the source offset of every RENDERED line — the opening
+    /// fence is not one of them.
+    func testFencedCodeBlockListsSourceOffsetOfEachCodeLine() {
+        let markdown = "```swift\nlet a = 1\nlet b = 2\n```"
+        let html = markdownHTMLBody(markdown)
+        let expectedFirst = (markdown as NSString).range(of: "let a").location
+        let expectedSecond = (markdown as NSString).range(of: "let b").location
+        XCTAssertTrue(html.contains("data-md-cl=\"\(expectedFirst),\(expectedSecond)\""), html)
+    }
+
+    func testIndentedCodeBlockCountsItsFirstLineAsCode() {
+        let markdown = "text\n\n    one\n    two\n"
+        let html = markdownHTMLBody(markdown)
+        let expectedFirst = (markdown as NSString).range(of: "    one").location
+        let expectedSecond = (markdown as NSString).range(of: "    two").location
+        XCTAssertTrue(html.contains("data-md-cl=\"\(expectedFirst),\(expectedSecond)\""), html)
     }
 
     func testCodeBlockUsesSyntaxHighlighterForBash() {
@@ -144,11 +164,26 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageIncludesImmediateSplitScrollBridge() {
         let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
         XCTAssertTrue(page.contains("window.syncScrollToMdOffset = function (offset)"), page)
-        XCTAssertTrue(page.contains("var anchorBottom = rect.bottom"), page)
-        XCTAssertTrue(page.contains("rect.height * fraction"), page)
-        XCTAssertTrue(page.contains("- window.innerHeight + 8"), page)
         XCTAssertTrue(page.contains("window.mdOffsetAtViewportBottom = function ()"), page)
-        XCTAssertFalse(page.contains("syncScrollToMdOffset = function (offset) {\n        best.scrollIntoView"), page)
+        XCTAssertTrue(page.contains("- window.innerHeight + 8"), page)
+    }
+
+    /// The anchor table is what keeps a scroll gesture off a per-frame DOM walk
+    /// (with highlighting that walk covers every token span). Scrolling must not
+    /// stale it — hence document-space coords — but layout changes must.
+    func testSplitScrollBridgeCachesAnchorsAndInvalidatesOnLayoutChange() {
+        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        XCTAssertTrue(page.contains("if (mdAnchorTable) return mdAnchorTable"), page)
+        XCTAssertTrue(page.contains("top: rect.top + scrollY"), page)
+        XCTAssertTrue(page.contains("window.addEventListener('resize', invalidateMdAnchors)"), page)
+        XCTAssertTrue(page.contains("document.addEventListener('load', invalidateMdAnchors, true)"), page)
+    }
+
+    /// `pre` is tagged for scroll sync only: washing it would paint a whole
+    /// code block for a mark that touches one line.
+    func testReviewWashSkipsCodeBlockWrapper() {
+        let page = previewHTMLPage(markdown: "```swift\nlet a = 1\n```", fontSize: 14)
+        XCTAssertTrue(page.contains("querySelectorAll('[data-md-lo]:not(pre)')"), page)
     }
 
     func testPreviewPageUsesVerticalInsetForTopPadding() {

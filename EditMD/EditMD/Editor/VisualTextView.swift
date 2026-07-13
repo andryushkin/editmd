@@ -488,47 +488,28 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// scrolls only the viewport, preserving caret and first responder.
         @objc func followPreviewScroll() {
             guard let store = parent.positionStore, let textView else { return }
+            let target = store.editorScrollOffset
             let markdownLength = (parent.document.content as NSString).length
-            if store.editorScrollOffset <= 0 {
-                scrollViewport(in: textView, toDisplayOffset: 0, forceEdge: .top)
-            } else if store.editorScrollOffset >= markdownLength {
-                scrollViewport(in: textView, toDisplayOffset: textView.string.utf16.count,
-                               forceEdge: .bottom)
-            } else if let display = displayLocation(
-                forMarkdownOffset: store.editorScrollOffset) {
-                scrollViewport(in: textView, toDisplayOffset: display, forceEdge: nil)
+            let display: Int
+            let edge: SplitScrollSync.Edge?
+            if target <= 0 {
+                (display, edge) = (0, .top)
+            } else if target >= markdownLength {
+                (display, edge) = ((textView.string as NSString).length, .bottom)
+            } else if let mapped = displayLocation(forMarkdownOffset: target) {
+                (display, edge) = (mapped, nil)
+            } else {
+                return  // no paragraph map yet — leave the viewport alone
             }
-        }
 
-        private enum ScrollEdge { case top, bottom }
-
-        private func scrollViewport(in textView: NSTextView,
-                                    toDisplayOffset target: Int,
-                                    forceEdge: ScrollEdge?) {
-            guard let scroll = textView.enclosingScrollView,
-                  let layout = textView.layoutManager,
-                  let container = textView.textContainer else { return }
-            let clip = scroll.contentView
-            var proposed = clip.bounds
-            switch forceEdge {
-            case .top:
-                proposed.origin.y = -1_000_000_000
-            case .bottom:
-                proposed.origin.y = 1_000_000_000
-            case nil:
-                let length = (textView.string as NSString).length
-                guard length > 0 else { return }
-                let range = NSRange(location: min(target, length - 1), length: 1)
-                layout.ensureLayout(forCharacterRange: range)
-                let glyphs = layout.glyphRange(forCharacterRange: range,
-                                               actualCharacterRange: nil)
-                var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
-                rect.origin.y += textView.textContainerOrigin.y
-                proposed.origin.y = rect.maxY - proposed.height + 8
+            // Same ring guard as Source: our own scroll posts boundsDidChange,
+            // and republishing from it would push Preview past where the user
+            // left it, one anchor line per wheel event.
+            isFollowingPreviewScroll = true
+            SplitScrollSync.scrollViewport(textView, toCharacterIndex: display, edge: edge)
+            DispatchQueue.main.async { [weak self] in
+                self?.isFollowingPreviewScroll = false
             }
-            let constrained = clip.constrainBoundsRect(proposed)
-            clip.scroll(to: constrained.origin)
-            scroll.reflectScrolledClipView(clip)
         }
 
         /// Markdown offset → display offset (inverse of
@@ -625,6 +606,10 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         private var lastTextLeading: CGFloat = -1
         private var scrollSyncPublishScheduled = false
+        /// See the identical flag in SourceTextView: Preview's scroll lands
+        /// here as a `clip.scroll`, whose bounds notification must not be
+        /// published straight back to Preview.
+        private var isFollowingPreviewScroll = false
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
@@ -634,42 +619,32 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// Publish at most once per main-loop turn. This is a throttle rather
         /// than a debounce, so Preview follows while the gesture is in flight.
         func scheduleVisibleOffsetPublish() {
-            guard parent.onVisibleOffset != nil, !scrollSyncPublishScheduled else { return }
+            guard parent.onVisibleOffset != nil, !isFollowingPreviewScroll,
+                  !scrollSyncPublishScheduled else { return }
             scrollSyncPublishScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
-                guard let textView = self.textView else { return }
-                let scrollPosition = textView.enclosingScrollView?
-                    .verticalScroller?.doubleValue ?? 0
-                if scrollPosition <= 0.0001 {
-                    self.parent.onVisibleOffset?(0)
-                    return
-                }
-                if scrollPosition >= 0.9999 {
-                    self.parent.onVisibleOffset?(
-                        (self.parent.document.content as NSString).length)
-                    return
-                }
-                let displayOffset = self.visibleDisplayOffset(in: textView)
-                guard let markdownOffset = self.markdownOffset(atDisplayLocation: displayOffset)
-                else { return }
-                self.parent.onVisibleOffset?(markdownOffset)
+                guard !self.isFollowingPreviewScroll, let textView = self.textView,
+                      let offset = self.visibleMarkdownOffset(in: textView) else { return }
+                self.parent.onVisibleOffset?(offset)
             }
         }
 
-        /// Character index at the bottom edge of Visual's viewport. It is
-        /// mapped through `lastParagraphRanges` before leaving the coordinator.
-        private func visibleDisplayOffset(in textView: NSTextView) -> Int {
-            guard let scroll = textView.enclosingScrollView else {
-                return textView.selectedRange().location
+        /// Markdown offset at the bottom anchor line. Visual's display text is
+        /// not the markdown, so the anchor goes through `lastParagraphRanges`.
+        private func visibleMarkdownOffset(in textView: NSTextView) -> Int? {
+            switch SplitScrollSync.position(of: textView) {
+            case .unscrollable:
+                return nil
+            case .atEdge(.top):
+                return 0
+            case .atEdge(.bottom):
+                return (parent.document.content as NSString).length
+            case .middle:
+                let display = SplitScrollSync.visibleAnchorIndex(in: textView)
+                return markdownOffset(atDisplayLocation: display)
             }
-            let length = (textView.string as NSString).length
-            let visible = scroll.contentView.bounds
-            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.maxY - 4),
-                                         from: scroll.contentView)
-            let index = textView.characterIndexForInsertion(at: point)
-            return max(0, min(index, length))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

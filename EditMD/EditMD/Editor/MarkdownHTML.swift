@@ -255,6 +255,26 @@ private struct HTMLBodyVisitor: MarkupWalker {
         return lineBase + src.lowerBound.line
     }
 
+    /// Source offset of each RENDERED code line, in document order.
+    ///
+    /// A fenced block's first source line is the opening fence, which the DOM
+    /// never shows; an indented block starts with code straight away. The two
+    /// are told apart by line count — the fence lines are exactly the source
+    /// lines the code doesn't account for.
+    private func codeLineOffsets(_ codeBlock: CodeBlock) -> [Int]? {
+        guard let src = codeBlock.range else { return nil }
+        var lines = codeBlock.code.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+        guard !lines.isEmpty else { return nil }
+        let firstLine = src.lowerBound.line
+        let lastLine = src.upperBound.line
+        let blockLines = lastLine - firstLine + 1
+        guard blockLines >= lines.count else { return nil }
+        let start = blockLines > lines.count ? firstLine + 1 : firstLine
+        guard start + lines.count - 1 <= lastLine else { return nil }
+        return (0..<lines.count).map { lineIdx.lineStart(start + $0) + baseOffset }
+    }
+
     /// Opens a block tag with optional `data-ln` / `ln-dirty` for the Preview gutter.
     private mutating func openBlock(_ tag: String, _ markup: some Markup,
                                     classes: [String] = [],
@@ -300,14 +320,22 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
         // Code has no Text children carrying source offsets (highlighting also
-        // replaces it with token spans), so tag the whole island. Scroll sync
-        // interpolates offsets inside this range against the <pre> height.
-        let sourceAttrs: String
+        // replaces it with token spans), so tag the whole island. `data-md-cl`
+        // additionally lists the source offset of every rendered code LINE:
+        // code lines don't wrap (`pre code { overflow-x: auto }`), so scroll
+        // sync divides the <pre> height by the line count and lands exactly.
+        // Interpolating by CHARACTER instead would drift by however much the
+        // line lengths differ.
+        var sourceAttrs: String
         if let range = mdNSRange(for: codeBlock) {
             sourceAttrs = " data-md-lo=\"\(range.location)\""
                 + " data-md-hi=\"\(NSMaxRange(range))\" data-md-code=\"1\""
         } else {
             sourceAttrs = " data-md-code=\"1\""
+        }
+        if let lineOffsets = codeLineOffsets(codeBlock) {
+            sourceAttrs += " data-md-cl=\""
+                + lineOffsets.map(String.init).joined(separator: ",") + "\""
         }
         openBlock("pre", codeBlock, extraAttrs: sourceAttrs)
         let language = codeBlock.language ?? ""
@@ -1102,7 +1130,10 @@ func previewHTMLPage(markdown: String,
             el.removeAttribute('title');
         });
         if (!marks || !marks.length) return;
-        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
+        // `pre` carries data-md-lo for scroll sync only. Washing it would paint
+        // the whole code block for a mark that touches one line of it, so the
+        // wash stays on the inline spans, as before code blocks were tagged.
+        document.querySelectorAll('[data-md-lo]:not(pre)').forEach(function (el) {
             var lo = parseInt(el.getAttribute('data-md-lo'), 10);
             var hi = parseInt(el.getAttribute('data-md-hi'), 10);
             if (isNaN(lo) || isNaN(hi)) return;
@@ -1141,76 +1172,127 @@ func previewHTMLPage(markdown: String,
         }
         return false;
     };
-    // Split-mode follow uses a separate, immediate path. Navigation jumps
-    // above intentionally center + flash; continuous scroll synchronization
-    // must align the corresponding source block near the viewport bottom and
-    // must never enqueue smooth-scroll animations.
-    window.syncScrollToMdOffset = function (offset) {
-        var contain = null, containLo = -1, near = null, nearLo = -1;
+    // Split-mode follow. Navigation jumps (scrollToMdOffset) center + flash on
+    // purpose; continuous synchronization instead aligns the matching rendered
+    // run with the viewport BOTTOM and never animates.
+    //
+    // Both directions read one cached anchor table. Re-querying the DOM and
+    // calling getBoundingClientRect per element ran on every frame of a scroll
+    // gesture — with syntax highlighting that is a walk over every token span.
+    // The table stores DOCUMENT-space geometry, so scrolling never stales it;
+    // anything that can change layout drops it.
+    var mdAnchorTable = null;
+    function mdAnchors() {
+        if (mdAnchorTable) return mdAnchorTable;
+        var list = [];
+        var scrollY = window.scrollY;
         document.querySelectorAll('[data-md-lo]').forEach(function (el) {
             var lo = parseInt(el.getAttribute('data-md-lo'), 10);
             var hi = parseInt(el.getAttribute('data-md-hi'), 10);
             if (isNaN(lo) || isNaN(hi)) return;
-            if (lo <= offset && offset < hi) {
-                if (lo > containLo) { contain = el; containLo = lo; }
-            } else if (lo <= offset && lo > nearLo) {
-                near = el; nearLo = lo;
+            var rect = el.getBoundingClientRect();
+            if (rect.height <= 0) return;  // display:none / empty run
+            var codeLines = null;
+            var cl = el.getAttribute('data-md-cl');
+            if (cl) {
+                codeLines = cl.split(',').map(function (n) { return parseInt(n, 10); });
             }
+            list.push({
+                lo: lo, hi: hi,
+                top: rect.top + scrollY,
+                bottom: rect.bottom + scrollY,
+                height: rect.height,
+                codeLines: codeLines
+            });
         });
-        var best = contain || near;
-        if (!best) return false;
-        var rect = best.getBoundingClientRect();
-        var lo = parseInt(best.getAttribute('data-md-lo'), 10);
-        var hi = parseInt(best.getAttribute('data-md-hi'), 10);
-        var anchorBottom = rect.bottom;
-        // Fenced code and wrapped multi-line runs need continuous movement
-        // inside one tagged element instead of waiting for the next element.
-        if (hi > lo && offset >= lo && offset < hi && rect.height > 0) {
-            var fraction = Math.max(0, Math.min(1, (offset - lo) / (hi - lo)));
-            anchorBottom = rect.top + rect.height * fraction;
+        list.sort(function (a, b) { return a.lo - b.lo || a.hi - b.hi; });
+        mdAnchorTable = list;
+        return list;
+    }
+    function invalidateMdAnchors() { mdAnchorTable = null; }
+    window.addEventListener('resize', invalidateMdAnchors);
+    window.addEventListener('load', invalidateMdAnchors);
+    // Images and KaTeX resize blocks after first layout.
+    document.addEventListener('load', invalidateMdAnchors, true);
+    window.invalidateMdAnchors = invalidateMdAnchors;
+
+    // Document-space Y where `offset` should sit, or null when unknown.
+    function mdAnchorBottom(offset) {
+        var anchors = mdAnchors();
+        var contain = null, near = null;
+        for (var i = 0; i < anchors.length; i++) {
+            var a = anchors[i];
+            if (a.lo > offset) break;  // sorted by lo
+            if (offset < a.hi) {
+                // Deepest (latest-starting) containing run wins.
+                if (!contain || a.lo >= contain.lo) contain = a;
+            } else {
+                near = a;
+            }
         }
-        // The editor publishes its last visible source line, so align the
-        // matching rendered run with Preview's bottom edge. Browser clamping
-        // makes the two panes reach the document end together.
-        var y = window.scrollY + anchorBottom - window.innerHeight + 8;
-        window.scrollTo(0, Math.max(0, y));
+        var best = contain || near;
+        if (!best) return null;
+        if (best !== contain) return best.bottom;
+        // Code lines never wrap, so the row grid is exact — interpolating by
+        // character inside a code block would drift with line length.
+        if (best.codeLines && best.codeLines.length) {
+            var rowH = best.height / best.codeLines.length;
+            var row = 0;
+            for (var j = 0; j < best.codeLines.length; j++) {
+                if (best.codeLines[j] <= offset) row = j; else break;
+            }
+            return best.top + rowH * (row + 1);
+        }
+        if (best.hi > best.lo) {
+            var fraction = Math.max(0, Math.min(1,
+                (offset - best.lo) / (best.hi - best.lo)));
+            return best.top + best.height * fraction;
+        }
+        return best.bottom;
+    }
+
+    window.syncScrollToMdOffset = function (offset) {
+        var anchorBottom = mdAnchorBottom(offset);
+        if (anchorBottom === null) return false;
+        // The editor publishes its last visible source line, so the matching
+        // run goes to Preview's bottom edge; clamping then makes both panes
+        // reach the document end together.
+        window.scrollTo(0, Math.max(0, anchorBottom - window.innerHeight + 8));
         return true;
     };
-    // Reverse lookup for user-driven Preview scrolling. Returns an edge marker
-    // or the markdown offset intersecting the bottom of the viewport. For code
-    // islands (and other tall runs), vertical position is interpolated through
-    // data-md-lo/hi so every code line participates in synchronization.
+    // Reverse lookup for user-driven Preview scrolling: the markdown offset at
+    // the bottom of the viewport, or an edge marker.
     window.mdOffsetAtViewportBottom = function () {
         var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        if (maxY <= 0.5) return null;   // nothing to scroll — no position to share
         if (window.scrollY <= 0.5) return { edge: 'top' };
         if (window.scrollY >= maxY - 0.5) return { edge: 'bottom' };
-        var viewportY = window.innerHeight - 8;
-        var contain = null, containHeight = Infinity;
-        var preceding = null, precedingBottom = -Infinity;
-        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
-            var rect = el.getBoundingClientRect();
-            if (rect.top <= viewportY && rect.bottom >= viewportY) {
-                if (rect.height < containHeight) {
-                    contain = el;
-                    containHeight = rect.height;
-                }
-            } else if (rect.bottom < viewportY && rect.bottom > precedingBottom) {
-                preceding = el;
-                precedingBottom = rect.bottom;
+        var y = window.scrollY + window.innerHeight - 8;
+        var anchors = mdAnchors();
+        var contain = null, preceding = null;
+        for (var i = 0; i < anchors.length; i++) {
+            var a = anchors[i];
+            if (a.top <= y && a.bottom >= y) {
+                // Tightest run around y — an inline span beats its paragraph.
+                if (!contain || a.height < contain.height) contain = a;
+            } else if (a.bottom < y && (!preceding || a.bottom > preceding.bottom)) {
+                preceding = a;
             }
-        });
+        }
         var best = contain || preceding;
         if (!best) return null;
-        var lo = parseInt(best.getAttribute('data-md-lo'), 10);
-        var hi = parseInt(best.getAttribute('data-md-hi'), 10);
-        if (isNaN(lo) || isNaN(hi)) return null;
-        var rect = best.getBoundingClientRect();
-        if (contain && hi > lo && rect.height > 0) {
-            var fraction = Math.max(0, Math.min(1,
-                (viewportY - rect.top) / rect.height));
-            return { offset: Math.round(lo + (hi - lo) * fraction) };
+        if (best !== contain) return { offset: Math.max(best.lo, best.hi - 1) };
+        if (best.codeLines && best.codeLines.length && best.height > 0) {
+            var rowH = best.height / best.codeLines.length;
+            var row = Math.floor((y - best.top) / rowH);
+            row = Math.max(0, Math.min(best.codeLines.length - 1, row));
+            return { offset: best.codeLines[row] };
         }
-        return { offset: Math.max(lo, hi - 1) };
+        if (best.hi > best.lo && best.height > 0) {
+            var fraction = Math.max(0, Math.min(1, (y - best.top) / best.height));
+            return { offset: Math.round(best.lo + (best.hi - best.lo) * fraction) };
+        }
+        return { offset: Math.max(best.lo, best.hi - 1) };
     };
     // D4: hover copy button on code blocks and blockquotes.
     (function () {

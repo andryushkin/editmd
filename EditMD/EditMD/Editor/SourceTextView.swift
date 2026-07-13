@@ -343,6 +343,11 @@ struct SourceTextView: NSViewRepresentable {
 
         private var lastTextLeading: CGFloat = -1
         private var scrollSyncPublishScheduled = false
+        /// Raised while Preview's scroll is being applied here. Our own
+        /// `clip.scroll` posts a bounds notification, and publishing from it
+        /// would send the position straight back to Preview — a feedback ring
+        /// that nudged Preview a line further on every wheel event.
+        private var isFollowingPreviewScroll = false
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
@@ -353,37 +358,28 @@ struct SourceTextView: NSViewRepresentable {
         /// turn. Unlike the old 120 ms debounce this keeps publishing during a
         /// continuous trackpad gesture instead of waiting for it to stop.
         func scheduleVisibleOffsetPublish() {
-            guard parent.onVisibleOffset != nil, !scrollSyncPublishScheduled else { return }
+            guard parent.onVisibleOffset != nil, !isFollowingPreviewScroll,
+                  !scrollSyncPublishScheduled else { return }
             scrollSyncPublishScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
-                guard let textView = self.textView else { return }
-                let offset = self.visibleMarkdownOffset(in: textView)
+                guard !self.isFollowingPreviewScroll, let textView = self.textView,
+                      let offset = self.visibleMarkdownOffset(in: textView) else { return }
                 self.parent.onVisibleOffset?(offset)
             }
         }
 
-        /// Character index at the bottom of the visible rect (UTF-16). Split
-        /// sync uses the last visible source line as its anchor: matching the
-        /// top accumulates drift when Preview blocks have different heights.
-        private func visibleMarkdownOffset(in textView: NSTextView) -> Int {
-            guard let scroll = textView.enclosingScrollView else {
-                return textView.selectedRange().location
+        /// Markdown offset at the bottom anchor line (UTF-16); nil when the
+        /// content fits on one screen and there is no scroll position to share.
+        /// Source's display text IS the markdown, so no mapping is needed.
+        private func visibleMarkdownOffset(in textView: NSTextView) -> Int? {
+            switch SplitScrollSync.position(of: textView) {
+            case .unscrollable: return nil
+            case .atEdge(.top): return 0
+            case .atEdge(.bottom): return (textView.string as NSString).length
+            case .middle: return SplitScrollSync.visibleAnchorIndex(in: textView)
             }
-            let length = (textView.string as NSString).length
-            // Preserve the document edges exactly. Without the top sentinel,
-            // opening split at scroll position zero aligns the first screen's
-            // bottom line and hides Preview's heading/top content.
-            let scrollPosition = scroll.verticalScroller?.doubleValue ?? 0
-            if scrollPosition <= 0.0001 { return 0 }
-            if scrollPosition >= 0.9999 { return length }
-            let visible = scroll.contentView.bounds
-            // Convert to textView coordinates.
-            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.maxY - 4),
-                                         from: scroll.contentView)
-            let idx = textView.characterIndexForInsertion(at: point)
-            return max(0, min(idx, length))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -478,35 +474,23 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         /// Reverse split sync: align the requested source character with the
-        /// bottom of the viewport without touching selection or focus.
+        /// bottom of the viewport without touching selection or focus. Source's
+        /// display text is the markdown itself, so the offset needs no mapping.
         @objc func followPreviewScroll() {
-            guard let store = parent.positionStore else { return }
-            scrollViewport(to: store.editorScrollOffset)
-        }
-
-        private func scrollViewport(to target: Int) {
-            guard let textView, let scroll = textView.enclosingScrollView,
-                  let layout = textView.layoutManager,
-                  let container = textView.textContainer else { return }
+            guard let store = parent.positionStore, let textView else { return }
+            let target = store.editorScrollOffset
             let length = (textView.string as NSString).length
-            let clip = scroll.contentView
-            var proposed = clip.bounds
-            if target <= 0 {
-                proposed.origin.y = -1_000_000_000
-            } else if target >= length {
-                proposed.origin.y = 1_000_000_000
-            } else {
-                let range = NSRange(location: min(target, length - 1), length: 1)
-                layout.ensureLayout(forCharacterRange: range)
-                let glyphs = layout.glyphRange(forCharacterRange: range,
-                                               actualCharacterRange: nil)
-                var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
-                rect.origin.y += textView.textContainerOrigin.y
-                proposed.origin.y = rect.maxY - proposed.height + 8
+            let edge: SplitScrollSync.Edge? = target <= 0 ? .top
+                : (target >= length ? .bottom : nil)
+
+            // The scroll below posts boundsDidChange synchronously; hold the
+            // flag until the next run-loop turn so neither that notification
+            // nor an already-queued publish bounces this position back.
+            isFollowingPreviewScroll = true
+            SplitScrollSync.scrollViewport(textView, toCharacterIndex: target, edge: edge)
+            DispatchQueue.main.async { [weak self] in
+                self?.isFollowingPreviewScroll = false
             }
-            let constrained = clip.constrainBoundsRect(proposed)
-            clip.scroll(to: constrained.origin)
-            scroll.reflectScrolledClipView(clip)
         }
 
         /// Reloads from the shared document (external change), preserving the

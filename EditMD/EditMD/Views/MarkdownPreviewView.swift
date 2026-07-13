@@ -7,9 +7,11 @@ import WebKit
 /// URIs — WKWebView does not grant file:// subresource access to HTML loaded
 /// via loadHTMLString, and unsaved documents have no base directory anyway.
 ///
-/// Live updates (the split types into document.content on every keystroke)
-/// are coalesced for 50 ms and keep the scroll pixel-stable across the reload;
-/// only the FIRST render scrolls to the cross-mode proportional position.
+/// Live updates (the split types into document.content on every keystroke) are
+/// throttled to one render per `Coordinator.renderInterval` — leading edge, so
+/// the first edit after a pause lands at once — and keep the scroll stable
+/// across the reload; only the FIRST render scrolls to the cross-mode
+/// proportional position.
 struct MarkdownPreviewView: NSViewRepresentable {
 
     let document: MarkdownDocument
@@ -239,12 +241,23 @@ struct MarkdownPreviewView: NSViewRepresentable {
         // In that mode manual WebKit scrolling must win on later reloads.
         if onRequestEdit != nil { coordinator.lastFollowedOffset = nil }
         guard coordinator.lastRenderedContent != document.content else { return }
-        // A short debounce absorbs duplicate SwiftUI updates without making
-        // Preview feel a quarter-second behind the editor.
+        // LEADING-edge throttle, not a debounce. A render is the whole pipeline
+        // — cmark + BLOCKING highlight.js (both palettes) + KaTeX + a full
+        // loadHTMLString — so it must not run per keystroke; a 50 ms debounce
+        // did exactly that, since typists pause longer than 50 ms between keys.
+        // But a trailing-only debounce is what made Preview feel late. So: draw
+        // the first edit after a pause immediately, then coalesce the rest into
+        // one render per interval.
         coordinator.renderTask?.cancel()
+        let sinceLastRender = Date().timeIntervalSince(coordinator.lastRenderStarted)
+        if sinceLastRender >= Coordinator.renderInterval {
+            render(in: webView, coordinator: coordinator)
+            return
+        }
         let parent = self
+        let wait = Coordinator.renderInterval - sinceLastRender
         coordinator.renderTask = Task { [weak coordinator] in
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard !Task.isCancelled, let coordinator,
                   let webView = coordinator.webView else { return }
             parent.render(in: webView, coordinator: coordinator)
@@ -255,6 +268,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let content = document.content
         guard coordinator.lastRenderedContent != content else { return }
         coordinator.lastRenderedContent = content
+        coordinator.lastRenderStarted = Date()
 
         let baseDir = assetBaseDir
         let settings = EditorSettings.shared.preview
@@ -348,6 +362,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var fileURL: URL?
         var lastRenderedContent: String?
         var renderTask: Task<Void, Never>?
+        /// Minimum spacing between two renders while the user keeps typing.
+        static let renderInterval: TimeInterval = 0.25
+        var lastRenderStarted: Date = .distantPast
         var hasRenderedOnce = false
         /// Forces a full re-render (font size changes: same content,
         /// different CSS).
@@ -812,6 +829,22 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
 // MARK: - Web view with Return-to-edit
 
+/// Owns the opaque NSEvent monitor token and drops it when the view goes away.
+///
+/// A window torn down whole never sends `viewDidMoveToWindow(nil)`, so relying
+/// on that alone leaked one monitor per closed window. The view's `deinit` is
+/// nonisolated and cannot touch a non-Sendable token, hence this box.
+private final class ScrollMonitorToken: @unchecked Sendable {
+    private var token: Any?
+
+    func replace(with newToken: Any?) {
+        if let token { NSEvent.removeMonitor(token) }
+        token = newToken
+    }
+
+    deinit { if let token { NSEvent.removeMonitor(token) } }
+}
+
 /// Return in the read-only preview switches back to editing (FSNotes'
 /// MPreviewView.keyDown). Only set in full Preview mode — in the split the
 /// editor is already on screen.
@@ -819,7 +852,7 @@ final class PreviewWebView: WKWebView {
     var onReturnKey: (() -> Void)?
     /// Emitted only for real mouse/trackpad scrolling, never window.scrollTo.
     var onUserScroll: (() -> Void)?
-    private var scrollEventMonitor: Any?
+    private let scrollMonitor = ScrollMonitorToken()
     /// Document for ⌘Z / ⌘⇧Z while the web view is first responder.
     weak var documentForUndo: MarkdownDocument?
 
@@ -838,20 +871,19 @@ final class PreviewWebView: WKWebView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let scrollEventMonitor {
-            NSEvent.removeMonitor(scrollEventMonitor)
-            self.scrollEventMonitor = nil
+        guard window != nil else {
+            scrollMonitor.replace(with: nil)
+            return
         }
-        guard window != nil else { return }
         // WebKit's private content view may consume scrollWheel before the
         // WKWebView override. A window-local hit test catches that path too.
-        scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+        scrollMonitor.replace(with: NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
             [weak self] event in
             guard let self, event.window === self.window else { return event }
             let point = self.convert(event.locationInWindow, from: nil)
             if self.bounds.contains(point) { self.onUserScroll?() }
             return event
-        }
+        })
     }
 
     @objc func undo(_ sender: Any?) {
