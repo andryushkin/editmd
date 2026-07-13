@@ -867,6 +867,10 @@ func previewHTMLPageRender(markdown: String,
         --ln-gap: \(lineNumberGapPx)px;
     }
     * { box-sizing: border-box; }
+    /* WebKit's native scroll anchoring races our split-view restoration after
+       innerHTML replacement and produces a visible up/down twitch. The Preview
+       owns anchoring explicitly below. */
+    html, body, #preview-content { overflow-anchor: none; }
     body {
         font: \(fontWeight) \(Int(fontSize))px/\(numstr(lineHeight)) \(fontFamily);
         background: Canvas; color: \(bodyColor);
@@ -1493,12 +1497,15 @@ func previewHTMLPageRender(markdown: String,
     // gutter walk and the anchor table read getBoundingClientRect for every
     // tagged element, so this must run ONCE per layout — not once in hydrate
     // (pre-layout, therefore wrong) and again afterwards.
-    function settlePreviewLayout(position) {
+    function settlePreviewLayout(position, pixelY) {
         invalidateMdAnchors();
         alignLineNumberGutter();
-        if (position === null || position === undefined) return;
         if (userScrolledSinceSettle) return;   // the user owns the viewport now
-        window.syncScrollToMdPosition(position);
+        if (position !== null && position !== undefined) {
+            window.syncScrollToMdPosition(position);
+        } else if (pixelY !== null && pixelY !== undefined) {
+            programmaticScroll(pixelY);
+        }
     }
 
     // Images and the KaTeX webfonts land after first layout and change block
@@ -1506,15 +1513,15 @@ func previewHTMLPageRender(markdown: String,
     // do — on the first page load as well as after a fragment swap; before, only
     // the fragment path did this and a freshly opened math document kept a stale
     // anchor table (split-scroll sync drifted until the next resize).
-    function replayPreviewSettle(root, position) {
+    function replayPreviewSettle(root, position, pixelY) {
         root.querySelectorAll('img').forEach(function (image) {
             if (image.complete) return;
             image.addEventListener('load', function () {
-                settlePreviewLayout(position);
+                settlePreviewLayout(position, pixelY);
             }, { once: true });
         });
         if (document.fonts && document.fonts.ready) {
-            document.fonts.ready.then(function () { settlePreviewLayout(position); });
+            document.fonts.ready.then(function () { settlePreviewLayout(position, pixelY); });
         }
     }
 
@@ -1534,21 +1541,25 @@ func previewHTMLPageRender(markdown: String,
         var root = document.getElementById('preview-content');
         if (!root) return false;
         var position = payload.position;
+        var pixelY = null;
         if (position === null || position === undefined) {
-            position = window.editMDCurrentScrollPosition();
+            // Typing is a content update, not a scroll gesture. Preserve the
+            // exact viewport instead of re-interpreting its old markdown offset
+            // in the new DOM (which visibly nudged the first edit after a click).
+            pixelY = window.scrollY;
         }
         root.innerHTML = payload.html;
         window.editMDPreviewRevision = payload.revision;
         window.editMDHydratePreviewContent();
         userScrolledSinceSettle = false;
-        settlePreviewLayout(position);
-        replayPreviewSettle(root, position);
+        settlePreviewLayout(position, pixelY);
+        replayPreviewSettle(root, position, pixelY);
         return true;
     };
 
     window.editMDHydratePreviewContent();
-    settlePreviewLayout(null);
-    replayPreviewSettle(document.getElementById('preview-content'), null);
+    settlePreviewLayout(null, null);
+    replayPreviewSettle(document.getElementById('preview-content'), null, null);
     </script>
     </body>
     </html>

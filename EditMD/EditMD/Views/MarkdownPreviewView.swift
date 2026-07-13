@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import Combine
 
 /// Deterministic revision/throttle state for live Preview updates. Rendering
 /// and WebKit stay in the Coordinator; this value type is intentionally pure
@@ -290,11 +291,11 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.webView = webView
         coordinator.positionStore = positionStore
         coordinator.onActiveFormats = onActiveFormats
-        coordinator.document = document
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         bindRenderCallbacks(to: coordinator)
+        coordinator.observe(document: document)
         // Preview settings changes must re-render: the page bakes font size/
         // insets/line-height/column width into its CSS, so no content change
         // would otherwise trigger an update.
@@ -345,16 +346,19 @@ struct MarkdownPreviewView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onActiveFormats = onActiveFormats
-        coordinator.document = document
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         bindRenderCallbacks(to: coordinator)
+        coordinator.observe(document: document)
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         (webView as? PreviewWebView)?.documentForUndo = document
         // A coordinator can be reused while the split turns into full Preview.
         // In that mode manual WebKit scrolling must win on later reloads.
-        if onRequestEdit != nil { coordinator.lastFollowedPosition = nil }
+        if onRequestEdit != nil {
+            coordinator.lastFollowedPosition = nil
+            coordinator.pendingFragmentFollowPosition = nil
+        }
         if coordinator.scheduler.request(document.content) != nil {
             scheduleNextRender(coordinator: coordinator)
         }
@@ -475,7 +479,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
             loadFullPage(result.scheduled, in: webView, coordinator: coordinator)
             return
         }
-        let position: Any = coordinator.lastFollowedPosition.map { NSNumber(value: $0) } ?? NSNull()
+        // Editor-follow is a one-shot instruction. Once the scroll gesture has
+        // landed, ordinary typing preserves Preview's exact pixel viewport;
+        // replaying the last semantic anchor on every character causes a nudge.
+        let position: Any = coordinator.pendingFragmentFollowPosition
+            .map { NSNumber(value: $0) } ?? NSNull()
+        coordinator.pendingFragmentFollowPosition = nil
         // The page function is synchronous, so this answers on the next hop. The
         // watchdog is the backstop: a bridge that never answers (a wedged web
         // process, a promise nothing settles) must not hold the single render
@@ -601,6 +610,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
         weak var toolbarActions: EditorStripActions?
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
+        private weak var observedDocument: MarkdownDocument?
+        private var documentChangeObservation: AnyCancellable?
         var fileURL: URL?
         /// Content currently present in the DOM. Scroll math must never use a
         /// requested-but-not-yet-applied revision.
@@ -633,6 +644,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         /// Latest editor viewport anchor. When set (split mode), logical
         /// markdown alignment wins over a stale pixel value after a reload.
         var lastFollowedPosition: Double?
+        /// One-shot semantic restore for a fragment that races an editor scroll.
+        /// Normal content edits leave this nil and preserve exact Preview pixels.
+        var pendingFragmentFollowPosition: Double?
         var reverseScrollEnabled = false
         /// Last usable selection from the page. Empty selectionchange events
         /// do NOT clear this (strip click collapses the WebKit selection).
@@ -645,6 +659,28 @@ struct MarkdownPreviewView: NSViewRepresentable {
         deinit {
             renderTask?.cancel()
             NotificationCenter.default.removeObserver(self)
+        }
+
+        /// `NSViewRepresentable.updateNSView` is not a reliable transport for
+        /// edits originating in an AppKit text delegate: SwiftUI may coalesce
+        /// the enclosing view's invalidation while that delegate/layout pass is
+        /// still in flight. Observe the model at the coordinator boundary too,
+        /// then read the new value on the next main-loop turn (the publisher is
+        /// objectWillChange, so a synchronous read would still see the old one).
+        func observe(document: MarkdownDocument) {
+            self.document = document
+            guard observedDocument !== document else { return }
+            observedDocument = document
+            documentChangeObservation = document.objectWillChange.sink {
+                [weak self, weak document] _ in
+                DispatchQueue.main.async {
+                    guard let self, let document,
+                          self.observedDocument === document else { return }
+                    if self.scheduler.request(document.content) != nil {
+                        self.scheduleLatest?()
+                    }
+                }
+            }
         }
 
         /// Installs strip callbacks on the shared actions object (if any).
@@ -910,6 +946,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         @objc func followEditorScroll() {
             guard let store = positionStore else { return }
             lastFollowedPosition = store.previewScrollPosition
+            pendingFragmentFollowPosition = store.previewScrollPosition
             scroll(toMarkdownPosition: store.previewScrollPosition)
         }
 
@@ -920,6 +957,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         func previewDidScroll(_ payload: [String: Any]) {
             guard reverseScrollEnabled, let store = positionStore else { return }
             lastFollowedPosition = nil
+            pendingFragmentFollowPosition = nil
             let length = lastRenderedContent.map { ($0 as NSString).length } ?? 0
             if let edge = payload["edge"] as? String {
                 store.requestEditorScroll(

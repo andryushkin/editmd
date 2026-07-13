@@ -95,10 +95,6 @@ struct SidebarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
-struct SplitPreviewKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
-}
-
 struct DocumentUndoActionsKey: FocusedValueKey {
     typealias Value = DocumentUndoActions
 }
@@ -131,14 +127,6 @@ extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
         set { self[SidebarVisibleKey.self] = newValue }
-    }
-
-    /// Editor+preview split — the View menu (⌥⌘P) and the toolbar button
-    /// share this binding (ContentView hands in `splitBinding`, whose setter
-    /// also leaves Preview mode when the split turns on).
-    var splitPreview: Binding<Bool>? {
-        get { self[SplitPreviewKey.self] }
-        set { self[SplitPreviewKey.self] = newValue }
     }
 
     /// Document-scoped undo (survives mode switches). Edit ▸ Undo/Redo + ⌘Z.

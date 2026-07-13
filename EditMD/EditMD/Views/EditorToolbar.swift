@@ -10,9 +10,6 @@ import AppKit
 struct EditorToolbar: ToolbarContent {
     let allowsSidebar: Bool
     @Binding var sidebarVisible: Bool
-    @Binding var splitPreview: Bool
-    /// Shared with View menu: turning split ON while in Preview leaves Preview.
-    let onToggleSplit: () -> Void
     @ObservedObject var editorSettings: EditorSettings
     let appearanceIsDark: Bool
 
@@ -46,15 +43,6 @@ struct EditorToolbar: ToolbarContent {
                 Label("Paste", systemImage: "doc.on.clipboard")
             }
             .help("Paste (⌘V)")
-        }
-        ToolbarItem {
-            Button {
-                onToggleSplit()
-            } label: {
-                Label("Split Preview",
-                      systemImage: splitPreview ? "rectangle.split.2x1.fill" : "rectangle.split.2x1")
-            }
-            .help(splitPreview ? "Hide preview pane (⌥⌘P)" : "Show preview pane (⌥⌘P)")
         }
         ToolbarItem {
             Menu {

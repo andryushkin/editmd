@@ -4,6 +4,21 @@ import XCTest
 /// Pure helpers behind Visual-mode editing semantics (v21).
 final class VisualEditingTests: XCTestCase {
 
+    func testEditorModesIncludeDedicatedSourcePreviewSplit() {
+        XCTAssertEqual(EditorMode.allCases.map(\.rawValue),
+                       ["source", "visual", "preview", "split"])
+        XCTAssertEqual(EditorMode.split.title, "Split")
+        XCTAssertEqual(EditorMode.split.shortcutHint, "⌘4")
+    }
+
+    func testOnlyTinyVisualLayoutDriftIsRestored() {
+        XCTAssertFalse(SplitScrollSync.isMinorLayoutDrift(0.005))
+        XCTAssertTrue(SplitScrollSync.isMinorLayoutDrift(2))
+        XCTAssertTrue(SplitScrollSync.isMinorLayoutDrift(-4))
+        XCTAssertFalse(SplitScrollSync.isMinorLayoutDrift(4.1))
+        XCTAssertFalse(SplitScrollSync.isMinorLayoutDrift(20))
+    }
+
     // MARK: - Autoformat triggers
 
     func testDashBecomesBullet() {

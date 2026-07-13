@@ -16,9 +16,7 @@ struct ContentView: View {
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
     @AppStorage("sidebarTab") private var sidebarTab = "files"
-    /// Editor+preview split: on = the edit pane (Source/Visual) plus a live
-    /// Preview pane side by side; `splitFraction` is the edit pane's share.
-    @AppStorage("splitPreview") private var splitPreview = false
+    /// Dedicated Source + Preview mode: edit pane's share of the split.
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
@@ -73,19 +71,6 @@ struct ContentView: View {
         )
     }
 
-    /// Split toggle shared by the toolbar button and the View menu: turning
-    /// the split ON while in Preview mode switches to Visual — the split's
-    /// right pane IS the preview, a preview-next-to-preview is pointless.
-    private var splitBinding: Binding<Bool> {
-        Binding(
-            get: { splitPreview },
-            set: { on in
-                splitPreview = on
-                if on, mode == .preview { setEditorMode(.visual) }
-            }
-        )
-    }
-
     /// Switch editor mode after flushing any coalesced typing onto the
     /// document undo stack (so ⌘Z still works after Source↔Visual↔Preview).
     private func setEditorMode(_ newMode: EditorMode) {
@@ -137,8 +122,6 @@ struct ContentView: View {
             EditorToolbar(
                 allowsSidebar: allowsSidebar,
                 sidebarVisible: $sidebarVisible,
-                splitPreview: $splitPreview,
-                onToggleSplit: { splitBinding.wrappedValue.toggle() },
                 editorSettings: editorSettings,
                 appearanceIsDark: appearanceIsDark
             )
@@ -146,7 +129,6 @@ struct ContentView: View {
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-        .focusedSceneValue(\.splitPreview, splitBinding)
         .focusedSceneValue(\.documentUndoActions, DocumentUndoActions(
             undo: { document.performUndo() },
             redo: { document.performRedo() }
@@ -322,12 +304,9 @@ struct ContentView: View {
 
     // MARK: - Panes
 
-    /// The editor area right of the sidebar. Preview mode fills it with the
-    /// rendered page; otherwise the edit pane, plus — when the split is on —
-    /// a divider and a live preview. The edit pane is ALWAYS the HStack's
-    /// first child (the split only appends siblings), so toggling the split
-    /// keeps its structural identity: the NSTextView is not recreated and
-    /// cursor/undo survive.
+    /// The editor area right of the sidebar. Split is a first-class mode with a
+    /// fixed Source pane on the left and Preview on the right; Visual is never
+    /// mounted beside Preview.
     /// Mode-specific inset for aligning the strip with the reading column.
     private var stripInset: (h: CGFloat, column: CGFloat) {
         switch mode {
@@ -337,6 +316,8 @@ struct ContentView: View {
             return (editorSettings.visual.insetH, editorSettings.visual.columnWidth)
         case .preview:
             return (editorSettings.preview.insetH, editorSettings.preview.columnWidth)
+        case .split:
+            return (editorSettings.source.insetH, editorSettings.source.columnWidth)
         }
     }
 
@@ -370,7 +351,8 @@ struct ContentView: View {
                               toggleLineNumbers: {
                                   editorSettings.gutter.showLineNumbers.toggle()
                               })
-            if mode == .preview {
+            switch mode {
+            case .preview:
                 // Line numbers / dirty marks are baked into the HTML (`data-ln`)
                 // so they scroll with the page — no separate rail to sync.
                 MarkdownPreviewView(document: document, fileURL: fileURL,
@@ -379,28 +361,26 @@ struct ContentView: View {
                                     toolbarActions: stripActions,
                                     onActiveFormats: { activeFormats = $0 })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            case .split:
                 GeometryReader { geo in
                     HStack(spacing: 0) {
                         editorPane
-                            .frame(width: splitPreview
-                                ? max(160, geo.size.width * splitFraction)
-                                : geo.size.width)
-                        if splitPreview {
-                            paneDivider(space: .named("editorSplit")) { x in
-                                splitFraction = min(Self.splitFractionRange.upperBound,
-                                                    max(Self.splitFractionRange.lowerBound,
-                                                        Double(x) / max(1, Double(geo.size.width))))
-                            }
-                            .zIndex(1)
-                            MarkdownPreviewView(document: document, fileURL: fileURL,
-                                                positionStore: positionStore)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(width: max(160, geo.size.width * splitFraction))
+                        paneDivider(space: .named("editorSplit")) { x in
+                            splitFraction = min(Self.splitFractionRange.upperBound,
+                                                max(Self.splitFractionRange.lowerBound,
+                                                    Double(x) / max(1, Double(geo.size.width))))
                         }
+                        .zIndex(1)
+                        MarkdownPreviewView(document: document, fileURL: fileURL,
+                                            positionStore: positionStore)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .coordinateSpace(name: "editorSplit")
-                    .animation(.easeInOut(duration: 0.15), value: splitPreview)
                 }
+            case .source, .visual:
+                editorPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -423,11 +403,7 @@ struct ContentView: View {
                 },
                 onLintUpdate: { summary in lintSummary = summary },
                 onActiveFormats: { activeFormats = $0 },
-                onVisibleOffset: splitPreview
-                    ? { position in
-                        positionStore.requestPreviewScroll(toMarkdownPosition: position)
-                    }
-                    : nil,
+                onVisibleOffset: nil,
                 onTextLeading: { editorTextLeading = $0 }
             )
         case .visual:
@@ -442,16 +418,31 @@ struct ContentView: View {
                     bindStrip(from: actions, visualExtras: true)
                 },
                 onActiveFormats: { activeFormats = $0 },
-                onVisibleOffset: splitPreview
-                    ? { position in
-                        positionStore.requestPreviewScroll(toMarkdownPosition: position)
-                    }
-                    : nil,
                 onTextLeading: { editorTextLeading = $0 }
             )
         case .preview:
             // unreachable: editorArea routes .preview to the full preview
             EmptyView()
+        case .split:
+            SourceTextView(
+                document: document,
+                fileURL: fileURL,
+                positionStore: positionStore,
+                insetH: editorSettings.source.insetH,
+                insetV: editorSettings.source.insetV,
+                columnWidth: editorSettings.source.columnWidth,
+                onStatsUpdate: { w, c in wordCount = w; charCount = c },
+                onFormatActions: { actions in
+                    formatActions = actions
+                    bindStrip(from: actions, visualExtras: false)
+                },
+                onLintUpdate: { summary in lintSummary = summary },
+                onActiveFormats: { activeFormats = $0 },
+                onVisibleOffset: { position in
+                    positionStore.requestPreviewScroll(toMarkdownPosition: position)
+                },
+                onTextLeading: { editorTextLeading = $0 }
+            )
         }
     }
 
@@ -522,7 +513,7 @@ struct ContentView: View {
             : (wordCount, charCount)
         return HStack(spacing: 10) {
             // D2: always-on lint chip in Source (checkmark when clean).
-            if mode == .source {
+            if mode == .source || mode == .split {
                 lintStatusChip
             }
             Spacer(minLength: 8)

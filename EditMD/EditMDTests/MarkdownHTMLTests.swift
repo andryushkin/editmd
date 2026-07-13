@@ -233,12 +233,13 @@ final class MarkdownHTMLTests: XCTestCase {
         let hydrateBody = String(page[hydrate.upperBound...].prefix(
             while: { $0 != "}" }))
         XCTAssertFalse(hydrateBody.contains("alignLineNumberGutter"), hydrateBody)
-        XCTAssertTrue(page.contains("function settlePreviewLayout(position) {"), page)
+        XCTAssertTrue(page.contains("function settlePreviewLayout(position, pixelY) {"), page)
         XCTAssertTrue(page.contains("if (userScrolledSinceSettle) return;"), page)
+        XCTAssertTrue(page.contains("html, body, #preview-content { overflow-anchor: none; }"), page)
         // The first full load replays the settle too — a freshly opened math
         // document used to keep the anchor table it built before the KaTeX
         // webfonts landed, and split-scroll drifted until the next resize.
-        XCTAssertTrue(page.contains("replayPreviewSettle(document.getElementById('preview-content'), null)"),
+        XCTAssertTrue(page.contains("replayPreviewSettle(document.getElementById('preview-content'), null, null)"),
                       page)
     }
 
@@ -624,8 +625,8 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
             arguments: [
                 "html": markdownHTMLBody("# After"),
                 "revision": NSNumber(value: UInt64(2)),
-                // No editor anchor to follow — the app sends NSNull here, and the
-                // page falls back to its own current position.
+                // No editor scroll to follow — ordinary typing preserves the
+                // Preview's exact pixel viewport.
                 "position": NSNull(),
             ],
             in: nil,
@@ -637,6 +638,43 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
             "document.getElementById('preview-content').innerHTML") as? String ?? ""
         XCTAssertTrue(html.contains("After"), html)
         XCTAssertFalse(html.contains("Before"), html)
+    }
+
+    /// Re-interpreting the old viewport as a markdown offset in the new DOM
+    /// nudged Preview on the first character after placing the caret. Content
+    /// replacement without a fresh editor-scroll instruction must be pixel-stable.
+    func testFragmentReplacementPreservesExactPixelScrollWhileTyping() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        let loaded = expectation(description: "page loaded")
+        let delegate = LoadWaiter { loaded.fulfill() }
+        webView.navigationDelegate = delegate
+        let markdown = (0..<120).map { "Paragraph \($0) with enough text to scroll." }
+            .joined(separator: "\n\n")
+        webView.loadHTMLString(previewHTMLPage(markdown: markdown, fontSize: 14),
+                               baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 20)
+        _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
+
+        let beforeValue = try await webView.evaluateJavaScript(
+            "window.scrollTo(0, 600); window.scrollY")
+        let before = try XCTUnwrap(beforeValue as? NSNumber).doubleValue
+        XCTAssertGreaterThan(before, 100, "test page did not become scrollable")
+
+        let applied = try await webView.callAsyncJavaScript(
+            "return window.editMDReplacePreview({html: html, revision: revision, position: null});",
+            arguments: [
+                "html": markdownHTMLBody("# Changed\n\n" + markdown),
+                "revision": NSNumber(value: UInt64(2)),
+            ],
+            in: nil,
+            contentWorld: .page
+        )
+        XCTAssertEqual(applied as? Bool, true)
+
+        let afterValue = try await webView.evaluateJavaScript("window.scrollY")
+        let after = try XCTUnwrap(afterValue as? NSNumber).doubleValue
+        XCTAssertEqual(after, before, accuracy: 0.5,
+                       "typing must not semantically re-anchor the Preview viewport")
     }
 
     /// `didFinish` attributes the load by WKNavigation identity, and a shell that
@@ -696,6 +734,41 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         document.content = "# After\n"
         XCTAssertTrue(waitForPreviewText("After", in: webView),
                       "Preview never picked up the edit — the live update path is stalled")
+    }
+
+    /// The production edit originates inside an AppKit text delegate. Preview
+    /// must not rely exclusively on an ancestor SwiftUI view noticing that
+    /// publish and calling updateNSView: coalescing the ancestor invalidation
+    /// used to leave the real split frozen while the @ObservedObject host test
+    /// above stayed green.
+    func testPreviewObservesDocumentWithoutObservedObjectAncestor() throws {
+        let document = MarkdownDocument()
+        document.content = "# Before\n"
+
+        struct Host: View {
+            let document: MarkdownDocument
+            var body: some View {
+                MarkdownPreviewView(document: document, fileURL: nil)
+            }
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = NSHostingView(rootView: Host(document: document))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+            pump(0.3)
+        }
+
+        let webView = try XCTUnwrap(findWebView(in: window), "no WKWebView was hosted")
+        XCTAssertTrue(waitForPreviewText("Before", in: webView),
+                      "the first full page never rendered")
+
+        document.content = "# After\n"
+        XCTAssertTrue(waitForPreviewText("After", in: webView),
+                      "Preview must observe the document at its coordinator boundary")
     }
 
     /// The test runs on the main thread, so nothing else pumps it: WebKit

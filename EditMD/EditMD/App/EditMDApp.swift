@@ -9,7 +9,6 @@ struct EditMDApp: App {
     @FocusedValue(\.formatActions) var actions
     @FocusedValue(\.editorMode) var editorMode
     @FocusedValue(\.sidebarVisible) var sidebarVisible
-    @FocusedValue(\.splitPreview) var splitPreview
     @FocusedValue(\.documentActions) var documentActions
     @FocusedValue(\.documentUndoActions) var documentUndoActions
 
@@ -243,13 +242,6 @@ struct EditMDApp: App {
                 .keyboardShortcut("s", modifiers: [.control, .command])
                 .disabled(sidebarVisible == nil)
 
-                Button(splitPreview?.wrappedValue == true
-                    ? "Hide Preview Pane" : "Show Preview Pane") {
-                    splitPreview?.wrappedValue.toggle()
-                }
-                .keyboardShortcut("p", modifiers: [.option, .command])
-                .disabled(splitPreview == nil)
-
                 // D1: toggle shared with Settings ▸ gutter; editors already react (v27).
                 Toggle("Line Numbers", isOn: Binding(
                     get: { EditorSettings.shared.gutter.showLineNumbers },
@@ -339,7 +331,7 @@ struct EditMDApp: App {
 
                 Divider()
 
-                // ⌥⌘1…6 — plain ⌘1/⌘2/⌘3 already switch the editor mode.
+                // ⌥⌘1…6 — plain ⌘1…⌘4 already switch the editor mode.
                 Menu("Heading") {
                     ForEach(1...6, id: \.self) { level in
                         Button("Heading \(level)") {

@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The three editor modes: raw markdown, hybrid WYSIWYG editing, rendered preview.
+/// The four editor modes: raw markdown, hybrid WYSIWYG, rendered preview,
+/// and the fixed Source + Preview workspace.
 enum EditorMode: String, CaseIterable, Identifiable {
     case source
     case visual
     case preview
+    case split
 
     var id: String { rawValue }
 
@@ -13,6 +15,7 @@ enum EditorMode: String, CaseIterable, Identifiable {
         case .source:  return "Source"
         case .visual:  return "Visual"
         case .preview: return "Preview"
+        case .split:   return "Split"
         }
     }
 
@@ -21,6 +24,7 @@ enum EditorMode: String, CaseIterable, Identifiable {
         case .source:  return "chevron.left.forwardslash.chevron.right"
         case .visual:  return "doc.richtext"
         case .preview: return "eye"
+        case .split:   return "rectangle.split.2x1"
         }
     }
 
@@ -32,15 +36,17 @@ enum EditorMode: String, CaseIterable, Identifiable {
         case .source:  return "chevron.left.forwardslash.chevron.right"
         case .visual:  return "doc.richtext.fill"
         case .preview: return "eye.fill"
+        case .split:   return "rectangle.split.2x1.fill"
         }
     }
 
-    /// ⌘1 / ⌘2 / ⌘3 in the View menu.
+    /// ⌘1 / ⌘2 / ⌘3 / ⌘4 in the View menu.
     var keyboardShortcutKey: KeyEquivalent {
         switch self {
         case .source:  return "1"
         case .visual:  return "2"
         case .preview: return "3"
+        case .split:   return "4"
         }
     }
 
@@ -50,6 +56,7 @@ enum EditorMode: String, CaseIterable, Identifiable {
         case .source:  return "⌘1"
         case .visual:  return "⌘2"
         case .preview: return "⌘3"
+        case .split:   return "⌘4"
         }
     }
 }

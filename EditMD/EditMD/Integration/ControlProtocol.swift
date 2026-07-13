@@ -116,7 +116,7 @@ enum ControlCommandName: String, CaseIterable, Sendable {
         case .status: return "app version, active file, mode, open marks"
         case .open: return "open <path> [--line N | --heading H]"
         case .reveal: return "jump to --line N (or current selection)"
-        case .mode: return "mode source|visual|preview"
+        case .mode: return "mode source|visual|preview|split"
         case .marksList: return "list review marks for active (or --path) file"
         case .marksAdd: return "add a mark from selection or --quote/--note/--type"
         case .diffShow: return "unified diff of buffer vs last-saved / disk"

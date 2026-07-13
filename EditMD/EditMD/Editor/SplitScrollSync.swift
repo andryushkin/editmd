@@ -26,6 +26,13 @@ enum SplitScrollSync {
     /// point.
     static let anchorInset: CGFloat = 8
 
+    /// Inline presentation can alter a Visual line's metrics by a few pixels.
+    /// Treat only that scale as layout jitter; real caret-follow scrolls are
+    /// deliberately outside this window.
+    static func isMinorLayoutDrift(_ drift: CGFloat) -> Bool {
+        abs(drift) > 0.01 && abs(drift) <= 4
+    }
+
     enum Edge { case top, bottom }
 
     /// Where the viewport sits in the document.

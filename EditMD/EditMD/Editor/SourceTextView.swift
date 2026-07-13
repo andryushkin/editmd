@@ -107,9 +107,10 @@ struct SourceTextView: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
 
         scrollView.documentView = textView
-        Self.applyReadingInsets(textView: textView, scrollView: scrollView,
-                                insetH: insetH, insetV: insetV, columnWidth: columnWidth,
-                                gutterReserve: gutterReserve)
+        Self.applyReadingInsets(
+            textView: textView, scrollView: scrollView,
+            insetH: insetH, insetV: insetV, columnWidth: columnWidth,
+            gutterReserve: gutterReserve)
 
         let coordinator = context.coordinator
         coordinator.textView = textView
@@ -216,9 +217,10 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.parent = self
 
         guard let textView = coordinator.textView else { return }
-        Self.applyReadingInsets(textView: textView, scrollView: scrollView,
-                                insetH: insetH, insetV: insetV, columnWidth: columnWidth,
-                                gutterReserve: gutterReserve)
+        let geometryChanged = Self.applyReadingInsets(
+            textView: textView, scrollView: scrollView,
+            insetH: insetH, insetV: insetV, columnWidth: columnWidth,
+            gutterReserve: gutterReserve)
 
         // External change (Revert, or another window editing the shared
         // document). A background window defers the reload until it becomes key
@@ -231,19 +233,20 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
         coordinator.refreshGutter()
-        coordinator.scheduleVisibleOffsetPublish()
+        if geometryChanged { coordinator.scheduleVisibleOffsetPublish() }
     }
 
     /// Horizontal via `textContainerInset` (column wrap). Vertical via the
     /// scroll view's `contentInsets` so the strip→text gap tracks Settings ▸
     /// Vertical immediately — `textContainerInset.height` alone often kept
     /// stale line-fragment origins until a window resize.
+    @discardableResult
     fileprivate static func applyReadingInsets(textView: NSTextView,
                                                scrollView: NSScrollView,
                                                insetH: CGFloat,
                                                insetV: CGFloat,
                                                columnWidth: CGFloat,
-                                               gutterReserve: CGFloat = 0) {
+                                               gutterReserve: CGFloat = 0) -> Bool {
         let width = scrollView.contentView.bounds.width
         var mode = EditorSettings.shared.source
         mode.insetH = insetH
@@ -254,19 +257,26 @@ struct SourceTextView: NSViewRepresentable {
         // text still when they're toggled.
         let leading = max(inset.width, gutterReserve)
 
-        textView.textContainerInset = NSSize(width: leading, height: 0)
+        let nextTextInset = NSSize(width: leading, height: 0)
+        let textInsetChanged = textView.textContainerInset != nextTextInset
+        if textInsetChanged { textView.textContainerInset = nextTextInset }
         scrollView.automaticallyAdjustsContentInsets = false
         let v = inset.height
         let current = scrollView.contentInsets
-        if current.top != v || current.bottom != v || current.left != 0 || current.right != 0 {
+        let scrollInsetChanged = current.top != v || current.bottom != v
+            || current.left != 0 || current.right != 0
+        if scrollInsetChanged {
             scrollView.contentInsets = NSEdgeInsets(top: v, left: 0, bottom: v, right: 0)
         }
         scrollView.backgroundColor = textView.backgroundColor
 
-        if let tc = textView.textContainer {
+        // Re-invalidating unchanged TextKit geometry on every document publish
+        // relays out the editor and moves its viewport while the user types.
+        if textInsetChanged, let tc = textView.textContainer {
             textView.layoutManager?.textContainerChangedGeometry(tc)
         }
         textView.needsDisplay = true
+        return textInsetChanged || scrollInsetChanged
     }
 
     // MARK: - Coordinator
@@ -300,6 +310,9 @@ struct SourceTextView: NSViewRepresentable {
         func textView(_ textView: NSTextView,
                       shouldChangeTextIn affectedCharRange: NSRange,
                       replacementString: String?) -> Bool {
+            // Bounds changes can be posted during the TextKit mutation, before
+            // textDidChange. Suppress layout-driven scroll sync from here.
+            suppressScrollSyncUntil = Date().addingTimeInterval(0.08)
             parent.document.beginContentEdit()
             return true
         }
@@ -307,6 +320,7 @@ struct SourceTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             guard !isInternalUpdate else { return }
+            suppressScrollSyncUntil = Date().addingTimeInterval(0.08)
             isInternalUpdate = true
             parent.document.content = tv.string
             isInternalUpdate = false
@@ -319,7 +333,6 @@ struct SourceTextView: NSViewRepresentable {
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke repaint here.
             refreshGutter()
-            scheduleVisibleOffsetPublish()
         }
 
         func refreshGutter() {
@@ -344,6 +357,9 @@ struct SourceTextView: NSViewRepresentable {
 
         private var lastTextLeading: CGFloat = -1
         private var scrollSyncPublishScheduled = false
+        /// TextKit can move/resize the clip view while laying out a typed
+        /// character. That is not a user scroll and must not reposition Preview.
+        private var suppressScrollSyncUntil = Date.distantPast
         /// Raised while Preview's scroll is being applied here. Our own
         /// `clip.scroll` posts a bounds notification, and publishing from it
         /// would send the position straight back to Preview — a feedback ring
@@ -360,12 +376,15 @@ struct SourceTextView: NSViewRepresentable {
         /// continuous trackpad gesture instead of waiting for it to stop.
         func scheduleVisibleOffsetPublish() {
             guard parent.onVisibleOffset != nil, !isFollowingPreviewScroll,
+                  Date() >= suppressScrollSyncUntil,
                   !scrollSyncPublishScheduled else { return }
             scrollSyncPublishScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.scrollSyncPublishScheduled = false
-                guard !self.isFollowingPreviewScroll, let textView = self.textView,
+                guard !self.isFollowingPreviewScroll,
+                      Date() >= self.suppressScrollSyncUntil,
+                      let textView = self.textView,
                       let position = self.visibleMarkdownPosition(in: textView) else { return }
                 self.parent.onVisibleOffset?(position)
             }

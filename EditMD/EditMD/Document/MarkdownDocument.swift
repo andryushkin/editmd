@@ -94,9 +94,9 @@ private final class DocumentUndoBox: @unchecked Sendable {
 final class MarkdownDocument: ReferenceFileDocument {
 
     // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated.
-    // didSet publishes the change so SwiftUI-only readers (the outline sidebar,
-    // the split's live preview, the Preview status bar) refresh on every edit —
-    // editors write from the main thread, and init assignments skip didSet.
+    // AppKit editors own the in-flight NSTextView mutation. Publish only after
+    // the backing buffer matches them: a pre-change SwiftUI update can otherwise
+    // mistake the typed text for an external edit and reload the text view.
     nonisolated(unsafe) var content: String {
         didSet {
             guard content != oldValue else { return }
