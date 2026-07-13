@@ -440,6 +440,9 @@ struct ContentView: View {
                     bindStrip(from: actions, visualExtras: true)
                 },
                 onActiveFormats: { activeFormats = $0 },
+                onVisibleOffset: splitPreview
+                    ? { offset in positionStore.requestPreviewScroll(toMarkdownOffset: offset) }
+                    : nil,
                 onTextLeading: { editorTextLeading = $0 }
             )
         case .preview:

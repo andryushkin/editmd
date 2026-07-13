@@ -8,7 +8,7 @@ import WebKit
 /// via loadHTMLString, and unsaved documents have no base directory anyway.
 ///
 /// Live updates (the split types into document.content on every keystroke)
-/// are debounced 250 ms and keep the scroll pixel-stable across the reload;
+/// are coalesced for 50 ms and keep the scroll pixel-stable across the reload;
 /// only the FIRST render scrolls to the cross-mode proportional position.
 struct MarkdownPreviewView: NSViewRepresentable {
 
@@ -159,6 +159,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
         let webView = PreviewWebView(frame: .zero, configuration: configuration)
         webView.onReturnKey = onRequestEdit
+        webView.onUserScroll = onRequestEdit == nil ? { [weak coordinator] in
+            coordinator?.previewDidScroll()
+        } : nil
         webView.documentForUndo = document
         webView.navigationDelegate = coordinator
         webView.underPageBackgroundColor = .textBackgroundColor
@@ -167,6 +170,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.onActiveFormats = onActiveFormats
         coordinator.document = document
         coordinator.fileURL = fileURL
+        coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         coordinator.rerender = { [weak coordinator] in
             guard let coordinator else { return }
@@ -224,16 +228,23 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.onActiveFormats = onActiveFormats
         coordinator.document = document
         coordinator.fileURL = fileURL
+        coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         (webView as? PreviewWebView)?.documentForUndo = document
+        (webView as? PreviewWebView)?.onUserScroll = onRequestEdit == nil
+            ? { [weak coordinator] in coordinator?.previewDidScroll() }
+            : nil
+        // A coordinator can be reused while the split turns into full Preview.
+        // In that mode manual WebKit scrolling must win on later reloads.
+        if onRequestEdit != nil { coordinator.lastFollowedOffset = nil }
         guard coordinator.lastRenderedContent != document.content else { return }
-        // Debounce: every updateNSView during typing cancels the pending
-        // render, so the reload fires ~250 ms after the last keystroke.
+        // A short debounce absorbs duplicate SwiftUI updates without making
+        // Preview feel a quarter-second behind the editor.
         coordinator.renderTask?.cancel()
         let parent = self
         coordinator.renderTask = Task { [weak coordinator] in
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled, let coordinator,
                   let webView = coordinator.webView else { return }
             parent.render(in: webView, coordinator: coordinator)
@@ -346,6 +357,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var pendingScrollFraction: Double?
         /// Pixel scroll captured before a live reload, restored in didFinish.
         var pendingScrollY: Double?
+        /// Latest editor viewport anchor. When set (split mode), logical
+        /// markdown alignment wins over a stale pixel value after a reload.
+        var lastFollowedOffset: Int?
+        var reverseScrollEnabled = false
+        private var previewScrollReadInFlight = false
+        private var previewScrollNeedsRead = false
         /// Last usable selection from the page. Empty selectionchange events
         /// do NOT clear this (strip click collapses the WebKit selection).
         var cachedSelection: String = ""
@@ -621,14 +638,79 @@ struct MarkdownPreviewView: NSViewRepresentable {
         /// passive scroll never rewrites the caret (`markdownOffset`).
         @objc func followEditorScroll() {
             guard let store = positionStore else { return }
-            scroll(toMarkdownOffset: store.previewScrollOffset)
+            lastFollowedOffset = store.previewScrollOffset
+            scroll(toMarkdownOffset: store.previewScrollOffset, alignedToViewportBottom: true)
         }
 
-        private func scroll(toMarkdownOffset target: Int) {
+        /// Called only by PreviewWebView's real wheel/trackpad event monitor,
+        /// so programmatic editor→Preview scrolling cannot form a loop.
+        func previewDidScroll() {
+            guard reverseScrollEnabled, positionStore != nil else { return }
+            lastFollowedOffset = nil
+            previewScrollNeedsRead = true
+            readPreviewScrollIfNeeded()
+        }
+
+        private func readPreviewScrollIfNeeded() {
+            guard previewScrollNeedsRead, !previewScrollReadInFlight,
+                  let webView else { return }
+            previewScrollNeedsRead = false
+            previewScrollReadInFlight = true
+            // Let WebKit apply the current wheel delta before sampling the DOM.
+            DispatchQueue.main.async { [weak self, weak webView] in
+                guard let self, let webView else { return }
+                webView.evaluateJavaScript("window.mdOffsetAtViewportBottom()") {
+                    [weak self] result, _ in
+                    guard let self else { return }
+                    self.previewScrollReadInFlight = false
+                    if let payload = result as? [String: Any],
+                       let store = self.positionStore {
+                        let length = self.lastRenderedContent
+                            .map { ($0 as NSString).length } ?? 0
+                        if let edge = payload["edge"] as? String {
+                            store.requestEditorScroll(
+                                toMarkdownOffset: edge == "top" ? 0 : length)
+                        } else if let number = payload["offset"] as? NSNumber {
+                            store.requestEditorScroll(toMarkdownOffset: number.intValue)
+                        } else if let offset = payload["offset"] as? Int {
+                            store.requestEditorScroll(toMarkdownOffset: offset)
+                        }
+                    }
+                    self.readPreviewScrollIfNeeded()
+                }
+            }
+        }
+
+        private func scroll(toMarkdownOffset target: Int,
+                            alignedToViewportBottom: Bool = false) {
             guard let webView, let content = lastRenderedContent else { return }
             let offset = min(target, (content as NSString).length)
             let total = max(1, (content as NSString).length)
             let fraction = Double(offset) / Double(total)
+            if alignedToViewportBottom {
+                // Edge positions are UX invariants, not ordinary anchors.
+                // Keep the complete beginning visible when Source is at zero,
+                // and make both scrollbars reach their ends together.
+                if offset == 0 {
+                    webView.evaluateJavaScript("window.scrollTo(0, 0)",
+                                               completionHandler: nil)
+                    return
+                }
+                if offset >= (content as NSString).length {
+                    webView.evaluateJavaScript(
+                        "window.scrollTo(0, document.documentElement.scrollHeight)",
+                        completionHandler: nil)
+                    return
+                }
+                webView.evaluateJavaScript("window.syncScrollToMdOffset(\(offset))") { result, _ in
+                    let hit = (result as? Bool) ?? false
+                    if !hit {
+                        webView.evaluateJavaScript(Self.syncScrollJS(fraction: fraction),
+                                                   completionHandler: nil)
+                    }
+                }
+                return
+            }
             // scrollToMdOffset returns true when a tagged span was found.
             webView.evaluateJavaScript("window.scrollToMdOffset(\(offset))") { result, _ in
                 let hit = (result as? Bool) ?? false
@@ -642,6 +724,11 @@ struct MarkdownPreviewView: NSViewRepresentable {
         private static func scrollJS(fraction: Double) -> String {
             "window.scrollTo(0, Math.max(0, "
                 + "document.documentElement.scrollHeight * \(fraction) - window.innerHeight * 0.4));"
+        }
+
+        private static func syncScrollJS(fraction: Double) -> String {
+            "window.scrollTo(0, Math.max(0, "
+                + "(document.documentElement.scrollHeight - window.innerHeight) * \(fraction)));"
         }
 
         // MARK: Review-mark wash (Preview is the primary review surface)
@@ -689,6 +776,11 @@ struct MarkdownPreviewView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Fresh DOM — re-paint review washes (loadHTMLString wipes classes).
             applyReviewHighlights()
+            if let offset = lastFollowedOffset {
+                pendingScrollY = nil
+                scroll(toMarkdownOffset: offset, alignedToViewportBottom: true)
+                return
+            }
             if let y = pendingScrollY {
                 pendingScrollY = nil
                 webView.evaluateJavaScript("window.scrollTo(0, \(y));")
@@ -725,6 +817,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
 /// editor is already on screen.
 final class PreviewWebView: WKWebView {
     var onReturnKey: (() -> Void)?
+    /// Emitted only for real mouse/trackpad scrolling, never window.scrollTo.
+    var onUserScroll: (() -> Void)?
+    private var scrollEventMonitor: Any?
     /// Document for ⌘Z / ⌘⇧Z while the web view is first responder.
     weak var documentForUndo: MarkdownDocument?
 
@@ -739,6 +834,24 @@ final class PreviewWebView: WKWebView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let scrollEventMonitor {
+            NSEvent.removeMonitor(scrollEventMonitor)
+            self.scrollEventMonitor = nil
+        }
+        guard window != nil else { return }
+        // WebKit's private content view may consume scrollWheel before the
+        // WKWebView override. A window-local hit test catches that path too.
+        scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+            [weak self] event in
+            guard let self, event.window === self.window else { return event }
+            let point = self.convert(event.locationInWindow, from: nil)
+            if self.bounds.contains(point) { self.onUserScroll?() }
+            return event
+        }
     }
 
     @objc func undo(_ sender: Any?) {

@@ -40,7 +40,7 @@ struct SourceTextView: NSViewRepresentable {
     var onLintUpdate: ((LintSummary) -> Void)? = nil
     /// B6: active inline styles at caret (from cached spans — no re-parse).
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
-    /// D5: top-of-viewport markdown offset for split-preview scroll sync.
+    /// Last-visible-line markdown offset for split-preview scroll sync.
     var onVisibleOffset: ((Int) -> Void)? = nil
     /// Left edge of the text (incl. the reserved gutter margin) — the action
     /// strip and the gutter toggle line up with it.
@@ -180,6 +180,12 @@ struct SourceTextView: NSViewRepresentable {
                 name: .editMDJumpToOffset,
                 object: store
             )
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.followPreviewScroll),
+                name: .editMDEditorScrollSync,
+                object: store
+            )
         }
         // Claude `openFile` reveal. The bridge hands the range to whichever
         // editor claims the URL, so a nil object scope is correct here.
@@ -199,6 +205,7 @@ struct SourceTextView: NSViewRepresentable {
             object: nil
         )
         coordinator.applyReviewHighlights()
+        coordinator.scheduleVisibleOffsetPublish()
 
         return scrollView
     }
@@ -223,6 +230,7 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
         coordinator.refreshGutter()
+        coordinator.scheduleVisibleOffsetPublish()
     }
 
     /// Horizontal via `textContainerInset` (column wrap). Vertical via the
@@ -310,6 +318,7 @@ struct SourceTextView: NSViewRepresentable {
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke repaint here.
             refreshGutter()
+            scheduleVisibleOffsetPublish()
         }
 
         func refreshGutter() {
@@ -333,33 +342,48 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         private var lastTextLeading: CGFloat = -1
-        private var scrollSyncTask: Task<Void, Never>?
+        private var scrollSyncPublishScheduled = false
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
-            // D5: debounce visible-offset publish for split preview.
-            guard parent.onVisibleOffset != nil, let textView else { return }
-            scrollSyncTask?.cancel()
-            scrollSyncTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                guard !Task.isCancelled, let self, let textView = self.textView else { return }
+            scheduleVisibleOffsetPublish()
+        }
+
+        /// Coalesce AppKit's burst of bounds notifications once per run-loop
+        /// turn. Unlike the old 120 ms debounce this keeps publishing during a
+        /// continuous trackpad gesture instead of waiting for it to stop.
+        func scheduleVisibleOffsetPublish() {
+            guard parent.onVisibleOffset != nil, !scrollSyncPublishScheduled else { return }
+            scrollSyncPublishScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scrollSyncPublishScheduled = false
+                guard let textView = self.textView else { return }
                 let offset = self.visibleMarkdownOffset(in: textView)
-                let cb = self.parent.onVisibleOffset
-                await MainActor.run { cb?(offset) }
+                self.parent.onVisibleOffset?(offset)
             }
         }
 
-        /// Character index at the top of the visible rect (UTF-16).
+        /// Character index at the bottom of the visible rect (UTF-16). Split
+        /// sync uses the last visible source line as its anchor: matching the
+        /// top accumulates drift when Preview blocks have different heights.
         private func visibleMarkdownOffset(in textView: NSTextView) -> Int {
             guard let scroll = textView.enclosingScrollView else {
                 return textView.selectedRange().location
             }
+            let length = (textView.string as NSString).length
+            // Preserve the document edges exactly. Without the top sentinel,
+            // opening split at scroll position zero aligns the first screen's
+            // bottom line and hides Preview's heading/top content.
+            let scrollPosition = scroll.verticalScroller?.doubleValue ?? 0
+            if scrollPosition <= 0.0001 { return 0 }
+            if scrollPosition >= 0.9999 { return length }
             let visible = scroll.contentView.bounds
             // Convert to textView coordinates.
-            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.minY + 4),
+            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.maxY - 4),
                                          from: scroll.contentView)
             let idx = textView.characterIndexForInsertion(at: point)
-            return max(0, min(idx, (textView.string as NSString).length))
+            return max(0, min(idx, length))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -451,6 +475,38 @@ struct SourceTextView: NSViewRepresentable {
         @objc func jumpToStoredOffset() {
             guard let store = parent.positionStore else { return }
             selectAndReveal(NSRange(location: store.markdownOffset, length: 0))
+        }
+
+        /// Reverse split sync: align the requested source character with the
+        /// bottom of the viewport without touching selection or focus.
+        @objc func followPreviewScroll() {
+            guard let store = parent.positionStore else { return }
+            scrollViewport(to: store.editorScrollOffset)
+        }
+
+        private func scrollViewport(to target: Int) {
+            guard let textView, let scroll = textView.enclosingScrollView,
+                  let layout = textView.layoutManager,
+                  let container = textView.textContainer else { return }
+            let length = (textView.string as NSString).length
+            let clip = scroll.contentView
+            var proposed = clip.bounds
+            if target <= 0 {
+                proposed.origin.y = -1_000_000_000
+            } else if target >= length {
+                proposed.origin.y = 1_000_000_000
+            } else {
+                let range = NSRange(location: min(target, length - 1), length: 1)
+                layout.ensureLayout(forCharacterRange: range)
+                let glyphs = layout.glyphRange(forCharacterRange: range,
+                                               actualCharacterRange: nil)
+                var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                rect.origin.y += textView.textContainerOrigin.y
+                proposed.origin.y = rect.maxY - proposed.height + 8
+            }
+            let constrained = clip.constrainBoundsRect(proposed)
+            clip.scroll(to: constrained.origin)
+            scroll.reflectScrolledClipView(clip)
         }
 
         /// Reloads from the shared document (external change), preserving the

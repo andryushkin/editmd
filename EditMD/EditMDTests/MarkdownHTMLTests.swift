@@ -30,7 +30,9 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testCodeBlockIsEscapedWithLanguageClass() {
         let html = markdownHTMLBody("```html\n<div class=\"x\">\n```")
-        XCTAssertTrue(html.contains("<pre><code class=\"language-html hljs\">"), html)
+        XCTAssertTrue(html.contains("<pre data-md-lo=\"0\""), html)
+        XCTAssertTrue(html.contains("data-md-hi="), html)
+        XCTAssertTrue(html.contains("data-md-code=\"1\"><code class=\"language-html hljs\">"), html)
         XCTAssertFalse(html.contains("<div class=\"x\">"), html)
         XCTAssertEqual(codeText(in: html), "<div class=\"x\">\n", html)
     }
@@ -137,6 +139,16 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("<h1>"), page)
         XCTAssertTrue(page.contains("Title"), page)
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
+    }
+
+    func testPreviewPageIncludesImmediateSplitScrollBridge() {
+        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        XCTAssertTrue(page.contains("window.syncScrollToMdOffset = function (offset)"), page)
+        XCTAssertTrue(page.contains("var anchorBottom = rect.bottom"), page)
+        XCTAssertTrue(page.contains("rect.height * fraction"), page)
+        XCTAssertTrue(page.contains("- window.innerHeight + 8"), page)
+        XCTAssertTrue(page.contains("window.mdOffsetAtViewportBottom = function ()"), page)
+        XCTAssertFalse(page.contains("syncScrollToMdOffset = function (offset) {\n        best.scrollIntoView"), page)
     }
 
     func testPreviewPageUsesVerticalInsetForTopPadding() {

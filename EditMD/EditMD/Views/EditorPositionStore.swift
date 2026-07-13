@@ -24,11 +24,20 @@ final class EditorPositionStore {
     /// and a passive scroll must never move the caret.
     var previewScrollOffset: Int = 0
 
-    /// D5: editor→preview scroll sync only (Preview listens; Source/Visual
-    /// must not re-select / fight the user scroll).
+    /// Editor→Preview transport. The publishers coalesce bounds notifications
+    /// once per main-loop turn, so this can stay un-debounced.
     func requestPreviewScroll(toMarkdownOffset offset: Int) {
         previewScrollOffset = offset
         NotificationCenter.default.post(name: .editMDPreviewScrollSync, object: self)
+    }
+
+    /// Preview→editor transport. Kept separate from `markdownOffset` so a
+    /// passive Preview scroll never moves the caret or changes mode continuity.
+    var editorScrollOffset: Int = 0
+
+    func requestEditorScroll(toMarkdownOffset offset: Int) {
+        editorScrollOffset = offset
+        NotificationCenter.default.post(name: .editMDEditorScrollSync, object: self)
     }
 }
 
@@ -39,4 +48,7 @@ extension Notification.Name {
     static let editMDJumpToOffset = Notification.Name("editmd.jumpToOffset")
     /// Split-mode scroll follow: Preview only (no Source/Visual selection).
     static let editMDPreviewScrollSync = Notification.Name("editmd.previewScrollSync")
+    /// Reverse split follow: Source/Visual scroll their viewport without
+    /// changing selection. Object = the window's EditorPositionStore.
+    static let editMDEditorScrollSync = Notification.Name("editmd.editorScrollSync")
 }

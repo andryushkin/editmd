@@ -150,6 +150,8 @@ struct VisualMarkdownView: NSViewRepresentable {
     var onFormatActions: (FormatActions) -> Void
     /// B6: active md.inline styles at caret.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
+    /// Last-visible-line markdown offset for split-preview scroll sync.
+    var onVisibleOffset: ((Int) -> Void)? = nil
     /// Left edge of the text (incl. the reserved gutter margin) — the action
     /// strip and the gutter toggle line up with it.
     var onTextLeading: ((CGFloat) -> Void)? = nil
@@ -213,6 +215,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.scrollOrBoundsChanged(_:)),
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView)
+        coordinator.scheduleVisibleOffsetPublish()
 
         NotificationCenter.default.addObserver(
             coordinator,
@@ -237,6 +240,11 @@ struct VisualMarkdownView: NSViewRepresentable {
                 coordinator,
                 selector: #selector(Coordinator.jumpToStoredOffset),
                 name: .editMDJumpToOffset,
+                object: store)
+            NotificationCenter.default.addObserver(
+                coordinator,
+                selector: #selector(Coordinator.followPreviewScroll),
+                name: .editMDEditorScrollSync,
                 object: store)
         }
         NotificationCenter.default.addObserver(
@@ -282,6 +290,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
         }
         coordinator.refreshGutter()
+        coordinator.scheduleVisibleOffsetPublish()
     }
 
     // MARK: - Coordinator
@@ -475,6 +484,53 @@ struct VisualMarkdownView: NSViewRepresentable {
             restoreCursor()
         }
 
+        /// Reverse split sync maps markdown back into Visual display space and
+        /// scrolls only the viewport, preserving caret and first responder.
+        @objc func followPreviewScroll() {
+            guard let store = parent.positionStore, let textView else { return }
+            let markdownLength = (parent.document.content as NSString).length
+            if store.editorScrollOffset <= 0 {
+                scrollViewport(in: textView, toDisplayOffset: 0, forceEdge: .top)
+            } else if store.editorScrollOffset >= markdownLength {
+                scrollViewport(in: textView, toDisplayOffset: textView.string.utf16.count,
+                               forceEdge: .bottom)
+            } else if let display = displayLocation(
+                forMarkdownOffset: store.editorScrollOffset) {
+                scrollViewport(in: textView, toDisplayOffset: display, forceEdge: nil)
+            }
+        }
+
+        private enum ScrollEdge { case top, bottom }
+
+        private func scrollViewport(in textView: NSTextView,
+                                    toDisplayOffset target: Int,
+                                    forceEdge: ScrollEdge?) {
+            guard let scroll = textView.enclosingScrollView,
+                  let layout = textView.layoutManager,
+                  let container = textView.textContainer else { return }
+            let clip = scroll.contentView
+            var proposed = clip.bounds
+            switch forceEdge {
+            case .top:
+                proposed.origin.y = -1_000_000_000
+            case .bottom:
+                proposed.origin.y = 1_000_000_000
+            case nil:
+                let length = (textView.string as NSString).length
+                guard length > 0 else { return }
+                let range = NSRange(location: min(target, length - 1), length: 1)
+                layout.ensureLayout(forCharacterRange: range)
+                let glyphs = layout.glyphRange(forCharacterRange: range,
+                                               actualCharacterRange: nil)
+                var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                rect.origin.y += textView.textContainerOrigin.y
+                proposed.origin.y = rect.maxY - proposed.height + 8
+            }
+            let constrained = clip.constrainBoundsRect(proposed)
+            clip.scroll(to: constrained.origin)
+            scroll.reflectScrolledClipView(clip)
+        }
+
         /// Markdown offset → display offset (inverse of
         /// `markdownOffset(atDisplayLocation:)`), through the paragraph map.
         func displayLocation(forMarkdownOffset target: Int) -> Int? {
@@ -541,6 +597,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke quote search here.
             refreshGutter()
+            scheduleVisibleOffsetPublish()
         }
 
         /// Visual gutter shows **source** line numbers (via paragraph→md map), not 1…N of the WYSIWYG buffer.
@@ -567,9 +624,52 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         private var lastTextLeading: CGFloat = -1
+        private var scrollSyncPublishScheduled = false
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
+            scheduleVisibleOffsetPublish()
+        }
+
+        /// Publish at most once per main-loop turn. This is a throttle rather
+        /// than a debounce, so Preview follows while the gesture is in flight.
+        func scheduleVisibleOffsetPublish() {
+            guard parent.onVisibleOffset != nil, !scrollSyncPublishScheduled else { return }
+            scrollSyncPublishScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scrollSyncPublishScheduled = false
+                guard let textView = self.textView else { return }
+                let scrollPosition = textView.enclosingScrollView?
+                    .verticalScroller?.doubleValue ?? 0
+                if scrollPosition <= 0.0001 {
+                    self.parent.onVisibleOffset?(0)
+                    return
+                }
+                if scrollPosition >= 0.9999 {
+                    self.parent.onVisibleOffset?(
+                        (self.parent.document.content as NSString).length)
+                    return
+                }
+                let displayOffset = self.visibleDisplayOffset(in: textView)
+                guard let markdownOffset = self.markdownOffset(atDisplayLocation: displayOffset)
+                else { return }
+                self.parent.onVisibleOffset?(markdownOffset)
+            }
+        }
+
+        /// Character index at the bottom edge of Visual's viewport. It is
+        /// mapped through `lastParagraphRanges` before leaving the coordinator.
+        private func visibleDisplayOffset(in textView: NSTextView) -> Int {
+            guard let scroll = textView.enclosingScrollView else {
+                return textView.selectedRange().location
+            }
+            let length = (textView.string as NSString).length
+            let visible = scroll.contentView.bounds
+            let point = textView.convert(NSPoint(x: visible.minX + 4, y: visible.maxY - 4),
+                                         from: scroll.contentView)
+            let index = textView.characterIndexForInsertion(at: point)
+            return max(0, min(index, length))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
