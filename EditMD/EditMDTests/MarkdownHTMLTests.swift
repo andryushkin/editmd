@@ -10,6 +10,12 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("5 &lt; 6 &amp; 7 &gt; 3"), html)
     }
 
+    func testRawHTMLScriptsStayInertOnFullAndFragmentRenders() {
+        let html = markdownHTMLBody("<script>alert('no')</script>")
+        XCTAssertTrue(html.contains("&lt;script>alert('no')&lt;/script&gt;"), html)
+        XCTAssertFalse(html.contains("<script>alert('no')</script>"), html)
+    }
+
     /// The token spans must concatenate back to the code verbatim — that
     /// invariant is what lets Source/Visual paint the same runs over untouched
     /// storage, so assert it structurally instead of grepping for fragments.
@@ -186,9 +192,26 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageWrapsBody() {
         let page = previewHTMLPage(markdown: "# Title", fontSize: 14)
         XCTAssertTrue(page.contains("<!DOCTYPE html>"), page)
+        XCTAssertTrue(page.contains("<main id=\"preview-content\"><h1>"), page)
         XCTAssertTrue(page.contains("<h1>"), page)
         XCTAssertTrue(page.contains("Title"), page)
         XCTAssertTrue(page.contains("color-scheme: light dark"), page)
+    }
+
+    func testPreviewPageIncludesPersistentLiveFragmentBridge() {
+        let page = previewHTMLPage(markdown: "- [ ] Task", fontSize: 14)
+        XCTAssertTrue(page.contains("window.editMDPreviewRevision = 0"), page)
+        XCTAssertTrue(page.contains("window.editMDHydratePreviewContent = function ()"), page)
+        XCTAssertTrue(page.contains("window.editMDReplacePreview = async function (payload)"), page)
+        XCTAssertTrue(page.contains("root.innerHTML = payload.html"), page)
+        XCTAssertTrue(page.contains("box.onchange = function ()"), page)
+        XCTAssertTrue(page.contains("btn.onclick = function (e)"), page)
+        XCTAssertTrue(page.contains("window.editMDCurrentScrollPosition = function ()"), page)
+        // Scripts are siblings after the persistent content root, not children
+        // that the first live replacement would destroy.
+        let rootEnd = page.range(of: "</main>")!.upperBound
+        let bridge = page.range(of: "window.editMDReplacePreview")!.lowerBound
+        XCTAssertLessThan(rootEnd, bridge)
     }
 
     /// The follow interpolates a FRACTIONAL markdown offset between anchors, in
@@ -227,7 +250,7 @@ final class MarkdownHTMLTests: XCTestCase {
         let page = previewHTMLPage(markdown: "# Title", fontSize: 14, insetH: 40, insetV: 8)
         // Top padding must track Settings ▸ Vertical (was a hardcoded 24px).
         XCTAssertTrue(page.contains("padding: 8px 40px "), page)
-        XCTAssertTrue(page.contains("body > :first-child { margin-top: 0; }"), page)
+        XCTAssertTrue(page.contains("#preview-content > :first-child { margin-top: 0; }"), page)
     }
 
     func testPreviewPageZeroVerticalInset() {
@@ -277,7 +300,7 @@ final class MarkdownHTMLTests: XCTestCase {
         // Runtime attachment deliberately skips nested blockquotes, while the
         // outer clone retains their text for one whole-tree copy operation.
         XCTAssertTrue(page.contains("el.tagName === 'BLOCKQUOTE'"), page)
-        XCTAssertTrue(page.contains("copyText(clone.innerText || '', btn)"), page)
+        XCTAssertTrue(page.contains("copyPreviewText(clone.innerText || '', btn)"), page)
     }
 
     func testPreviewLineNumbersUseOneGlobalColumnAndLargerGap() {
@@ -425,12 +448,72 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageEmbedsKaTeXOnlyForMath() {
         let with = previewHTMLPage(markdown: "$x$", fontSize: 15)
         let without = previewHTMLPage(markdown: "plain text", fontSize: 15)
-        // The base CSS mentions .katex-display (left-align override), so the
-        // marker for "assets embedded" is the render call, not "katex".
-        XCTAssertFalse(without.contains("katex.render"), "KaTeX embedded without math")
+        // The reusable hydrate bridge mentions katex.render even without the
+        // library, so the shell publishes an explicit asset capability bit.
+        XCTAssertTrue(without.contains("window.editMDHasKaTeXAssets = false"))
         XCTAssertTrue(with.contains("class=\"math math-inline\""))
         if KaTeXResources.isAvailable {
-            XCTAssertTrue(with.contains("katex.render"))
+            XCTAssertTrue(with.contains("window.editMDHasKaTeXAssets = true"))
         }
+    }
+}
+
+final class PreviewRenderSchedulerTests: XCTestCase {
+
+    func testFirstRequestStartsImmediatelyAndDuplicateIsIgnored() {
+        var scheduler = PreviewRenderScheduler()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(scheduler.request("one"), 1)
+        XCTAssertNil(scheduler.request("one"))
+        XCTAssertEqual(scheduler.delay(heavy: false, now: now), 0)
+        XCTAssertEqual(scheduler.startLatest(now: now),
+                       .init(revision: 1, content: "one"))
+    }
+
+    func testTypingWhileRenderingKeepsOnlyLatestRequest() {
+        var scheduler = PreviewRenderScheduler()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = scheduler.request("one")
+        let first = scheduler.startLatest(now: now)!
+        _ = scheduler.request("two")
+        _ = scheduler.request("three")
+
+        XCTAssertTrue(scheduler.markApplied(first))
+        XCTAssertTrue(scheduler.hasPendingRequest)
+        XCTAssertEqual(scheduler.startLatest(now: now.addingTimeInterval(1)),
+                       .init(revision: 3, content: "three"))
+    }
+
+    func testAppliedRevisionNeverMovesBackwards() {
+        var scheduler = PreviewRenderScheduler()
+        _ = scheduler.request("old")
+        let old = scheduler.startLatest()!
+        _ = scheduler.request("new")
+        let new = scheduler.startLatest()!
+        XCTAssertTrue(scheduler.markApplied(new))
+        XCTAssertFalse(scheduler.markApplied(old))
+        XCTAssertEqual(scheduler.appliedContent, "new")
+    }
+
+    func testHeavyDocumentsUseLongerThrottleButKeepPendingRevision() {
+        var scheduler = PreviewRenderScheduler()
+        let start = Date(timeIntervalSince1970: 1_000)
+        _ = scheduler.request("one")
+        _ = scheduler.startLatest(now: start)
+        _ = scheduler.request("two")
+        let soon = start.addingTimeInterval(0.02)
+
+        XCTAssertEqual(scheduler.delay(heavy: false, now: soon), 0.07, accuracy: 0.001)
+        XCTAssertEqual(scheduler.delay(heavy: true, now: soon), 0.23, accuracy: 0.001)
+        XCTAssertTrue(scheduler.hasPendingRequest)
+    }
+
+    func testOnlyFirstMathActivationRequiresNewShell() {
+        XCTAssertTrue(PreviewShellUpdatePolicy.requiresFullReload(
+            hasMath: true, shellHasMathAssets: false))
+        XCTAssertFalse(PreviewShellUpdatePolicy.requiresFullReload(
+            hasMath: false, shellHasMathAssets: false))
+        XCTAssertFalse(PreviewShellUpdatePolicy.requiresFullReload(
+            hasMath: true, shellHasMathAssets: true))
     }
 }

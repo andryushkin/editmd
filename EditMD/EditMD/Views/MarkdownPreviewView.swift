@@ -2,16 +2,119 @@ import SwiftUI
 import AppKit
 import WebKit
 
+/// Deterministic revision/throttle state for live Preview updates. Rendering
+/// and WebKit stay in the Coordinator; this value type is intentionally pure
+/// so latest-only and heavy-document timing can be unit-tested.
+struct PreviewRenderScheduler {
+    struct Request: Equatable, Sendable {
+        let revision: UInt64
+        let content: String
+    }
+
+    static let normalInterval: TimeInterval = 0.09
+    static let heavyInterval: TimeInterval = 0.25
+
+    private(set) var requestedRevision: UInt64 = 0
+    private(set) var startedRevision: UInt64 = 0
+    private(set) var appliedRevision: UInt64 = 0
+    private(set) var requestedContent: String?
+    private(set) var appliedContent: String?
+    private(set) var lastStartedAt = Date.distantPast
+
+    @discardableResult
+    mutating func request(_ content: String, force: Bool = false) -> UInt64? {
+        guard force || requestedContent != content else { return nil }
+        requestedRevision &+= 1
+        requestedContent = content
+        return requestedRevision
+    }
+
+    func delay(heavy: Bool, now: Date = Date()) -> TimeInterval {
+        let interval = heavy ? Self.heavyInterval : Self.normalInterval
+        return max(0, interval - now.timeIntervalSince(lastStartedAt))
+    }
+
+    mutating func startLatest(now: Date = Date()) -> Request? {
+        guard requestedRevision > startedRevision, let requestedContent else { return nil }
+        startedRevision = requestedRevision
+        lastStartedAt = now
+        return Request(revision: requestedRevision, content: requestedContent)
+    }
+
+    @discardableResult
+    mutating func markApplied(_ request: Request) -> Bool {
+        guard request.revision >= appliedRevision else { return false }
+        appliedRevision = request.revision
+        appliedContent = request.content
+        return true
+    }
+
+    var hasPendingRequest: Bool { requestedRevision > startedRevision }
+}
+
+enum PreviewShellUpdatePolicy {
+    static func requiresFullReload(hasMath: Bool, shellHasMathAssets: Bool) -> Bool {
+        hasMath && !shellHasMathAssets
+    }
+}
+
+private struct PreviewFragmentRequest: Sendable {
+    let scheduled: PreviewRenderScheduler.Request
+    let baseDir: URL?
+    let gutter: PreviewGutterOptions
+    let syntaxHighlighting: Bool
+}
+
+private struct PreviewFragmentResult: Sendable {
+    let scheduled: PreviewRenderScheduler.Request
+    let body: String
+    let hasMath: Bool
+}
+
+/// Thread-safe data-URI cache. A live fragment render must not read and
+/// base64-encode every local image again at 90 ms intervals.
+private final class PreviewImageDataCache: @unchecked Sendable {
+    static let shared = PreviewImageDataCache()
+
+    private struct Entry {
+        let modificationDate: Date?
+        let fileSize: Int?
+        let dataURI: String
+    }
+
+    private let lock = NSLock()
+    private var entries: [URL: Entry] = [:]
+    private let capacity = 64
+
+    func dataURI(for url: URL, mime: String, maximumBytes: Int) -> String? {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let date = values?.contentModificationDate
+        let size = values?.fileSize
+        lock.lock()
+        if let cached = entries[url], cached.modificationDate == date, cached.fileSize == size {
+            lock.unlock()
+            return cached.dataURI
+        }
+        lock.unlock()
+
+        guard let data = try? Data(contentsOf: url), data.count <= maximumBytes else { return nil }
+        let uri = "data:\(mime);base64,\(data.base64EncodedString())"
+        lock.lock()
+        if entries.count >= capacity, let victim = entries.keys.first { entries.removeValue(forKey: victim) }
+        entries[url] = Entry(modificationDate: date, fileSize: size, dataURI: uri)
+        lock.unlock()
+        return uri
+    }
+}
+
 /// Read-only rendered preview: full-window in Preview mode, or the right
 /// pane of the editor+preview split. Local images are inlined as data:
 /// URIs — WKWebView does not grant file:// subresource access to HTML loaded
 /// via loadHTMLString, and unsaved documents have no base directory anyway.
 ///
-/// Live updates (the split types into document.content on every keystroke) are
-/// throttled to one render per `Coordinator.renderInterval` — leading edge, so
-/// the first edit after a pause lands at once — and keep the scroll stable
-/// across the reload; only the FIRST render scrolls to the cross-mode
-/// proportional position.
+/// Live updates render a latest-only HTML fragment off-main and replace the
+/// persistent page's `#preview-content`. Full WebKit navigation is reserved for
+/// the first load, CSS/settings changes, KaTeX activation and recovery.
 struct MarkdownPreviewView: NSViewRepresentable {
 
     let document: MarkdownDocument
@@ -173,12 +276,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
+        coordinator.scheduleLatest = { [weak coordinator] in
+            guard let coordinator else { return }
+            self.scheduleNextRender(coordinator: coordinator)
+        }
         coordinator.rerender = { [weak coordinator] in
             guard let coordinator else { return }
-            coordinator.lastRenderedContent = nil
-            if let webView = coordinator.webView {
-                self.render(in: webView, coordinator: coordinator)
-            }
+            self.forceFullReload(coordinator: coordinator)
         }
         // Preview settings changes must re-render: the page bakes font size/
         // insets/line-height/column width into its CSS, so no content change
@@ -212,7 +316,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
             name: .reviewMarksDidChange,
             object: nil
         )
-        render(in: webView, coordinator: coordinator)
+        _ = coordinator.scheduler.request(document.content, force: true)
+        if let initial = coordinator.scheduler.startLatest() {
+            loadFullPage(initial, in: webView, coordinator: coordinator)
+        }
         // Full Preview mode: focus the web view so Return-to-edit works
         // right after the mode switch (async — no window yet in makeNSView).
         if onRequestEdit != nil {
@@ -231,54 +338,41 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.fileURL = fileURL
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
+        coordinator.scheduleLatest = { [weak coordinator] in
+            guard let coordinator else { return }
+            self.scheduleNextRender(coordinator: coordinator)
+        }
+        coordinator.rerender = { [weak coordinator] in
+            guard let coordinator else { return }
+            self.forceFullReload(coordinator: coordinator)
+        }
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         (webView as? PreviewWebView)?.documentForUndo = document
         // A coordinator can be reused while the split turns into full Preview.
         // In that mode manual WebKit scrolling must win on later reloads.
         if onRequestEdit != nil { coordinator.lastFollowedPosition = nil }
-        guard coordinator.lastRenderedContent != document.content else { return }
-        // LEADING-edge throttle, not a debounce. A render is the whole pipeline
-        // — cmark + BLOCKING highlight.js (both palettes) + KaTeX + a full
-        // loadHTMLString — so it must not run per keystroke; a 50 ms debounce
-        // did exactly that, since typists pause longer than 50 ms between keys.
-        // But a trailing-only debounce is what made Preview feel late. So: draw
-        // the first edit after a pause immediately, then coalesce the rest into
-        // one render per interval.
-        coordinator.renderTask?.cancel()
-        let sinceLastRender = Date().timeIntervalSince(coordinator.lastRenderStarted)
-        if sinceLastRender >= Coordinator.renderInterval {
-            render(in: webView, coordinator: coordinator)
-            return
-        }
-        let parent = self
-        let wait = Coordinator.renderInterval - sinceLastRender
-        coordinator.renderTask = Task { [weak coordinator] in
-            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-            guard !Task.isCancelled, let coordinator,
-                  let webView = coordinator.webView else { return }
-            parent.render(in: webView, coordinator: coordinator)
+        if coordinator.scheduler.request(document.content) != nil {
+            scheduleNextRender(coordinator: coordinator)
         }
     }
 
-    private func render(in webView: WKWebView, coordinator: Coordinator) {
-        let content = document.content
-        guard coordinator.lastRenderedContent != content else { return }
-        coordinator.lastRenderedContent = content
-        coordinator.lastRenderStarted = Date()
-
-        let baseDir = assetBaseDir
-        let settings = EditorSettings.shared.preview
-        let general = EditorSettings.shared.general
+    private func gutterOptions() -> PreviewGutterOptions {
         let g = EditorSettings.shared.gutter
         let dirtyHex = g.dirtyMarkColorHex ?? g.dirtyMarkNSColor.hexString
-        let gutter = PreviewGutterOptions(
+        return PreviewGutterOptions(
             showLineNumbers: g.showLineNumbers,
             highlightChangedLines: g.highlightChangedLines,
             showDirtyBulletsWhenNoNumbers: g.showDirtyBulletsWhenNoNumbers,
             dirtyLines: LineChangeTracker.shared.dirtyLines(for: fileURL),
             dirtyMarkColorHex: dirtyHex
         )
-        let html = previewHTMLPage(
+    }
+
+    private func fullPageHTML(for content: String) -> String {
+        let baseDir = assetBaseDir
+        let settings = EditorSettings.shared.preview
+        let general = EditorSettings.shared.general
+        return previewHTMLPage(
             markdown: content,
             fontSize: settings.fontSize,
             insetH: settings.insetH,
@@ -290,28 +384,136 @@ struct MarkdownPreviewView: NSViewRepresentable {
             elements: settings.elements,
             textColorHex: general.textColorHex,
             accentColorHex: general.accentColorHex,
-            gutter: gutter,
+            gutter: gutterOptions(),
             syntaxHighlighting: general.syntaxHighlighting,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }
         )
+    }
 
+    private func makeFragmentRequest(_ scheduled: PreviewRenderScheduler.Request)
+        -> PreviewFragmentRequest {
+        PreviewFragmentRequest(
+            scheduled: scheduled,
+            baseDir: assetBaseDir,
+            gutter: gutterOptions(),
+            syntaxHighlighting: EditorSettings.shared.general.syntaxHighlighting
+        )
+    }
+
+    private func scheduleNextRender(coordinator: Coordinator) {
+        guard coordinator.renderTask == nil, coordinator.shellReady,
+              !coordinator.shellLoading, coordinator.scheduler.hasPendingRequest
+        else { return }
+        let wait = coordinator.scheduler.delay(heavy: document.isHeavy)
+        coordinator.renderTask = Task { @MainActor [weak coordinator] in
+            if wait > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
+            guard !Task.isCancelled, let coordinator, coordinator.shellReady,
+                  !coordinator.shellLoading,
+                  let scheduled = coordinator.scheduler.startLatest()
+            else {
+                coordinator?.renderTask = nil
+                return
+            }
+            let request = makeFragmentRequest(scheduled)
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.renderFragment(request)
+            }.value
+            guard !Task.isCancelled else { return }
+            await applyFragment(result, coordinator: coordinator)
+            coordinator.renderTask = nil
+            coordinator.scheduleLatest?()
+        }
+    }
+
+    nonisolated private static func renderFragment(_ request: PreviewFragmentRequest)
+        -> PreviewFragmentResult {
+        let rendered = markdownHTMLRender(
+            request.scheduled.content,
+            imageResolver: { dataURI(for: $0, baseDir: request.baseDir) },
+            gutter: request.gutter,
+            syntaxHighlighting: request.syntaxHighlighting
+        )
+        return PreviewFragmentResult(scheduled: request.scheduled,
+                                     body: rendered.body,
+                                     hasMath: rendered.hasMath)
+    }
+
+    private func applyFragment(_ result: PreviewFragmentResult,
+                               coordinator: Coordinator) async {
+        guard let webView = coordinator.webView else { return }
+        if PreviewShellUpdatePolicy.requiresFullReload(
+            hasMath: result.hasMath,
+            shellHasMathAssets: coordinator.shellHasMathAssets) {
+            loadFullPage(result.scheduled, in: webView, coordinator: coordinator)
+            return
+        }
+        let position: Any = coordinator.lastFollowedPosition.map { NSNumber(value: $0) } ?? NSNull()
+        do {
+            let applied = try await webView.callAsyncJavaScript(
+                "return await window.editMDReplacePreview({html: html, revision: revision, position: position});",
+                arguments: [
+                    "html": result.body,
+                    "revision": NSNumber(value: result.scheduled.revision),
+                    "position": position,
+                ],
+                in: nil,
+                contentWorld: .page
+            )
+            guard !Task.isCancelled else { return }
+            guard (applied as? Bool) == true else {
+                forceFullReload(coordinator: coordinator)
+                return
+            }
+            if coordinator.scheduler.markApplied(result.scheduled) {
+                coordinator.lastRenderedContent = result.scheduled.content
+            }
+            coordinator.applyReviewHighlights()
+        } catch {
+            guard !Task.isCancelled else { return }
+            // A stale/missing JS shell must never leave Preview frozen. Rebuild
+            // it once; didFinish resumes the latest queued revision.
+            forceFullReload(coordinator: coordinator)
+        }
+    }
+
+    private func forceFullReload(coordinator: Coordinator) {
+        guard let webView = coordinator.webView else { return }
+        coordinator.renderTask?.cancel()
+        coordinator.renderTask = nil
+        _ = coordinator.scheduler.request(document.content, force: true)
+        guard let scheduled = coordinator.scheduler.startLatest() else { return }
+        loadFullPage(scheduled, in: webView, coordinator: coordinator)
+    }
+
+    private func loadFullPage(_ scheduled: PreviewRenderScheduler.Request,
+                              in webView: WKWebView,
+                              coordinator: Coordinator) {
+        coordinator.shellLoading = true
+        coordinator.shellReady = false
+        coordinator.pendingShellRequest = scheduled
+        coordinator.shellHasMathAssets = !scanMathSpans(in: scheduled.content).isEmpty
+            && KaTeXResources.isAvailable
+        let html = fullPageHTML(for: scheduled.content)
+        let load = {
+            webView.stopLoading()
+            coordinator.hasRenderedOnce = true
+            webView.loadHTMLString(html, baseURL: nil)
+        }
         if coordinator.hasRenderedOnce {
-            // Live re-render: capture the current scroll first, restore it in
-            // didFinish — loadHTMLString would otherwise snap back to the top
-            // on every debounced reload while typing in the split.
-            webView.evaluateJavaScript("window.scrollY") { scrollY, _ in
-                coordinator.pendingScrollY = (scrollY as? NSNumber)?.doubleValue
-                webView.loadHTMLString(html, baseURL: nil)
+            webView.evaluateJavaScript("window.editMDCurrentScrollPosition && window.editMDCurrentScrollPosition()") {
+                value, _ in
+                coordinator.pendingScrollPosition = (value as? NSNumber)?.doubleValue
+                load()
             }
         } else {
-            coordinator.hasRenderedOnce = true
-            // First render: land at the cross-mode cursor's proportional spot.
             if let store = positionStore {
-                let total = max(1, (content as NSString).length)
+                let total = max(1, (scheduled.content as NSString).length)
                 coordinator.pendingScrollFraction =
                     Double(min(store.markdownOffset, total)) / Double(total)
             }
-            webView.loadHTMLString(html, baseURL: nil)
+            load()
         }
     }
 
@@ -324,26 +526,24 @@ struct MarkdownPreviewView: NSViewRepresentable {
             : fileURL.deletingLastPathComponent()
     }
 
-    private static let imageMIMETypes: [String: String] = [
+    nonisolated private static let imageMIMETypes: [String: String] = [
         "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
         "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
         "heic": "image/heic", "tiff": "image/tiff", "tif": "image/tiff",
         "bmp": "image/bmp",
     ]
-    private static let maxInlineImageBytes = 8_000_000
+    nonisolated private static let maxInlineImageBytes = 8_000_000
 
     /// data: URI for a relative local image path, or nil to keep the original
     /// source (remote URLs, anchors, unknown types, oversized/missing files).
-    static func dataURI(for source: String, baseDir: URL?) -> String? {
+    nonisolated static func dataURI(for source: String, baseDir: URL?) -> String? {
         guard !source.hasPrefix("#"), URL(string: source)?.scheme == nil,
               let baseDir else { return nil }
         let path = source.removingPercentEncoding ?? source
         let fileURL = baseDir.appendingPathComponent(path).standardizedFileURL
-        guard let mime = imageMIMETypes[fileURL.pathExtension.lowercased()],
-              let data = try? Data(contentsOf: fileURL),
-              data.count <= maxInlineImageBytes
-        else { return nil }
-        return "data:\(mime);base64,\(data.base64EncodedString())"
+        guard let mime = imageMIMETypes[fileURL.pathExtension.lowercased()] else { return nil }
+        return PreviewImageDataCache.shared.dataURI(
+            for: fileURL, mime: mime, maximumBytes: maxInlineImageBytes)
     }
 
     // MARK: - Coordinator
@@ -356,20 +556,25 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var positionStore: EditorPositionStore?
         var document: MarkdownDocument?
         var fileURL: URL?
+        /// Content currently present in the DOM. Scroll math must never use a
+        /// requested-but-not-yet-applied revision.
         var lastRenderedContent: String?
+        var scheduler = PreviewRenderScheduler()
         var renderTask: Task<Void, Never>?
-        /// Minimum spacing between two renders while the user keeps typing.
-        static let renderInterval: TimeInterval = 0.25
-        var lastRenderStarted: Date = .distantPast
         var hasRenderedOnce = false
+        var shellReady = false
+        var shellLoading = false
+        var shellHasMathAssets = false
+        var pendingShellRequest: PreviewRenderScheduler.Request?
+        var scheduleLatest: (() -> Void)?
         /// Forces a full re-render (font size changes: same content,
         /// different CSS).
         var rerender: (() -> Void)?
         /// Proportional scroll target from the shared position store (first
         /// render only).
         var pendingScrollFraction: Double?
-        /// Pixel scroll captured before a live reload, restored in didFinish.
-        var pendingScrollY: Double?
+        /// Logical markdown position captured before a rare shell reload.
+        var pendingScrollPosition: Double?
         /// Latest editor viewport anchor. When set (split mode), logical
         /// markdown alignment wins over a stale pixel value after a reload.
         var lastFollowedPosition: Double?
@@ -383,6 +588,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var cachedEnd: Int = -1
 
         deinit {
+            renderTask?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
 
@@ -434,8 +640,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
 
         /// A task checkbox was clicked in the page: flip the matching
         /// `[ ]`/`[x]` in the markdown source. The DOM already shows the new
-        /// state; the debounced re-render that follows is a visual no-op and
-        /// keeps the scroll (pendingScrollY dance in render/didFinish).
+        /// state; the throttled fragment update that follows is a visual no-op.
         func toggleTask(at index: Int) {
             guard let document,
                   let toggled = toggleTaskListItem(in: document.content, index: index)
@@ -766,23 +971,44 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Fresh DOM — re-paint review washes (loadHTMLString wipes classes).
+            shellLoading = false
+            shellReady = true
+            if let loaded = pendingShellRequest {
+                pendingShellRequest = nil
+                if scheduler.markApplied(loaded) {
+                    lastRenderedContent = loaded.content
+                }
+                webView.evaluateJavaScript(
+                    "window.editMDPreviewRevision = \(loaded.revision)",
+                    completionHandler: nil)
+            }
+            // Fresh shell — re-paint review washes (loadHTMLString wipes classes).
             applyReviewHighlights()
             if let position = lastFollowedPosition {
-                pendingScrollY = nil
+                pendingScrollPosition = nil
                 scroll(toMarkdownPosition: position)
-                return
+            } else if let position = pendingScrollPosition {
+                pendingScrollPosition = nil
+                scroll(toMarkdownPosition: position)
+            } else if let fraction = pendingScrollFraction, fraction > 0.001 {
+                pendingScrollFraction = nil
+                webView.evaluateJavaScript(Self.scrollJS(fraction: fraction))
             }
-            if let y = pendingScrollY {
-                pendingScrollY = nil
-                // Restoring our own pre-reload position is not a user scroll:
-                // reporting it back would have the editor chase a move it made.
-                webView.evaluateJavaScript("window.programmaticScroll(\(y));")
-                return
-            }
-            guard let fraction = pendingScrollFraction, fraction > 0.001 else { return }
+            // Content edits received while loadHTMLString was navigating stayed
+            // in scheduler.requestedContent and are rendered only into this DOM.
+            scheduleLatest?()
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            shellReady = false
+            shellLoading = false
+            shellHasMathAssets = false
+            hasRenderedOnce = false
+            pendingShellRequest = nil
+            pendingScrollPosition = nil
             pendingScrollFraction = nil
-            webView.evaluateJavaScript(Self.scrollJS(fraction: fraction))
+            lastRenderedContent = nil
+            rerender?()
         }
 
         // The async form: the closure-based signature no longer matches the

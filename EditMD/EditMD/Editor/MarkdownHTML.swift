@@ -7,7 +7,8 @@ import Markdown
 // code content (a code block containing "<div>" would break the page) and it
 // drops inline formatting inside headings (plainText). This visitor escapes
 // everything except author-written raw HTML blocks/inlines, which are passed
-// through — standard markdown behavior.
+// through except executable script tags. Preview is a document viewer, not a
+// script host; this also keeps first load and later innerHTML updates consistent.
 
 func htmlEscape(_ s: String) -> String {
     s.replacingOccurrences(of: "&", with: "&amp;")
@@ -17,6 +18,16 @@ func htmlEscape(_ s: String) -> String {
 
 func htmlAttributeEscape(_ s: String) -> String {
     htmlEscape(s).replacingOccurrences(of: "\"", with: "&quot;")
+}
+
+/// Preserve ordinary Markdown raw HTML while making `<script>` text inert.
+/// `innerHTML` does not execute newly inserted scripts, but the initial full
+/// page would; neutralizing at the shared renderer gives both paths one rule.
+func previewSafeRawHTML(_ raw: String) -> String {
+    raw.replacingOccurrences(of: "(?i)<\\s*script\\b", with: "&lt;script",
+                             options: .regularExpression)
+        .replacingOccurrences(of: "(?i)</\\s*script\\s*>", with: "&lt;/script&gt;",
+                              options: .regularExpression)
 }
 
 /// HTML-escapes body text and adds a `<wbr>` soft break after each underscore.
@@ -29,7 +40,7 @@ func htmlEscapeBreakingUnderscores(_ s: String) -> String {
 }
 
 /// Options for embedding source-line markers in Preview HTML (`data-ln`).
-struct PreviewGutterOptions: Equatable {
+struct PreviewGutterOptions: Equatable, Sendable {
     var showLineNumbers: Bool = false
     var highlightChangedLines: Bool = false
     var showDirtyBulletsWhenNoNumbers: Bool = false
@@ -396,7 +407,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     mutating func visitHTMLBlock(_ html: HTMLBlock) {
         // Raw HTML: wrap so the gutter can still mark the starting line.
         openBlock("div", html, classes: ["raw-html"])
-        result += html.rawHTML
+        result += previewSafeRawHTML(html.rawHTML)
         result += "</div>\n"
     }
 
@@ -692,7 +703,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
-        result += inlineHTML.rawHTML
+        result += previewSafeRawHTML(inlineHTML.rawHTML)
     }
 
     mutating func visitLineBreak(_ lineBreak: LineBreak) {
@@ -743,35 +754,12 @@ func previewHTMLPage(markdown: String,
     // shows raw TeX (`.math` spans keep their escaped source text).
     let mathAssets = hasMath && KaTeXResources.isAvailable
     let mathHead = mathAssets ? "<style>\n\(KaTeXResources.css)\n</style>" : ""
+    // The library stays outside #preview-content so live innerHTML replacement
+    // cannot remove it. Rendering newly inserted math is handled by the shared
+    // hydrate function below rather than a one-shot page-load script.
     let mathScripts = mathAssets ? """
     <script>
     \(KaTeXResources.js)
-    </script>
-    <script>
-    (function () {
-        if (typeof katex === 'undefined') return;
-        document.querySelectorAll('.math').forEach(function (el) {
-            var tex = el.textContent;
-            try {
-                katex.render(tex, el, {
-                    displayMode: el.classList.contains('math-display'),
-                    throwOnError: false
-                });
-                el.classList.add('math-rendered');
-            } catch (e) {
-                el.classList.add('math-error');
-                el.textContent = tex;
-            }
-        });
-        // Rendered math changes block heights — re-place the line-number
-        // gutter now and again once the KaTeX webfonts finish loading.
-        if (window.alignLineNumberGutter) window.alignLineNumberGutter();
-        if (document.fonts && document.fonts.ready) {
-            document.fonts.ready.then(function () {
-                if (window.alignLineNumberGutter) window.alignLineNumberGutter();
-            });
-        }
-    })();
     </script>
     """ : ""
     let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
@@ -875,7 +863,7 @@ func previewHTMLPage(markdown: String,
     }
     /* First block must not add extra top margin on top of body padding —
        otherwise Settings ▸ Vertical never reaches zero under the action strip. */
-    body > :first-child { margin-top: 0; }
+    #preview-content > :first-child { margin-top: 0; }
     h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
     h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
     h4 { font-size: 1em; } h5 { font-size: 0.875em; } h6 { font-size: 0.85em; opacity: 0.7; }
@@ -1087,73 +1075,81 @@ func previewHTMLPage(markdown: String,
     \(mathHead)
     </head>
     <body\(bodyGutterClass)>
-    \(body)
+    <main id="preview-content">\(body)</main>
+    \(mathScripts)
     <script>
+    window.editMDPreviewRevision = 0;
+    window.editMDHasKaTeXAssets = \(mathAssets ? "true" : "false");
     // Align every source-line marker to one document-global column. `data-ln`
     // lives on blocks with different local x origins (nested lists/quotes), so
     // pure element-relative CSS produces a ragged gutter. Recompute on resize
     // because a centered reading column moves with the viewport.
-    (function () {
-        function alignLineNumberGutter() {
-            var bodyStyle = getComputedStyle(document.body);
-            var contentLeft = document.body.getBoundingClientRect().left
-                + parseFloat(bodyStyle.paddingLeft || '0');
-            var rootStyle = getComputedStyle(document.documentElement);
-            var columnWidth = parseFloat(rootStyle.getPropertyValue('--ln-col')) || 28;
-            var gap = parseFloat(rootStyle.getPropertyValue('--ln-gap')) || 18;
-            var desiredLeft = contentLeft - gap - columnWidth;
-            document.querySelectorAll('[data-ln]').forEach(function (el) {
-                var localLeft = desiredLeft - el.getBoundingClientRect().left;
-                el.style.setProperty('--ln-left', localLeft + 'px');
-            });
-        }
-        alignLineNumberGutter();
-        window.addEventListener('resize', alignLineNumberGutter);
-        window.alignLineNumberGutter = alignLineNumberGutter;
-    })();
+    function alignLineNumberGutter() {
+        var bodyStyle = getComputedStyle(document.body);
+        var contentLeft = document.body.getBoundingClientRect().left
+            + parseFloat(bodyStyle.paddingLeft || '0');
+        var rootStyle = getComputedStyle(document.documentElement);
+        var columnWidth = parseFloat(rootStyle.getPropertyValue('--ln-col')) || 28;
+        var gap = parseFloat(rootStyle.getPropertyValue('--ln-gap')) || 18;
+        var desiredLeft = contentLeft - gap - columnWidth;
+        document.querySelectorAll('[data-ln]').forEach(function (el) {
+            var localLeft = desiredLeft - el.getBoundingClientRect().left;
+            el.style.setProperty('--ln-left', localLeft + 'px');
+        });
+    }
+    window.addEventListener('resize', alignLineNumberGutter);
+    window.alignLineNumberGutter = alignLineNumberGutter;
     // Interactive task checkboxes (FSNotes' HandlerCheckbox idea): the body
     // fragment renders them disabled; the live preview re-enables them and
     // reports the clicked index — document order matches the order of
     // taskListMarker spans, which the Swift side uses to edit the source.
-    document.querySelectorAll('li.task > input[type=checkbox]').forEach(function (box, i) {
-        box.disabled = false;
-        box.addEventListener('change', function () {
-            var handlers = window.webkit && window.webkit.messageHandlers;
-            if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+    function hydrateTaskCheckboxes() {
+        document.querySelectorAll('li.task > input[type=checkbox]').forEach(function (box, i) {
+            box.disabled = false;
+            // Property assignment is deliberately idempotent: hydrate can run
+            // after every fragment replacement without accumulating listeners.
+            box.onchange = function () {
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+            };
         });
-    });
+    }
     // Wiki-link navigation: report a click; the Swift side resolves target →
     // file and opens it. Handler may be absent (no-op) until wired.
-    document.querySelectorAll('a.wikilink').forEach(function (el) {
-        el.addEventListener('click', function (e) {
-            e.preventDefault();
-            var handlers = window.webkit && window.webkit.messageHandlers;
-            if (handlers && handlers.wikiLinkClick) {
-                handlers.wikiLinkClick.postMessage({
-                    target: el.dataset.wikiTarget,
-                    heading: el.dataset.wikiHeading || null,
-                    blockID: el.dataset.wikiBlock || null
-                });
-            }
+    function hydrateWikiLinks() {
+        document.querySelectorAll('a.wikilink').forEach(function (el) {
+            el.onclick = function (e) {
+                e.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.wikiLinkClick) {
+                    handlers.wikiLinkClick.postMessage({
+                        target: el.dataset.wikiTarget,
+                        heading: el.dataset.wikiHeading || null,
+                        blockID: el.dataset.wikiBlock || null
+                    });
+                }
+            };
         });
-    });
+    }
     // Local file links ([pdf](/research_pdf/x.pdf)): schemeless hrefs cannot
     // resolve against loadHTMLString's about:blank base, so report the raw
     // href; the Swift side resolves it Obsidian-style (vault-absolute /
     // file-relative) and opens the target. Scheme links keep the default
     // navigation path (decidePolicyFor → system).
-    document.querySelectorAll('a[href]').forEach(function (el) {
-        if (el.classList.contains('wikilink')) return;
-        var href = el.getAttribute('href');
-        if (!href || href.charAt(0) === '#' || /^[a-zA-Z][a-zA-Z0-9+.\\-]*:/.test(href)) return;
-        el.addEventListener('click', function (e) {
-            e.preventDefault();
-            var handlers = window.webkit && window.webkit.messageHandlers;
-            if (handlers && handlers.localLinkClick) {
-                handlers.localLinkClick.postMessage({ href: href });
-            }
+    function hydrateLocalLinks() {
+        document.querySelectorAll('a[href]').forEach(function (el) {
+            if (el.classList.contains('wikilink')) return;
+            var href = el.getAttribute('href');
+            if (!href || href.charAt(0) === '#' || /^[a-zA-Z][a-zA-Z0-9+.\\-]*:/.test(href)) return;
+            el.onclick = function (e) {
+                e.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.localLinkClick) {
+                    handlers.localLinkClick.postMessage({ href: href });
+                }
+            };
         });
-    });
+    }
     // Review marks (v37): paint open anchors on tagged spans and jump by
     // markdown UTF-16 offset. Called from Swift after load / mark changes.
     // marks = [{start, end, type, id}]
@@ -1290,6 +1286,9 @@ func previewHTMLPage(markdown: String,
         var t = Math.max(0, Math.min(1, (y - a.top) / span));
         return a.lo + (b.lo - a.lo) * t;
     }
+    window.editMDCurrentScrollPosition = function () {
+        return mdPositionForY(window.scrollY + 8);
+    };
 
     // Programmatic scrolls must not be reported back as user scrolls; the flag
     // clears on the next frame, by which time WebKit has fired the event.
@@ -1350,55 +1349,121 @@ func previewHTMLPage(markdown: String,
     }, { passive: true });
 
     // D4: hover copy button on code blocks and blockquotes.
-    (function () {
-        function copyText(text, btn) {
-            function ok() {
-                var prev = btn.textContent;
-                btn.textContent = '✓';
-                setTimeout(function () { btn.textContent = prev; }, 1000);
-            }
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(ok).catch(function () {
-                    fallbackCopy(text); ok();
-                });
-            } else {
-                fallbackCopy(text); ok();
-            }
+    function copyPreviewText(text, btn) {
+        function ok() {
+            var prev = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(function () { btn.textContent = prev; }, 1000);
         }
-        function fallbackCopy(text) {
-            var ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.left = '-9999px';
-            document.body.appendChild(ta);
-            ta.select();
-            try { document.execCommand('copy'); } catch (e) {}
-            document.body.removeChild(ta);
-        }
-        function attach(el) {
-            if (el.querySelector('.copy-block-btn')) return;
-            // One button per logical quote tree: a nested blockquote belongs
-            // to its outer quote and is copied together with it.
-            if (el.tagName === 'BLOCKQUOTE' && el.parentElement.closest('blockquote')) return;
-            el.classList.add('copy-host');
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'copy-block-btn';
-            btn.textContent = '⎘';
-            btn.title = 'Copy';
-            btn.addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                var clone = el.cloneNode(true);
-                clone.querySelectorAll('.copy-block-btn').forEach(function (b) { b.remove(); });
-                copyText(clone.innerText || '', btn);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(function () {
+                fallbackPreviewCopy(text); ok();
             });
-            el.appendChild(btn);
+        } else {
+            fallbackPreviewCopy(text); ok();
         }
-        document.querySelectorAll('pre, blockquote').forEach(attach);
-    })();
+    }
+    function fallbackPreviewCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+    }
+    function attachPreviewCopyButton(el) {
+        if (el.querySelector('.copy-block-btn')) return;
+        // One button per logical quote tree: a nested blockquote belongs
+        // to its outer quote and is copied together with it.
+        if (el.tagName === 'BLOCKQUOTE' && el.parentElement.closest('blockquote')) return;
+        el.classList.add('copy-host');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy-block-btn';
+        btn.textContent = '⎘';
+        btn.title = 'Copy';
+        btn.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var clone = el.cloneNode(true);
+            clone.querySelectorAll('.copy-block-btn').forEach(function (b) { b.remove(); });
+            copyPreviewText(clone.innerText || '', btn);
+        };
+        el.appendChild(btn);
+    }
+    function hydratePreviewCopyButtons() {
+        document.querySelectorAll('pre, blockquote').forEach(attachPreviewCopyButton);
+    }
+
+    function hydratePreviewMath() {
+        if (typeof katex === 'undefined') return;
+        document.querySelectorAll('.math:not(.math-rendered)').forEach(function (el) {
+            var tex = el.textContent;
+            try {
+                katex.render(tex, el, {
+                    displayMode: el.classList.contains('math-display'),
+                    throwOnError: false
+                });
+                el.classList.add('math-rendered');
+                el.classList.remove('math-error');
+            } catch (e) {
+                el.classList.add('math-error');
+                el.textContent = tex;
+            }
+        });
+    }
+
+    window.editMDHydratePreviewContent = function () {
+        hydrateTaskCheckboxes();
+        hydrateWikiLinks();
+        hydrateLocalLinks();
+        hydratePreviewCopyButtons();
+        hydratePreviewMath();
+        invalidateMdAnchors();
+        alignLineNumberGutter();
+    };
+
+    function waitForPreviewLayout() {
+        return new Promise(function (resolve) {
+            requestAnimationFrame(function () {
+                requestAnimationFrame(resolve);
+            });
+        });
+    }
+
+    window.editMDReplacePreview = async function (payload) {
+        if (!payload || payload.revision < window.editMDPreviewRevision) return false;
+        var root = document.getElementById('preview-content');
+        if (!root) return false;
+        var position = payload.position;
+        if (position === null || position === undefined) {
+            position = window.editMDCurrentScrollPosition();
+        }
+        root.innerHTML = payload.html;
+        window.editMDPreviewRevision = payload.revision;
+        window.editMDHydratePreviewContent();
+        function settleLayout() {
+            invalidateMdAnchors();
+            alignLineNumberGutter();
+            if (position !== null && position !== undefined) {
+                window.syncScrollToMdPosition(position);
+            }
+        }
+        await waitForPreviewLayout();
+        settleLayout();
+        root.querySelectorAll('img').forEach(function (image) {
+            if (!image.complete) image.addEventListener('load', settleLayout, { once: true });
+        });
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(settleLayout);
+        }
+        return true;
+    };
+
+    window.editMDHydratePreviewContent();
     </script>
-    \(mathScripts)
     </body>
     </html>
     """
