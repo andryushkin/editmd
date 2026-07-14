@@ -86,6 +86,23 @@ final class ClaudeIDEBridge: ObservableObject {
         }
     }
 
+#if DEBUG
+    /// Full singleton cleanup for order-independent tests. Production callers
+    /// use `setActiveURL`; only tests need to cancel debounce work and erase
+    /// every remembered selection regardless of file guards.
+    func resetForTesting() {
+        selectionNotifyTask?.cancel()
+        selectionNotifyTask = nil
+        raw = nil
+        latestRaw = nil
+        latestMaterialized = nil
+        latestNonEmpty = nil
+        pendingReveal = nil
+        activeURL = nil
+        hasSelection = false
+    }
+#endif
+
     // MARK: Selection
 
     /// Called from both editor coordinators. `markdownRange` is already in

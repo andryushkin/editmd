@@ -66,6 +66,9 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertTrue(ids.contains("bold"))
         XCTAssertTrue(ids.contains("review"))
         XCTAssertFalse(ids.contains("table"))
+        XCTAssertEqual(EditorActionStrip.groupIDs(
+            for: .split, showVisualExtras: false, showReviewAction: true),
+                       ["inline", "paragraph", "lists", "review"])
     }
 
     func testSplitWithoutSidebarOmitsReviewAction() {

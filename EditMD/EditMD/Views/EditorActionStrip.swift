@@ -58,8 +58,8 @@ struct EditorActionStrip: View {
     nonisolated private static let visualExtraToolIDs = StripGroup.extras.toolIDs
 
     /// Pure, mode-aware source of truth for the tools the strip renders.
-    /// Preview is a review surface, not a second Markdown editor; task boxes
-    /// remain directly interactive inside the rendered page.
+    /// Full Preview exposes only review-oriented actions; Split keeps Source
+    /// editing tools and appends Review for selections from either pane.
     nonisolated static func toolIDs(for mode: EditorMode,
                                     showVisualExtras: Bool,
                                     showReviewAction: Bool) -> [String] {
@@ -69,6 +69,18 @@ struct EditorActionStrip: View {
         let extras = mode == .visual && showVisualExtras ? visualExtraToolIDs : []
         let review = mode == .split && showReviewAction ? StripGroup.review.toolIDs : []
         return editingToolIDs + review + extras
+    }
+
+    /// Actual pill order used by layout and overflow planning.
+    nonisolated static func groupIDs(for mode: EditorMode,
+                                     showVisualExtras: Bool,
+                                     showReviewAction: Bool) -> [String] {
+        let ids = Set(toolIDs(for: mode,
+                              showVisualExtras: showVisualExtras,
+                              showReviewAction: showReviewAction))
+        return StripGroup.allCases.compactMap { group in
+            group.toolIDs.contains(where: ids.contains) ? group.rawValue : nil
+        }
     }
 
     /// Closures only — not observed for UI identity (mutating them must not
@@ -188,12 +200,10 @@ struct EditorActionStrip: View {
     // MARK: Overflow planning
 
     private var activeGroups: [StripGroup] {
-        let ids = Set(Self.toolIDs(for: mode,
-                                   showVisualExtras: showVisualExtras,
-                                   showReviewAction: showReviewAction))
-        return StripGroup.allCases.filter { group in
-            group.toolIDs.contains(where: ids.contains)
-        }
+        Self.groupIDs(for: mode,
+                      showVisualExtras: showVisualExtras,
+                      showReviewAction: showReviewAction)
+            .compactMap(StripGroup.init(rawValue:))
     }
 
     /// Greedy left-to-right fit. Until the measurement layer reports (first
@@ -566,7 +576,7 @@ struct EditorActionStrip: View {
 
 /// Tool groups, in strip order. The trailing ones collapse into "…" first.
 private enum StripGroup: String, CaseIterable, Identifiable {
-    case inline, review, paragraph, lists, extras
+    case inline, paragraph, lists, review, extras
 
     var id: String { rawValue }
 

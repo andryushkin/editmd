@@ -494,17 +494,15 @@ final class ReviewMarksTests: XCTestCase {
     }
 
     @MainActor
-    func testSplitReviewUsesMostRecentSelectionFromEitherSurface() throws {
+    func testReviewBridgeUsesMostRecentNonEmptySelection() throws {
         let bridge = ClaudeIDEBridge.shared
         let file = URL(fileURLWithPath: "/tmp/editmd-split-review-selection.md")
         let markdown = "left and right"
+        bridge.resetForTesting()
         bridge.setActiveURL(file)
-        defer {
-            bridge.noteSelection(url: nil, markdownRange: NSRange(), markdown: "")
-            bridge.setActiveURL(nil)
-        }
+        defer { bridge.resetForTesting() }
 
-        // Source (left) reports first, then Preview (right) becomes the latest.
+        // In Split, Source reports first, then Preview becomes the latest.
         bridge.noteSelection(url: file, markdownRange: NSRange(location: 0, length: 4),
                              markdown: markdown)
         bridge.noteSelection(url: file, markdownRange: NSRange(location: 9, length: 5),
