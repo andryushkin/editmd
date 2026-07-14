@@ -474,11 +474,11 @@ struct ContentView: View {
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }
 
-    /// The Preview review button reuses the sidebar's existing compose form.
+    /// The Preview/Split review button reuses the sidebar's existing compose form.
     /// The model keeps the request until the Review tab appears, avoiding a
     /// race when this action also opens a previously hidden sidebar.
     private func requestReviewMark() {
-        guard allowsSidebar, mode == .preview else { return }
+        guard allowsSidebar, mode == .preview || mode == .split else { return }
         sidebarVisible = true
         sidebarTab = "review"
         ReviewModel.shared.requestCompose()

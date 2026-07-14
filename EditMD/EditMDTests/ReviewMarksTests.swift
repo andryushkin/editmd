@@ -493,6 +493,32 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertTrue(ReviewSidebar.shouldResetComposeNote(previous: first, next: nil))
     }
 
+    @MainActor
+    func testSplitReviewUsesMostRecentSelectionFromEitherSurface() throws {
+        let bridge = ClaudeIDEBridge.shared
+        let file = URL(fileURLWithPath: "/tmp/editmd-split-review-selection.md")
+        let markdown = "left and right"
+        bridge.setActiveURL(file)
+        defer {
+            bridge.noteSelection(url: nil, markdownRange: NSRange(), markdown: "")
+            bridge.setActiveURL(nil)
+        }
+
+        // Source (left) reports first, then Preview (right) becomes the latest.
+        bridge.noteSelection(url: file, markdownRange: NSRange(location: 0, length: 4),
+                             markdown: markdown)
+        bridge.noteSelection(url: file, markdownRange: NSRange(location: 9, length: 5),
+                             markdown: markdown)
+        var selected = try XCTUnwrap(bridge.reviewSelectionSource())
+        XCTAssertEqual(selected.range, NSRange(location: 9, length: 5))
+
+        // A new Source selection takes ownership back from Preview.
+        bridge.noteSelection(url: file, markdownRange: NSRange(location: 5, length: 3),
+                             markdown: markdown)
+        selected = try XCTUnwrap(bridge.reviewSelectionSource())
+        XCTAssertEqual(selected.range, NSRange(location: 5, length: 3))
+    }
+
     /// Add + delete inside one runloop tick: two persists in flight. The
     /// fire-and-forget saves used to resurrect the deleted mark via the
     /// stale-base merge; the FIFO pipeline must keep it deleted.

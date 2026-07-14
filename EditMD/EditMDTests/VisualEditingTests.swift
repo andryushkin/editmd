@@ -59,6 +59,21 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertFalse(visual.contains("copy"))
     }
 
+    func testSplitAddsReviewToSourceEditingProfile() {
+        let ids = EditorActionStrip.toolIDs(
+            for: .split, showVisualExtras: false, showReviewAction: true)
+
+        XCTAssertTrue(ids.contains("bold"))
+        XCTAssertTrue(ids.contains("review"))
+        XCTAssertFalse(ids.contains("table"))
+    }
+
+    func testSplitWithoutSidebarOmitsReviewAction() {
+        XCTAssertFalse(EditorActionStrip.toolIDs(
+            for: .split, showVisualExtras: false, showReviewAction: false)
+            .contains("review"))
+    }
+
     @MainActor
     func testPreviewCoordinatorClearsEditingCallbacksFromPreviousMode() {
         let actions = EditorStripActions()

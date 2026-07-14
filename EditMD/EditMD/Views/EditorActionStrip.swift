@@ -67,7 +67,8 @@ struct EditorActionStrip: View {
             return ["strike", "highlight"] + (showReviewAction ? ["review"] : [])
         }
         let extras = mode == .visual && showVisualExtras ? visualExtraToolIDs : []
-        return editingToolIDs + extras
+        let review = mode == .split && showReviewAction ? StripGroup.review.toolIDs : []
+        return editingToolIDs + review + extras
     }
 
     /// Closures only — not observed for UI identity (mutating them must not
