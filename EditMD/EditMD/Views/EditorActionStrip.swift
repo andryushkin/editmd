@@ -54,6 +54,13 @@ final class EditorStripActions {
 /// that no longer fit the space between them collapse into an "…" menu — the
 /// switcher must never be overlapped.
 struct EditorActionStrip: View {
+    /// Preview is a review surface, not a second Markdown editor. Keep only
+    /// selection-level review actions there; task checkboxes remain directly
+    /// interactive inside the rendered page.
+    nonisolated static let previewToolIDs: Set<String> = [
+        "strike", "highlight", "copy",
+    ]
+
     /// Closures only — not observed for UI identity (mutating them must not
     /// republish during `updateNSView` or SwiftUI freezes).
     var actions: EditorStripActions
@@ -160,7 +167,9 @@ struct EditorActionStrip: View {
     // MARK: Overflow planning
 
     private var activeGroups: [StripGroup] {
-        StripGroup.allCases.filter { $0 != .extras || showVisualExtras }
+        StripGroup.allCases.filter { group in
+            (group != .extras || showVisualExtras) && !items(for: group).isEmpty
+        }
     }
 
     /// Greedy left-to-right fit. Until the measurement layer reports (first
@@ -283,9 +292,10 @@ struct EditorActionStrip: View {
     // MARK: Items (one model for the pill and the "…" menu)
 
     private func items(for group: StripGroup) -> [StripItem] {
+        let items: [StripItem]
         switch group {
         case .inline:
-            return [
+            items = [
                 StripItem(id: "bold", glyph: .symbol("bold"), title: "Жирный",
                           help: "Жирный (**…**)", menuIcon: "bold",
                           active: activeFormats.bold,
@@ -312,7 +322,7 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.copySelection) }),
             ]
         case .paragraph:
-            return [
+            items = [
                 StripItem(id: "h1", glyph: .text("H1"), title: "Заголовок 1",
                           help: "Заголовок 1 (#)", menuIcon: "textformat.size.larger",
                           active: activeFormats.headingLevel == 1,
@@ -346,7 +356,7 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.toggleCodeBlock) }),
             ]
         case .lists:
-            return [
+            items = [
                 StripItem(id: "bullet", glyph: .symbol("list.bullet"),
                           title: "Маркированный список", help: "Маркированный список",
                           menuIcon: "list.bullet",
@@ -367,7 +377,7 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.toggleQuote) }),
             ]
         case .extras:
-            return [
+            items = [
                 StripItem(id: "table", glyph: .symbol("tablecells"),
                           title: "Вставить таблицу 3×3", help: "Таблица",
                           menuIcon: "tablecells",
@@ -390,6 +400,8 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.insertBlockFormula) }),
             ]
         }
+        guard mode == .preview else { return items }
+        return items.filter { Self.previewToolIDs.contains($0.id) }
     }
 
     private func runHeading(_ level: Int) {

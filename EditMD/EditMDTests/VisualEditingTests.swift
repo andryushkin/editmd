@@ -28,6 +28,34 @@ final class VisualEditingTests: XCTestCase {
             stripWidth: 500, editingPaneWidth: 700), 500)
     }
 
+    func testPreviewActionStripContainsOnlyReviewSelectionTools() {
+        XCTAssertEqual(EditorActionStrip.previewToolIDs,
+                       Set(["strike", "highlight", "copy"]))
+        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("checklist"),
+                       "Preview toggles existing task boxes in-page; it must not create lists")
+        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("bold"))
+        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("heading"))
+    }
+
+    @MainActor
+    func testPreviewCoordinatorClearsEditingCallbacksFromPreviousMode() {
+        let actions = EditorStripActions()
+        actions.toggleBold = {}
+        actions.toggleItalic = {}
+        actions.toggleChecklist = {}
+        actions.setHeading = { _ in }
+
+        MarkdownPreviewView.Coordinator().bindToolbar(actions)
+
+        XCTAssertNotNil(actions.toggleHighlight)
+        XCTAssertNotNil(actions.toggleStrikethrough)
+        XCTAssertNotNil(actions.copySelection)
+        XCTAssertNil(actions.toggleBold)
+        XCTAssertNil(actions.toggleItalic)
+        XCTAssertNil(actions.toggleChecklist)
+        XCTAssertNil(actions.setHeading)
+    }
+
     // MARK: - Autoformat triggers
 
     func testDashBecomesBullet() {

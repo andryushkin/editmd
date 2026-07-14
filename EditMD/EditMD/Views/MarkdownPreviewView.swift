@@ -215,28 +215,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
                     return !!owner && (sel.isCollapsed || owner.contains(range.endContainer));
                   }
                   var formats = {
-                    bold: uniform(['STRONG', 'B']),
-                    italic: uniform(['EM', 'I']),
-                    code: uniform(['CODE']) && !enclosing(range.startContainer, ['PRE']),
                     strikethrough: uniform(['DEL', 'S']),
-                    highlight: uniform(['MARK']),
-                    headingLevel: (function () {
-                      var h = enclosing(range.startContainer, ['H1','H2','H3','H4','H5','H6']);
-                      return h && (sel.isCollapsed || h.contains(range.endContainer))
-                        ? parseInt(h.tagName.substring(1), 10) : 0;
-                    })(),
-                    bulletList: (function () {
-                      var li = enclosing(range.startContainer, ['LI']);
-                      return !!enclosing(range.startContainer, ['UL'])
-                        && !(li && li.classList.contains('task'));
-                    })(),
-                    numberedList: !!enclosing(range.startContainer, ['OL']),
-                    checklist: (function () {
-                      var li = enclosing(range.startContainer, ['LI']);
-                      return !!li && li.classList.contains('task');
-                    })(),
-                    quote: uniform(['BLOCKQUOTE']),
-                    codeBlock: uniform(['PRE'])
+                    highlight: uniform(['MARK'])
                   };
                   if (sel.isCollapsed) {
                     window.webkit.messageHandlers.previewSelection.postMessage({
@@ -691,33 +671,29 @@ struct MarkdownPreviewView: NSViewRepresentable {
             guard let actions else { return }
             actions.copySelection = { [weak self] in self?.copySelection() }
             actions.toggleHighlight = { [weak self] in
-                self?.toggleWrap(open: "==", close: "==")
+                self?.toggleSelectionMarkers(open: "==", close: "==",
+                                             actionName: "Highlight")
             }
             actions.toggleStrikethrough = { [weak self] in
-                self?.toggleWrap(open: "~~", close: "~~")
+                self?.toggleSelectionMarkers(open: "~~", close: "~~",
+                                             actionName: "Strikethrough")
             }
-            actions.toggleBold = { [weak self] in self?.toggleWrap(open: "**", close: "**") }
-            actions.toggleItalic = { [weak self] in self?.toggleWrap(open: "*", close: "*") }
-            actions.toggleCodeSpan = { [weak self] in self?.toggleWrap(open: "`", close: "`") }
-            actions.setHeading = { [weak self] level in self?.transformSelectionLines(.heading(level)) }
-            actions.setBody = { [weak self] in self?.transformSelectionLines(.body) }
-            actions.toggleCodeBlock = { [weak self] in self?.fenceSelectionLines() }
-            actions.toggleBulletList = { [weak self] in self?.transformSelectionLines(.bullet) }
-            actions.toggleChecklist = { [weak self] in self?.transformSelectionLines(.checklist) }
-            actions.toggleNumberedList = { [weak self] in self?.transformSelectionLines(.ordered) }
-            actions.toggleQuote = { [weak self] in self?.transformSelectionLines(.quote) }
-            actions.clearInlineFormatting = { [weak self] in
-                self?.rewriteCachedSelection(actionName: "Clear Formatting",
-                                             stripInlineMarkers)
-            }
-            actions.cycleCase = { [weak self] in
-                self?.rewriteCachedSelection(actionName: "Change Case", cycleCase)
-            }
-            // No caret→markdown mapping in Preview yet — a divider insert has
-            // no anchor. Nil (beep) beats inheriting the previous mode's
-            // coordinator closure from the shared actions bag.
+            // Preview is deliberately review-only. Clear callbacks installed
+            // by Source/Visual so stale editing actions cannot survive a mode
+            // switch even though the strip itself hides their buttons.
+            actions.toggleBold = nil
+            actions.toggleItalic = nil
+            actions.toggleCodeSpan = nil
+            actions.setHeading = nil
+            actions.setBody = nil
+            actions.toggleCodeBlock = nil
+            actions.toggleBulletList = nil
+            actions.toggleChecklist = nil
+            actions.toggleNumberedList = nil
+            actions.toggleQuote = nil
+            actions.clearInlineFormatting = nil
+            actions.cycleCase = nil
             actions.insertDivider = nil
-            // Table / formula only in Visual (UI gated by mode, not these nils).
             actions.insertTable = nil
             actions.tableAddRow = nil
             actions.tableDeleteRow = nil
@@ -813,10 +789,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
             NSPasteboard.general.setString(text, forType: .string)
         }
 
-        /// Wrap / unwrap the selected source range with markers (`==` / `~~`).
+        /// Apply/remove one of the two review-friendly Preview formats.
         /// Uses exact UTF-16 offsets from `data-md-lo/hi` — never a whole-file
         /// plain-text search (that only "inserted symbols" at the wrong place).
-        func toggleWrap(open: String, close: String) {
+        func toggleSelectionMarkers(open: String, close: String, actionName: String) {
             guard let document else { NSSound.beep(); return }
             guard cachedStart >= 0, cachedEnd > cachedStart else {
                 NSSound.beep()
@@ -836,102 +812,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
             cachedSelection = ""
             cachedStart = -1
             cachedEnd = -1
-            let actionName: String
-            switch open {
-            case "==": actionName = "Highlight"
-            case "~~": actionName = "Strikethrough"
-            case "**": actionName = "Bold"
-            case "*": actionName = "Italic"
-            default: actionName = "Format"
-            }
             document.commitContentEdit()
             document.applyUndoableContent(next, actionName: actionName)
-        }
-
-        /// Rewrite the cached (non-empty) selection through a pure text
-        /// transform — the shared path for clear-formatting / case cycle.
-        /// Collapsed carets have no source range in Preview (updateCachedSelection
-        /// keeps only non-empty DOM ranges), so those beep for now.
-        private func rewriteCachedSelection(actionName: String,
-                                            _ transform: (String) -> String) {
-            guard let document else { NSSound.beep(); return }
-            guard cachedStart >= 0, cachedEnd > cachedStart else {
-                NSSound.beep()
-                return
-            }
-            let ns = document.content as NSString
-            let range = NSRange(location: cachedStart, length: cachedEnd - cachedStart)
-            guard NSMaxRange(range) <= ns.length else { NSSound.beep(); return }
-            let replaced = transform(ns.substring(with: range))
-            guard replaced != ns.substring(with: range) else { return }
-            cachedSelection = ""
-            cachedStart = -1
-            cachedEnd = -1
-            document.commitContentEdit()
-            document.applyUndoableContent(ns.replacingCharacters(in: range, with: replaced),
-                                          actionName: actionName)
-        }
-
-        /// Line-level transform for the lines covering the cached selection.
-        /// For `.body` / heading toggles, a caret (empty selection) still works
-        /// if we have a valid start offset from a previous selectionchange.
-        func transformSelectionLines(_ transform: BlockTransform) {
-            guard let document else { NSSound.beep(); return }
-            let ns = document.content as NSString
-            guard ns.length > 0 else { NSSound.beep(); return }
-
-            let loc: Int
-            let end: Int
-            if cachedStart >= 0, cachedEnd >= cachedStart {
-                loc = min(cachedStart, ns.length)
-                end = min(max(cachedEnd, cachedStart), ns.length)
-            } else if !cachedSelection.isEmpty {
-                // Fallback: plain-text locate when data-md offsets were lost.
-                let found = ns.range(of: cachedSelection)
-                guard found.location != NSNotFound else { NSSound.beep(); return }
-                loc = found.location
-                end = NSMaxRange(found)
-            } else {
-                NSSound.beep()
-                return
-            }
-            let lineRange = ns.lineRange(for: NSRange(location: loc,
-                                                     length: max(0, end - loc)))
-            let lines = ns.substring(with: lineRange)
-            let replaced = transformLines(transform, lines: lines)
-            guard replaced != lines else {
-                // Already plain body — not an error.
-                if transform == .body { return }
-                NSSound.beep()
-                return
-            }
-            let next = ns.replacingCharacters(in: lineRange, with: replaced)
-            cachedSelection = ""
-            cachedStart = -1
-            cachedEnd = -1
-            document.commitContentEdit()
-            document.applyUndoableContent(next, actionName: "Format")
-        }
-
-        func fenceSelectionLines() {
-            guard let document else { NSSound.beep(); return }
-            guard cachedStart >= 0, cachedEnd >= cachedStart else {
-                NSSound.beep()
-                return
-            }
-            let ns = document.content as NSString
-            let loc = min(cachedStart, ns.length)
-            let end = min(cachedEnd, ns.length)
-            let lineRange = ns.lineRange(for: NSRange(location: loc,
-                                                     length: max(0, end - loc)))
-            let lines = ns.substring(with: lineRange)
-            let replaced = fenceLines(lines)
-            let next = ns.replacingCharacters(in: lineRange, with: replaced)
-            cachedSelection = ""
-            cachedStart = -1
-            cachedEnd = -1
-            document.commitContentEdit()
-            document.applyUndoableContent(next, actionName: "Code Block")
         }
 
         /// Jump: prefer an exact `data-md-lo` span (Review / outline in Preview),
@@ -1272,12 +1154,8 @@ private final class PreviewSelectionHandler: NSObject, WKScriptMessageHandler {
                     (raw[key] as? NSNumber)?.boolValue ?? (raw[key] as? Bool) ?? false
                 }
                 coordinator?.updateActiveFormats(ActiveInlineFormats(
-                    bold: flag("bold"), italic: flag("italic"), code: flag("code"),
-                    strikethrough: flag("strikethrough"), highlight: flag("highlight"),
-                    headingLevel: (raw["headingLevel"] as? NSNumber)?.intValue,
-                    bulletList: flag("bulletList"), numberedList: flag("numberedList"),
-                    checklist: flag("checklist"), quote: flag("quote"),
-                    codeBlock: flag("codeBlock")))
+                    strikethrough: flag("strikethrough"),
+                    highlight: flag("highlight")))
             }
             coordinator?.updateCachedSelection(text: text, start: start, end: end)
             return
