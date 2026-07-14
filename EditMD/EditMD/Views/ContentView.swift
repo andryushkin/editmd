@@ -1,5 +1,13 @@
 import SwiftUI
 
+func builtInPluginConfigurationDiagnosticsForStatusBar(
+    mode: EditorMode,
+    markdown: String
+) -> [BuiltInPluginConfigurationDiagnostic] {
+    guard mode == .visual else { return [] }
+    return BuiltInPluginRegistry.configurationDiagnostics(in: markdown)
+}
+
 struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
@@ -536,10 +544,20 @@ struct ContentView: View {
         let (words, chars) = mode == .preview
             ? wordAndCharCount(in: document.content)
             : (wordCount, charCount)
+        let pluginDiagnostics = builtInPluginConfigurationDiagnosticsForStatusBar(
+            mode: mode, markdown: document.content)
         return HStack(spacing: 10) {
             // D2: always-on lint chip in Source (checkmark when clean).
             if mode == .source || mode == .split {
                 lintStatusChip
+            }
+            if !pluginDiagnostics.isEmpty {
+                BuiltInPluginConfigurationStatusChip(
+                    diagnostics: pluginDiagnostics,
+                    onOpenSource: {
+                        positionStore.markdownOffset = 0
+                        setEditorMode(.source)
+                    })
             }
             Spacer(minLength: 8)
             // External disk change — compact chip left of word count.
@@ -710,5 +728,38 @@ struct ContentView: View {
         default:
             break
         }
+    }
+}
+
+private struct BuiltInPluginConfigurationStatusChip: View {
+    let diagnostics: [BuiltInPluginConfigurationDiagnostic]
+    let onOpenSource: () -> Void
+
+    var body: some View {
+        Button(action: onOpenSource) {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(title)
+                    .lineLimit(1)
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.orange)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Plugin configuration needs attention")
+        .accessibilityHint("Open Source to fix the plugin frontmatter")
+        .editMDHelp(helpText)
+    }
+
+    private var title: String {
+        guard diagnostics.count == 1, let diagnostic = diagnostics.first else {
+            return "\(diagnostics.count) plugins · Needs attention"
+        }
+        return "\(diagnostic.descriptor.name) · Needs attention"
+    }
+
+    private var helpText: String {
+        diagnostics.map { "\($0.descriptor.name): \($0.message)" }
+            .joined(separator: "\n") + "\nOpen Source to fix frontmatter"
     }
 }

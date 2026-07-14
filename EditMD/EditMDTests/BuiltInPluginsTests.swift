@@ -421,6 +421,7 @@ struct BuiltInPluginPreviewConfigurationTests {
         #expect(html.contains("class=\"fm-plugin-emoji-picker\""))
         #expect(html.contains("value=\"emoji\" selected"))
         #expect(html.contains("value=\"❓\""))
+        #expect(!html.contains("data-initial="))
         #expect(!html.contains("class=\"fm-key\">editmd</div>"))
         let queued = try #require(html.range(of: "value=\"Queued\""))
         let review = try #require(html.range(of: "value=\"Needs review\""))
@@ -583,6 +584,33 @@ struct BuiltInPluginPreviewConfigurationTests {
         #expect(html.contains("class=\"fm-plugin-editor fm-plugin-invalid\""))
         #expect(html.contains("Duplicate marker: [x]."))
         #expect(!html.contains("class=\"fm-key\">editmd</div>"))
+    }
+
+    @Test func visualStatusBarSurfacesDeclaredPluginConfigurationIssue() throws {
+        let duplicates = """
+        ---
+        editmd:
+          plugins:
+            multi-checkbox:
+              states:
+                - marker: "x"
+                - marker: "x"
+        ---
+        """
+
+        let visual = builtInPluginConfigurationDiagnosticsForStatusBar(
+            mode: .visual, markdown: duplicates)
+        let diagnostic = try #require(visual.first)
+        #expect(visual.count == 1)
+        #expect(diagnostic.descriptor.name == "Multi-checkbox")
+        #expect(diagnostic.message == "Duplicate marker: [x].")
+
+        for mode in [EditorMode.source, .preview, .split] {
+            #expect(builtInPluginConfigurationDiagnosticsForStatusBar(
+                mode: mode, markdown: duplicates).isEmpty)
+        }
+        #expect(builtInPluginConfigurationDiagnosticsForStatusBar(
+            mode: .visual, markdown: frontmatter).isEmpty)
     }
 
     @Test(arguments: [

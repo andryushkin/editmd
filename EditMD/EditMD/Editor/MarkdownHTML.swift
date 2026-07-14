@@ -266,7 +266,7 @@ private func builtInPluginConfigurationHTML(_ snapshot: BuiltInPluginSnapshot) -
             return """
             <div class="fm-plugin-state" data-plugin-id="\(pluginID)" data-state-index="\(index)" data-state-source="\(htmlAttributeEscape(state.source))" data-icon-kind="\(iconKind)">
               <div class="fm-plugin-icon-preview" aria-hidden="true">\(iconPreview)</div>
-              <label class="fm-plugin-field fm-plugin-marker-field"><span>Marker</span><input class="fm-plugin-marker" data-plugin-control="marker" type="text" maxlength="1" value="\(htmlAttributeEscape(marker))" data-initial="\(htmlAttributeEscape(marker))"></label>
+              <label class="fm-plugin-field fm-plugin-marker-field"><span>Marker</span><input class="fm-plugin-marker" data-plugin-control="marker" type="text" maxlength="1" value="\(htmlAttributeEscape(marker))"></label>
               <label class="fm-plugin-field fm-plugin-label-field"><span>Name</span><input class="fm-plugin-label" data-plugin-control="label" type="text" value="\(htmlAttributeEscape(state.label))"></label>
               <label class="fm-plugin-field fm-plugin-icon-field"><span>Icon</span><span class="fm-plugin-icon-control"><select class="fm-plugin-icon-kind" data-plugin-control="icon-kind">\(select)</select><input id="\(inputID)" class="fm-plugin-icon-value" data-plugin-control="icon-value" type="text" value="\(htmlAttributeEscape(iconValue))"><button type="button" class="fm-plugin-emoji-picker" title="Open Emoji &amp; Symbols" aria-label="Open Emoji &amp; Symbols">☺︎</button></span></label>
               <label class="fm-plugin-strike"><input data-plugin-control="strikethrough" type="checkbox"\(strike)> Strike</label>

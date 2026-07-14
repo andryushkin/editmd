@@ -958,6 +958,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Commands/capabilities:** Format ▸ Checklist считает core и plugin tasks одной checklist-family и для действия, и для active menu indicator; в активном документе новая checklist начинается с первого state из frontmatter. Lint спрашивает у registry capability `ownsCoreCheckboxSyntax`, а не знает `MultiCheckboxPlugin` напрямую.
 - **YAML:** parser принимает как indented sequence под `states:`, так и канонический indentationless sequence с `- marker:` на том же indent.
 - **Preview editor continuity:** persistent shell переносит plugin ID, state index, active control и selection через замену `#preview-content`; Swift заранее сбрасывает `hasEditablePreviewFocus`, чтобы удалённый WebKit node не блокировал Return-to-edit. Невалидный объявленный блок, включая duplicate marker, показывает diagnostic card, а пустой frontmatter не создаёт пустую карточку «Свойства».
+- **Visual invalid configuration:** read-only Visual показывает registry diagnostic в статус-баре как `Multi-checkbox · Needs attention`; tooltip объясняет ошибку, клик открывает Source на frontmatter. Preview marker input больше не эмитит неиспользуемый `data-initial`.
 
 ### Plugin gotchas
 
