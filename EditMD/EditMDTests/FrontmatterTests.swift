@@ -202,10 +202,11 @@ struct FrontmatterDisclosureTests {
         #expect(page.contains("content.hidden = frontmatterCollapsed;"))
     }
 
-    @Test func emptyFrontmatterStillGetsTheSharedDisclosureTitle() {
+    @Test func emptyFrontmatterDoesNotRenderAnEmptyPropertiesCard() {
         let body = markdownHTMLBody("---\n---\n\nBody")
 
-        #expect(body.contains("class=\"frontmatter\""))
-        #expect(body.contains("<span>Свойства</span></button>"))
+        #expect(!body.contains("class=\"frontmatter\""))
+        #expect(!body.contains("<span>Свойства</span></button>"))
+        #expect(body.contains("Body"))
     }
 }

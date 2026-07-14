@@ -325,6 +325,7 @@ final class VisualNSTextView: NSTextView {
 
     private func builtInPluginTaskParagraph(at point: NSPoint) -> NSRange? {
         for entry in builtInPluginTaskEntries {
+            guard entry.token.canCycle else { continue }
             if let rect = markerRect(forParagraph: entry.range),
                rect.insetBy(dx: -3, dy: -3).contains(point) {
                 return entry.range
@@ -350,7 +351,7 @@ final class VisualNSTextView: NSTextView {
                                               in: NSRange(location: 0,
                                                           length: storage.length))
                 as? BuiltInPluginTokenPayload,
-              payload.isInteractive else { return nil }
+              payload.canCycle else { return nil }
         guard visualPointHitsCharacterRange(containerPoint, range: range,
                                             layoutManager: layoutManager,
                                             textContainer: textContainer) else { return nil }
@@ -372,7 +373,8 @@ final class VisualNSTextView: NSTextView {
         let leading = value.prefix { $0.isWhitespace }
         let trailing = value.reversed().prefix { $0.isWhitespace }.reversed()
         let core = value.trimmingCharacters(in: .whitespaces)
-        guard let payload = builtInPluginSnapshot.payload(matchingSource: core) else { return false }
+        guard let payload = builtInPluginSnapshot.payload(matchingSource: core),
+              payload.canCycle else { return false }
         let replacement = String(leading) + payload.next.state.source + String(trailing)
         return visualCoordinator?.updateTableIslandCell(
             paragraphLocation: hit.entry.range.location,

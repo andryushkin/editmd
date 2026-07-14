@@ -553,7 +553,36 @@ struct BuiltInPluginPreviewConfigurationTests {
             id: MultiCheckboxPlugin.pluginID, in: updated) == nil)
         let tokenDocument = updated + "\n[-] One state"
         let offset = (tokenDocument as NSString).range(of: "[-]", options: .backwards).location
-        #expect(BuiltInPluginRegistry.cycleToken(in: tokenDocument, at: offset) == tokenDocument)
+        #expect(BuiltInPluginRegistry.cycleToken(in: tokenDocument, at: offset) == nil)
+        let html = markdownHTMLBody(tokenDocument)
+        #expect(html.contains("class=\"multi-checkbox\""))
+        #expect(html.contains("disabled aria-disabled=\"true\""))
+        let token = try #require(BuiltInPluginRegistry.snapshot(for: tokenDocument)
+            .token(startingAt: offset))
+        #expect(token.payload.isInteractive)
+        #expect(!token.payload.canCycle)
+    }
+
+    @Test func duplicateMarkersProduceVisibleConfigurationDiagnostic() throws {
+        let duplicates = """
+        ---
+        editmd:
+          plugins:
+            multi-checkbox:
+              states:
+                - marker: "x"
+                - marker: "x"
+        ---
+        """
+
+        let diagnostic = try #require(
+            BuiltInPluginRegistry.configurationDiagnostics(in: duplicates).first)
+        #expect(diagnostic.descriptor.id == MultiCheckboxPlugin.pluginID)
+        #expect(diagnostic.message == "Duplicate marker: [x].")
+        let html = markdownHTMLBody(duplicates)
+        #expect(html.contains("class=\"fm-plugin-editor fm-plugin-invalid\""))
+        #expect(html.contains("Duplicate marker: [x]."))
+        #expect(!html.contains("class=\"fm-key\">editmd</div>"))
     }
 
     @Test(arguments: [

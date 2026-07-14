@@ -56,6 +56,12 @@ struct BuiltInPluginTokenPayload: Hashable, Sendable {
 
     var state: BuiltInPluginTokenState { states[stateIndex] }
 
+    /// A configured one-state token is still a real plugin token and keeps its
+    /// icon, but presenting it as clickable would promise a change that cannot
+    /// happen. `isInteractive` distinguishes plugin-owned tokens from literal
+    /// core checkbox syntax; `canCycle` is the user-action capability.
+    var canCycle: Bool { isInteractive && states.count > 1 }
+
     var next: BuiltInPluginTokenPayload {
         BuiltInPluginTokenPayload(pluginID: pluginID, states: states,
                                   stateIndex: (stateIndex + 1) % states.count,
@@ -77,6 +83,11 @@ struct BuiltInPluginActivation: Sendable {
     let tokens: [BuiltInPluginToken]
     let ownsCoreCheckboxSyntax: Bool
     let initialChecklistPayload: BuiltInPluginTokenPayload?
+}
+
+struct BuiltInPluginConfigurationDiagnostic: Hashable, Sendable {
+    let descriptor: BuiltInPluginDescriptor
+    let message: String
 }
 
 struct BuiltInPluginSnapshot: Sendable {
@@ -247,6 +258,10 @@ protocol BuiltInMarkdownPlugin: Sendable {
     /// not make the Add menu insert a second copy of the same plugin.
     func isDeclared(in markdown: String) -> Bool
 
+    /// A declared but invalid plugin remains visible in Preview instead of
+    /// silently disappearing while the Add menu still calls it installed.
+    func configurationIssue(in markdown: String) -> String?
+
     /// Adds the plugin's smallest valid document-scoped configuration.
     func installingDefaultConfiguration(in markdown: String) -> String?
 
@@ -260,6 +275,7 @@ protocol BuiltInMarkdownPlugin: Sendable {
 extension BuiltInMarkdownPlugin {
     var ownsCoreCheckboxSyntax: Bool { false }
     func isDeclared(in markdown: String) -> Bool { isEnabled(in: markdown) }
+    func configurationIssue(in markdown: String) -> String? { nil }
     func installingDefaultConfiguration(in markdown: String) -> String? { nil }
     func addingConfigurationState(in markdown: String) -> String? { nil }
 }
@@ -273,6 +289,15 @@ enum BuiltInPluginRegistry {
 
     static func declaredPluginIDs(in markdown: String) -> Set<String> {
         Set(plugins.lazy.filter { $0.isDeclared(in: markdown) }.map { $0.descriptor.id })
+    }
+
+    static func configurationDiagnostics(in markdown: String)
+        -> [BuiltInPluginConfigurationDiagnostic] {
+        plugins.compactMap { plugin in
+            guard let message = plugin.configurationIssue(in: markdown) else { return nil }
+            return BuiltInPluginConfigurationDiagnostic(
+                descriptor: plugin.descriptor, message: message)
+        }
     }
 
     static func installPlugin(id: String, in markdown: String) -> String? {
@@ -314,7 +339,7 @@ enum BuiltInPluginRegistry {
     static func cycleToken(in markdown: String, at offset: Int) -> String? {
         let snapshot = snapshot(for: markdown)
         guard let token = snapshot.token(startingAt: offset),
-              token.payload.isInteractive else { return nil }
+              token.payload.canCycle else { return nil }
         let ns = markdown as NSString
         guard NSMaxRange(token.range) <= ns.length,
               ns.substring(with: token.range) == token.payload.state.source else { return nil }
@@ -470,11 +495,15 @@ func builtInPluginTokenHTML(_ payload: BuiltInPluginTokenPayload,
             iconHTML = "<span aria-hidden=\"true\">\(htmlEscape(payload.state.source))</span>"
         }
     }
-    let label = htmlAttributeEscape("Change status. Current: \(payload.state.label)")
+    let labelText = payload.canCycle
+        ? "Change status. Current: \(payload.state.label)"
+        : "Current status: \(payload.state.label)"
+    let label = htmlAttributeEscape(labelText)
     let strike = payload.state.strikethrough ? " data-strike=\"true\"" : ""
+    let disabled = payload.canCycle ? "" : " disabled aria-disabled=\"true\""
     return "<button type=\"button\" class=\"multi-checkbox\" "
         + "data-plugin-offset=\"\(sourceOffset)\" aria-label=\"\(label)\" "
-        + "title=\"\(label)\"\(strike)>\(iconHTML)</button>"
+        + "title=\"\(label)\"\(strike)\(disabled)>\(iconHTML)</button>"
 }
 
 func sfSymbolPNGDataURI(name: String, label: String) -> String? {
@@ -520,6 +549,10 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
         Self.hasDeclaration(in: markdown)
     }
 
+    func configurationIssue(in markdown: String) -> String? {
+        Self.configurationIssue(in: markdown)
+    }
+
     func installingDefaultConfiguration(in markdown: String) -> String? {
         Self.installingDefaultConfiguration(in: markdown)
     }
@@ -544,6 +577,52 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
     /// general YAML implementation: built-in plugins are versioned with EditMD,
     /// and the existing frontmatter display parser remains lightweight.
     static func configuration(in markdown: String) -> MultiCheckboxConfiguration? {
+        guard let rawStates = rawConfigurationStates(in: markdown) else { return nil }
+
+        var states: [BuiltInPluginTokenState] = []
+        var markers = Set<String>()
+        for raw in rawStates {
+            guard let marker = raw["marker"], (marker as NSString).length == 1,
+                  marker != "[", marker != "]" else { continue }
+            guard markers.insert(marker).inserted else { return nil }
+            let label = raw["label"].flatMap { $0.isEmpty ? nil : $0 } ?? marker
+            let icon = parseIcon(raw["icon"] ?? marker)
+            let strike = parseYAMLBool(raw["strikethrough"]) ?? false
+            states.append(BuiltInPluginTokenState(source: "[\(marker)]", label: label,
+                                                  icon: icon, strikethrough: strike))
+        }
+        guard !states.isEmpty else { return nil }
+        return MultiCheckboxConfiguration(states: states)
+    }
+
+    static func configurationIssue(in markdown: String) -> String? {
+        guard hasDeclaration(in: markdown), configuration(in: markdown) == nil else {
+            return nil
+        }
+        guard let rawStates = rawConfigurationStates(in: markdown) else {
+            return "Invalid multi-checkbox YAML structure."
+        }
+        var markers = Set<String>()
+        for raw in rawStates {
+            guard let marker = raw["marker"] else {
+                return "Every state needs a marker."
+            }
+            guard (marker as NSString).length == 1 else {
+                return "Marker must be exactly one UTF-16 character."
+            }
+            guard marker != "[", marker != "]" else {
+                return "Square brackets cannot be markers."
+            }
+            guard markers.insert(marker).inserted else {
+                return "Duplicate marker: [\(marker)]."
+            }
+        }
+        return rawStates.isEmpty
+            ? "At least one state is required."
+            : "Invalid multi-checkbox configuration."
+    }
+
+    private static func rawConfigurationStates(in markdown: String) -> [[String: String]]? {
         guard let fm = frontmatterRange(in: markdown) else { return nil }
         let body = (markdown as NSString).substring(with: fm.body)
         let lines = body.components(separatedBy: "\n").map(PluginYAMLLine.init)
@@ -587,21 +666,7 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
             }
         }
         if let current { rawStates.append(current) }
-
-        var states: [BuiltInPluginTokenState] = []
-        var markers = Set<String>()
-        for raw in rawStates {
-            guard let marker = raw["marker"], (marker as NSString).length == 1,
-                  marker != "[", marker != "]" else { continue }
-            guard markers.insert(marker).inserted else { return nil }
-            let label = raw["label"].flatMap { $0.isEmpty ? nil : $0 } ?? marker
-            let icon = parseIcon(raw["icon"] ?? marker)
-            let strike = parseYAMLBool(raw["strikethrough"]) ?? false
-            states.append(BuiltInPluginTokenState(source: "[\(marker)]", label: label,
-                                                  icon: icon, strikethrough: strike))
-        }
-        guard !states.isEmpty else { return nil }
-        return MultiCheckboxConfiguration(states: states)
+        return rawStates
     }
 
     static func hasDeclaration(in markdown: String) -> Bool {

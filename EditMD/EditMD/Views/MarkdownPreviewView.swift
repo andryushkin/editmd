@@ -457,6 +457,10 @@ struct MarkdownPreviewView: NSViewRepresentable {
     private func applyFragment(_ result: PreviewFragmentResult,
                                coordinator: Coordinator) async {
         guard let webView = coordinator.webView else { return }
+        // Removing a focused DOM control does not reliably emit focusout in
+        // WebKit. Clear the native gate before every replacement; successful
+        // focus restoration in the new fragment emits focusin and sets it back.
+        (webView as? PreviewWebView)?.prepareForContentReplacement()
         if PreviewShellUpdatePolicy.requiresFullReload(
             hasMath: result.hasMath,
             shellHasMathAssets: coordinator.shellHasMathAssets) {
@@ -1094,6 +1098,10 @@ final class PreviewWebView: WKWebView {
 
     override var undoManager: UndoManager? {
         documentForUndo?.contentUndoManager ?? super.undoManager
+    }
+
+    func prepareForContentReplacement() {
+        hasEditablePreviewFocus = false
     }
 
     override func keyDown(with event: NSEvent) {

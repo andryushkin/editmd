@@ -621,7 +621,8 @@ extension VisualMarkdownView.Coordinator {
     func toggleBuiltInPluginTask(at paragraph: NSRange) {
         guard let textView, let storage = textView.textStorage else { return }
         var target = block(at: paragraph, in: storage)
-        guard case .builtInPluginTaskItem(let depth, let token) = target.kind else { return }
+        guard case .builtInPluginTaskItem(let depth, let token) = target.kind,
+              token.canCycle else { return }
         target.kind = .builtInPluginTaskItem(depth: depth, token: token.next)
         restamp(paragraph, to: target, in: textView)
     }
@@ -632,7 +633,8 @@ extension VisualMarkdownView.Coordinator {
               let payload = storage.attribute(.mdBuiltInPluginToken,
                                               at: range.location,
                                               effectiveRange: nil)
-                as? BuiltInPluginTokenPayload else { return }
+                as? BuiltInPluginTokenPayload,
+              payload.canCycle else { return }
         let attrs = storage.attributes(at: range.location, effectiveRange: nil)
         let font = attrs[.font] as? NSFont
             ?? visualStyle.font(for: [], blockKind: .paragraph)

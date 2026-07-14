@@ -112,6 +112,7 @@ func markdownHTMLRender(_ text: String,
                         syntaxHighlighting: Bool = true)
     -> (body: String, hasMath: Bool) {
     let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: text)
+    let pluginDiagnostics = BuiltInPluginRegistry.configurationDiagnostics(in: text)
     var source = text
     var prefix = ""
     var baseOffset = 0
@@ -128,9 +129,12 @@ func markdownHTMLRender(_ text: String,
             || (dirty && gutter.showDirtyBulletsWhenNoNumbers)
         let fmAttributes = wantMark ? " data-ln=\"\(fmLine)\"" : ""
         let fmClasses = dirty ? " ln-dirty" : ""
-        prefix = frontmatterPropertiesHTML(props, pluginSnapshot: pluginSnapshot,
-                                           additionalClasses: fmClasses,
-                                           attributes: fmAttributes)
+        if !props.isEmpty || !pluginSnapshot.activations.isEmpty || !pluginDiagnostics.isEmpty {
+            prefix = frontmatterPropertiesHTML(
+                props, pluginSnapshot: pluginSnapshot,
+                pluginDiagnostics: pluginDiagnostics,
+                additionalClasses: fmClasses, attributes: fmAttributes)
+        }
         baseOffset = NSMaxRange(fm.full)
         source = ns.substring(from: baseOffset)
         lineBase = ns.substring(to: baseOffset).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
@@ -176,10 +180,11 @@ func markdownHTMLRender(_ text: String,
 /// room to breathe, while the source YAML remains untouched in Source mode.
 func frontmatterPropertiesHTML(_ props: [FMProperty],
                                pluginSnapshot: BuiltInPluginSnapshot = .empty,
+                               pluginDiagnostics: [BuiltInPluginConfigurationDiagnostic] = [],
                                additionalClasses: String = "",
                                attributes: String = "") -> String {
     var rows = ""
-    let visibleProperties = pluginSnapshot.activations.isEmpty
+    let visibleProperties = pluginSnapshot.activations.isEmpty && pluginDiagnostics.isEmpty
         ? props
         : props.filter { $0.key.lowercased() != "editmd" }
     for property in visibleProperties {
@@ -198,6 +203,7 @@ func frontmatterPropertiesHTML(_ props: [FMProperty],
             + "<div class=\"fm-val\">\(valueHTML)</div></div>\n"
     }
     let pluginHTML = builtInPluginConfigurationHTML(pluginSnapshot)
+        + builtInPluginDiagnosticHTML(pluginDiagnostics)
     let listHTML = rows.isEmpty ? "" : "<div class=\"fm-list\">\n\(rows)</div>"
     return "<section class=\"frontmatter\(additionalClasses)\"\(attributes)>"
         + "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"
@@ -205,6 +211,19 @@ func frontmatterPropertiesHTML(_ props: [FMProperty],
         + "<span>" + htmlEscape(frontmatterDisplayTitle) + "</span></button>"
         + "<div class=\"fm-content\">" + listHTML + pluginHTML + "</div>"
         + "</section>\n"
+}
+
+private func builtInPluginDiagnosticHTML(
+    _ diagnostics: [BuiltInPluginConfigurationDiagnostic]) -> String {
+    diagnostics.map { diagnostic in
+        """
+        <section class="fm-plugin-editor fm-plugin-invalid" data-plugin-id="\(htmlAttributeEscape(diagnostic.descriptor.id))">
+          <div class="fm-plugin-heading"><div><h3>\(htmlEscape(diagnostic.descriptor.name))</h3><p>\(htmlEscape(diagnostic.descriptor.summary))</p></div><span class="fm-plugin-error-badge">Needs attention</span></div>
+          <p class="fm-plugin-error" role="alert">\(htmlEscape(diagnostic.message))</p>
+          <p class="fm-plugin-help">Fix this plugin block in Source mode.</p>
+        </section>
+        """
+    }.joined(separator: "\n")
 }
 
 private func builtInPluginConfigurationHTML(_ snapshot: BuiltInPluginSnapshot) -> String {
@@ -247,10 +266,10 @@ private func builtInPluginConfigurationHTML(_ snapshot: BuiltInPluginSnapshot) -
             return """
             <div class="fm-plugin-state" data-plugin-id="\(pluginID)" data-state-index="\(index)" data-state-source="\(htmlAttributeEscape(state.source))" data-icon-kind="\(iconKind)">
               <div class="fm-plugin-icon-preview" aria-hidden="true">\(iconPreview)</div>
-              <label class="fm-plugin-field fm-plugin-marker-field"><span>Marker</span><input class="fm-plugin-marker" type="text" maxlength="1" value="\(htmlAttributeEscape(marker))" data-initial="\(htmlAttributeEscape(marker))"></label>
-              <label class="fm-plugin-field fm-plugin-label-field"><span>Name</span><input class="fm-plugin-label" type="text" value="\(htmlAttributeEscape(state.label))"></label>
-              <label class="fm-plugin-field fm-plugin-icon-field"><span>Icon</span><span class="fm-plugin-icon-control"><select class="fm-plugin-icon-kind">\(select)</select><input id="\(inputID)" class="fm-plugin-icon-value" type="text" value="\(htmlAttributeEscape(iconValue))"><button type="button" class="fm-plugin-emoji-picker" title="Open Emoji &amp; Symbols" aria-label="Open Emoji &amp; Symbols">☺︎</button></span></label>
-              <label class="fm-plugin-strike"><input type="checkbox"\(strike)> Strike</label>
+              <label class="fm-plugin-field fm-plugin-marker-field"><span>Marker</span><input class="fm-plugin-marker" data-plugin-control="marker" type="text" maxlength="1" value="\(htmlAttributeEscape(marker))" data-initial="\(htmlAttributeEscape(marker))"></label>
+              <label class="fm-plugin-field fm-plugin-label-field"><span>Name</span><input class="fm-plugin-label" data-plugin-control="label" type="text" value="\(htmlAttributeEscape(state.label))"></label>
+              <label class="fm-plugin-field fm-plugin-icon-field"><span>Icon</span><span class="fm-plugin-icon-control"><select class="fm-plugin-icon-kind" data-plugin-control="icon-kind">\(select)</select><input id="\(inputID)" class="fm-plugin-icon-value" data-plugin-control="icon-value" type="text" value="\(htmlAttributeEscape(iconValue))"><button type="button" class="fm-plugin-emoji-picker" title="Open Emoji &amp; Symbols" aria-label="Open Emoji &amp; Symbols">☺︎</button></span></label>
+              <label class="fm-plugin-strike"><input data-plugin-control="strikethrough" type="checkbox"\(strike)> Strike</label>
               <p class="fm-plugin-validation" role="status" data-icon-warning="\(htmlAttributeEscape(iconWarning))">\(htmlEscape(iconWarning))</p>
             </div>
             """
@@ -1101,7 +1120,8 @@ func previewHTMLPageRender(markdown: String,
         font: inherit; line-height: 1; padding: 0 0.18em; margin: 0 0.18em 0 0;
         cursor: pointer; vertical-align: -0.08em;
     }
-    .multi-checkbox:hover { background: rgba(128,128,128,0.13); border-radius: 4px; }
+    .multi-checkbox:not(:disabled):hover { background: rgba(128,128,128,0.13); border-radius: 4px; }
+    .multi-checkbox:disabled { cursor: default; }
     .multi-checkbox:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .multi-checkbox-sf { width: 1em; height: 1em; object-fit: contain; vertical-align: -0.12em; }
     li.multi-task-strike { text-decoration: line-through; opacity: 0.68; }
@@ -1278,6 +1298,16 @@ func previewHTMLPageRender(markdown: String,
         font-size: 0.78em;
         font-weight: 600;
     }
+    .fm-plugin-error-badge {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0.12em 0.55em;
+        color: #b12b24;
+        background: rgba(217,74,63,0.14);
+        font-size: 0.78em;
+        font-weight: 600;
+    }
+    .fm-plugin-error { margin: 0; color: #b12b24; font-size: 0.86em; }
     .fm-plugin-states { display: grid; gap: 0.55em; }
     .fm-plugin-state {
         display: grid;
@@ -1358,6 +1388,7 @@ func previewHTMLPageRender(markdown: String,
     @media (prefers-color-scheme: dark) {
         .fm-plugin-field input, .fm-plugin-field select { background: rgba(0,0,0,0.18); }
         .fm-plugin-enabled { color: #62d482; }
+        .fm-plugin-error-badge, .fm-plugin-error { color: #ff8178; }
     }
     @media (max-width: 620px) {
         .fm-row { grid-template-columns: 20px 1fr; row-gap: 0.22em; margin-bottom: 0.95em; }
@@ -1465,7 +1496,7 @@ func previewHTMLPageRender(markdown: String,
     // Built-in plugins use source offsets rather than document-order indexes:
     // a delayed click is rejected safely if the token moved meanwhile.
     function hydrateBuiltInPluginTokens() {
-        document.querySelectorAll('button.multi-checkbox').forEach(function (button) {
+        document.querySelectorAll('button.multi-checkbox:not(:disabled)').forEach(function (button) {
             button.onclick = function (event) {
                 event.preventDefault();
                 var handlers = window.webkit && window.webkit.messageHandlers;
@@ -1475,6 +1506,43 @@ func previewHTMLPageRender(markdown: String,
                 }
             };
         });
+    }
+    function captureBuiltInPluginEditorFocus(root) {
+        var active = document.activeElement;
+        if (!active || !root.contains(active)) return null;
+        var row = active.closest('.fm-plugin-state');
+        var control = active.dataset && active.dataset.pluginControl;
+        if (!row || !control) return null;
+        return {
+            pluginID: row.dataset.pluginId,
+            stateIndex: Number(row.dataset.stateIndex),
+            control: control,
+            selectionStart: typeof active.selectionStart === 'number'
+                ? active.selectionStart : null,
+            selectionEnd: typeof active.selectionEnd === 'number'
+                ? active.selectionEnd : null
+        };
+    }
+    function restoreBuiltInPluginEditorFocus(snapshot) {
+        if (!snapshot || !Number.isInteger(snapshot.stateIndex)) return false;
+        var row = Array.from(document.querySelectorAll('.fm-plugin-state')).find(function (candidate) {
+            return candidate.dataset.pluginId === snapshot.pluginID
+                && Number(candidate.dataset.stateIndex) === snapshot.stateIndex;
+        });
+        if (!row) return false;
+        var control = Array.from(row.querySelectorAll('[data-plugin-control]')).find(function (candidate) {
+            return candidate.dataset.pluginControl === snapshot.control;
+        });
+        if (!control) return false;
+        control.focus({preventScroll: true});
+        if (snapshot.selectionStart !== null
+            && typeof control.setSelectionRange === 'function') {
+            var length = typeof control.value === 'string' ? control.value.length : 0;
+            var start = Math.min(snapshot.selectionStart, length);
+            var end = Math.min(snapshot.selectionEnd, length);
+            try { control.setSelectionRange(start, end); } catch (_) {}
+        }
+        return document.activeElement === control;
     }
     function hydrateBuiltInPluginConfiguration() {
         function handler() {
@@ -1513,8 +1581,8 @@ func previewHTMLPageRender(markdown: String,
             };
             row.onfocusout = function () {
                 setTimeout(function () {
-                    var editor = row.closest('.fm-plugin-editor');
-                    if (editor && editor.contains(document.activeElement)) return;
+                    var active = document.activeElement;
+                    if (active && active.closest('.fm-plugin-editor')) return;
                     var bridge = handler();
                     if (bridge) bridge.postMessage({action: 'focusChanged', focused: false});
                 }, 0);
@@ -2018,9 +2086,11 @@ func previewHTMLPageRender(markdown: String,
         // this update transaction and must never be reported back to Source.
         beginScrollReportSuppression();
         try {
+            var pluginEditorFocus = captureBuiltInPluginEditorFocus(root);
             root.innerHTML = payload.html;
             window.editMDPreviewRevision = payload.revision;
             window.editMDHydratePreviewContent();
+            restoreBuiltInPluginEditorFocus(pluginEditorFocus);
             userScrolledSinceSettle = false;
             settlePreviewLayout(position, pixelY);
             replayPreviewSettle(root, replayPosition);

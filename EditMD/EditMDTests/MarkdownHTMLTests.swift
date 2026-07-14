@@ -675,6 +675,73 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         XCTAssertFalse(html.contains("Before"), html)
     }
 
+    func testPluginEditorFocusAndSelectionSurviveFragmentReplacement() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        let loaded = expectation(description: "page loaded")
+        let delegate = LoadWaiter { loaded.fulfill() }
+        webView.navigationDelegate = delegate
+        let before = """
+        ---
+        editmd:
+          plugins:
+            multi-checkbox:
+              states:
+                - marker: "-"
+                  label: Queued
+                  icon: "emoji:📥📤"
+                - marker: "?"
+                  label: Review
+                  icon: "emoji:❓"
+        ---
+        """
+        webView.loadHTMLString(previewHTMLPage(markdown: before, fontSize: 14), baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 20)
+
+        let focused = try await webView.evaluateJavaScript("""
+        var field = document.querySelector('.fm-plugin-icon-value');
+        field.focus();
+        field.setSelectionRange(2, 4);
+        document.activeElement === field;
+        """) as? Bool
+        XCTAssertEqual(focused, true)
+
+        _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
+        let after = before.replacingOccurrences(of: "label: Review", with: "label: Needs review")
+        let applied = try await webView.callAsyncJavaScript(
+            "return window.editMDReplacePreview({html: html, revision: revision, position: null});",
+            arguments: [
+                "html": markdownHTMLBody(after),
+                "revision": NSNumber(value: UInt64(2)),
+            ],
+            in: nil,
+            contentWorld: .page)
+        XCTAssertEqual(applied as? Bool, true)
+
+        let probe = try await webView.evaluateJavaScript("""
+        JSON.stringify({
+          control: document.activeElement.dataset.pluginControl || '',
+          stateIndex: document.activeElement.closest('.fm-plugin-state')?.dataset.stateIndex || '',
+          selectionStart: document.activeElement.selectionStart,
+          selectionEnd: document.activeElement.selectionEnd
+        });
+        """) as? String ?? ""
+        XCTAssertTrue(probe.contains("\"control\":\"icon-value\""), probe)
+        XCTAssertTrue(probe.contains("\"stateIndex\":\"0\""), probe)
+        XCTAssertTrue(probe.contains("\"selectionStart\":2"), probe)
+        XCTAssertTrue(probe.contains("\"selectionEnd\":4"), probe)
+    }
+
+    func testPreparingFragmentReplacementClearsEditablePreviewFocus() {
+        let webView = PreviewWebView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 400),
+            configuration: WKWebViewConfiguration())
+        webView.hasEditablePreviewFocus = true
+
+        webView.prepareForContentReplacement()
+
+        XCTAssertFalse(webView.hasEditablePreviewFocus)
+    }
+
     /// Frontmatter disclosure belongs to the persistent shell. Replacing the
     /// body fragment during live Preview must hydrate the new card with the
     /// user's existing collapsed state instead of expanding it again.
