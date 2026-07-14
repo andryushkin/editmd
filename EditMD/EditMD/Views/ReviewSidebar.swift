@@ -59,6 +59,8 @@ struct ReviewSidebar: View {
                 break
             }
         }
+        .onAppear { openRequestedCompose() }
+        .onChange(of: review.composeRequestID) { _ in openRequestedCompose() }
     }
 
     private var queueBannerText: String? {
@@ -237,9 +239,18 @@ struct ReviewSidebar: View {
         if composing {
             cancelCompose()
         } else {
-            pendingAnchor = review.captureSelectionAnchor()
-            composing = true
+            beginCompose()
         }
+    }
+
+    private func openRequestedCompose() {
+        guard review.consumeComposeRequest() else { return }
+        beginCompose()
+    }
+
+    private func beginCompose() {
+        pendingAnchor = review.captureSelectionAnchor()
+        composing = true
     }
 
     private func saveCompose() {

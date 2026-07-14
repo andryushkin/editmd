@@ -669,7 +669,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
         func bindToolbar(_ actions: EditorStripActions?) {
             toolbarActions = actions
             guard let actions else { return }
-            actions.copySelection = { [weak self] in self?.copySelection() }
             actions.toggleHighlight = { [weak self] in
                 self?.toggleSelectionMarkers(open: "==", close: "==",
                                              actionName: "Highlight")
@@ -778,15 +777,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
             }
             let global = ns.range(of: text)
             return global.location != NSNotFound ? global : nil
-        }
-
-        /// Copy the current page selection (cached — strip click clears WebKit
-        /// selection). Beeps when nothing is selected.
-        func copySelection() {
-            let text = cachedSelection
-            guard !text.isEmpty else { NSSound.beep(); return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
         }
 
         /// Apply/remove one of the two review-friendly Preview formats.

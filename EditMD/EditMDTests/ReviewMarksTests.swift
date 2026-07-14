@@ -470,6 +470,19 @@ final class ReviewMarksTests: XCTestCase {
 
     // MARK: ReviewModel persistence pipeline (stage-2 race fixes)
 
+    @MainActor
+    func testComposeRequestIsConsumedExactlyOnce() {
+        let model = ReviewModel()
+
+        XCTAssertFalse(model.consumeComposeRequest())
+        model.requestCompose()
+        XCTAssertTrue(model.consumeComposeRequest())
+        XCTAssertFalse(model.consumeComposeRequest())
+
+        model.requestCompose()
+        XCTAssertTrue(model.consumeComposeRequest())
+    }
+
     /// Add + delete inside one runloop tick: two persists in flight. The
     /// fire-and-forget saves used to resurrect the deleted mark via the
     /// stale-base merge; the FIFO pipeline must keep it deleted.

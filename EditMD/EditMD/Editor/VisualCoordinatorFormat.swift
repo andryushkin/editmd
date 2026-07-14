@@ -33,7 +33,6 @@ extension VisualMarkdownView.Coordinator {
                 makeKind: { .orderedItem(depth: $0, number: 1) }) },
             toggleQuote: { [weak self] in self?.toggleQuote() },
             toggleCodeBlock: { [weak self] in self?.toggleCodeBlock() },
-            copySelection: { [weak self] in self?.copySelection() },
             insertTable: { [weak self] in self?.insertEmptyTable() },
             tableAddRow: { [weak self] in self?.tableAddRowAtCursor() },
             tableDeleteRow: { [weak self] in self?.tableDeleteRowAtCursor() },
@@ -43,15 +42,6 @@ extension VisualMarkdownView.Coordinator {
         DispatchQueue.main.async { [parent] in
             parent.onFormatActions(actions)
         }
-    }
-
-    private func copySelection() {
-        guard let textView else { return }
-        let range = textView.selectedRange()
-        guard range.length > 0 else { NSSound.beep(); return }
-        let text = (textView.string as NSString).substring(with: range)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func setBodyParagraph() {

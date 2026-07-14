@@ -32,12 +32,6 @@ struct EditorToolbar: ToolbarContent {
             }
             .help("Cut (⌘X)")
             Button {
-                NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .help("Copy (⌘C)")
-            Button {
                 NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
             } label: {
                 Label("Paste", systemImage: "doc.on.clipboard")

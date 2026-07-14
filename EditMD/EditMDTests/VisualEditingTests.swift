@@ -30,7 +30,7 @@ final class VisualEditingTests: XCTestCase {
 
     func testPreviewActionStripContainsOnlyReviewSelectionTools() {
         XCTAssertEqual(EditorActionStrip.previewToolIDs,
-                       Set(["strike", "highlight", "copy"]))
+                       Set(["strike", "highlight", "review"]))
         XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("checklist"),
                        "Preview toggles existing task boxes in-page; it must not create lists")
         XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("bold"))
@@ -49,7 +49,6 @@ final class VisualEditingTests: XCTestCase {
 
         XCTAssertNotNil(actions.toggleHighlight)
         XCTAssertNotNil(actions.toggleStrikethrough)
-        XCTAssertNotNil(actions.copySelection)
         XCTAssertNil(actions.toggleBold)
         XCTAssertNil(actions.toggleItalic)
         XCTAssertNil(actions.toggleChecklist)

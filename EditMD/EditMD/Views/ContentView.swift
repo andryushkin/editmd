@@ -347,6 +347,8 @@ struct ContentView: View {
                                       ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
                                   previewRailWidth: mode == .preview ? previewRailWidth : 0,
                                   showVisualExtras: mode == .visual,
+                                  showReviewAction: allowsSidebar,
+                                  addReviewMark: requestReviewMark,
                                   activeFormats: activeFormats,
                                   mode: mode,
                                   setEditorMode: setEditorMode,
@@ -456,7 +458,6 @@ struct ContentView: View {
         stripActions.toggleChecklist = fa.toggleChecklist
         stripActions.toggleNumberedList = fa.toggleNumberedList
         stripActions.toggleQuote = fa.toggleQuote
-        stripActions.copySelection = fa.copySelection
         if visualExtras {
             stripActions.insertTable = fa.insertTable
             stripActions.tableAddRow = fa.tableAddRow
@@ -471,6 +472,16 @@ struct ContentView: View {
             stripActions.insertBlockFormula = nil
         }
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
+    }
+
+    /// The Preview review button reuses the sidebar's existing compose form.
+    /// The model keeps the request until the Review tab appears, avoiding a
+    /// race when this action also opens a previously hidden sidebar.
+    private func requestReviewMark() {
+        guard allowsSidebar, mode == .preview else { return }
+        sidebarVisible = true
+        sidebarTab = "review"
+        ReviewModel.shared.requestCompose()
     }
 
     /// agterm-style divider: a 1px separator with a wider invisible grab

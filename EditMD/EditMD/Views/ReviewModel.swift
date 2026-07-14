@@ -51,6 +51,11 @@ final class ReviewModel: ObservableObject {
     @Published var typeFilter: ReviewMarkType?
     /// Last queue/agent status line shown under the Review header (cleared by UI).
     @Published var queueStatus: String?
+    /// One-shot request from the Preview action strip to open the existing
+    /// Review-sidebar compose form. Stored in the model so opening the sidebar
+    /// and switching its tab cannot race the request.
+    @Published private(set) var composeRequestID: UInt64 = 0
+    private var consumedComposeRequestID: UInt64 = 0
 
     private var baseRev = 0
     /// Guards against a stale async load landing after a newer file switch.
@@ -210,6 +215,16 @@ final class ReviewModel: ObservableObject {
     }
 
     var openCount: Int { doc.openCount }
+
+    func requestCompose() {
+        composeRequestID &+= 1
+    }
+
+    func consumeComposeRequest() -> Bool {
+        guard consumedComposeRequestID != composeRequestID else { return false }
+        consumedComposeRequestID = composeRequestID
+        return true
+    }
 
     /// An anchor snapshotted from the editor selection at the instant the
     /// compose form opens. Captured once — not re-read while the user types the

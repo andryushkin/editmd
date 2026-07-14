@@ -750,8 +750,7 @@ struct SourceTextView: NSViewRepresentable {
                 toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
                 toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
                 toggleQuote: { [weak self] in self?.transformSelectedLines(.quote) },
-                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() },
-                copySelection: { [weak self] in self?.copySelection() }
+                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -846,15 +845,6 @@ struct SourceTextView: NSViewRepresentable {
             textView.replaceCharacters(in: range, with: wrapped)
             textView.didChangeText()
             textView.setSelectedRange(newSelection)
-        }
-
-        private func copySelection() {
-            guard let textView else { return }
-            let range = textView.selectedRange()
-            guard range.length > 0 else { NSSound.beep(); return }
-            let text = (textView.string as NSString).substring(with: range)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
         }
 
         /// Replaces the lines the selection touches with `replacement`,

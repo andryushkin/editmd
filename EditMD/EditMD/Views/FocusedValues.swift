@@ -47,7 +47,6 @@ struct FormatActions {
     var toggleNumberedList: (() -> Void)? = nil
     var toggleQuote: (() -> Void)? = nil
     var toggleCodeBlock: (() -> Void)? = nil
-    var copySelection: (() -> Void)? = nil
     // Visual table tools (nil in Source / Preview)
     var insertTable: (() -> Void)? = nil
     var tableAddRow: (() -> Void)? = nil

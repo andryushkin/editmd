@@ -28,7 +28,6 @@ final class EditorStripActions {
     var toggleChecklist: (() -> Void)?
     var toggleNumberedList: (() -> Void)?
     var toggleQuote: (() -> Void)?
-    var copySelection: (() -> Void)?
 
     // Visual-only
     var insertTable: (() -> Void)?
@@ -58,7 +57,7 @@ struct EditorActionStrip: View {
     /// selection-level review actions there; task checkboxes remain directly
     /// interactive inside the rendered page.
     nonisolated static let previewToolIDs: Set<String> = [
-        "strike", "highlight", "copy",
+        "strike", "highlight", "review",
     ]
 
     /// Closures only — not observed for UI identity (mutating them must not
@@ -82,6 +81,10 @@ struct EditorActionStrip: View {
     /// Table + formula tools (Visual only). Driven by mode, not by nil-ing
     /// closures on the actions bag.
     var showVisualExtras: Bool = false
+    /// Review compose exists only in the main workspace window, which owns the
+    /// Review sidebar. Lite windows keep this false and omit the button.
+    var showReviewAction: Bool = false
+    var addReviewMark: () -> Void = {}
     /// B6: tint B/I/`/S when caret is inside those styles.
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
     /// Mode switcher — pinned to the trailing edge of the strip (the window
@@ -292,7 +295,7 @@ struct EditorActionStrip: View {
     // MARK: Items (one model for the pill and the "…" menu)
 
     private func items(for group: StripGroup) -> [StripItem] {
-        let items: [StripItem]
+        var items: [StripItem]
         switch group {
         case .inline:
             items = [
@@ -317,10 +320,14 @@ struct EditorActionStrip: View {
                           help: "Выделение (==…==)", menuIcon: "highlighter",
                           active: activeFormats.highlight,
                           action: { actions.run(actions.toggleHighlight) }),
-                StripItem(id: "copy", glyph: .symbol("doc.on.doc"), title: "Копировать",
-                          help: "Копировать", menuIcon: "doc.on.doc",
-                          action: { actions.run(actions.copySelection) }),
             ]
+            if mode == .preview, showReviewAction {
+                items.append(StripItem(
+                    id: "review", glyph: .symbol("plus.bubble"),
+                    title: "Добавить review-метку",
+                    help: "Добавить review-метку из выделения",
+                    menuIcon: "plus.bubble", action: addReviewMark))
+            }
         case .paragraph:
             items = [
                 StripItem(id: "h1", glyph: .text("H1"), title: "Заголовок 1",
