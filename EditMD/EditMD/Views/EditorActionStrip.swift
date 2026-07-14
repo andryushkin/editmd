@@ -53,14 +53,9 @@ final class EditorStripActions {
 /// that no longer fit the space between them collapse into an "…" menu — the
 /// switcher must never be overlapped.
 struct EditorActionStrip: View {
-    nonisolated private static let editingToolIDs = [
-        "bold", "italic", "strike", "code", "highlight",
-        "h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock",
-        "bullet", "checklist", "numbered", "quote",
-    ]
-    nonisolated private static let visualExtraToolIDs = [
-        "table", "table.addRow", "table.delRow", "math.inline", "math.block",
-    ]
+    nonisolated private static let editingToolIDs =
+        [StripGroup.inline, .paragraph, .lists].flatMap(\.toolIDs)
+    nonisolated private static let visualExtraToolIDs = StripGroup.extras.toolIDs
 
     /// Pure, mode-aware source of truth for the tools the strip renders.
     /// Preview is a review surface, not a second Markdown editor; task boxes
@@ -195,7 +190,9 @@ struct EditorActionStrip: View {
         let ids = Set(Self.toolIDs(for: mode,
                                    showVisualExtras: showVisualExtras,
                                    showReviewAction: showReviewAction))
-        return StripGroup.allCases.filter { !ids.isDisjoint(with: $0.toolIDs) }
+        return StripGroup.allCases.filter { group in
+            group.toolIDs.contains(where: ids.contains)
+        }
     }
 
     /// Greedy left-to-right fit. Until the measurement layer reports (first
@@ -583,7 +580,7 @@ private enum StripGroup: String, CaseIterable, Identifiable {
         }
     }
 
-    var toolIDs: Set<String> {
+    var toolIDs: [String] {
         switch self {
         case .inline: return ["bold", "italic", "strike", "code", "highlight"]
         case .review: return ["review"]
