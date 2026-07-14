@@ -133,6 +133,24 @@ func allBlocksAreChecklists(_ blocks: [MDBlock]) -> Bool {
     !blocks.isEmpty && blocks.allSatisfy { isChecklistKind($0.kind) }
 }
 
+func builtInPluginFrontmatterSource(in markdown: String) -> String? {
+    guard let range = frontmatterRange(in: markdown)?.full else { return nil }
+    return (markdown as NSString).substring(with: range)
+}
+
+@discardableResult
+func refreshBuiltInPluginSnapshot(
+    for markdown: String,
+    cachedFrontmatter: inout String?,
+    snapshot: inout BuiltInPluginSnapshot
+) -> Bool {
+    let currentFrontmatter = builtInPluginFrontmatterSource(in: markdown)
+    guard currentFrontmatter != cachedFrontmatter else { return false }
+    cachedFrontmatter = currentFrontmatter
+    snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+    return true
+}
+
 func checklistKind(depth: Int,
                    initialPluginPayload: BuiltInPluginTokenPayload?) -> MDBlock.Kind {
     if let initialPluginPayload {
@@ -355,9 +373,10 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// passes so layout doesn't churn on every keystroke.
         var imageAttachments: [String: NSTextAttachment] = [:]
         /// Configuration/state lookup from the last document load. Frontmatter
-        /// is read-only in Visual, so presentation can reuse this snapshot
-        /// instead of reparsing the whole markdown on every keystroke.
+        /// changes are rare, so presentation reuses this snapshot until the
+        /// serialized frontmatter source itself changes.
         var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
+        private var builtInPluginFrontmatter: String?
 
         var visualStyle: VisualStyle {
             let settings = EditorSettings.shared.visual
@@ -375,13 +394,15 @@ struct VisualMarkdownView: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        func loadDocument() {
+        func loadDocument(pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot? = nil) {
             guard let textView, let storage = textView.textStorage else { return }
             textView.finishActiveTableEditing(commit: true)
             isLoadingDocument = true
             let source = parent.document.content
-            let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: source)
+            let pluginSnapshot = providedPluginSnapshot
+                ?? BuiltInPluginRegistry.snapshot(for: source)
             builtInPluginSnapshot = pluginSnapshot
+            builtInPluginFrontmatter = builtInPluginFrontmatterSource(in: source)
             let rendered = renderMarkdownToAttributed(
                 source, style: visualStyle, pluginSnapshot: pluginSnapshot)
             storage.setAttributedString(rendered)
@@ -587,8 +608,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             // markdown (would inject trailing newlines / normalize without edit — C4).
             guard !isMutating, !isLoadingDocument else { return }
             runAutoformat()
-            syncToDocument()
-            applyPresentation()
+            let reloaded = syncToDocument()
+            if !reloaded { applyPresentation() }
             parent.document.noteContentEdited()
             DocumentRegistry.shared.noteUserEdit(parent.fileURL)
             LineChangeTracker.shared.noteContent(url: parent.fileURL,
@@ -861,8 +882,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         func afterMutation() {
-            syncToDocument()
-            applyPresentation()
+            let reloaded = syncToDocument()
+            if !reloaded { applyPresentation() }
             updateStats()
         }
 
@@ -1330,8 +1351,9 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         // MARK: Sync
 
-        private func syncToDocument() {
-            guard let storage = textView?.textStorage else { return }
+        @discardableResult
+        private func syncToDocument() -> Bool {
+            guard let storage = textView?.textStorage else { return false }
             let detailed = serializeAttributedToMarkdownDetailed(storage)
             lastParagraphRanges = detailed.paragraphRanges
             var serialized = detailed.markdown
@@ -1341,11 +1363,21 @@ struct VisualMarkdownView: NSViewRepresentable {
             if !serialized.isEmpty, !serialized.hasSuffix("\n") {
                 serialized += "\n"
             }
+            let pluginConfigurationChanged = refreshBuiltInPluginSnapshot(
+                for: serialized, cachedFrontmatter: &builtInPluginFrontmatter,
+                snapshot: &builtInPluginSnapshot)
             lastSerialized = serialized
             isInternalUpdate = true
             parent.document.content = serialized
             isInternalUpdate = false
             storeCursor()
+            if pluginConfigurationChanged {
+                // Existing inline/list attributes carry the previous plugin
+                // payload. Re-render once so removing or editing frontmatter
+                // updates the whole Visual semantic model, not only tables.
+                loadDocument(pluginSnapshot: builtInPluginSnapshot)
+            }
+            return pluginConfigurationChanged
         }
 
         func updateStats() {

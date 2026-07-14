@@ -834,6 +834,22 @@ func renderTableCellAttributed(_ markdown: String,
     let out = NSMutableAttributedString()
     guard !markdown.isEmpty else { return out }
     let doc = Document(parsing: markdown)
+    let sourceUTF8 = markdown.utf8
+    let sourceUTF8Count = sourceUTF8.count
+
+    /// GFM table cells are single-line sources. Slice a Text node directly by
+    /// its UTF-8 columns so escape information survives without a per-cell
+    /// LineIndex or a second parse.
+    func rawSource(for text: Markdown.Text) -> String? {
+        guard let range = text.range,
+              range.lowerBound.line == 1, range.upperBound.line == 1 else { return nil }
+        let lower = range.lowerBound.column - 1
+        let upper = range.upperBound.column - 1
+        guard lower >= 0, upper >= lower, upper <= sourceUTF8Count else { return nil }
+        let start = sourceUTF8.index(sourceUTF8.startIndex, offsetBy: lower)
+        let end = sourceUTF8.index(sourceUTF8.startIndex, offsetBy: upper)
+        return String(decoding: sourceUTF8[start..<end], as: UTF8.self)
+    }
 
     func font(for styles: MDInlineStyle) -> NSFont {
         if styles.contains(.code) {
@@ -871,13 +887,15 @@ func renderTableCellAttributed(_ markdown: String,
         out.append(NSAttributedString(string: string, attributes: attrs))
     }
 
-    func appendTextWithWikiLinks(_ text: String, styles: MDInlineStyle, isLink: Bool) {
+    func appendTextWithWikiLinks(_ text: String, source: String,
+                                 styles: MDInlineStyle, isLink: Bool) {
         let wikiMatches = scanWikiLinks(in: text)
         let mathMatches = scanMathSpans(in: text)
         let ns = text as NSString
         var pluginMatches: [(range: NSRange, payload: BuiltInPluginTokenPayload)] = []
         if !isLink, !styles.contains(.code) {
-            pluginMatches = pluginSnapshot.tokenCandidates(in: text).compactMap { candidate in
+            pluginMatches = pluginSnapshot.tokenCandidates(
+                in: text, matching: source).compactMap { candidate in
                 let protected = wikiMatches.contains {
                     NSIntersectionRange($0.range, candidate.range).length > 0
                 } || mathMatches.contains {
@@ -935,7 +953,9 @@ func renderTableCellAttributed(_ markdown: String,
                 if styles.contains(.code) || isLink {
                     append(text.string, styles: styles, isLink: isLink)
                 } else {
-                    appendTextWithWikiLinks(text.string, styles: styles, isLink: isLink)
+                    appendTextWithWikiLinks(text.string,
+                                            source: rawSource(for: text) ?? text.string,
+                                            styles: styles, isLink: isLink)
                 }
             case let strong as Strong:
                 walk(strong.children, styles: styles.union(.bold), isLink: isLink)
@@ -969,7 +989,8 @@ func renderTableCellAttributed(_ markdown: String,
             walk(paragraph.children, styles: [], isLink: false)
         } else if let text = child as? Markdown.Text {
             if out.length > 0 { append(" ", styles: [], isLink: false) }
-            appendTextWithWikiLinks(text.string, styles: [], isLink: false)
+            appendTextWithWikiLinks(text.string, source: rawSource(for: text) ?? text.string,
+                                    styles: [], isLink: false)
         } else {
             // Unexpected block inside a cell — keep plain (no pipe re-introduction).
             let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)

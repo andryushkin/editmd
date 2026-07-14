@@ -251,6 +251,28 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual(pluginRuns, 1)
     }
 
+    func testTableCellKeepsEscapedPluginMarkerLiteral() {
+        let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
+        let cell = #"🧬 escaped \[?\] live [?]"#
+        let attributed = renderTableCellAttributed(
+            cell, baseFont: .systemFont(ofSize: 14), textColor: .labelColor,
+            linkColor: .linkColor, codeColor: .systemOrange,
+            pluginSnapshot: snapshot)
+
+        let literalRange = (attributed.string as NSString).range(of: "[?]")
+        XCTAssertNotEqual(literalRange.location, NSNotFound, attributed.string)
+        XCTAssertNil(attributed.attribute(.mdBuiltInPluginToken,
+                                          at: literalRange.location,
+                                          effectiveRange: nil))
+        var pluginRuns = 0
+        attributed.enumerateAttribute(.mdBuiltInPluginToken,
+                                      in: NSRange(location: 0, length: attributed.length)) {
+            value, _, _ in
+            if value is BuiltInPluginTokenPayload { pluginRuns += 1 }
+        }
+        XCTAssertEqual(pluginRuns, 1, attributed.string)
+    }
+
     func testCachedSnapshotCyclesTableCellThroughStatesAbsentAtLoad() throws {
         let markdown = frontmatter + "\n| Status |\n| --- |\n| [-] |"
         let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
@@ -313,6 +335,24 @@ final class BuiltInPluginsTests: XCTestCase {
             MDBlock(kind: kind), MDBlock(kind: .taskItem(depth: 0, done: false)),
         ]))
         XCTAssertFalse(allBlocksAreChecklists([MDBlock(kind: .bulletItem(depth: 0))]))
+    }
+
+    func testPluginSnapshotRefreshesOnlyWhenFrontmatterChanges() {
+        let original = frontmatter + "\nprose [?]"
+        var cachedFrontmatter = builtInPluginFrontmatterSource(in: original)
+        var snapshot = BuiltInPluginRegistry.snapshot(for: original)
+
+        XCTAssertFalse(refreshBuiltInPluginSnapshot(
+            for: frontmatter + "\nchanged prose [?]",
+            cachedFrontmatter: &cachedFrontmatter, snapshot: &snapshot))
+        XCTAssertNotNil(snapshot.payload(matchingSource: "[?]"))
+
+        XCTAssertTrue(refreshBuiltInPluginSnapshot(
+            for: "changed prose [?]",
+            cachedFrontmatter: &cachedFrontmatter, snapshot: &snapshot))
+        XCTAssertNil(cachedFrontmatter)
+        XCTAssertTrue(snapshot.activations.isEmpty)
+        XCTAssertNil(snapshot.payload(matchingSource: "[?]"))
     }
 
     func testPreviewRendersClickableTokensAndLeavesProtectedTextAlone() {

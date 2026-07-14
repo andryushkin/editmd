@@ -146,6 +146,86 @@ struct BuiltInPluginSnapshot: Sendable {
         }
         return result
     }
+
+    /// Maps candidates from cmark's unescaped Text value back to the raw Text
+    /// source. Escaped forms such as `\[?\]` still appear as `[?]` in
+    /// `Text.string`, but are not semantic plugin tokens in Source/Preview.
+    func tokenCandidates(in displaySource: String,
+                         matching source: String) -> [BuiltInPluginToken] {
+        let displayed = tokenCandidates(in: displaySource)
+        guard !displayed.isEmpty, displaySource != source else { return displayed }
+
+        let sourceOccurrences = configuredMarkerOccurrences(in: source)
+        var displayIndex = 0
+        var result: [BuiltInPluginToken] = []
+        for occurrence in sourceOccurrences {
+            while displayIndex < displayed.count,
+                  displayed[displayIndex].payload.state.source != occurrence.source {
+                displayIndex += 1
+            }
+            guard displayIndex < displayed.count else { break }
+            if occurrence.isExactSourceToken {
+                result.append(displayed[displayIndex])
+            }
+            displayIndex += 1
+        }
+        return result
+    }
+
+    private func configuredMarkerOccurrences(in source: String)
+        -> [(source: String, isExactSourceToken: Bool)] {
+        guard !interactivePayloadBySource.isEmpty else { return [] }
+        let ns = source as NSString
+        var result: [(String, Bool)] = []
+        var offset = 0
+        while offset < ns.length {
+            guard ns.character(at: offset) == 0x5B else {
+                offset += 1
+                continue
+            }
+
+            // Common and semantically active form: exact three UTF-16 units.
+            if offset + 3 <= ns.length {
+                let exactRange = NSRange(location: offset, length: 3)
+                let exact = ns.substring(with: exactRange)
+                if interactivePayloadBySource[exact] != nil {
+                    result.append((exact, true))
+                    offset += 3
+                    continue
+                }
+            }
+
+            // cmark can unescape the marker or closing bracket. Record that
+            // displayed occurrence for alignment, but never make it a widget.
+            var markerLocation = offset + 1
+            var markerEscaped = false
+            if markerLocation < ns.length, ns.character(at: markerLocation) == 0x5C {
+                markerEscaped = true
+                markerLocation += 1
+            }
+            guard markerLocation < ns.length else { offset += 1; continue }
+            let marker = ns.substring(
+                with: NSRange(location: markerLocation, length: 1))
+
+            var closingLocation = markerLocation + 1
+            var closingEscaped = false
+            if closingLocation < ns.length, ns.character(at: closingLocation) == 0x5C {
+                closingEscaped = true
+                closingLocation += 1
+            }
+            guard closingLocation < ns.length,
+                  ns.character(at: closingLocation) == 0x5D else {
+                offset += 1
+                continue
+            }
+            let normalized = "[\(marker)]"
+            if interactivePayloadBySource[normalized] != nil {
+                result.append((normalized, !markerEscaped && !closingEscaped))
+            }
+            offset = closingLocation + 1
+        }
+        return result
+    }
 }
 
 protocol BuiltInMarkdownPlugin: Sendable {
