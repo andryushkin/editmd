@@ -785,6 +785,10 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         private func chooseAndInsertImage() {
+            guard let textView, !textView.caretInsideFence() else {
+                NSSound.beep()
+                return
+            }
             guard let asset = chooseImageForInsertion(document: parent.document,
                                                        fileURL: parent.fileURL) else { return }
             insertImage(asset)
@@ -801,6 +805,7 @@ struct SourceTextView: NSViewRepresentable {
                 insertImage(asset)
             } catch {
                 presentImageInsertionError(error)
+                return false
             }
             return true
         }
@@ -1331,15 +1336,20 @@ fileprivate final class SourceNSTextView: NSTextView {
     // pipe-table Markdown.
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
-        if let coordinator = delegate as? SourceTextView.Coordinator,
-           coordinator.pasteImageFromPasteboard() {
-            return
-        }
-        if !caretInsideFence(),
-           let markdown = markdownTableFromPasteboard(
-            html: pasteboard.string(forType: .html),
-            plain: pasteboard.string(forType: .string)) {
-            insertPastedTable(markdown)
+        let inFence = caretInsideFence()
+        if handleSourceSpecialPaste(
+            insideFence: inFence,
+            tableMarkdown: {
+                markdownTableFromPasteboard(
+                    html: pasteboard.string(forType: .html),
+                    plain: pasteboard.string(forType: .string))
+            },
+            insertTable: { [weak self] in self?.insertPastedTable($0) },
+            insertImage: { [weak self] in
+                guard let coordinator = self?.delegate as? SourceTextView.Coordinator
+                else { return false }
+                return coordinator.pasteImageFromPasteboard()
+            }) {
             return
         }
         pasteAsPlainText(sender)
@@ -1347,7 +1357,7 @@ fileprivate final class SourceNSTextView: NSTextView {
 
     /// Fenced code blocks are literal — TSV pasted there must stay TSV.
     /// Fence-marker parity up to the caret (``` / ~~~ at line start).
-    private func caretInsideFence() -> Bool {
+    fileprivate func caretInsideFence() -> Bool {
         let ns = string as NSString
         let caret = min(selectedRange().location, ns.length)
         var inside = false

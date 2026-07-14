@@ -561,12 +561,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
             : fileURL.deletingLastPathComponent()
     }
 
-    nonisolated private static let imageMIMETypes: [String: String] = [
-        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
-        "heic": "image/heic", "tiff": "image/tiff", "tif": "image/tiff",
-        "bmp": "image/bmp",
-    ]
     nonisolated private static let maxInlineImageBytes = 8_000_000
 
     /// data: URI for a relative local image path, or nil to keep the original
@@ -576,7 +570,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
               let baseDir else { return nil }
         let path = source.removingPercentEncoding ?? source
         let fileURL = baseDir.appendingPathComponent(path).standardizedFileURL
-        guard let mime = imageMIMETypes[fileURL.pathExtension.lowercased()] else { return nil }
+        guard let mime = supportedImageMIMETypes[fileURL.pathExtension.lowercased()]
+        else { return nil }
         return PreviewImageDataCache.shared.dataURI(
             for: fileURL, mime: mime, maximumBytes: maxInlineImageBytes)
     }

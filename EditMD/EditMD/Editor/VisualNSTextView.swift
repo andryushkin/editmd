@@ -120,10 +120,14 @@ final class VisualNSTextView: NSTextView {
     // is rebuilt through our own semantic renderer; everything else remains
     // plain text.
     override func paste(_ sender: Any?) {
-        if visualCoordinator?.pasteImageFromPasteboard() == true { return }
-        if visualCoordinator?.pasteMarkdownFromPasteboard() != true {
-            pasteAsPlainText(sender)
-        }
+        if handleVisualSpecialPaste(
+            pasteMarkdown: { [weak self] in
+                self?.visualCoordinator?.pasteMarkdownFromPasteboard() == true
+            },
+            pasteImage: { [weak self] in
+                self?.visualCoordinator?.pasteImageFromPasteboard() == true
+            }) { return }
+        pasteAsPlainText(sender)
     }
 
     override func mouseDown(with event: NSEvent) {

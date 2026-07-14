@@ -3,11 +3,14 @@ import PDFKit
 import AppKit
 import UniformTypeIdentifiers
 
-/// Image formats shown by EditMD's read-only media viewer. The list matches
-/// the formats accepted for local Markdown images in Preview.
-let supportedImageFileExtensions: Set<String> = [
-    "svg", "png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "tif", "bmp",
+/// One source of truth for viewer routing, picker types and Preview data URIs.
+let supportedImageMIMETypes: [String: String] = [
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
+    "heic": "image/heic", "tiff": "image/tiff", "tif": "image/tiff",
+    "bmp": "image/bmp",
 ]
+let supportedImageFileExtensions = Set(supportedImageMIMETypes.keys)
 
 /// True for an image the native viewer knows how to open.
 func isImageFile(_ url: URL) -> Bool {
@@ -32,13 +35,7 @@ struct ImageInsertionAsset: Equatable {
     func markdown(alt requestedAlt: String? = nil) -> String {
         let rawAlt = requestedAlt?.trimmingCharacters(in: .whitespacesAndNewlines)
         let chosenAlt = rawAlt.flatMap { $0.isEmpty ? nil : $0 } ?? suggestedAlt
-        let alt = chosenAlt
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "[", with: "\\[")
-            .replacingOccurrences(of: "]", with: "\\]")
-        let destination = source.contains(where: { $0.isWhitespace || $0 == "(" || $0 == ")" })
-            ? "<\(source)>" : source
-        return "![\(alt)](\(destination))"
+        return markdownImageSyntax(source: source, alt: chosenAlt)
     }
 }
 
@@ -149,19 +146,15 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
             return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
                                        suggestedAlt: alt)
         }
+        let data = try imageCandidateData(candidate)
+        if let match = assets.fileWrappers?.first(where: {
+            $0.value.regularFileContents == data
+        })?.key {
+            return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
+        }
         let name = uniqueImageAssetFilename(baseName) {
             existing.contains($0.lowercased())
                 || FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
-        }
-        let data: Data
-        switch candidate {
-        case .file(let url):
-            guard let read = try? Data(contentsOf: url), !read.isEmpty
-            else { throw ImageInsertionError.unreadableImage }
-            data = read
-        case .data(let bytes, _):
-            guard !bytes.isEmpty else { throw ImageInsertionError.unreadableImage }
-            data = bytes
         }
         // Make the asset visible to Visual/Preview immediately; their image
         // resolvers read package assets from disk. The matching FileWrapper
@@ -184,6 +177,9 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
                                    suggestedAlt: alt)
     }
+    if let match = identicalImageAsset(in: assetsDir, candidate: candidate) {
+        return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
+    }
 
     let name = uniqueImageAssetFilename(baseName) {
         FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
@@ -197,6 +193,39 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         try bytes.write(to: destination, options: .atomic)
     }
     return ImageInsertionAsset(source: "assets/\(name)", suggestedAlt: alt)
+}
+
+private func imageCandidateData(_ candidate: ImageAssetCandidate) throws -> Data {
+    let data: Data
+    switch candidate {
+    case .file(let url): data = try Data(contentsOf: url)
+    case .data(let bytes, _): data = bytes
+    }
+    guard !data.isEmpty else { throw ImageInsertionError.unreadableImage }
+    return data
+}
+
+/// Re-inserting the same file/pixels reuses the existing attachment instead of
+/// growing `assets/logo-2.png`, `logo-3.png`, … with identical bytes.
+private func identicalImageAsset(in directory: URL,
+                                 candidate: ImageAssetCandidate) -> String? {
+    let items = (try? FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: [.fileSizeKey],
+        options: [.skipsHiddenFiles])) ?? []
+    for item in items where isImageFile(item) {
+        switch candidate {
+        case .file(let source):
+            if FileManager.default.contentsEqual(atPath: source.path, andPath: item.path) {
+                return item.lastPathComponent
+            }
+        case .data(let bytes, _):
+            let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if size == bytes.count, (try? Data(contentsOf: item)) == bytes {
+                return item.lastPathComponent
+            }
+        }
+    }
+    return nil
 }
 
 func uniqueImageAssetFilename(_ original: String,
@@ -264,19 +293,24 @@ struct PDFKitView: NSViewRepresentable {
     }
 }
 
-/// Window content for a PDF: main window gets the same workspace sidebar as
-/// the editor (center pane = viewer), lite windows pass `allowsSidebar: false`.
-/// Mirrors `FolderInfoHost` — no document, so File ▸ Save / Format stay
-/// disabled via nil focused values.
-struct PDFViewerHost: View {
+/// Shared workspace/sidebar chrome for read-only PDF and image viewers.
+private let mediaSidebarWidthRange = 150.0...400.0
+
+private struct MediaViewerHost<Viewer: View>: View {
     let fileURL: URL
-    var allowsSidebar: Bool = true
+    let allowsSidebar: Bool
+    let viewer: Viewer
 
     @ObservedObject private var workspace = WorkspaceModel.shared
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
 
-    private static let sidebarWidthRange = 150.0...400.0
+    init(fileURL: URL, allowsSidebar: Bool,
+         @ViewBuilder viewer: () -> Viewer) {
+        self.fileURL = fileURL
+        self.allowsSidebar = allowsSidebar
+        self.viewer = viewer()
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -291,8 +325,8 @@ struct PDFViewerHost: View {
                 )
                 .frame(width: sidebarWidth)
                 paneDivider { x in
-                    sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                       max(Self.sidebarWidthRange.lowerBound, Double(x)))
+                    sidebarWidth = min(mediaSidebarWidthRange.upperBound,
+                                       max(mediaSidebarWidthRange.lowerBound, Double(x)))
                 }
                 .zIndex(1)
             }
@@ -319,27 +353,6 @@ struct PDFViewerHost: View {
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
     }
 
-    @ViewBuilder private var viewer: some View {
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            PDFKitView(url: fileURL)
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "doc.questionmark")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.tertiary)
-                Text("Файл не найден")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                Text((fileURL.path as NSString).abbreviatingWithTildeInPath)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(24)
-        }
-    }
-
     private func paneDivider(onDrag: @escaping (CGFloat) -> Void) -> some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
@@ -360,6 +373,36 @@ struct PDFViewerHost: View {
     }
 }
 
+/// Window content for a PDF: main window gets the workspace sidebar; lite
+/// windows show only the read-only PDFKit viewer.
+struct PDFViewerHost: View {
+    let fileURL: URL
+    var allowsSidebar: Bool = true
+
+    var body: some View {
+        MediaViewerHost(fileURL: fileURL, allowsSidebar: allowsSidebar) {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                PDFKitView(url: fileURL)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.questionmark")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.tertiary)
+                    Text("Файл не найден")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    Text((fileURL.path as NSString).abbreviatingWithTildeInPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(24)
+            }
+        }
+    }
+}
+
 // MARK: - Image viewer
 
 /// Scrollable native image canvas. `NSImage` supports the raster formats in
@@ -371,9 +414,14 @@ private final class ImageCanvasView: NSView {
     private let imageView = NSImageView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private var loadedURL: URL?
-    private var loadedModificationDate: Date?
-    private var loadedFileSize: Int?
+    private var loadTask: Task<Void, Never>?
     private var needsInitialFit = false
+
+    private enum LoadResult: Sendable {
+        case data(Data)
+        case missing
+        case unreadable
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -403,6 +451,8 @@ private final class ImageCanvasView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    deinit { loadTask?.cancel() }
+
     override func layout() {
         super.layout()
         scrollView.frame = bounds
@@ -414,29 +464,41 @@ private final class ImageCanvasView: NSView {
     }
 
     func display(_ url: URL) {
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let date = values?.contentModificationDate
-        let size = values?.fileSize
-        guard loadedURL?.standardizedFileURL != url.standardizedFileURL
-                || loadedModificationDate != date || loadedFileSize != size else { return }
-        loadedURL = url
-        loadedModificationDate = date
-        loadedFileSize = size
-
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            showFailure("Файл не найден\n\((url.path as NSString).abbreviatingWithTildeInPath)")
-            return
+        let requested = url.standardizedFileURL
+        guard loadedURL?.standardizedFileURL != requested else { return }
+        loadedURL = requested
+        loadTask?.cancel()
+        showFailure("Загрузка…")
+        loadTask = Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { () -> LoadResult in
+                guard FileManager.default.fileExists(atPath: requested.path) else { return .missing }
+                guard let data = try? Data(contentsOf: requested), !data.isEmpty
+                else { return .unreadable }
+                return .data(data)
+            }.value
+            guard !Task.isCancelled, let self, self.loadedURL == requested else { return }
+            switch result {
+            case .missing:
+                self.showFailure("Файл не найден\n\((requested.path as NSString).abbreviatingWithTildeInPath)")
+            case .unreadable:
+                self.showFailure("Не удалось прочитать изображение\n\(requested.lastPathComponent)")
+            case .data(let data):
+                guard let image = NSImage(data: data), image.size.width > 0,
+                      image.size.height > 0, image.size.width.isFinite,
+                      image.size.height.isFinite else {
+                    self.showFailure("Не удалось отобразить изображение\n\(requested.lastPathComponent)")
+                    return
+                }
+                self.show(image, named: requested.lastPathComponent)
+            }
         }
-        guard let image = NSImage(contentsOf: url), image.size.width > 0, image.size.height > 0,
-              image.size.width.isFinite, image.size.height.isFinite else {
-            showFailure("Не удалось отобразить изображение\n\(url.lastPathComponent)")
-            return
-        }
+    }
 
+    private func show(_ image: NSImage, named name: String) {
         statusLabel.isHidden = true
         scrollView.isHidden = false
         imageView.image = image
-        imageView.setAccessibilityLabel(url.lastPathComponent)
+        imageView.setAccessibilityLabel(name)
         imageView.frame = NSRect(origin: .zero, size: image.size)
         scrollView.documentView = imageView
         scrollView.magnification = 1
@@ -483,69 +545,9 @@ struct ImageViewerHost: View {
     let fileURL: URL
     var allowsSidebar: Bool = true
 
-    @ObservedObject private var workspace = WorkspaceModel.shared
-    @AppStorage("sidebarVisible") private var sidebarVisible = false
-    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
-
-    private static let sidebarWidthRange = 150.0...400.0
-
     var body: some View {
-        HStack(spacing: 0) {
-            if allowsSidebar && sidebarVisible {
-                WorkspaceSidebar(
-                    workspace: workspace,
-                    outlineContent: "",
-                    activeURL: fileURL,
-                    onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) },
-                    onJump: { _ in }
-                )
-                .frame(width: sidebarWidth)
-                paneDivider { x in
-                    sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                       max(Self.sidebarWidthRange.lowerBound, Double(x)))
-                }
-                .zIndex(1)
-            }
+        MediaViewerHost(fileURL: fileURL, allowsSidebar: allowsSidebar) {
             NativeImageView(url: fileURL)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
-        .background(WindowAccessor { window in
-            window.representedURL = fileURL
-            window.title = fileURL.lastPathComponent
-        })
-        .toolbar {
-            if allowsSidebar {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        sidebarVisible.toggle()
-                    } label: {
-                        Label("Toggle Sidebar", systemImage: "sidebar.left")
-                    }
-                    .help("Toggle Sidebar (⌃⌘S)")
-                }
-            }
-        }
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-    }
-
-    private func paneDivider(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
     }
 }

@@ -134,8 +134,20 @@ func looksLikeMarkdownForVisualPaste(_ text: String) -> Bool {
 /// Code blocks are literal by definition: Markdown-looking clipboard text
 /// pasted there must keep every marker instead of being rendered.
 func shouldFormatVisualPaste(_ text: String, in blockKind: MDBlock.Kind) -> Bool {
-    if case .codeBlock = blockKind { return false }
-    return looksLikeMarkdownForVisualPaste(text)
+    visualContextAllowsStructuredPaste(blockKind) && looksLikeMarkdownForVisualPaste(text)
+}
+
+/// Literal and structurally constrained Visual blocks must use NSTextView's
+/// plain-text paste. Shared by Markdown/table and image doors.
+func visualContextAllowsStructuredPaste(_ kind: MDBlock.Kind) -> Bool {
+    switch kind {
+    case .codeBlock, .tableCell, .raw: return false
+    default: return true
+    }
+}
+
+func visualContextAllowsImageInsertion(_ kind: MDBlock.Kind) -> Bool {
+    visualContextAllowsStructuredPaste(kind)
 }
 
 // MARK: - SwiftUI wrapper
@@ -822,25 +834,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             let pasteboard = NSPasteboard.general
             let plain = pasteboard.string(forType: .string)
             let selection = textView.selectedRange()
-            let blockKind: MDBlock.Kind
-            if storage.length > 0 {
-                let probe = min(selection.location, storage.length - 1)
-                blockKind = (storage.attribute(.mdBlock, at: probe, effectiveRange: nil) as? MDBlock)?
-                    .kind ?? .paragraph
-            } else {
-                blockKind = .paragraph
-            }
-            // Table cells are single-line — structured payloads can't land
-            // there; the plain path pastes what fits.
-            if case .tableCell = blockKind { return false }
+            let blockKind = pasteBlockKindAtSelection() ?? .paragraph
+            // Literal/raw/table contexts keep the ordinary plain-text path.
+            guard visualContextAllowsStructuredPaste(blockKind) else { return false }
 
             var markdown: String?
-            if case .codeBlock = blockKind {
-                markdown = nil   // literal context: keep every marker as text
-            } else {
-                markdown = markdownTableFromPasteboard(
-                    html: pasteboard.string(forType: .html), plain: plain)
-            }
+            markdown = markdownTableFromPasteboard(
+                html: pasteboard.string(forType: .html), plain: plain)
             if markdown == nil, let plain, shouldFormatVisualPaste(plain, in: blockKind) {
                 markdown = plain
             }
@@ -856,6 +856,16 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: caret, length: 0))
             afterMutation()
             return true
+        }
+
+        /// Semantic block under the Visual selection, shared by every paste
+        /// door so their context guards cannot drift apart.
+        func pasteBlockKindAtSelection() -> MDBlock.Kind? {
+            guard let textView, let storage = textView.textStorage,
+                  storage.length > 0 else { return nil }
+            let probe = min(textView.selectedRange().location, storage.length - 1)
+            return (storage.attribute(.mdBlock, at: probe, effectiveRange: nil) as? MDBlock)?.kind
+                ?? .paragraph
         }
 
         // MARK: Tables

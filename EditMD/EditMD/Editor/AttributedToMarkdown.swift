@@ -384,11 +384,18 @@ private func openMarker(_ marker: OpenMarker, into result: inout String,
 }
 
 private func imageMarkdown(_ info: [String: String]) -> String {
-    let alt = (info["alt"] ?? "").replacingOccurrences(of: "\\", with: "\\\\")
+    markdownImageSyntax(source: info["src"] ?? "",
+                        alt: info["alt"] ?? "",
+                        title: info["title"])
+}
+
+/// Canonical image serializer shared by Visual round-trip and insertion.
+func markdownImageSyntax(source: String, alt rawAlt: String, title: String? = nil) -> String {
+    let alt = rawAlt.replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "[", with: "\\[")
         .replacingOccurrences(of: "]", with: "\\]")
-    var inside = formatDestination(info["src"] ?? "")
-    if let title = info["title"], !title.isEmpty {
+    var inside = formatDestination(source)
+    if let title, !title.isEmpty {
         inside += " \"\(title)\""
     }
     return "![\(alt)](\(inside))"

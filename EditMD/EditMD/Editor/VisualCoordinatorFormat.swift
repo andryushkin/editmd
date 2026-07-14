@@ -115,14 +115,19 @@ extension VisualMarkdownView.Coordinator {
     }
 
     private func chooseAndInsertImage() {
+        guard allowsImageInsertionAtSelection() else {
+            NSSound.beep()
+            return
+        }
         guard let asset = chooseImageForInsertion(document: parent.document,
                                                    fileURL: parent.fileURL) else { return }
         insertImage(asset)
     }
 
-    /// Clipboard-image front door used before Visual's table/Markdown paste.
+    /// Clipboard-image fallback after Visual's table/Markdown paste door.
     /// Returning true suppresses the plain-text fallback for binary payloads.
     func pasteImageFromPasteboard() -> Bool {
+        guard allowsImageInsertionAtSelection() else { return false }
         guard let candidate = imageCandidate(from: .general) else { return false }
         do {
             let asset = try storeImageAsset(candidate, document: parent.document,
@@ -130,8 +135,17 @@ extension VisualMarkdownView.Coordinator {
             insertImage(asset)
         } catch {
             presentImageInsertionError(error)
+            return false
         }
         return true
+    }
+
+    /// Images are structural attributed runs. Literal/raw islands serialize
+    /// their original `.raw` payload and table cells are single-line, so none
+    /// of those contexts may accept an image attachment.
+    private func allowsImageInsertionAtSelection() -> Bool {
+        guard let kind = pasteBlockKindAtSelection() else { return true }
+        return visualContextAllowsImageInsertion(kind)
     }
 
     private func insertImage(_ asset: ImageInsertionAsset) {

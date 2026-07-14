@@ -131,9 +131,13 @@ final class VisualEditingTests: XCTestCase {
                                         document: document, fileURL: documentURL)
         let second = try storeImageAsset(.data(Data([4]), filename: "Pasted image.png"),
                                          document: document, fileURL: documentURL)
+        let repeated = try storeImageAsset(
+            .data(Data([1, 2, 3]), filename: "another-name.png"),
+            document: document, fileURL: documentURL)
 
         XCTAssertEqual(first.source, "assets/Pasted image.png")
         XCTAssertEqual(second.source, "assets/Pasted image-2.png")
+        XCTAssertEqual(repeated.source, first.source)
         XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(first.source)),
                        Data([1, 2, 3]))
     }
@@ -171,6 +175,54 @@ final class VisualEditingTests: XCTestCase {
         board.clearContents()
         board.setString("ordinary text", forType: .string)
         XCTAssertNil(imageCandidate(from: board))
+    }
+
+    func testSourcePasteConsumesTableBeforeImageFlavor() {
+        var calls: [String] = []
+        let handled = handleSourceSpecialPaste(
+            insideFence: false,
+            tableMarkdown: { calls.append("table-probe"); return "| A | B |" },
+            insertTable: { _ in calls.append("table-insert") },
+            insertImage: { calls.append("image"); return true })
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(calls, ["table-probe", "table-insert"])
+    }
+
+    func testSourceFenceSkipsTableAndImageDoors() {
+        var calls: [String] = []
+        let handled = handleSourceSpecialPaste(
+            insideFence: true,
+            tableMarkdown: { calls.append("table"); return "table" },
+            insertTable: { _ in calls.append("insert") },
+            insertImage: { calls.append("image"); return true })
+
+        XCTAssertFalse(handled)
+        XCTAssertTrue(calls.isEmpty)
+    }
+
+    func testVisualPasteUsesMarkdownBeforeImageAndFallsBackOnFailure() {
+        var calls: [String] = []
+        XCTAssertTrue(handleVisualSpecialPaste(
+            pasteMarkdown: { calls.append("markdown"); return true },
+            pasteImage: { calls.append("image"); return true }))
+        XCTAssertEqual(calls, ["markdown"])
+
+        calls = []
+        XCTAssertFalse(handleVisualSpecialPaste(
+            pasteMarkdown: { calls.append("markdown"); return false },
+            pasteImage: { calls.append("image"); return false }))
+        XCTAssertEqual(calls, ["markdown", "image"],
+                       "false must reach NSTextView's plain-text fallback")
+    }
+
+    func testVisualLiteralAndStructuralContextsRejectImagePaste() {
+        XCTAssertTrue(visualContextAllowsImageInsertion(.paragraph))
+        XCTAssertFalse(visualContextAllowsImageInsertion(.codeBlock(language: "swift")))
+        XCTAssertFalse(visualContextAllowsImageInsertion(
+            .tableCell(row: 0, column: 0, columns: 2, alignment: 0)))
+        XCTAssertFalse(visualContextAllowsImageInsertion(.raw("verbatim")))
+        XCTAssertFalse(visualContextAllowsStructuredPaste(.raw("verbatim")))
     }
 
     // MARK: - Autoformat triggers
