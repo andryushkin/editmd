@@ -129,6 +129,10 @@ func isChecklistKind(_ kind: MDBlock.Kind) -> Bool {
     }
 }
 
+func allBlocksAreChecklists(_ blocks: [MDBlock]) -> Bool {
+    !blocks.isEmpty && blocks.allSatisfy { isChecklistKind($0.kind) }
+}
+
 func checklistKind(depth: Int,
                    initialPluginPayload: BuiltInPluginTokenPayload?) -> MDBlock.Kind {
     if let initialPluginPayload {
@@ -725,7 +729,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                 }
                 fmt.bulletList = blocks.allSatisfy { if case .bulletItem = $0.kind { true } else { false } }
                 fmt.numberedList = blocks.allSatisfy { if case .orderedItem = $0.kind { true } else { false } }
-                fmt.checklist = blocks.allSatisfy { if case .taskItem = $0.kind { true } else { false } }
+                fmt.checklist = allBlocksAreChecklists(blocks)
                 fmt.quote = blocks.allSatisfy { $0.quoteDepth > 0 }
                 fmt.codeBlock = blocks.allSatisfy { if case .codeBlock = $0.kind { true } else { false } }
             }

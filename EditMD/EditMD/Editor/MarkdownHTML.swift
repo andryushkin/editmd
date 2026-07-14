@@ -245,6 +245,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     let pluginTokens: [BuiltInPluginToken]
     private var mathCursor = 0
     private var pendingMathUnits = 0
+    private var pluginSentinelCursor: BuiltInPluginSentinelCursor
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
@@ -270,6 +271,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
         self.syntaxHighlighting = syntaxHighlighting
         self.mathSpans = mathSpans
         self.pluginTokens = pluginTokens
+        self.pluginSentinelCursor = BuiltInPluginSentinelCursor(tokens: pluginTokens)
     }
 
     /// UTF-16 NSRange in the original markdown for a markup node's SourceRange.
@@ -572,21 +574,26 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     private mutating func consumePluginSentinelRun(_ count: Int, sourceOffset: Int?) {
         var remaining = count
-        guard var offset = sourceOffset else { return }
+        var offset = sourceOffset
         while remaining > 0 {
-            guard let token = builtInPluginSentinelToken(
-                startingAt: offset, maxLength: remaining, tokens: pluginTokens)
+            guard let token = pluginSentinelCursor.next(
+                startingAt: offset, maxLength: remaining)
             else {
-                guard offset >= 0, offset + remaining <= originalSource.length else { return }
-                let original = originalSource.substring(
-                    with: NSRange(location: offset, length: remaining))
-                result += Self.inlineDecoratedHTML(original, sourceBase: offset)
+                if let offset, offset >= 0, offset + remaining <= originalSource.length {
+                    let original = originalSource.substring(
+                        with: NSRange(location: offset, length: remaining))
+                    result += Self.inlineDecoratedHTML(original, sourceBase: offset)
+                } else {
+                    // No AST source range and no remaining semantic token: keep
+                    // the failure visible without leaking the private-use mask.
+                    result += String(repeating: "□", count: max(1, (remaining + 2) / 3))
+                }
                 return
             }
             result += builtInPluginTokenHTML(token.payload,
                                              sourceOffset: token.range.location)
             remaining -= token.range.length
-            offset += token.range.length
+            offset = offset.map { $0 + token.range.length }
         }
     }
 

@@ -833,9 +833,7 @@ func renderTableCellAttributed(_ markdown: String,
     -> NSAttributedString {
     let out = NSMutableAttributedString()
     guard !markdown.isEmpty else { return out }
-    let source = markdown as NSString
-    let lineIndex = LineIndex(markdown)
-    let pluginCandidates = pluginSnapshot.tokenCandidates(in: markdown)
+    let doc = Document(parsing: markdown)
 
     func font(for styles: MDInlineStyle) -> NSFont {
         if styles.contains(.code) {
@@ -873,36 +871,19 @@ func renderTableCellAttributed(_ markdown: String,
         out.append(NSAttributedString(string: string, attributes: attrs))
     }
 
-    func appendTextWithWikiLinks(_ text: String, sourceRange: NSRange?,
-                                 styles: MDInlineStyle, isLink: Bool) {
+    func appendTextWithWikiLinks(_ text: String, styles: MDInlineStyle, isLink: Bool) {
         let wikiMatches = scanWikiLinks(in: text)
+        let mathMatches = scanMathSpans(in: text)
         let ns = text as NSString
         var pluginMatches: [(range: NSRange, payload: BuiltInPluginTokenPayload)] = []
-        if !isLink, !styles.contains(.code), let sourceRange {
-            let candidates = pluginCandidates.filter {
-                $0.range.location >= sourceRange.location
-                    && NSMaxRange($0.range) <= NSMaxRange(sourceRange)
-            }
-            if sourceRange.length == ns.length,
-               source.substring(with: sourceRange) == text {
-                pluginMatches = candidates.map {
-                    (NSRange(location: $0.range.location - sourceRange.location,
-                             length: $0.range.length), $0.payload)
+        if !isLink, !styles.contains(.code) {
+            pluginMatches = pluginSnapshot.tokenCandidates(in: text).compactMap { candidate in
+                let protected = wikiMatches.contains {
+                    NSIntersectionRange($0.range, candidate.range).length > 0
+                } || mathMatches.contains {
+                    NSIntersectionRange($0.range, candidate.range).length > 0
                 }
-            } else {
-                // Escapes can make a Text node's display length differ from its
-                // source range. Candidates are already position-validated; map
-                // only those states into the displayed text, in source order.
-                var searchStart = 0
-                for candidate in candidates {
-                    let remaining = NSRange(location: searchStart,
-                                            length: max(0, ns.length - searchStart))
-                    let match = ns.range(of: candidate.payload.state.source,
-                                         options: [], range: remaining)
-                    guard match.location != NSNotFound else { continue }
-                    pluginMatches.append((match, candidate.payload))
-                    searchStart = NSMaxRange(match)
-                }
+                return protected ? nil : (candidate.range, candidate.payload)
             }
         }
         guard !wikiMatches.isEmpty || !pluginMatches.isEmpty else {
@@ -954,16 +935,7 @@ func renderTableCellAttributed(_ markdown: String,
                 if styles.contains(.code) || isLink {
                     append(text.string, styles: styles, isLink: isLink)
                 } else {
-                    let range = text.range.map {
-                        NSRange(location: lineIndex.offset($0.lowerBound.line,
-                                                         $0.lowerBound.column),
-                                length: lineIndex.offset($0.upperBound.line,
-                                                         $0.upperBound.column)
-                                    - lineIndex.offset($0.lowerBound.line,
-                                                       $0.lowerBound.column))
-                    }
-                    appendTextWithWikiLinks(text.string, sourceRange: range,
-                                            styles: styles, isLink: isLink)
+                    appendTextWithWikiLinks(text.string, styles: styles, isLink: isLink)
                 }
             case let strong as Strong:
                 walk(strong.children, styles: styles.union(.bold), isLink: isLink)
@@ -991,23 +963,13 @@ func renderTableCellAttributed(_ markdown: String,
         }
     }
 
-    let doc = Document(parsing: markdown)
     for child in doc.children {
         if let paragraph = child as? Paragraph {
             if out.length > 0 { append(" ", styles: [], isLink: false) }
             walk(paragraph.children, styles: [], isLink: false)
         } else if let text = child as? Markdown.Text {
             if out.length > 0 { append(" ", styles: [], isLink: false) }
-            let range = text.range.map {
-                NSRange(location: lineIndex.offset($0.lowerBound.line,
-                                                 $0.lowerBound.column),
-                        length: lineIndex.offset($0.upperBound.line,
-                                                 $0.upperBound.column)
-                            - lineIndex.offset($0.lowerBound.line,
-                                               $0.lowerBound.column))
-            }
-            appendTextWithWikiLinks(text.string, sourceRange: range,
-                                    styles: [], isLink: false)
+            appendTextWithWikiLinks(text.string, styles: [], isLink: false)
         } else {
             // Unexpected block inside a cell — keep plain (no pipe re-introduction).
             let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)

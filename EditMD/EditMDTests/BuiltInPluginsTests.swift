@@ -151,13 +151,18 @@ final class BuiltInPluginsTests: XCTestCase {
     func testPreviewSentinelLookupRequiresExactSourceOffset() throws {
         let markdown = frontmatter + "\nfirst [?] second [X]"
         let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        let firstOffset = (markdown as NSString).range(of: "[?]").location
         let secondOffset = (markdown as NSString).range(of: "[X]").location
 
-        let exact = try XCTUnwrap(builtInPluginSentinelToken(
-            startingAt: secondOffset, maxLength: 3, tokens: snapshot.tokens))
+        var exactCursor = BuiltInPluginSentinelCursor(tokens: snapshot.tokens)
+        let exact = try XCTUnwrap(exactCursor.next(startingAt: secondOffset, maxLength: 3))
         XCTAssertEqual(exact.payload.state.source, "[X]")
-        XCTAssertNil(builtInPluginSentinelToken(
-            startingAt: secondOffset - 1, maxLength: 3, tokens: snapshot.tokens))
+        XCTAssertNil(exactCursor.next(startingAt: secondOffset - 1, maxLength: 3))
+
+        var fallbackCursor = BuiltInPluginSentinelCursor(tokens: snapshot.tokens)
+        let fallback = try XCTUnwrap(fallbackCursor.next(startingAt: nil, maxLength: 3))
+        XCTAssertEqual(fallback.range.location, firstOffset)
+        XCTAssertEqual(fallback.payload.state.source, "[?]")
     }
 
     func testCycleUsesFrontmatterOrderAndWraps() throws {
@@ -231,9 +236,7 @@ final class BuiltInPluginsTests: XCTestCase {
 
     func testTableCellUsesPositionedPluginCandidatesAndSkipsProtectedSyntax() {
         let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
-        let cell = "plain [?] `[?]` [[Note|[?]]] [link](url) [?](url)"
-        let candidates = snapshot.tokenCandidates(in: cell)
-        XCTAssertEqual(candidates.map { $0.payload.state.source }, ["[?]"])
+        let cell = "plain [?] `[?]` [[Note|[?]]] $[?]$ [link](url) [?](url)"
 
         let attributed = renderTableCellAttributed(
             cell, baseFont: .systemFont(ofSize: 14), textColor: .labelColor,
@@ -246,6 +249,27 @@ final class BuiltInPluginsTests: XCTestCase {
             if value is BuiltInPluginTokenPayload { pluginRuns += 1 }
         }
         XCTAssertEqual(pluginRuns, 1)
+    }
+
+    func testCachedSnapshotCyclesTableCellThroughStatesAbsentAtLoad() throws {
+        let markdown = frontmatter + "\n| Status |\n| --- |\n| [-] |"
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        XCTAssertEqual(snapshot.tokens.filter(\.payload.isInteractive)
+            .map { $0.payload.state.source }, ["[-]"])
+
+        var source = "[-]"
+        for expected in ["[?]", "[X]", "[-]"] {
+            let payload = try XCTUnwrap(snapshot.payload(matchingSource: source))
+            source = payload.next.state.source
+            XCTAssertEqual(source, expected)
+
+            let rendered = renderTableCellAttributed(
+                source, baseFont: .systemFont(ofSize: 14), textColor: .labelColor,
+                linkColor: .linkColor, codeColor: .systemOrange,
+                pluginSnapshot: snapshot)
+            XCTAssertNotNil(rendered.attribute(.mdBuiltInPluginToken, at: 0,
+                                               effectiveRange: nil), source)
+        }
     }
 
     func testInlinePluginHitTestingRejectsNearestGlyphOutsideTokenRect() {
@@ -284,6 +308,11 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual(token.state.source, "[-]")
         XCTAssertTrue(isChecklistKind(.taskItem(depth: 0, done: false)))
         XCTAssertFalse(isChecklistKind(.bulletItem(depth: 0)))
+        XCTAssertTrue(allBlocksAreChecklists([MDBlock(kind: kind)]))
+        XCTAssertTrue(allBlocksAreChecklists([
+            MDBlock(kind: kind), MDBlock(kind: .taskItem(depth: 0, done: false)),
+        ]))
+        XCTAssertFalse(allBlocksAreChecklists([MDBlock(kind: .bulletItem(depth: 0))]))
     }
 
     func testPreviewRendersClickableTokensAndLeavesProtectedTextAlone() {

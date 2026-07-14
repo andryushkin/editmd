@@ -83,9 +83,14 @@ struct BuiltInPluginSnapshot: Sendable {
             $0.range.location < $1.range.location
         }
         tokens = sorted
-        interactivePayloadBySource = sorted.reduce(into: [:]) { result, token in
-            if token.payload.isInteractive {
-                result[token.payload.state.source] = token.payload
+        interactivePayloadBySource = activations.reduce(into: [:]) { result, activation in
+            let template = activation.initialChecklistPayload
+                ?? activation.tokens.first(where: { $0.payload.isInteractive })?.payload
+            guard let template else { return }
+            for (stateIndex, state) in template.states.enumerated() {
+                result[state.source] = BuiltInPluginTokenPayload(
+                    pluginID: template.pluginID, states: template.states,
+                    stateIndex: stateIndex)
             }
         }
     }
@@ -119,33 +124,19 @@ struct BuiltInPluginSnapshot: Sendable {
         }
     }
 
-    /// Position-bearing candidates for an isolated table-cell source. The
-    /// active-state lookup is O(1), and protected Markdown ranges are removed
-    /// once up front instead of rescanning every rendered character.
+    /// Position-bearing candidates for an isolated Text node. The renderer's
+    /// already-built Markdown AST owns code/link/image protection; custom
+    /// wiki/math ranges are filtered beside that AST. No second cmark parse.
     func tokenCandidates(in source: String) -> [BuiltInPluginToken] {
         guard !interactivePayloadBySource.isEmpty else { return [] }
         let ns = source as NSString
-        let protected = collectCoreSpans(source).compactMap { span -> NSRange? in
-            switch span.kind {
-            case .code, .codeMarker, .codeBlockBody, .codeBlockFence,
-                 .linkText, .linkSyntax, .imageText, .imageSyntax,
-                 .htmlInline, .htmlBlock, .wikiLink, .wikiLinkSyntax,
-                 .mathBody, .mathMarker:
-                return span.range
-            default:
-                return nil
-            }
-        }
         var result: [BuiltInPluginToken] = []
         var offset = 0
         while offset + 3 <= ns.length {
             let range = NSRange(location: offset, length: 3)
             if ns.character(at: offset) == 0x5B,
                ns.character(at: offset + 2) == 0x5D,
-               let payload = interactivePayloadBySource[ns.substring(with: range)],
-               !protected.contains(where: {
-                   NSIntersectionRange($0, range).length > 0
-               }) {
+               let payload = interactivePayloadBySource[ns.substring(with: range)] {
                 result.append(BuiltInPluginToken(range: range, payload: payload,
                                                  isListMarker: false))
                 offset += 3
@@ -222,11 +213,34 @@ enum BuiltInPluginRegistry {
 let builtInPluginSentinelUnit: unichar = 0xE001
 private let builtInPluginSentinel = "\u{E001}"
 
-func builtInPluginSentinelToken(startingAt offset: Int, maxLength: Int,
-                                tokens: [BuiltInPluginToken]) -> BuiltInPluginToken? {
-    tokens.first {
-        $0.range.location == offset && $0.range.length <= maxLength
-            && (!$0.isListMarker || !$0.payload.isInteractive)
+/// Document-order cursor for U+E001 runs. Exact offsets remain authoritative;
+/// nil offsets use the next token only as a visible fail-safe. Each token is
+/// considered once, so Preview hydration stays O(n).
+struct BuiltInPluginSentinelCursor {
+    private let tokens: [BuiltInPluginToken]
+    private var index = 0
+
+    init(tokens: [BuiltInPluginToken]) {
+        self.tokens = tokens.filter {
+            !$0.isListMarker || !$0.payload.isInteractive
+        }
+    }
+
+    mutating func next(startingAt offset: Int?, maxLength: Int) -> BuiltInPluginToken? {
+        if let offset {
+            while index < tokens.count, tokens[index].range.location < offset {
+                index += 1
+            }
+            guard index < tokens.count, tokens[index].range.location == offset else {
+                return nil
+            }
+        }
+        guard index < tokens.count, tokens[index].range.length <= maxLength else {
+            return nil
+        }
+        let token = tokens[index]
+        index += 1
+        return token
     }
 }
 
