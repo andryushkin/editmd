@@ -155,15 +155,6 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
                                        suggestedAlt: alt)
         }
         let data = try imageCandidateData(candidate)
-        if let match = assets.fileWrappers?.first(where: {
-            $0.value.regularFileContents == data
-        })?.key {
-            let destination = assetsDir.appendingPathComponent(match)
-            if !FileManager.default.fileExists(atPath: destination.path) {
-                try data.write(to: destination, options: .atomic)
-            }
-            return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
-        }
         if let match = identicalImageAsset(in: diskAssets, candidate: .data(data, filename: baseName)) {
             addImageAssetWrapper(named: match, data: data, to: assets)
             document.assetsFileWrapper = assets
@@ -171,6 +162,7 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         }
         let name = uniqueImageAssetFilename(baseName) {
             existing.contains($0.lowercased())
+                || FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
         }
         // Make the asset visible to Visual/Preview immediately; their image
         // resolvers read package assets from disk. The matching FileWrapper
@@ -591,7 +583,8 @@ private final class ImageCanvasView: NSView {
     }
 
     private func showLoading() {
-        guard imageView.image == nil else { return }
+        imageView.image = nil
+        scrollView.documentView = nil
         scrollView.isHidden = true
         statusLabel.stringValue = "Загрузка…"
         statusLabel.isHidden = false

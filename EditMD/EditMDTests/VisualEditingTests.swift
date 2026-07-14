@@ -183,6 +183,27 @@ final class VisualEditingTests: XCTestCase {
                        ["existing.png"])
     }
 
+    @MainActor
+    func testTextbundleDoesNotReplaceHiddenAssetWithSameName() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-textbundle-hidden-\(UUID().uuidString)")
+        let bundle = root.appendingPathComponent("Note.textbundle")
+        let assetsDirectory = bundle.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDirectory,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let occupied = assetsDirectory.appendingPathComponent(".hidden.png")
+        try Data([1]).write(to: occupied)
+
+        let asset = try storeImageAsset(.data(Data([2]), filename: ".hidden.png"),
+                                        document: MarkdownDocument(), fileURL: bundle)
+
+        XCTAssertEqual(asset.source, "assets/.hidden-2.png")
+        XCTAssertEqual(try Data(contentsOf: occupied), Data([1]))
+        XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(asset.source)),
+                       Data([2]))
+    }
+
     func testImageFileVersionChangesWhenFileBytesChangeAtSameURL() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("editmd-image-version-\(UUID().uuidString).png")
