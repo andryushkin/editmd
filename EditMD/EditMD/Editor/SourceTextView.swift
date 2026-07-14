@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 
+/// Ordered special-paste doors for Source. Closures are lazy on purpose: a
+/// Word/Excel table must be consumed before image detection even inspects its
+/// TIFF preview, and a fenced code block must inspect neither door.
+func handleSourceSpecialPaste(insideFence: Bool,
+                              tableMarkdown: () -> String?,
+                              insertTable: (String) -> Void,
+                              insertImage: () -> Bool) -> Bool {
+    guard !insideFence else { return false }
+    if let markdown = tableMarkdown() {
+        insertTable(markdown)
+        return true
+    }
+    return insertImage()
+}
+
 // Source mode (v23): raw markdown in a plain monospaced NSTextView.
 // No syntax highlighting or drawn decorations — the only intelligence here is
 // the lint engine (MarkdownLint.swift): dotted underlines via layout-manager

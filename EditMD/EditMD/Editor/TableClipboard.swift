@@ -1,28 +1,5 @@
 import Foundation
 
-/// Ordered special-paste doors for Source. Closures are lazy on purpose: a
-/// Word/Excel table must be consumed before image detection even inspects its
-/// TIFF preview, and a fenced code block must inspect neither door.
-func handleSourceSpecialPaste(insideFence: Bool,
-                              tableMarkdown: () -> String?,
-                              insertTable: (String) -> Void,
-                              insertImage: () -> Bool) -> Bool {
-    guard !insideFence else { return false }
-    if let markdown = tableMarkdown() {
-        insertTable(markdown)
-        return true
-    }
-    return insertImage()
-}
-
-/// Visual uses its semantic Markdown/table door first; image is a fallback.
-/// The individual doors own their context guards.
-func handleVisualSpecialPaste(pasteMarkdown: () -> Bool,
-                              pasteImage: () -> Bool) -> Bool {
-    if pasteMarkdown() { return true }
-    return pasteImage()
-}
-
 // Clipboard tables → GFM pipe tables. Two sources:
 //  • HTML (web pages, Word, Excel put `public.html` on the pasteboard) —
 //    parsed with XMLDocument's HTML tidy. Conversion fires only when the

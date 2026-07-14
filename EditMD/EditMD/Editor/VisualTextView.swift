@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+/// Visual uses its semantic Markdown/table door first; image is a fallback.
+/// The individual doors share the same semantic context predicate below.
+func handleVisualSpecialPaste(pasteMarkdown: () -> Bool,
+                              pasteImage: () -> Bool) -> Bool {
+    if pasteMarkdown() { return true }
+    return pasteImage()
+}
+
 // Visual (WYSIWYG) mode — v21. NSTextView with isRichText=true showing the
 // marker-free attributed model from MarkdownToAttributed.swift. Every edit
 // serializes synchronously back to document.content (AttributedToMarkdown),
@@ -144,10 +152,6 @@ func visualContextAllowsStructuredPaste(_ kind: MDBlock.Kind) -> Bool {
     case .codeBlock, .tableCell, .raw: return false
     default: return true
     }
-}
-
-func visualContextAllowsImageInsertion(_ kind: MDBlock.Kind) -> Bool {
-    visualContextAllowsStructuredPaste(kind)
 }
 
 // MARK: - SwiftUI wrapper

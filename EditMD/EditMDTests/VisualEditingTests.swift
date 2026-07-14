@@ -161,6 +161,42 @@ final class VisualEditingTests: XCTestCase {
     }
 
     @MainActor
+    func testTextbundleReusesDiskAssetWhenWrapperIsUnavailable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-textbundle-dedup-\(UUID().uuidString)")
+        let bundle = root.appendingPathComponent("Note.textbundle")
+        let assetsDirectory = bundle.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDirectory,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bytes = Data([7, 6, 5, 4])
+        try bytes.write(to: assetsDirectory.appendingPathComponent("existing.png"))
+        let document = MarkdownDocument()
+
+        let asset = try storeImageAsset(.data(bytes, filename: "duplicate.png"),
+                                        document: document, fileURL: bundle)
+
+        XCTAssertEqual(asset.source, "assets/existing.png")
+        XCTAssertEqual(document.assetsFileWrapper?.fileWrappers?["existing.png"]?
+            .regularFileContents, bytes)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: assetsDirectory.path),
+                       ["existing.png"])
+    }
+
+    func testImageFileVersionChangesWhenFileBytesChangeAtSameURL() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-image-version-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data([1]).write(to: url)
+        let first = try XCTUnwrap(imageFileVersion(at: url))
+
+        try Data([1, 2]).write(to: url, options: .atomic)
+        let second = try XCTUnwrap(imageFileVersion(at: url))
+
+        XCTAssertNotEqual(first, second)
+    }
+
+    @MainActor
     func testClipboardPNGBecomesImageCandidateButTextDoesNot() {
         let board = NSPasteboard(name: NSPasteboard.Name("editmd-image-\(UUID().uuidString)"))
         board.clearContents()
@@ -217,11 +253,10 @@ final class VisualEditingTests: XCTestCase {
     }
 
     func testVisualLiteralAndStructuralContextsRejectImagePaste() {
-        XCTAssertTrue(visualContextAllowsImageInsertion(.paragraph))
-        XCTAssertFalse(visualContextAllowsImageInsertion(.codeBlock(language: "swift")))
-        XCTAssertFalse(visualContextAllowsImageInsertion(
+        XCTAssertTrue(visualContextAllowsStructuredPaste(.paragraph))
+        XCTAssertFalse(visualContextAllowsStructuredPaste(.codeBlock(language: "swift")))
+        XCTAssertFalse(visualContextAllowsStructuredPaste(
             .tableCell(row: 0, column: 0, columns: 2, alignment: 0)))
-        XCTAssertFalse(visualContextAllowsImageInsertion(.raw("verbatim")))
         XCTAssertFalse(visualContextAllowsStructuredPaste(.raw("verbatim")))
     }
 

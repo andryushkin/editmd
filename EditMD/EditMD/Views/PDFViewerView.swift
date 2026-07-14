@@ -138,11 +138,19 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
         let assets = document.assetsFileWrapper
             ?? FileWrapper(directoryWithFileWrappers: [:])
-        let existing = Set((assets.fileWrappers ?? [:]).keys.map { $0.lowercased() })
+        let diskAssets = imageAssets(in: assetsDir)
+        let existing = Set(
+            (assets.fileWrappers ?? [:]).keys.map { $0.lowercased() }
+                + diskAssets.map { $0.url.lastPathComponent.lowercased() }
+        )
         if case .file(let sourceURL) = candidate,
            sourceURL.deletingLastPathComponent().standardizedFileURL
                 == assetsDir.standardizedFileURL,
            existing.contains(sourceURL.lastPathComponent.lowercased()) {
+            let data = try imageCandidateData(candidate)
+            addImageAssetWrapper(named: sourceURL.lastPathComponent,
+                                 data: data, to: assets)
+            document.assetsFileWrapper = assets
             return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
                                        suggestedAlt: alt)
         }
@@ -150,20 +158,25 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         if let match = assets.fileWrappers?.first(where: {
             $0.value.regularFileContents == data
         })?.key {
+            let destination = assetsDir.appendingPathComponent(match)
+            if !FileManager.default.fileExists(atPath: destination.path) {
+                try data.write(to: destination, options: .atomic)
+            }
+            return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
+        }
+        if let match = identicalImageAsset(in: diskAssets, candidate: .data(data, filename: baseName)) {
+            addImageAssetWrapper(named: match, data: data, to: assets)
+            document.assetsFileWrapper = assets
             return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
         }
         let name = uniqueImageAssetFilename(baseName) {
             existing.contains($0.lowercased())
-                || FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
         }
         // Make the asset visible to Visual/Preview immediately; their image
         // resolvers read package assets from disk. The matching FileWrapper
         // below ensures the next atomic textbundle autosave preserves it.
         try data.write(to: assetsDir.appendingPathComponent(name), options: .atomic)
-        let wrapper = FileWrapper(regularFileWithContents: data)
-        wrapper.preferredFilename = name
-        assets.preferredFilename = "assets"
-        assets.addFileWrapper(wrapper)
+        addImageAssetWrapper(named: name, data: data, to: assets)
         document.assetsFileWrapper = assets
         return ImageInsertionAsset(source: "assets/\(name)", suggestedAlt: alt)
     }
@@ -177,7 +190,8 @@ func storeImageAsset(_ candidate: ImageAssetCandidate,
         return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
                                    suggestedAlt: alt)
     }
-    if let match = identicalImageAsset(in: assetsDir, candidate: candidate) {
+    let diskAssets = imageAssets(in: assetsDir)
+    if let match = identicalImageAsset(in: diskAssets, candidate: candidate) {
         return ImageInsertionAsset(source: "assets/\(match)", suggestedAlt: alt)
     }
 
@@ -205,23 +219,59 @@ private func imageCandidateData(_ candidate: ImageAssetCandidate) throws -> Data
     return data
 }
 
+private func addImageAssetWrapper(named name: String, data: Data,
+                                  to assets: FileWrapper) {
+    guard assets.fileWrappers?[name] == nil else { return }
+    let wrapper = FileWrapper(regularFileWithContents: data)
+    wrapper.preferredFilename = name
+    assets.preferredFilename = "assets"
+    assets.addFileWrapper(wrapper)
+}
+
+private struct ExistingImageAsset {
+    let url: URL
+    let size: Int
+}
+
+/// Enumerate once and retain the prefetched file size. Byte comparison only
+/// touches files whose size can actually match the incoming image.
+private func imageAssets(in directory: URL) -> [ExistingImageAsset] {
+    let keys: Set<URLResourceKey> = [.fileSizeKey, .isRegularFileKey]
+    let items = (try? FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: Array(keys),
+        options: [.skipsHiddenFiles])) ?? []
+    return items.compactMap { url in
+        guard isImageFile(url),
+              let values = try? url.resourceValues(forKeys: keys),
+              values.isRegularFile == true,
+              let size = values.fileSize
+        else { return nil }
+        return ExistingImageAsset(url: url, size: size)
+    }
+}
+
 /// Re-inserting the same file/pixels reuses the existing attachment instead of
 /// growing `assets/logo-2.png`, `logo-3.png`, … with identical bytes.
-private func identicalImageAsset(in directory: URL,
+private func identicalImageAsset(in assets: [ExistingImageAsset],
                                  candidate: ImageAssetCandidate) -> String? {
-    let items = (try? FileManager.default.contentsOfDirectory(
-        at: directory, includingPropertiesForKeys: [.fileSizeKey],
-        options: [.skipsHiddenFiles])) ?? []
-    for item in items where isImageFile(item) {
+    let candidateSize: Int?
+    switch candidate {
+    case .file(let source):
+        candidateSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    case .data(let bytes, _):
+        candidateSize = bytes.count
+    }
+    guard let candidateSize else { return nil }
+
+    for asset in assets where asset.size == candidateSize {
         switch candidate {
         case .file(let source):
-            if FileManager.default.contentsEqual(atPath: source.path, andPath: item.path) {
-                return item.lastPathComponent
+            if FileManager.default.contentsEqual(atPath: source.path, andPath: asset.url.path) {
+                return asset.url.lastPathComponent
             }
         case .data(let bytes, _):
-            let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            if size == bytes.count, (try? Data(contentsOf: item)) == bytes {
-                return item.lastPathComponent
+            if (try? Data(contentsOf: asset.url)) == bytes {
+                return asset.url.lastPathComponent
             }
         }
     }
@@ -405,6 +455,21 @@ struct PDFViewerHost: View {
 
 // MARK: - Image viewer
 
+struct ImageFileVersion: Equatable, Sendable {
+    let modificationDate: Date
+    let size: Int
+}
+
+/// Lightweight disk identity used to decide whether the current image needs
+/// another read. Callers run this together with file loading off the main actor.
+func imageFileVersion(at url: URL) -> ImageFileVersion? {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+          let modificationDate = attributes[.modificationDate] as? Date,
+          let size = (attributes[.size] as? NSNumber)?.intValue
+    else { return nil }
+    return ImageFileVersion(modificationDate: modificationDate, size: size)
+}
+
 /// Scrollable native image canvas. `NSImage` supports the raster formats in
 /// `supportedImageFileExtensions` and SVG on the app's supported macOS range.
 /// The document view keeps the image at its intrinsic size; NSScrollView owns
@@ -413,12 +478,15 @@ private final class ImageCanvasView: NSView {
     private let scrollView = NSScrollView()
     private let imageView = NSImageView()
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private var loadedURL: URL?
+    private var requestedURL: URL?
+    private var displayedVersion: ImageFileVersion?
     private var loadTask: Task<Void, Never>?
+    private var loadGeneration = 0
     private var needsInitialFit = false
 
     private enum LoadResult: Sendable {
-        case data(Data)
+        case data(Data, ImageFileVersion)
+        case unchanged
         case missing
         case unreadable
     }
@@ -465,30 +533,46 @@ private final class ImageCanvasView: NSView {
 
     func display(_ url: URL) {
         let requested = url.standardizedFileURL
-        guard loadedURL?.standardizedFileURL != requested else { return }
-        loadedURL = requested
+        guard requestedURL != requested || loadTask == nil else { return }
+
+        let previousVersion = requestedURL == requested ? displayedVersion : nil
+        let changedURL = requestedURL != requested
+        requestedURL = requested
         loadTask?.cancel()
-        showFailure("Загрузка…")
+        loadGeneration += 1
+        let generation = loadGeneration
+        if changedURL { showLoading() }
+
         loadTask = Task { @MainActor [weak self] in
             let result = await Task.detached(priority: .userInitiated) { () -> LoadResult in
-                guard FileManager.default.fileExists(atPath: requested.path) else { return .missing }
+                guard let version = imageFileVersion(at: requested) else { return .missing }
+                guard version != previousVersion else { return .unchanged }
                 guard let data = try? Data(contentsOf: requested), !data.isEmpty
                 else { return .unreadable }
-                return .data(data)
+                return .data(data, version)
             }.value
-            guard !Task.isCancelled, let self, self.loadedURL == requested else { return }
+            guard !Task.isCancelled, let self,
+                  self.loadGeneration == generation,
+                  self.requestedURL == requested else { return }
+            self.loadTask = nil
             switch result {
+            case .unchanged:
+                return
             case .missing:
+                self.displayedVersion = nil
                 self.showFailure("Файл не найден\n\((requested.path as NSString).abbreviatingWithTildeInPath)")
             case .unreadable:
+                self.displayedVersion = nil
                 self.showFailure("Не удалось прочитать изображение\n\(requested.lastPathComponent)")
-            case .data(let data):
+            case .data(let data, let version):
                 guard let image = NSImage(data: data), image.size.width > 0,
                       image.size.height > 0, image.size.width.isFinite,
                       image.size.height.isFinite else {
+                    self.displayedVersion = nil
                     self.showFailure("Не удалось отобразить изображение\n\(requested.lastPathComponent)")
                     return
                 }
+                self.displayedVersion = version
                 self.show(image, named: requested.lastPathComponent)
             }
         }
@@ -504,6 +588,13 @@ private final class ImageCanvasView: NSView {
         scrollView.magnification = 1
         needsInitialFit = true
         needsLayout = true
+    }
+
+    private func showLoading() {
+        guard imageView.image == nil else { return }
+        scrollView.isHidden = true
+        statusLabel.stringValue = "Загрузка…"
+        statusLabel.isHidden = false
     }
 
     private func showFailure(_ message: String) {

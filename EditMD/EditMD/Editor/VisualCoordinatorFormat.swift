@@ -145,7 +145,7 @@ extension VisualMarkdownView.Coordinator {
     /// of those contexts may accept an image attachment.
     private func allowsImageInsertionAtSelection() -> Bool {
         guard let kind = pasteBlockKindAtSelection() else { return true }
-        return visualContextAllowsImageInsertion(kind)
+        return visualContextAllowsStructuredPaste(kind)
     }
 
     private func insertImage(_ asset: ImageInsertionAsset) {
