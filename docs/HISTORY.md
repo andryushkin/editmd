@@ -947,11 +947,20 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Три режима:** Source получает plugin spans и не выдаёт core checkbox lint; Visual хранит inline payload в `.mdBuiltInPluginToken`, list payload в `.builtInPluginTaskItem`, сериализует исходный `[marker]` и циклически меняет marker/list/table с undo; Preview рендерит доступную кнопку, SF Symbol как локальный PNG data URI и отправляет source offset через отдельный WebKit handler. Strike-state зачёркивает list item.
 - **Таблицы:** native cells рендерят inline widget; virtualized large-table path использует тот же renderer/cache, а status-only cell циклически обновляется через существующий `updateTableIslandCell`, что покрывает `PMID_DOWNLOAD_LIST.md` без перевода большой таблицы в NSTextTable.
 - **UI/docs:** Settings ▸ Plugins — read-only inventory встроенных плагинов; подробный developer/user контракт и пример frontmatter находятся в `docs/plugins.md`.
-- **Тесты:** `BuiltInPluginsTests` — 12 кейсов: schema/order/icons/strike (включая все markers из `PMID_DOWNLOAD_LIST.md`), invalid config, protected syntax, list/prose/table scan, UTF-16 mask, cycle+wrap и очистка старого attachment/strike, Source/lint, Visual round-trip, Preview HTML/bridge и отключение обычных checkbox при activation.
+- **Тесты:** `BuiltInPluginsTests` — 20 кейсов: schema/order/icons/strike (включая все markers из `PMID_DOWNLOAD_LIST.md`), canonical indentationless YAML sequence, invalid config, protected syntax, list/prose/table scan, UTF-16 mask, cycle+wrap и очистка старого attachment/strike, Source/lint, Visual round-trip, Preview HTML/bridge, точный sentinel offset, hit-rect и отключение обычных checkbox при activation.
+
+### Plugin review hardening
+
+- **Visual safety:** неописанные core `[ ]`/`[x]` тоже входят в text-token restore. U+E001 никогда не попадает в `NSTextStorage`; неинтерактивный semantic run сохраняет исходный marker дословно при serialize, но не участвует в hit-testing.
+- **Click contract:** inline token цикличится только при попадании в bounding rect его glyph range. Ближайший glyph от клика справа или ниже строки больше не считается hit.
+- **Hot path:** registry сначала делает дешёвый frontmatter gate и не вызывает cmark для неактивного документа. Snapshot один раз сортирует tokens и строит source lookup; Visual кеширует его с загрузки и не парсит документ в `applyPresentation`. `textDidChange` сначала синхронизирует markdown, затем обновляет presentation.
+- **Tables/Preview:** large-table renderer получает локальные position-bearing candidates один раз на cell, а не сортирует все document tokens для каждого символа. Preview сопоставляет sentinel только с token на точном source offset и при mismatch восстанавливает оригинальный source slice.
+- **Commands/capabilities:** Format ▸ Checklist считает core и plugin tasks одной checklist-family; в активном документе новая checklist начинается с первого state из frontmatter. Lint спрашивает у registry capability `ownsCoreCheckboxSyntax`, а не знает `MultiCheckboxPlugin` напрямую.
+- **YAML:** parser принимает как indented sequence под `states:`, так и канонический indentationless sequence с `- marker:` на том же indent.
 
 ### Plugin gotchas
 
 - Plugin snapshot строится до удаления frontmatter, но маска Preview получает `sourceOffset=baseOffset`; иначе ranges после properties card смещаются.
-- U+E001 может быть разбит cmark по Text nodes, поэтому Preview потребляет sentinel runs в document order, как math U+E000, а не полагается только на локальный DOM offset.
+- U+E001 может быть разбит cmark по Text nodes, поэтому каждый Preview sentinel run сверяется с token на вычисленном UTF-16 source offset; order-only cursor здесь опасен, потому что один пропущенный run сдвигает все последующие widgets.
 - При цикле SF Symbol → emoji нужно удалить старый `.attachment` из унаследованных attributes; иначе новый текст продолжает рисовать прежнюю картинку.
 - `EditMD/project.yml` до этого отставал от уже сгенерированного `0.40.2 (402)` в dirty worktree; источник истины синхронизирован с существовавшей версией перед xcodegen, без нового version bump.

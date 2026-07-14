@@ -395,9 +395,13 @@ extension VisualMarkdownView.Coordinator {
     }
 
     func toggleChecklist() {
+        let initialPluginPayload = builtInPluginSnapshot.initialChecklistPayload
         toggleListKind(
-            isTarget: { if case .taskItem = $0 { return true }; return false },
-            makeKind: { .taskItem(depth: $0, done: false) })
+            isTarget: isChecklistKind,
+            makeKind: {
+                checklistKind(depth: $0,
+                              initialPluginPayload: initialPluginPayload)
+            })
     }
 
     /// Paragraph ranges the selection touches (skipping none); table

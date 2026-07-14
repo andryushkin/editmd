@@ -65,7 +65,7 @@ extension VisualMarkdownView.Coordinator {
         // reference the same instance or layout falls apart.
         var textTables: [Int: NSTextTable] = [:]
         let theme = textView.theme
-        let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: parent.document.content)
+        let pluginSnapshot = builtInPluginSnapshot
 
         let spacingScale = EditorSettings.shared.visualSpacing.scale
         // Pre-scan: which paragraphs are first/last line of each code group,

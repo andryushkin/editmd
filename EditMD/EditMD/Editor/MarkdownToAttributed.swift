@@ -180,8 +180,11 @@ private extension NSFont {
 
 /// Markdown → attributed string with semantic attributes. Pure of UI state.
 func renderMarkdownToAttributed(_ markdown: String,
-                                style: VisualStyle = VisualStyle()) -> NSAttributedString {
-    VisualRenderer(source: markdown, style: style).run()
+                                style: VisualStyle = VisualStyle(),
+                                pluginSnapshot: BuiltInPluginSnapshot? = nil)
+    -> NSAttributedString {
+    VisualRenderer(source: markdown, style: style,
+                   pluginSnapshot: pluginSnapshot).run()
 }
 
 private final class VisualRenderer {
@@ -203,14 +206,15 @@ private final class VisualRenderer {
     let out = NSMutableAttributedString()
     private var groupCounter = 0
 
-    init(source: String, style: VisualStyle) {
+    init(source: String, style: VisualStyle,
+         pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot?) {
         self.source = source
         self.style = style
         let ns = source as NSString
         self.nsSource = ns
         let math = scanMathSpans(in: source)
         self.mathSpans = math
-        let plugins = BuiltInPluginRegistry.snapshot(for: source)
+        let plugins = providedPluginSnapshot ?? BuiltInPluginRegistry.snapshot(for: source)
         self.pluginSnapshot = plugins
         self.multilineMath = math.map {
             $0.display && ns.range(of: "\n", options: [], range: $0.range).location != NSNotFound
@@ -680,7 +684,7 @@ private final class VisualRenderer {
         }
         let source = nsSource.substring(with: NSRange(location: loc, length: end - loc))
         let wikiMatches = scanWikiLinks(in: source)
-        let pluginMatches = pluginSnapshot.inlineTokens(
+        let pluginMatches = pluginSnapshot.textTokens(
             in: NSRange(location: loc, length: end - loc))
             .map { token in
                 (range: NSRange(location: token.range.location - loc,
@@ -693,12 +697,12 @@ private final class VisualRenderer {
         // nodes and stay plain text here (Preview still renders them).
         let mathMatches = scanMathSpans(in: source)
         guard !wikiMatches.isEmpty || !mathMatches.isEmpty || !pluginMatches.isEmpty else {
-            if text.string.utf16.contains(mathSentinelUnit) {
-                // Sentinels without a local match: the node overlaps a
-                // multiline span the block pass didn't own (lazy-continuation
-                // paragraph). Show the verbatim source slice, never U+E000.
+            if text.string.utf16.contains(mathSentinelUnit)
+                || text.string.utf16.contains(builtInPluginSentinelUnit) {
+                // A sentinel without a local semantic match must never enter
+                // NSTextStorage: restore this node's original source slice.
                 var attrs = baseAttributes(block: block, styles: styles, link: link)
-                attrs[.mdMath] = 1
+                if text.string.utf16.contains(mathSentinelUnit) { attrs[.mdMath] = 1 }
                 out.append(NSAttributedString(string: source, attributes: attrs))
             } else {
                 appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
@@ -829,6 +833,9 @@ func renderTableCellAttributed(_ markdown: String,
     -> NSAttributedString {
     let out = NSMutableAttributedString()
     guard !markdown.isEmpty else { return out }
+    let source = markdown as NSString
+    let lineIndex = LineIndex(markdown)
+    let pluginCandidates = pluginSnapshot.tokenCandidates(in: markdown)
 
     func font(for styles: MDInlineStyle) -> NSFont {
         if styles.contains(.code) {
@@ -866,20 +873,35 @@ func renderTableCellAttributed(_ markdown: String,
         out.append(NSAttributedString(string: string, attributes: attrs))
     }
 
-    func appendTextWithWikiLinks(_ text: String, styles: MDInlineStyle, isLink: Bool) {
+    func appendTextWithWikiLinks(_ text: String, sourceRange: NSRange?,
+                                 styles: MDInlineStyle, isLink: Bool) {
         let wikiMatches = scanWikiLinks(in: text)
         let ns = text as NSString
         var pluginMatches: [(range: NSRange, payload: BuiltInPluginTokenPayload)] = []
-        if !isLink, !styles.contains(.code) {
-            var index = 0
-            while index + 3 <= ns.length {
-                let range = NSRange(location: index, length: 3)
-                let candidate = ns.substring(with: range)
-                if let payload = pluginSnapshot.payload(matchingSource: candidate) {
-                    pluginMatches.append((range, payload))
-                    index += 3
-                } else {
-                    index += 1
+        if !isLink, !styles.contains(.code), let sourceRange {
+            let candidates = pluginCandidates.filter {
+                $0.range.location >= sourceRange.location
+                    && NSMaxRange($0.range) <= NSMaxRange(sourceRange)
+            }
+            if sourceRange.length == ns.length,
+               source.substring(with: sourceRange) == text {
+                pluginMatches = candidates.map {
+                    (NSRange(location: $0.range.location - sourceRange.location,
+                             length: $0.range.length), $0.payload)
+                }
+            } else {
+                // Escapes can make a Text node's display length differ from its
+                // source range. Candidates are already position-validated; map
+                // only those states into the displayed text, in source order.
+                var searchStart = 0
+                for candidate in candidates {
+                    let remaining = NSRange(location: searchStart,
+                                            length: max(0, ns.length - searchStart))
+                    let match = ns.range(of: candidate.payload.state.source,
+                                         options: [], range: remaining)
+                    guard match.location != NSNotFound else { continue }
+                    pluginMatches.append((match, candidate.payload))
+                    searchStart = NSMaxRange(match)
                 }
             }
         }
@@ -932,7 +954,16 @@ func renderTableCellAttributed(_ markdown: String,
                 if styles.contains(.code) || isLink {
                     append(text.string, styles: styles, isLink: isLink)
                 } else {
-                    appendTextWithWikiLinks(text.string, styles: styles, isLink: isLink)
+                    let range = text.range.map {
+                        NSRange(location: lineIndex.offset($0.lowerBound.line,
+                                                         $0.lowerBound.column),
+                                length: lineIndex.offset($0.upperBound.line,
+                                                         $0.upperBound.column)
+                                    - lineIndex.offset($0.lowerBound.line,
+                                                       $0.lowerBound.column))
+                    }
+                    appendTextWithWikiLinks(text.string, sourceRange: range,
+                                            styles: styles, isLink: isLink)
                 }
             case let strong as Strong:
                 walk(strong.children, styles: styles.union(.bold), isLink: isLink)
@@ -967,7 +998,16 @@ func renderTableCellAttributed(_ markdown: String,
             walk(paragraph.children, styles: [], isLink: false)
         } else if let text = child as? Markdown.Text {
             if out.length > 0 { append(" ", styles: [], isLink: false) }
-            appendTextWithWikiLinks(text.string, styles: [], isLink: false)
+            let range = text.range.map {
+                NSRange(location: lineIndex.offset($0.lowerBound.line,
+                                                 $0.lowerBound.column),
+                        length: lineIndex.offset($0.upperBound.line,
+                                                 $0.upperBound.column)
+                            - lineIndex.offset($0.lowerBound.line,
+                                               $0.lowerBound.column))
+            }
+            appendTextWithWikiLinks(text.string, sourceRange: range,
+                                    styles: [], isLink: false)
         } else {
             // Unexpected block inside a cell — keep plain (no pipe re-introduction).
             let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)

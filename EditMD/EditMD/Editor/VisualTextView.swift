@@ -120,6 +120,23 @@ func indentedKind(_ kind: MDBlock.Kind, by delta: Int) -> MDBlock.Kind? {
     }
 }
 
+func isChecklistKind(_ kind: MDBlock.Kind) -> Bool {
+    switch kind {
+    case .taskItem, .builtInPluginTaskItem:
+        return true
+    default:
+        return false
+    }
+}
+
+func checklistKind(depth: Int,
+                   initialPluginPayload: BuiltInPluginTokenPayload?) -> MDBlock.Kind {
+    if let initialPluginPayload {
+        return .builtInPluginTaskItem(depth: depth, token: initialPluginPayload)
+    }
+    return .taskItem(depth: depth, done: false)
+}
+
 /// Conservative clipboard heuristic: format text only when it carries
 /// unambiguous Markdown structure. Ordinary prose (including punctuation and
 /// underscores in identifiers) must keep the normal plain-text paste path.
@@ -333,6 +350,10 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// One NSTextAttachment per image source — reused across presentation
         /// passes so layout doesn't churn on every keystroke.
         var imageAttachments: [String: NSTextAttachment] = [:]
+        /// Configuration/state lookup from the last document load. Frontmatter
+        /// is read-only in Visual, so presentation can reuse this snapshot
+        /// instead of reparsing the whole markdown on every keystroke.
+        var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
 
         var visualStyle: VisualStyle {
             let settings = EditorSettings.shared.visual
@@ -354,7 +375,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard let textView, let storage = textView.textStorage else { return }
             textView.finishActiveTableEditing(commit: true)
             isLoadingDocument = true
-            let rendered = renderMarkdownToAttributed(parent.document.content, style: visualStyle)
+            let source = parent.document.content
+            let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: source)
+            builtInPluginSnapshot = pluginSnapshot
+            let rendered = renderMarkdownToAttributed(
+                source, style: visualStyle, pluginSnapshot: pluginSnapshot)
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
             lastParagraphRanges = serializeAttributedToMarkdownDetailed(storage).paragraphRanges
@@ -558,8 +583,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             // markdown (would inject trailing newlines / normalize without edit — C4).
             guard !isMutating, !isLoadingDocument else { return }
             runAutoformat()
-            applyPresentation()
             syncToDocument()
+            applyPresentation()
             parent.document.noteContentEdited()
             DocumentRegistry.shared.noteUserEdit(parent.fileURL)
             LineChangeTracker.shared.noteContent(url: parent.fileURL,
@@ -832,8 +857,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         func afterMutation() {
-            applyPresentation()
             syncToDocument()
+            applyPresentation()
             updateStats()
         }
 

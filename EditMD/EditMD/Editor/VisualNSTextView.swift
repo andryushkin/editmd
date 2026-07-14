@@ -1,5 +1,17 @@
 import AppKit
 
+func visualPointHitsCharacterRange(_ point: NSPoint, range: NSRange,
+                                   layoutManager: NSLayoutManager,
+                                   textContainer: NSTextContainer,
+                                   tolerance: CGFloat = 2) -> Bool {
+    guard range.length > 0 else { return false }
+    let glyphRange = layoutManager.glyphRange(forCharacterRange: range,
+                                              actualCharacterRange: nil)
+    guard glyphRange.length > 0 else { return false }
+    let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+    return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+}
+
 // MARK: - Text view with drawn markers
 
 /// A large table drawn as a virtualized, read-only grid rather than laid out as
@@ -311,7 +323,11 @@ final class VisualNSTextView: NSTextView {
                                               longestEffectiveRange: &range,
                                               in: NSRange(location: 0,
                                                           length: storage.length))
-                as? BuiltInPluginTokenPayload else { return nil }
+                as? BuiltInPluginTokenPayload,
+              payload.isInteractive else { return nil }
+        guard visualPointHitsCharacterRange(containerPoint, range: range,
+                                            layoutManager: layoutManager,
+                                            textContainer: textContainer) else { return nil }
         return (range, payload)
     }
 

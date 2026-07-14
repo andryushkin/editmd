@@ -161,6 +161,7 @@ func markdownHTMLRender(_ text: String,
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
                                   lineIdx: LineIndex(parseSource),
                                   parsedSource: parseSource as NSString,
+                                  originalSource: text as NSString,
                                   baseOffset: baseOffset,
                                   lineBase: lineBase,
                                   gutter: gutter,
@@ -226,6 +227,9 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// The text cmark parsed (masked, frontmatter stripped) — read for the few
     /// decisions the AST doesn't carry, e.g. is this code block fenced?
     let parsedSource: NSString
+    /// Full, unmasked document for fail-safe restoration if a sentinel cannot
+    /// be matched to the token at the exact expected source offset.
+    let originalSource: NSString
     /// Added to every AST-derived offset so ranges land in the original
     /// document when frontmatter was stripped before parsing.
     let baseOffset: Int
@@ -241,7 +245,6 @@ private struct HTMLBodyVisitor: MarkupWalker {
     let pluginTokens: [BuiltInPluginToken]
     private var mathCursor = 0
     private var pendingMathUnits = 0
-    private var pluginCursor = 0
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
@@ -250,6 +253,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     init(imageResolver: ((String) -> String?)?,
          lineIdx: LineIndex,
          parsedSource: NSString,
+         originalSource: NSString,
          baseOffset: Int,
          lineBase: Int = 0,
          gutter: PreviewGutterOptions = .off,
@@ -259,6 +263,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
         self.parsedSource = parsedSource
+        self.originalSource = originalSource
         self.baseOffset = baseOffset
         self.lineBase = lineBase
         self.gutter = gutter
@@ -551,7 +556,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
                 var j = i
                 while j < ns.length,
                       ns.character(at: j) == builtInPluginSentinelUnit { j += 1 }
-                consumePluginSentinelRun(j - i)
+                consumePluginSentinelRun(j - i, sourceOffset: base.map { $0 + i })
                 i = j
             } else {
                 var j = i
@@ -565,17 +570,23 @@ private struct HTMLBodyVisitor: MarkupWalker {
         }
     }
 
-    private mutating func consumePluginSentinelRun(_ count: Int) {
-        let sentinelTokens = pluginTokens.filter {
-            !$0.isListMarker || !$0.payload.isInteractive
-        }
+    private mutating func consumePluginSentinelRun(_ count: Int, sourceOffset: Int?) {
         var remaining = count
-        while remaining > 0, pluginCursor < sentinelTokens.count {
-            let token = sentinelTokens[pluginCursor]
-            pluginCursor += 1
+        guard var offset = sourceOffset else { return }
+        while remaining > 0 {
+            guard let token = builtInPluginSentinelToken(
+                startingAt: offset, maxLength: remaining, tokens: pluginTokens)
+            else {
+                guard offset >= 0, offset + remaining <= originalSource.length else { return }
+                let original = originalSource.substring(
+                    with: NSRange(location: offset, length: remaining))
+                result += Self.inlineDecoratedHTML(original, sourceBase: offset)
+                return
+            }
             result += builtInPluginTokenHTML(token.payload,
                                              sourceOffset: token.range.location)
-            remaining -= min(remaining, token.range.length)
+            remaining -= token.range.length
+            offset += token.range.length
         }
     }
 

@@ -68,15 +68,36 @@ struct BuiltInPluginToken: Hashable, Sendable {
 struct BuiltInPluginActivation: Sendable {
     let descriptor: BuiltInPluginDescriptor
     let tokens: [BuiltInPluginToken]
+    let ownsCoreCheckboxSyntax: Bool
+    let initialChecklistPayload: BuiltInPluginTokenPayload?
 }
 
 struct BuiltInPluginSnapshot: Sendable {
     let activations: [BuiltInPluginActivation]
+    let tokens: [BuiltInPluginToken]
+    private let interactivePayloadBySource: [String: BuiltInPluginTokenPayload]
+
+    init(activations: [BuiltInPluginActivation]) {
+        self.activations = activations
+        let sorted = activations.flatMap(\.tokens).sorted {
+            $0.range.location < $1.range.location
+        }
+        tokens = sorted
+        interactivePayloadBySource = sorted.reduce(into: [:]) { result, token in
+            if token.payload.isInteractive {
+                result[token.payload.state.source] = token.payload
+            }
+        }
+    }
 
     static let empty = BuiltInPluginSnapshot(activations: [])
 
-    var tokens: [BuiltInPluginToken] {
-        activations.flatMap(\.tokens).sorted { $0.range.location < $1.range.location }
+    var ownsCoreCheckboxSyntax: Bool {
+        activations.contains(where: \.ownsCoreCheckboxSyntax)
+    }
+
+    var initialChecklistPayload: BuiltInPluginTokenPayload? {
+        activations.lazy.compactMap(\.initialChecklistPayload).first
     }
 
     func token(startingAt offset: Int) -> BuiltInPluginToken? {
@@ -84,24 +105,72 @@ struct BuiltInPluginSnapshot: Sendable {
     }
 
     func payload(matchingSource source: String) -> BuiltInPluginTokenPayload? {
-        tokens.lazy.map(\.payload).first {
-            $0.isInteractive && $0.state.source == source
+        interactivePayloadBySource[source]
+    }
+
+    /// Tokens represented by U+E001 inside cmark Text nodes. Interactive list
+    /// markers are normalized to `[ ]` and handled at block level; inactive
+    /// core markers stay text and therefore must be restored here too.
+    func textTokens(in range: NSRange) -> [BuiltInPluginToken] {
+        tokens.filter {
+            (!$0.isListMarker || !$0.payload.isInteractive)
+                && $0.range.location >= range.location
+                && NSMaxRange($0.range) <= NSMaxRange(range)
         }
     }
 
-    func inlineTokens(in range: NSRange) -> [BuiltInPluginToken] {
-        tokens.filter {
-            !$0.isListMarker && $0.range.location >= range.location
-                && NSMaxRange($0.range) <= NSMaxRange(range)
+    /// Position-bearing candidates for an isolated table-cell source. The
+    /// active-state lookup is O(1), and protected Markdown ranges are removed
+    /// once up front instead of rescanning every rendered character.
+    func tokenCandidates(in source: String) -> [BuiltInPluginToken] {
+        guard !interactivePayloadBySource.isEmpty else { return [] }
+        let ns = source as NSString
+        let protected = collectCoreSpans(source).compactMap { span -> NSRange? in
+            switch span.kind {
+            case .code, .codeMarker, .codeBlockBody, .codeBlockFence,
+                 .linkText, .linkSyntax, .imageText, .imageSyntax,
+                 .htmlInline, .htmlBlock, .wikiLink, .wikiLinkSyntax,
+                 .mathBody, .mathMarker:
+                return span.range
+            default:
+                return nil
+            }
         }
+        var result: [BuiltInPluginToken] = []
+        var offset = 0
+        while offset + 3 <= ns.length {
+            let range = NSRange(location: offset, length: 3)
+            if ns.character(at: offset) == 0x5B,
+               ns.character(at: offset + 2) == 0x5D,
+               let payload = interactivePayloadBySource[ns.substring(with: range)],
+               !protected.contains(where: {
+                   NSIntersectionRange($0, range).length > 0
+               }) {
+                result.append(BuiltInPluginToken(range: range, payload: payload,
+                                                 isListMarker: false))
+                offset += 3
+            } else {
+                offset += 1
+            }
+        }
+        return result
     }
 }
 
 protocol BuiltInMarkdownPlugin: Sendable {
     var descriptor: BuiltInPluginDescriptor { get }
+    var ownsCoreCheckboxSyntax: Bool { get }
+
+    /// Cheap frontmatter-only gate. It must not invoke cmark: documents that
+    /// do not opt in must pay essentially zero plugin parsing cost.
+    func isEnabled(in markdown: String) -> Bool
 
     /// Return nil when the document did not activate this plugin.
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation?
+}
+
+extension BuiltInMarkdownPlugin {
+    var ownsCoreCheckboxSyntax: Bool { false }
 }
 
 enum BuiltInPluginRegistry {
@@ -113,11 +182,26 @@ enum BuiltInPluginRegistry {
 
     static func snapshot(for markdown: String, coreSpans: [Span]? = nil)
         -> BuiltInPluginSnapshot {
+        snapshot(for: markdown, coreSpansProvider: {
+            coreSpans ?? collectCoreSpans(markdown)
+        })
+    }
+
+    static func snapshot(for markdown: String,
+                         coreSpansProvider: () -> [Span]) -> BuiltInPluginSnapshot {
         guard !markdown.isEmpty else { return .empty }
-        let spans = coreSpans ?? collectCoreSpans(markdown)
-        return BuiltInPluginSnapshot(activations: plugins.compactMap {
+        let enabled = plugins.filter { $0.isEnabled(in: markdown) }
+        guard !enabled.isEmpty else { return .empty }
+        let spans = coreSpansProvider()
+        return BuiltInPluginSnapshot(activations: enabled.compactMap {
             $0.activate(in: markdown, coreSpans: spans)
         })
+    }
+
+    static func ownsCoreCheckboxSyntax(in markdown: String) -> Bool {
+        plugins.contains {
+            $0.ownsCoreCheckboxSyntax && $0.isEnabled(in: markdown)
+        }
     }
 
     /// Cycles the token that still starts at `offset`. Verifying the current
@@ -137,6 +221,14 @@ enum BuiltInPluginRegistry {
 // reaches the attributed model, HTML, or the saved markdown.
 let builtInPluginSentinelUnit: unichar = 0xE001
 private let builtInPluginSentinel = "\u{E001}"
+
+func builtInPluginSentinelToken(startingAt offset: Int, maxLength: Int,
+                                tokens: [BuiltInPluginToken]) -> BuiltInPluginToken? {
+    tokens.first {
+        $0.range.location == offset && $0.range.length <= maxLength
+            && (!$0.isListMarker || !$0.payload.isInteractive)
+    }
+}
 
 /// Makes arbitrary inline `[marker]` tokens opaque to cmark while normalizing
 /// list-prefix tokens to `[ ]`, so cmark still builds a task-list node. Every
@@ -173,9 +265,10 @@ func builtInPluginTokenAttributedString(_ payload: BuiltInPluginTokenPayload,
     attrs.removeValue(forKey: .strikethroughStyle)
     attrs[.font] = font
     attrs[.foregroundColor] = textColor
-    if payload.isInteractive {
-        attrs[.mdBuiltInPluginToken] = payload
-    }
+    // Inactive core checkboxes still need a semantic run so serialization
+    // writes their exact `[ ]` / `[x]` source instead of Markdown-escaping it.
+    // Hit testing checks `isInteractive` before offering a cycle action.
+    attrs[.mdBuiltInPluginToken] = payload
     if payload.state.strikethrough {
         attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
     }
@@ -253,11 +346,22 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
         summary: "Cycles custom [marker] states declared in a document's frontmatter.",
         frontmatterKey: "editmd.plugins.multi-checkbox")
 
+    let ownsCoreCheckboxSyntax = true
+
+    func isEnabled(in markdown: String) -> Bool {
+        Self.configuration(in: markdown) != nil
+    }
+
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation? {
         guard let configuration = Self.configuration(in: markdown) else { return nil }
         let tokens = Self.scanTokens(in: markdown, configuration: configuration,
                                      coreSpans: coreSpans)
-        return BuiltInPluginActivation(descriptor: descriptor, tokens: tokens)
+        let initial = BuiltInPluginTokenPayload(pluginID: Self.pluginID,
+                                                states: configuration.states,
+                                                stateIndex: 0)
+        return BuiltInPluginActivation(descriptor: descriptor, tokens: tokens,
+                                       ownsCoreCheckboxSyntax: true,
+                                       initialChecklistPayload: initial)
     }
 
     /// Parses only this built-in plugin's schema. It is intentionally not a
@@ -279,24 +383,31 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
 
         var rawStates: [[String: String]] = []
         var current: [String: String]?
-        var currentIndent = Int.max
+        var sequenceIndent: Int?
         var index = statesNode.index + 1
         while index < lines.count {
             let line = lines[index]
             index += 1
             guard !line.content.isEmpty else { continue }
-            if line.indent <= statesNode.indent { break }
+            let isItem = line.content.hasPrefix("- ") || line.content == "-"
+            if sequenceIndent == nil {
+                guard isItem, line.indent >= statesNode.indent else { break }
+                sequenceIndent = line.indent
+            }
+            guard let sequenceIndent else { break }
+            if line.indent < sequenceIndent { break }
 
-            if line.content.hasPrefix("- ") || line.content == "-" {
+            if line.indent == sequenceIndent, isItem {
                 if let current { rawStates.append(current) }
                 current = [:]
-                currentIndent = line.indent
                 let remainder = line.content == "-" ? "" : String(line.content.dropFirst(2))
                 if let (key, value) = yamlPair(remainder) { current?[key] = value }
-            } else if var state = current, line.indent > currentIndent,
+            } else if var state = current, line.indent > sequenceIndent,
                       let (key, value) = yamlPair(line.content) {
                 state[key] = value
                 current = state
+            } else if line.indent == sequenceIndent {
+                break
             }
         }
         if let current { rawStates.append(current) }

@@ -51,6 +51,25 @@ final class BuiltInPluginsTests: XCTestCase {
                        ["[-]", "[x]", "[+]", "[?]", "[X]"])
     }
 
+    func testConfigurationAcceptsIndentlessYAMLSequence() throws {
+        let markdown = """
+        ---
+        editmd:
+          plugins:
+            multi-checkbox:
+              states:
+              - marker: "-"
+                label: Queued
+              - marker: "?"
+                label: Review
+        ---
+        """
+
+        let configuration = try XCTUnwrap(MultiCheckboxPlugin.configuration(in: markdown))
+        XCTAssertEqual(configuration.states.map(\.source), ["[-]", "[?]"])
+        XCTAssertEqual(configuration.states.map(\.label), ["Queued", "Review"])
+    }
+
     func testActivationNeedsTwoUniqueSingleUnitMarkers() {
         let one = """
         ---
@@ -96,6 +115,29 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual(tokens.map(\.isListMarker), [true, false, false, false])
     }
 
+    func testInactiveDocumentSkipsPluginCoreParse() {
+        var providerCalls = 0
+        let snapshot = BuiltInPluginRegistry.snapshot(for: "- [ ] open") {
+            providerCalls += 1
+            return collectCoreSpans("- [ ] open")
+        }
+
+        XCTAssertTrue(snapshot.tokens.isEmpty)
+        XCTAssertEqual(providerCalls, 0)
+    }
+
+    func testActiveDocumentRequestsPluginCoreParseOnce() {
+        let markdown = frontmatter + "\nprose [?]"
+        var providerCalls = 0
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown) {
+            providerCalls += 1
+            return collectCoreSpans(markdown)
+        }
+
+        XCTAssertEqual(snapshot.tokens.count, 1)
+        XCTAssertEqual(providerCalls, 1)
+    }
+
     func testParserMaskPreservesUTF16OffsetsAndOnlyNormalizesListMarker() {
         let markdown = frontmatter + "\n- [-] list\nprose [?]"
         let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
@@ -104,6 +146,18 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual((masked as NSString).length, (markdown as NSString).length)
         XCTAssertTrue(masked.contains("- [ ] list"), masked)
         XCTAssertTrue(masked.utf16.contains(builtInPluginSentinelUnit), masked)
+    }
+
+    func testPreviewSentinelLookupRequiresExactSourceOffset() throws {
+        let markdown = frontmatter + "\nfirst [?] second [X]"
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        let secondOffset = (markdown as NSString).range(of: "[X]").location
+
+        let exact = try XCTUnwrap(builtInPluginSentinelToken(
+            startingAt: secondOffset, maxLength: 3, tokens: snapshot.tokens))
+        XCTAssertEqual(exact.payload.state.source, "[X]")
+        XCTAssertNil(builtInPluginSentinelToken(
+            startingAt: secondOffset - 1, maxLength: 3, tokens: snapshot.tokens))
     }
 
     func testCycleUsesFrontmatterOrderAndWraps() throws {
@@ -161,6 +215,75 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual(payloads.map { $0.state.source }.sorted(), ["[?]", "[X]"].sorted())
         XCTAssertEqual(serializeAttributedToMarkdown(attributed),
                        frontmatter + "\n\n- [-] queued\n\nprose [?]\n\n| S |\n| --- |\n| [X] |")
+    }
+
+    func testVisualRoundTripNeverSerializesSentinelsForInactiveCoreCheckboxes() {
+        let markdown = frontmatter + "\n- [ ] open\n- [x] done"
+        let attributed = renderMarkdownToAttributed(markdown)
+        let serialized = serializeAttributedToMarkdown(attributed)
+
+        XCTAssertFalse(attributed.string.utf16.contains(builtInPluginSentinelUnit),
+                       attributed.string)
+        XCTAssertFalse(serialized.utf16.contains(builtInPluginSentinelUnit), serialized)
+        XCTAssertTrue(serialized.contains("- [ ] open"), serialized)
+        XCTAssertTrue(serialized.contains("- [x] done"), serialized)
+    }
+
+    func testTableCellUsesPositionedPluginCandidatesAndSkipsProtectedSyntax() {
+        let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
+        let cell = "plain [?] `[?]` [[Note|[?]]] [link](url) [?](url)"
+        let candidates = snapshot.tokenCandidates(in: cell)
+        XCTAssertEqual(candidates.map { $0.payload.state.source }, ["[?]"])
+
+        let attributed = renderTableCellAttributed(
+            cell, baseFont: .systemFont(ofSize: 14), textColor: .labelColor,
+            linkColor: .linkColor, codeColor: .systemOrange,
+            pluginSnapshot: snapshot)
+        var pluginRuns = 0
+        attributed.enumerateAttribute(.mdBuiltInPluginToken,
+                                      in: NSRange(location: 0, length: attributed.length)) {
+            value, _, _ in
+            if value is BuiltInPluginTokenPayload { pluginRuns += 1 }
+        }
+        XCTAssertEqual(pluginRuns, 1)
+    }
+
+    func testInlinePluginHitTestingRejectsNearestGlyphOutsideTokenRect() {
+        let storage = NSTextStorage(string: "?")
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: 300, height: 100))
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+        let range = NSRange(location: 0, length: 1)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range,
+                                                  actualCharacterRange: nil)
+        let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+
+        XCTAssertTrue(visualPointHitsCharacterRange(
+            NSPoint(x: rect.midX, y: rect.midY), range: range,
+            layoutManager: layoutManager, textContainer: container))
+        XCTAssertFalse(visualPointHitsCharacterRange(
+            NSPoint(x: rect.maxX + 30, y: rect.midY), range: range,
+            layoutManager: layoutManager, textContainer: container))
+        XCTAssertFalse(visualPointHitsCharacterRange(
+            NSPoint(x: rect.midX, y: rect.maxY + 30), range: range,
+            layoutManager: layoutManager, textContainer: container))
+    }
+
+    func testChecklistFormattingUsesPluginFirstStateAndRecognizesPluginTasks() throws {
+        let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
+        let payload = try XCTUnwrap(snapshot.initialChecklistPayload)
+        let kind = checklistKind(depth: 2, initialPluginPayload: payload)
+
+        XCTAssertTrue(isChecklistKind(kind))
+        guard case .builtInPluginTaskItem(let depth, let token) = kind else {
+            return XCTFail("expected built-in plugin checklist")
+        }
+        XCTAssertEqual(depth, 2)
+        XCTAssertEqual(token.state.source, "[-]")
+        XCTAssertTrue(isChecklistKind(.taskItem(depth: 0, done: false)))
+        XCTAssertFalse(isChecklistKind(.bulletItem(depth: 0)))
     }
 
     func testPreviewRendersClickableTokensAndLeavesProtectedTextAlone() {
