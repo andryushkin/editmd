@@ -964,3 +964,11 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - U+E001 может быть разбит cmark по Text nodes, поэтому каждый Preview sentinel run сверяется с token на вычисленном UTF-16 source offset; order-only cursor здесь опасен, потому что один пропущенный run сдвигает все последующие widgets.
 - При цикле SF Symbol → emoji нужно удалить старый `.attachment` из унаследованных attributes; иначе новый текст продолжает рисовать прежнюю картинку.
 - `EditMD/project.yml` до этого отставал от уже сгенерированного `0.40.2 (402)` в dirty worktree; источник истины синхронизирован с существовавшей версией перед xcodegen, без нового version bump.
+
+## Сворачиваемый frontmatter — app **0.41.0**
+
+- Visual и Preview показывают единый заголовок «Свойства» с disclosure-chevron (вниз при раскрытом блоке, вправо при свернутом). Клик по всей строке сворачивает весь блок свойств и активную карточку настройки плагина до одной строки; повторный клик раскрывает его.
+- Visual меняет только display-представление `.raw`-острова. Verbatim YAML с фенсами остаётся payload блока и одинаково сериализуется в раскрытом и свернутом состоянии.
+- Активный multi-checkbox в раскрытом Visual не сжимается до бесполезного `editmd:`: read-only legend показывает каждое состояние в порядке цикла как «иконка — `[marker]` — название» и визуально отмечает strikethrough-state. Поля редактирования остаются только в Preview/Source.
+- Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
+- Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.

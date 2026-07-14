@@ -109,6 +109,11 @@ struct EditorActionStrip: View {
     /// Review sidebar. Lite windows keep this false and omit the button.
     var showReviewAction: Bool = false
     var addReviewMark: () -> Void = {}
+    /// Built-in plugins are document-scoped. This picker is fixed beside the
+    /// mode switch so Source, Visual, Preview and Split expose the same door.
+    var builtInPlugins: [BuiltInPluginDescriptor] = []
+    var declaredBuiltInPluginIDs: Set<String> = []
+    var addBuiltInPlugin: (String) -> Void = { _ in }
     /// B6: tint B/I/`/S when caret is inside those styles.
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
     /// Mode switcher — pinned to the trailing edge of the strip (the window
@@ -125,6 +130,7 @@ struct EditorActionStrip: View {
     @State private var widths: [String: CGFloat] = [:]
 
     private static let modeKey = "__mode"
+    private static let pluginKey = "__plugins"
     private static let overflowKey = "__overflow"
     private static let gutterKey = "__gutter"
     private static let groupSpacing: CGFloat = 8
@@ -148,8 +154,10 @@ struct EditorActionStrip: View {
             let stripTrail = editingPaneWidth == nil
                 ? fieldTrail : SidebarChrome.barPaddingH
             let modeWidth = widths[Self.modeKey] ?? 0
+            let pluginWidth = widths[Self.pluginKey] ?? 0
             let laneBeforeMode = max(0, geo.size.width - lead - stripTrail
-                                       - modeWidth - Self.groupSpacing)
+                                       - modeWidth - pluginWidth
+                                       - Self.groupSpacing * 2)
             let laneInsideEditor = max(0, editingWidth - lead - fieldTrail)
             let toolLaneWidth = min(laneBeforeMode, laneInsideEditor)
             let plan = plan(available: toolLaneWidth, groups: groups)
@@ -167,6 +175,8 @@ struct EditorActionStrip: View {
                 // it gets clipped instead of drawing over the switcher.
                 .clipped()
                 Spacer(minLength: Self.groupSpacing)
+                pluginMenu
+                    .padding(.trailing, Self.groupSpacing)
                 modePill
             }
             .padding(.leading, lead)
@@ -241,6 +251,7 @@ struct EditorActionStrip: View {
             overflowPill([], itemsByGroup: itemsByGroup)
                 .measureWidth(key: Self.overflowKey)
             modePill.measureWidth(key: Self.modeKey)
+            pluginMenu.measureWidth(key: Self.pluginKey)
             gutterPill.measureWidth(key: Self.gutterKey)
         }
         .fixedSize()
@@ -325,6 +336,38 @@ struct EditorActionStrip: View {
                 }
             }
         }
+        .fixedSize()
+    }
+
+    private var pluginMenu: some View {
+        Menu {
+            ForEach(builtInPlugins) { plugin in
+                let installed = declaredBuiltInPluginIDs.contains(plugin.id)
+                Button {
+                    addBuiltInPlugin(plugin.id)
+                } label: {
+                    Label(plugin.name,
+                          systemImage: installed ? "checkmark.circle.fill" : "plus.circle")
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(installed)
+            }
+        } label: {
+            Image(systemName: "puzzlepiece")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(declaredBuiltInPluginIDs.isEmpty
+                                 ? Color.primary : Color.accentColor)
+                .frame(width: SidebarChrome.iconButtonWidth,
+                       height: SidebarChrome.iconButtonHeight)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: SidebarChrome.iconButtonWidth,
+               height: SidebarChrome.iconButtonHeight)
+        .disabled(builtInPlugins.isEmpty)
+        .accessibilityLabel("Добавить встроенный плагин")
+        .accessibilityHint("Добавляет конфигурацию плагина во frontmatter документа")
+        .editMDHelp("Добавить плагин")
         .fixedSize()
     }
 

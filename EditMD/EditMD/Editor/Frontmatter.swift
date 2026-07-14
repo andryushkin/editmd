@@ -1,5 +1,9 @@
 import Foundation
 
+/// Shared presentation title for the metadata card in Visual and Preview.
+/// Source mode intentionally keeps the YAML fences and keys as written.
+let frontmatterDisplayTitle = "Свойства"
+
 // YAML frontmatter (the `---\n…\n---` metadata block at the top of a markdown
 // file) plus a lightweight YAML tokenizer, shared by Visual (a read-only
 // "properties" island) and Preview (a properties table + `yaml` code-block

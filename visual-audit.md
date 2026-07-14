@@ -89,7 +89,7 @@
 - \[\~\] Missing / remote → placeholder `photo` (**async remote load — нет**)
 - [x] `[[Note]]` / `[[Note|alias]]` display + Cmd+click → файл
 - [ ] Unresolved wiki: другой цвет (сейчас как валидная + beep)
-- [x] Frontmatter: read-only карточка свойств (YAML colors)
+- [x] Frontmatter: read-only карточка свойств (YAML colors), chevron-заголовок «Свойства» сворачивает карточку; multi-checkbox показывает icon/marker/name legend
 - [x] Правка frontmatter только в Source
 
 ### Ввод
@@ -119,7 +119,7 @@
 - [x] Таблицы (HTML)
 - [x] Код-блоки + ```` ```yaml ```` токены
 - [x] Local images (data-URI); remote как URL
-- [x] Frontmatter → таблица свойств
+- [x] Frontmatter → таблица свойств; chevron-заголовок «Свойства» сворачивает всё содержимое, состояние переживает live update
 - [x] Wiki-links → клик открывает файл
 - [x] `==highlight==` → `<mark>`
 - [x] Light/dark без reload (`color-scheme` + system colors)

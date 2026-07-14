@@ -178,6 +178,10 @@ final class VisualNSTextView: NSTextView {
         } else {
             focusedIslandCell = nil
         }
+        if event.clickCount == 1, frontmatterToggleRange(at: point) != nil {
+            visualCoordinator?.toggleFrontmatterCollapse()
+            return
+        }
         if let paragraph = builtInPluginTaskParagraph(at: point) {
             visualCoordinator?.toggleBuiltInPluginTask(at: paragraph)
             return
@@ -270,6 +274,28 @@ final class VisualNSTextView: NSTextView {
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard charIndex < storage.length else { return nil }
         return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
+    }
+
+    /// Exact hit-test for the frontmatter title. `glyphIndex(for:)` returns the
+    /// nearest glyph even in blank space, so verify the title's bounding rect
+    /// before treating a click as a disclosure action.
+    private func frontmatterToggleRange(at point: NSPoint) -> NSRange? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        guard index < storage.length else { return nil }
+        var range = NSRange(location: 0, length: 0)
+        guard storage.attribute(.mdFrontmatterToggle, at: index,
+                                longestEffectiveRange: &range,
+                                in: NSRange(location: 0, length: storage.length)) != nil,
+              visualPointHitsCharacterRange(containerPoint, range: range,
+                                            layoutManager: layoutManager,
+                                            textContainer: textContainer)
+        else { return nil }
+        return range
     }
 
     /// Raw `[text](destination)` under the cursor — scheme URLs and local

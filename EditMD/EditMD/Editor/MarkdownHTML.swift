@@ -122,16 +122,15 @@ func markdownHTMLRender(_ text: String,
     if let fm = frontmatterRange(in: text) {
         let ns = text as NSString
         let props = parseFrontmatterProperties(ns.substring(with: fm.body))
-        if !props.isEmpty {
-            let fmLine = 1
-            let dirty = gutter.highlightChangedLines && gutter.dirtyLines.contains(fmLine)
-            let wantMark = gutter.showLineNumbers
-                || (dirty && gutter.showDirtyBulletsWhenNoNumbers)
-            let fmAttributes = wantMark ? " data-ln=\"\(fmLine)\"" : ""
-            let fmClasses = dirty ? " ln-dirty" : ""
-            prefix = frontmatterPropertiesHTML(props, additionalClasses: fmClasses,
-                                               attributes: fmAttributes)
-        }
+        let fmLine = 1
+        let dirty = gutter.highlightChangedLines && gutter.dirtyLines.contains(fmLine)
+        let wantMark = gutter.showLineNumbers
+            || (dirty && gutter.showDirtyBulletsWhenNoNumbers)
+        let fmAttributes = wantMark ? " data-ln=\"\(fmLine)\"" : ""
+        let fmClasses = dirty ? " ln-dirty" : ""
+        prefix = frontmatterPropertiesHTML(props, pluginSnapshot: pluginSnapshot,
+                                           additionalClasses: fmClasses,
+                                           attributes: fmAttributes)
         baseOffset = NSMaxRange(fm.full)
         source = ns.substring(from: baseOffset)
         lineBase = ns.substring(to: baseOffset).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
@@ -175,10 +174,15 @@ func markdownHTMLRender(_ text: String,
 /// An Obsidian-inspired properties panel for the frontmatter block. It is
 /// deliberately not a bordered table: lengthy values and tag collections need
 /// room to breathe, while the source YAML remains untouched in Source mode.
-func frontmatterPropertiesHTML(_ props: [FMProperty], additionalClasses: String = "",
+func frontmatterPropertiesHTML(_ props: [FMProperty],
+                               pluginSnapshot: BuiltInPluginSnapshot = .empty,
+                               additionalClasses: String = "",
                                attributes: String = "") -> String {
     var rows = ""
-    for property in props {
+    let visibleProperties = pluginSnapshot.activations.isEmpty
+        ? props
+        : props.filter { $0.key.lowercased() != "editmd" }
+    for property in visibleProperties {
         let valueHTML: String
         if property.isList {
             valueHTML = property.items
@@ -193,9 +197,73 @@ func frontmatterPropertiesHTML(_ props: [FMProperty], additionalClasses: String 
             + "<div class=\"fm-key\">\(htmlEscape(property.key))</div>"
             + "<div class=\"fm-val\">\(valueHTML)</div></div>\n"
     }
+    let pluginHTML = builtInPluginConfigurationHTML(pluginSnapshot)
+    let listHTML = rows.isEmpty ? "" : "<div class=\"fm-list\">\n\(rows)</div>"
     return "<section class=\"frontmatter\(additionalClasses)\"\(attributes)>"
-        + "<h2 class=\"fm-title\">Properties</h2>"
-        + "<div class=\"fm-list\">\n\(rows)</div></section>\n"
+        + "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"
+        + "<span class=\"fm-disclosure\" aria-hidden=\"true\"><svg viewBox=\"0 0 20 20\"><path d=\"m5 7 5 5 5-5\"/></svg></span>"
+        + "<span>" + htmlEscape(frontmatterDisplayTitle) + "</span></button>"
+        + "<div class=\"fm-content\">" + listHTML + pluginHTML + "</div>"
+        + "</section>\n"
+}
+
+private func builtInPluginConfigurationHTML(_ snapshot: BuiltInPluginSnapshot) -> String {
+    snapshot.activations.compactMap { activation -> String? in
+        guard let payload = activation.initialChecklistPayload else { return nil }
+        let pluginID = htmlAttributeEscape(activation.descriptor.id)
+        let states = payload.states.enumerated().map { index, state in
+            let marker = (state.source as NSString).substring(
+                with: NSRange(location: 1, length: max(0, (state.source as NSString).length - 2)))
+            let iconKind: String
+            let iconValue: String
+            let iconPreview: String
+            var iconWarning = ""
+            switch state.icon {
+            case .sfSymbol(let name):
+                iconKind = "sf"
+                iconValue = name
+                if let uri = sfSymbolPNGDataURI(name: name, label: state.label) {
+                    iconPreview = "<img src=\"\(uri)\" alt=\"\">"
+                } else {
+                    iconPreview = "<span aria-hidden=\"true\">\(htmlEscape(state.source))</span>"
+                    iconWarning = "Unknown SF Symbol: \(name)"
+                }
+            case .emoji(let value):
+                iconKind = "emoji"
+                iconValue = value
+                iconPreview = "<span aria-hidden=\"true\">\(htmlEscape(value))</span>"
+            case .text(let value):
+                iconKind = "text"
+                iconValue = value
+                iconPreview = "<span aria-hidden=\"true\">\(htmlEscape(value))</span>"
+            }
+            let select = ["emoji", "sf", "text"].map { kind in
+                let selected = kind == iconKind ? " selected" : ""
+                let title = kind == "sf" ? "SF Symbol" : kind.capitalized
+                return "<option value=\"\(kind)\"\(selected)>\(title)</option>"
+            }.joined()
+            let strike = state.strikethrough ? " checked" : ""
+            let inputID = "fm-plugin-\(pluginID)-icon-\(index)"
+            return """
+            <div class="fm-plugin-state" data-plugin-id="\(pluginID)" data-state-index="\(index)" data-state-source="\(htmlAttributeEscape(state.source))" data-icon-kind="\(iconKind)">
+              <div class="fm-plugin-icon-preview" aria-hidden="true">\(iconPreview)</div>
+              <label class="fm-plugin-field fm-plugin-marker-field"><span>Marker</span><input class="fm-plugin-marker" type="text" maxlength="1" value="\(htmlAttributeEscape(marker))" data-initial="\(htmlAttributeEscape(marker))"></label>
+              <label class="fm-plugin-field fm-plugin-label-field"><span>Name</span><input class="fm-plugin-label" type="text" value="\(htmlAttributeEscape(state.label))"></label>
+              <label class="fm-plugin-field fm-plugin-icon-field"><span>Icon</span><span class="fm-plugin-icon-control"><select class="fm-plugin-icon-kind">\(select)</select><input id="\(inputID)" class="fm-plugin-icon-value" type="text" value="\(htmlAttributeEscape(iconValue))"><button type="button" class="fm-plugin-emoji-picker" title="Open Emoji &amp; Symbols" aria-label="Open Emoji &amp; Symbols">☺︎</button></span></label>
+              <label class="fm-plugin-strike"><input type="checkbox"\(strike)> Strike</label>
+              <p class="fm-plugin-validation" role="status" data-icon-warning="\(htmlAttributeEscape(iconWarning))">\(htmlEscape(iconWarning))</p>
+            </div>
+            """
+        }.joined(separator: "\n")
+        return """
+        <section class="fm-plugin-editor" data-plugin-id="\(pluginID)">
+          <div class="fm-plugin-heading"><div><h3>\(htmlEscape(activation.descriptor.name))</h3><p>\(htmlEscape(activation.descriptor.summary))</p></div><span class="fm-plugin-enabled">Enabled</span></div>
+          <div class="fm-plugin-states">\(states)</div>
+          <button type="button" class="fm-plugin-add-state" data-plugin-id="\(pluginID)">+ Add state</button>
+          <p class="fm-plugin-help">Changes are saved to frontmatter. State order defines the click cycle.</p>
+        </section>
+        """
+    }.joined(separator: "\n")
 }
 
 /// Small inline SVGs keep the Preview independent of system font glyphs while
@@ -1087,14 +1155,45 @@ func previewHTMLPageRender(markdown: String,
         margin: 0 0 2.1em;
         max-width: none;
     }
+    .frontmatter.is-collapsed { margin-bottom: 1.1em; }
     .fm-title {
+        display: flex;
+        align-items: center;
+        gap: 0.38em;
+        width: 100%;
         margin: 0 0 1.05em;
         padding: 0;
         border: none;
+        border-radius: 4px;
+        appearance: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font-family: inherit;
         font-size: 1.45em;
         font-weight: 650;
         line-height: 1.2;
+        text-align: left;
     }
+    .fm-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .frontmatter.is-collapsed .fm-title { margin-bottom: 0; }
+    .fm-disclosure {
+        display: inline-flex;
+        flex: 0 0 auto;
+        width: 0.82em;
+        height: 0.82em;
+        transition: transform 120ms ease;
+    }
+    .fm-disclosure svg { width: 100%; height: 100%; overflow: visible; }
+    .fm-disclosure path {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+    .frontmatter.is-collapsed .fm-disclosure { transform: rotate(-90deg); }
+    .fm-content[hidden] { display: none !important; }
     .fm-list { margin: 0; }
     .fm-row {
         display: grid;
@@ -1149,10 +1248,124 @@ func previewHTMLPageRender(markdown: String,
         line-height: 1.35;
     }
     .fm-empty { opacity: 0.4; }
+    .fm-plugin-editor {
+        margin-top: 1.25em;
+        padding: 1em 1.05em;
+        border: 1px solid rgba(128,128,128,0.24);
+        border-radius: 10px;
+        background: rgba(128,128,128,0.055);
+    }
+    .fm-plugin-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1em;
+        margin-bottom: 0.9em;
+    }
+    .fm-plugin-heading h3 { margin: 0; font-size: 1em; line-height: 1.35; }
+    .fm-plugin-heading p, .fm-plugin-help {
+        margin: 0.18em 0 0;
+        color: rgba(128,128,128,0.96);
+        font-size: 0.82em;
+        line-height: 1.4;
+    }
+    .fm-plugin-enabled {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0.12em 0.55em;
+        color: #17823b;
+        background: rgba(52,199,89,0.14);
+        font-size: 0.78em;
+        font-weight: 600;
+    }
+    .fm-plugin-states { display: grid; gap: 0.55em; }
+    .fm-plugin-state {
+        display: grid;
+        grid-template-columns: 28px minmax(62px, 0.55fr) minmax(120px, 1.15fr) minmax(170px, 1.5fr) auto;
+        gap: 0.55em;
+        align-items: end;
+    }
+    .fm-plugin-icon-preview {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        padding-bottom: 2px;
+        font-size: 1.05em;
+    }
+    .fm-plugin-icon-preview img { width: 18px; height: 18px; object-fit: contain; }
+    .fm-plugin-field { display: grid; gap: 0.18em; min-width: 0; }
+    .fm-plugin-field > span:first-child, .fm-plugin-strike {
+        color: rgba(128,128,128,0.96);
+        font-size: 0.72em;
+        font-weight: 500;
+    }
+    .fm-plugin-field input, .fm-plugin-field select {
+        width: 100%;
+        min-width: 0;
+        height: 28px;
+        border: 1px solid rgba(128,128,128,0.3);
+        border-radius: 6px;
+        padding: 0 0.5em;
+        color: inherit;
+        background: rgba(255,255,255,0.45);
+        font: inherit;
+        font-size: 0.82em;
+    }
+    .fm-plugin-icon-control { display: grid; grid-template-columns: 86px minmax(60px, 1fr) 28px; gap: 0.35em; }
+    .fm-plugin-emoji-picker {
+        display: none;
+        width: 28px;
+        height: 28px;
+        border: 1px solid rgba(128,128,128,0.3);
+        border-radius: 6px;
+        color: inherit;
+        background: rgba(128,128,128,0.1);
+        font: inherit;
+        cursor: pointer;
+    }
+    .fm-plugin-state[data-icon-kind="emoji"] .fm-plugin-emoji-picker { display: block; }
+    .fm-plugin-strike {
+        display: flex;
+        align-items: center;
+        gap: 0.32em;
+        min-height: 28px;
+        white-space: nowrap;
+    }
+    .fm-plugin-help { margin-top: 0.8em; }
+    .fm-plugin-add-state {
+        margin-top: 0.75em;
+        border: 1px solid rgba(128,128,128,0.3);
+        border-radius: 6px;
+        padding: 0.28em 0.7em;
+        color: inherit;
+        background: rgba(128,128,128,0.08);
+        font: inherit;
+        font-size: 0.8em;
+        cursor: pointer;
+    }
+    .fm-plugin-add-state:hover { background: rgba(128,128,128,0.16); }
+    .fm-plugin-validation {
+        grid-column: 2 / -1;
+        min-height: 1.2em;
+        margin: -0.2em 0 0;
+        color: #c33b32;
+        font-size: 0.75em;
+        line-height: 1.2;
+    }
+    .fm-plugin-state:not(.is-invalid) .fm-plugin-validation:empty { display: none; }
+    .fm-plugin-state.is-invalid .fm-plugin-marker { border-color: #d94a3f; }
+    @media (prefers-color-scheme: dark) {
+        .fm-plugin-field input, .fm-plugin-field select { background: rgba(0,0,0,0.18); }
+        .fm-plugin-enabled { color: #62d482; }
+    }
     @media (max-width: 620px) {
         .fm-row { grid-template-columns: 20px 1fr; row-gap: 0.22em; margin-bottom: 0.95em; }
         .fm-key { font-size: 0.88em; }
         .fm-val { grid-column: 2; }
+        .fm-plugin-state { grid-template-columns: 28px 65px minmax(0, 1fr); align-items: end; }
+        .fm-plugin-icon-field { grid-column: 2 / -1; }
+        .fm-plugin-strike { grid-column: 2 / -1; }
     }
     /* Math ($…$ / $$…$$): KaTeX replaces the span content when its assets are
        embedded; before/without that the span shows the raw TeX source.
@@ -1259,6 +1472,121 @@ func previewHTMLPageRender(markdown: String,
                 var offset = Number(button.dataset.pluginOffset);
                 if (handlers && handlers.builtInPluginToggle && Number.isFinite(offset)) {
                     handlers.builtInPluginToggle.postMessage(offset);
+                }
+            };
+        });
+    }
+    function hydrateBuiltInPluginConfiguration() {
+        function handler() {
+            var handlers = window.webkit && window.webkit.messageHandlers;
+            return handlers && handlers.builtInPluginConfiguration;
+        }
+        function context(el) {
+            var row = el.closest('.fm-plugin-state');
+            return row ? {
+                pluginID: row.dataset.pluginId,
+                stateIndex: Number(row.dataset.stateIndex),
+                expectedSource: row.dataset.stateSource
+            } : null;
+        }
+        function postEdit(el, field, value) {
+            var bridge = handler(), ctx = context(el);
+            if (!bridge || !ctx || !Number.isInteger(ctx.stateIndex)) return;
+            bridge.postMessage({
+                action: 'edit', pluginID: ctx.pluginID,
+                stateIndex: ctx.stateIndex, expectedSource: ctx.expectedSource,
+                field: field, value: value
+            });
+        }
+        document.querySelectorAll('.fm-plugin-state').forEach(function (row) {
+            var marker = row.querySelector('.fm-plugin-marker');
+            var label = row.querySelector('.fm-plugin-label');
+            var kind = row.querySelector('.fm-plugin-icon-kind');
+            var icon = row.querySelector('.fm-plugin-icon-value');
+            var picker = row.querySelector('.fm-plugin-emoji-picker');
+            var strike = row.querySelector('.fm-plugin-strike input');
+            var validation = row.querySelector('.fm-plugin-validation');
+            var emojiTimer = null;
+            row.onfocusin = function () {
+                var bridge = handler();
+                if (bridge) bridge.postMessage({action: 'focusChanged', focused: true});
+            };
+            row.onfocusout = function () {
+                setTimeout(function () {
+                    var editor = row.closest('.fm-plugin-editor');
+                    if (editor && editor.contains(document.activeElement)) return;
+                    var bridge = handler();
+                    if (bridge) bridge.postMessage({action: 'focusChanged', focused: false});
+                }, 0);
+            };
+            row.querySelectorAll('input, select').forEach(function (control) {
+                control.onkeydown = function (event) {
+                    if (event.key === 'Enter') control.blur();
+                };
+            });
+            function markerIssue() {
+                var duplicate = Array.from(document.querySelectorAll('.fm-plugin-marker'))
+                    .some(function (other) { return other !== marker && other.value === marker.value; });
+                if (marker.value.length !== 1) return 'Marker must be exactly one UTF-16 character.';
+                if (marker.value === '[' || marker.value === ']') return 'Square brackets cannot be markers.';
+                if (duplicate) return 'This marker is already used by another state.';
+                return '';
+            }
+            function validateMarker() {
+                var issue = markerIssue();
+                marker.setCustomValidity(issue);
+                row.classList.toggle('is-invalid', !!issue);
+                validation.textContent = issue || validation.dataset.iconWarning || '';
+                return !issue;
+            }
+            marker.oninput = validateMarker;
+            marker.onchange = function () {
+                if (!validateMarker()) return;
+                marker.setCustomValidity('');
+                postEdit(marker, 'marker', marker.value);
+            };
+            label.onchange = function () { postEdit(label, 'label', label.value); };
+            function iconSource() {
+                if (kind.value === 'sf') return 'sf:' + icon.value;
+                if (kind.value === 'emoji') return 'emoji:' + icon.value;
+                return icon.value;
+            }
+            kind.onchange = function () {
+                if (kind.value === 'sf') icon.value = 'circle';
+                if (kind.value === 'emoji') icon.value = '🙂';
+                if (kind.value === 'text') icon.value = marker.value;
+                postEdit(kind, 'icon', iconSource());
+            };
+            icon.onchange = function () { postEdit(icon, 'icon', iconSource()); };
+            icon.oninput = function () {
+                if (kind.value !== 'emoji' || !icon.value) return;
+                clearTimeout(emojiTimer);
+                emojiTimer = setTimeout(function () {
+                    postEdit(icon, 'icon', iconSource());
+                }, 160);
+            };
+            picker.onclick = function () {
+                icon.focus();
+                icon.select();
+                var bridge = handler(), ctx = context(picker);
+                if (bridge && ctx) {
+                    bridge.postMessage({
+                        action: 'openEmojiPicker', pluginID: ctx.pluginID,
+                        stateIndex: ctx.stateIndex
+                    });
+                }
+            };
+            strike.onchange = function () {
+                postEdit(strike, 'strikethrough', strike.checked ? 'true' : 'false');
+            };
+        });
+        document.querySelectorAll('.fm-plugin-add-state').forEach(function (button) {
+            button.onclick = function () {
+                var bridge = handler();
+                if (bridge) {
+                    bridge.postMessage({
+                        action: 'addState', pluginID: button.dataset.pluginId
+                    });
                 }
             };
         });
@@ -1561,6 +1889,33 @@ func previewHTMLPageRender(markdown: String,
         document.querySelectorAll('pre, blockquote').forEach(attachPreviewCopyButton);
     }
 
+    // The shell owns this state, not the replaceable fragment. Consequently a
+    // live Preview innerHTML update keeps the user's disclosure choice.
+    var frontmatterCollapsed = false;
+    function applyFrontmatterDisclosure(section) {
+        var title = section.querySelector('.fm-title');
+        var content = section.querySelector('.fm-content');
+        if (!title || !content) return;
+        section.classList.toggle('is-collapsed', frontmatterCollapsed);
+        title.setAttribute('aria-expanded', frontmatterCollapsed ? 'false' : 'true');
+        content.hidden = frontmatterCollapsed;
+    }
+    function hydrateFrontmatterDisclosure() {
+        document.querySelectorAll('.frontmatter').forEach(function (section) {
+            var title = section.querySelector('.fm-title');
+            if (!title) return;
+            title.onclick = function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                frontmatterCollapsed = !frontmatterCollapsed;
+                document.querySelectorAll('.frontmatter').forEach(applyFrontmatterDisclosure);
+                invalidateMdAnchors();
+                alignLineNumberGutter();
+            };
+            applyFrontmatterDisclosure(section);
+        });
+    }
+
     function hydratePreviewMath() {
         if (typeof katex === 'undefined') return;
         document.querySelectorAll('.math:not(.math-rendered)').forEach(function (el) {
@@ -1585,9 +1940,11 @@ func previewHTMLPageRender(markdown: String,
     window.editMDHydratePreviewContent = function () {
         hydrateTaskCheckboxes();
         hydrateBuiltInPluginTokens();
+        hydrateBuiltInPluginConfiguration();
         hydrateWikiLinks();
         hydrateLocalLinks();
         hydratePreviewCopyButtons();
+        hydrateFrontmatterDisclosure();
         hydratePreviewMath();
         invalidateMdAnchors();
     };

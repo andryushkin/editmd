@@ -353,6 +353,15 @@ extension VisualMarkdownView.Coordinator {
             }
             lineStart += (line as NSString).length + 1   // + hard-break char
         }
+
+        storage.enumerateAttribute(.mdFrontmatterToggle, in: paragraph) { value, range, _ in
+            guard value != nil else { return }
+            storage.addAttributes([
+                .font: visualStyle.font(for: [], blockKind: .heading(3)),
+                .foregroundColor: theme.textColor,
+                .cursor: NSCursor.pointingHand,
+            ], range: range)
+        }
     }
 
     private func isListKind(_ kind: MDBlock.Kind) -> Bool {

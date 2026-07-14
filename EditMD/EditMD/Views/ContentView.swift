@@ -46,6 +46,10 @@ struct ContentView: View {
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
 
+    private var declaredBuiltInPluginIDs: Set<String> {
+        BuiltInPluginRegistry.declaredPluginIDs(in: document.content)
+    }
+
     /// The active theme: the Settings window's preset plus its color
     /// overrides. Single source of truth — the toolbar's Theme menu and the
     /// General settings tab both write `editorSettings.general.themePreset`,
@@ -349,6 +353,9 @@ struct ContentView: View {
                                   showVisualExtras: mode == .visual,
                                   showReviewAction: allowsSidebar,
                                   addReviewMark: requestReviewMark,
+                                  builtInPlugins: BuiltInPluginRegistry.descriptors,
+                                  declaredBuiltInPluginIDs: declaredBuiltInPluginIDs,
+                                  addBuiltInPlugin: addBuiltInPlugin,
                                   activeFormats: activeFormats,
                                   mode: mode,
                                   setEditorMode: setEditorMode,
@@ -483,6 +490,19 @@ struct ContentView: View {
         sidebarVisible = true
         sidebarTab = "review"
         ReviewModel.shared.requestCompose()
+    }
+
+    private func addBuiltInPlugin(_ pluginID: String) {
+        document.commitContentEdit()
+        guard let updated = BuiltInPluginRegistry.installPlugin(
+            id: pluginID, in: document.content)
+        else {
+            NSSound.beep()
+            return
+        }
+        let name = BuiltInPluginRegistry.descriptors
+            .first(where: { $0.id == pluginID })?.name ?? "Plugin"
+        document.applyUndoableContent(updated, actionName: "Add \(name)")
     }
 
     /// agterm-style divider: a 1px separator with a wider invisible grab

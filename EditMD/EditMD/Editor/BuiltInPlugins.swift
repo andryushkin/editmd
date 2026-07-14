@@ -20,6 +20,13 @@ enum BuiltInPluginIcon: Hashable, Sendable {
     case text(String)
 }
 
+enum BuiltInPluginConfigurationField: String, Sendable {
+    case marker
+    case label
+    case icon
+    case strikethrough
+}
+
 /// One state of a cyclic inline token. `source` is the exact markdown written
 /// to disk (for example "[x]"); ordering in frontmatter defines the cycle.
 struct BuiltInPluginTokenState: Hashable, Sendable {
@@ -236,12 +243,25 @@ protocol BuiltInMarkdownPlugin: Sendable {
     /// do not opt in must pay essentially zero plugin parsing cost.
     func isEnabled(in markdown: String) -> Bool
 
+    /// Declaration presence is separate from activation: an invalid block must
+    /// not make the Add menu insert a second copy of the same plugin.
+    func isDeclared(in markdown: String) -> Bool
+
+    /// Adds the plugin's smallest valid document-scoped configuration.
+    func installingDefaultConfiguration(in markdown: String) -> String?
+
+    /// Appends one default configuration row when the plugin supports it.
+    func addingConfigurationState(in markdown: String) -> String?
+
     /// Return nil when the document did not activate this plugin.
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation?
 }
 
 extension BuiltInMarkdownPlugin {
     var ownsCoreCheckboxSyntax: Bool { false }
+    func isDeclared(in markdown: String) -> Bool { isEnabled(in: markdown) }
+    func installingDefaultConfiguration(in markdown: String) -> String? { nil }
+    func addingConfigurationState(in markdown: String) -> String? { nil }
 }
 
 enum BuiltInPluginRegistry {
@@ -249,6 +269,20 @@ enum BuiltInPluginRegistry {
 
     static var descriptors: [BuiltInPluginDescriptor] {
         plugins.map(\.descriptor)
+    }
+
+    static func declaredPluginIDs(in markdown: String) -> Set<String> {
+        Set(plugins.lazy.filter { $0.isDeclared(in: markdown) }.map { $0.descriptor.id })
+    }
+
+    static func installPlugin(id: String, in markdown: String) -> String? {
+        plugins.first { $0.descriptor.id == id }?
+            .installingDefaultConfiguration(in: markdown)
+    }
+
+    static func addConfigurationState(pluginID: String, in markdown: String) -> String? {
+        plugins.first { $0.descriptor.id == pluginID }?
+            .addingConfigurationState(in: markdown)
     }
 
     static func snapshot(for markdown: String, coreSpans: [Span]? = nil)
@@ -285,6 +319,19 @@ enum BuiltInPluginRegistry {
         guard NSMaxRange(token.range) <= ns.length,
               ns.substring(with: token.range) == token.payload.state.source else { return nil }
         return ns.replacingCharacters(in: token.range, with: token.payload.next.state.source)
+    }
+
+    /// Applies a settings edit from Preview through a registry-owned whitelist.
+    /// Web content never supplies a source range or arbitrary YAML path.
+    static func updateConfiguration(in markdown: String, pluginID: String,
+                                    stateIndex: Int,
+                                    field: BuiltInPluginConfigurationField,
+                                    value: String,
+                                    expectedSource: String? = nil) -> String? {
+        guard pluginID == MultiCheckboxPlugin.pluginID else { return nil }
+        return MultiCheckboxPlugin.updateConfiguration(
+            in: markdown, stateIndex: stateIndex, field: field, value: value,
+            expectedSource: expectedSource)
     }
 }
 
@@ -346,34 +393,27 @@ func maskBuiltInPluginTokensForParsing(_ source: String,
     return mutable as String
 }
 
-/// Shared attributed representation for Visual and large-table drawing.
-func builtInPluginTokenAttributedString(_ payload: BuiltInPluginTokenPayload,
-                                        font: NSFont,
-                                        textColor: NSColor,
-                                        attributes: [NSAttributedString.Key: Any] = [:])
+/// Presentation-only icon used by token widgets and the read-only frontmatter
+/// legend. Semantic token ownership is added by the caller when appropriate.
+func builtInPluginIconAttributedString(_ icon: BuiltInPluginIcon,
+                                       label: String,
+                                       fallback: String,
+                                       font: NSFont,
+                                       textColor: NSColor,
+                                       attributes: [NSAttributedString.Key: Any] = [:])
     -> NSAttributedString {
     var attrs = attributes
-    // An in-place cycle may reuse an SF Symbol run's attributes. Do not carry
-    // its old attachment or completed-state strike into the next state.
     attrs.removeValue(forKey: .attachment)
-    attrs.removeValue(forKey: .strikethroughStyle)
     attrs[.font] = font
     attrs[.foregroundColor] = textColor
-    // Inactive core checkboxes still need a semantic run so serialization
-    // writes their exact `[ ]` / `[x]` source instead of Markdown-escaping it.
-    // Hit testing checks `isInteractive` before offering a cycle action.
-    attrs[.mdBuiltInPluginToken] = payload
-    if payload.state.strikethrough {
-        attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-    }
 
-    switch payload.state.icon {
+    switch icon {
     case .emoji(let emoji), .text(let emoji):
         return NSAttributedString(string: emoji, attributes: attrs)
     case .sfSymbol(let name):
         guard let image = NSImage(systemSymbolName: name,
-                                  accessibilityDescription: payload.state.label) else {
-            return NSAttributedString(string: payload.state.source, attributes: attrs)
+                                  accessibilityDescription: label) else {
+            return NSAttributedString(string: fallback, attributes: attrs)
         }
         let config = NSImage.SymbolConfiguration(pointSize: font.pointSize, weight: .regular)
         let configured = image.withSymbolConfiguration(config) ?? image
@@ -386,6 +426,30 @@ func builtInPluginTokenAttributedString(_ payload: BuiltInPluginTokenPayload,
         result.addAttributes(attrs, range: NSRange(location: 0, length: result.length))
         return result
     }
+}
+
+/// Shared semantic token representation for Visual and large-table drawing.
+func builtInPluginTokenAttributedString(_ payload: BuiltInPluginTokenPayload,
+                                        font: NSFont,
+                                        textColor: NSColor,
+                                        attributes: [NSAttributedString.Key: Any] = [:])
+    -> NSAttributedString {
+    var attrs = attributes
+    // An in-place cycle may reuse an SF Symbol run's attributes. Do not carry
+    // its old attachment or completed-state strike into the next state.
+    attrs.removeValue(forKey: .attachment)
+    attrs.removeValue(forKey: .strikethroughStyle)
+    // Inactive core checkboxes still need a semantic run so serialization
+    // writes their exact `[ ]` / `[x]` source instead of Markdown-escaping it.
+    // Hit testing checks `isInteractive` before offering a cycle action.
+    attrs[.mdBuiltInPluginToken] = payload
+    if payload.state.strikethrough {
+        attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+    }
+    return builtInPluginIconAttributedString(
+        payload.state.icon, label: payload.state.label,
+        fallback: payload.state.source, font: font,
+        textColor: textColor, attributes: attrs)
 }
 
 func builtInPluginTokenHTML(_ payload: BuiltInPluginTokenPayload,
@@ -413,7 +477,7 @@ func builtInPluginTokenHTML(_ payload: BuiltInPluginTokenPayload,
         + "title=\"\(label)\"\(strike)>\(iconHTML)</button>"
 }
 
-private func sfSymbolPNGDataURI(name: String, label: String) -> String? {
+func sfSymbolPNGDataURI(name: String, label: String) -> String? {
     guard let image = NSImage(systemSymbolName: name, accessibilityDescription: label) else {
         return nil
     }
@@ -442,8 +506,26 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
 
     let ownsCoreCheckboxSyntax = true
 
+    private static let initialStateLines = [
+        #"- marker: "-""#,
+        #"  label: Not started"#,
+        #"  icon: "sf:circle""#,
+    ]
+
     func isEnabled(in markdown: String) -> Bool {
         Self.configuration(in: markdown) != nil
+    }
+
+    func isDeclared(in markdown: String) -> Bool {
+        Self.hasDeclaration(in: markdown)
+    }
+
+    func installingDefaultConfiguration(in markdown: String) -> String? {
+        Self.installingDefaultConfiguration(in: markdown)
+    }
+
+    func addingConfigurationState(in markdown: String) -> String? {
+        Self.addingConfigurationState(in: markdown)
     }
 
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation? {
@@ -510,16 +592,96 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
         var markers = Set<String>()
         for raw in rawStates {
             guard let marker = raw["marker"], (marker as NSString).length == 1,
-                  marker != "[", marker != "]", markers.insert(marker).inserted
-            else { continue }
+                  marker != "[", marker != "]" else { continue }
+            guard markers.insert(marker).inserted else { return nil }
             let label = raw["label"].flatMap { $0.isEmpty ? nil : $0 } ?? marker
             let icon = parseIcon(raw["icon"] ?? marker)
             let strike = parseYAMLBool(raw["strikethrough"]) ?? false
             states.append(BuiltInPluginTokenState(source: "[\(marker)]", label: label,
                                                   icon: icon, strikethrough: strike))
         }
-        guard states.count >= 2 else { return nil }
+        guard !states.isEmpty else { return nil }
         return MultiCheckboxConfiguration(states: states)
+    }
+
+    static func hasDeclaration(in markdown: String) -> Bool {
+        guard let hierarchy = configurationHierarchy(in: markdown) else { return false }
+        return child(named: pluginID, after: hierarchy.plugins.index,
+                     parentIndent: hierarchy.plugins.indent, in: hierarchy.lines) != nil
+    }
+
+    static func installingDefaultConfiguration(in markdown: String) -> String? {
+        guard !hasDeclaration(in: markdown) else { return nil }
+        let pluginBlock: (Int) -> [String] = { indent in
+            let prefix = String(repeating: " ", count: indent)
+            let statePrefix = String(repeating: " ", count: indent + 4)
+            return ["\(prefix)\(pluginID):", "\(prefix)  states:"]
+                + initialStateLines.map { statePrefix + $0 }
+        }
+
+        let updated: String
+        if let frontmatter = frontmatterRange(in: markdown) {
+            let ns = markdown as NSString
+            let body = ns.substring(with: frontmatter.body)
+            var rawLines = body.components(separatedBy: "\n")
+            if rawLines.count == 1, rawLines[0].isEmpty { rawLines.removeAll() }
+            let lines = rawLines.map(PluginYAMLLine.init)
+            if let editmd = child(named: "editmd", after: -1,
+                                  parentIndent: -1, in: lines) {
+                if let plugins = child(named: "plugins", after: editmd.index,
+                                       parentIndent: editmd.indent, in: lines) {
+                    let insertion = subtreeEnd(after: plugins.index,
+                                               indent: plugins.indent, in: lines)
+                    rawLines.insert(contentsOf: pluginBlock(plugins.indent + 2), at: insertion)
+                } else {
+                    let insertion = subtreeEnd(after: editmd.index,
+                                               indent: editmd.indent, in: lines)
+                    let indent = editmd.indent + 2
+                    rawLines.insert(contentsOf: [
+                        "\(String(repeating: " ", count: indent))plugins:",
+                    ] + pluginBlock(indent + 2), at: insertion)
+                }
+            } else {
+                if rawLines.last?.isEmpty == false { rawLines.append("") }
+                rawLines += ["editmd:", "  plugins:"] + pluginBlock(4)
+            }
+            updated = ns.replacingCharacters(in: frontmatter.body,
+                                              with: rawLines.joined(separator: "\n"))
+        } else {
+            let body = (["editmd:", "  plugins:"] + pluginBlock(4))
+                .joined(separator: "\n")
+            let block = "---\n\(body)\n---"
+            updated = markdown.isEmpty ? block : "\(block)\n\n\(markdown)"
+        }
+        return configuration(in: updated) == nil ? nil : updated
+    }
+
+    static func addingConfigurationState(in markdown: String) -> String? {
+        guard let current = configuration(in: markdown),
+              let frontmatter = frontmatterRange(in: markdown) else { return nil }
+        let used = Set(current.states.map(\.source))
+        let markerCandidates = ["x", "+", "?", "X", "!", "~", "="]
+            + (0...9).map(String.init)
+            + "abcdefghijklmnopqrstuvwxyz".map(String.init)
+        guard let marker = markerCandidates.first(where: { !used.contains("[\($0)]") })
+        else { return nil }
+
+        let ns = markdown as NSString
+        let body = ns.substring(with: frontmatter.body)
+        guard var editable = editableStateLines(in: body),
+              let last = editable.validEntries.last else { return nil }
+        let stateIndent = String(repeating: " ", count: editable.sequenceIndent)
+        let propertyIndent = String(repeating: " ", count: editable.sequenceIndent + 2)
+        editable.lines.insert(contentsOf: [
+            "\(stateIndent)- marker: \(quotePluginYAMLScalar(marker))",
+            "\(propertyIndent)label: \(quotePluginYAMLScalar("State \(current.states.count + 1)"))",
+            "\(propertyIndent)icon: \(quotePluginYAMLScalar("sf:circle"))",
+        ], at: last.endLine)
+        let updated = ns.replacingCharacters(in: frontmatter.body,
+                                              with: editable.lines.joined(separator: "\n"))
+        guard configuration(in: updated)?.states.count == current.states.count + 1
+        else { return nil }
+        return updated
     }
 
     static func scanTokens(in markdown: String,
@@ -585,6 +747,70 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
         return result
     }
 
+    /// Updates one visible state while preserving the rest of the frontmatter.
+    /// Existing tokens migrate with a marker rename, so changing the definition
+    /// cannot strand the document in an unconfigured literal state.
+    static func updateConfiguration(in markdown: String, stateIndex: Int,
+                                    field: BuiltInPluginConfigurationField,
+                                    value: String,
+                                    expectedSource: String? = nil) -> String? {
+        guard stateIndex >= 0, value.utf16.count <= 256,
+              !value.contains("\n"), !value.contains("\r"),
+              let currentConfiguration = configuration(in: markdown),
+              currentConfiguration.states.indices.contains(stateIndex),
+              expectedSource == nil
+                || currentConfiguration.states[stateIndex].source == expectedSource,
+              let frontmatter = frontmatterRange(in: markdown)
+        else { return nil }
+
+        switch field {
+        case .marker:
+            guard value.utf16.count == 1, value != "[", value != "]",
+                  !currentConfiguration.states.enumerated().contains(where: {
+                      $0.offset != stateIndex && $0.element.source == "[\(value)]"
+                  })
+            else { return nil }
+        case .label, .icon:
+            break
+        case .strikethrough:
+            guard value == "true" || value == "false" else { return nil }
+        }
+
+        let original = markdown as NSString
+        let body = original.substring(with: frontmatter.body)
+        guard var edit = editableStateLines(in: body),
+              edit.validEntries.indices.contains(stateIndex)
+        else { return nil }
+        let entry = edit.validEntries[stateIndex]
+        let scalar = field == .strikethrough ? value : quotePluginYAMLScalar(value)
+        if let lineIndex = entry.propertyLines[field.rawValue] {
+            guard let replacement = replacingPluginYAMLScalar(
+                in: edit.lines[lineIndex], key: field.rawValue, scalar: scalar)
+            else { return nil }
+            edit.lines[lineIndex] = replacement
+        } else {
+            let indent = String(repeating: " ", count: entry.propertyIndent)
+            edit.lines.insert("\(indent)\(field.rawValue): \(scalar)", at: entry.endLine)
+        }
+
+        let mutable = NSMutableString(string: markdown)
+        if field == .marker {
+            let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+            let replacement = "[\(value)]"
+            for token in snapshot.tokens.reversed()
+            where token.payload.isInteractive && token.payload.stateIndex == stateIndex {
+                mutable.replaceCharacters(in: token.range, with: replacement)
+            }
+        }
+        mutable.replaceCharacters(in: frontmatter.body,
+                                  with: edit.lines.joined(separator: "\n"))
+        let updated = mutable as String
+        guard let updatedConfiguration = configuration(in: updated),
+              updatedConfiguration.states.count == currentConfiguration.states.count
+        else { return nil }
+        return updated
+    }
+
     private static func isListMarker(_ token: NSRange, in source: NSString) -> Bool {
         let line = source.lineRange(for: NSRange(location: token.location, length: 0))
         let prefixRange = NSRange(location: line.location, length: token.location - line.location)
@@ -608,6 +834,160 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
 }
 
 // MARK: - Tiny ordered YAML subset for plugin configuration
+
+private struct EditablePluginStateEntry {
+    let values: [String: String]
+    let propertyLines: [String: Int]
+    let endLine: Int
+    let propertyIndent: Int
+}
+
+private struct EditablePluginStateLines {
+    var lines: [String]
+    let validEntries: [EditablePluginStateEntry]
+    let sequenceIndent: Int
+}
+
+private func editableStateLines(in body: String) -> EditablePluginStateLines? {
+    let rawLines = body.components(separatedBy: "\n")
+    let parsed = rawLines.map(PluginYAMLLine.init)
+    guard let editmd = child(named: "editmd", after: -1, parentIndent: -1, in: parsed),
+          let plugins = child(named: "plugins", after: editmd.index,
+                              parentIndent: editmd.indent, in: parsed),
+          let plugin = child(named: MultiCheckboxPlugin.pluginID, after: plugins.index,
+                             parentIndent: plugins.indent, in: parsed),
+          let states = child(named: "states", after: plugin.index,
+                             parentIndent: plugin.indent, in: parsed)
+    else { return nil }
+
+    var entries: [EditablePluginStateEntry] = []
+    var currentValues: [String: String] = [:]
+    var currentLines: [String: Int] = [:]
+    var currentStart: Int?
+    var sequenceIndent: Int?
+    var index = states.index + 1
+
+    func completed(endLine: Int) -> EditablePluginStateEntry? {
+        guard currentStart != nil, let sequenceIndent else { return nil }
+        let continuationIndent = currentLines.values
+            .filter { $0 != currentStart }
+            .map { parsed[$0].indent }
+            .min() ?? (sequenceIndent + 2)
+        return EditablePluginStateEntry(values: currentValues,
+                                        propertyLines: currentLines,
+                                        endLine: endLine,
+                                        propertyIndent: continuationIndent)
+    }
+
+    while index < parsed.count {
+        let line = parsed[index]
+        if line.content.isEmpty { index += 1; continue }
+        let isItem = line.content == "-" || line.content.hasPrefix("- ")
+        if sequenceIndent == nil {
+            guard isItem, line.indent >= states.indent else { break }
+            sequenceIndent = line.indent
+        }
+        guard let sequenceIndent else { break }
+        if line.indent < sequenceIndent || (line.indent == sequenceIndent && !isItem) {
+            break
+        }
+        if line.indent == sequenceIndent, isItem {
+            if let entry = completed(endLine: index) { entries.append(entry) }
+            currentValues = [:]
+            currentLines = [:]
+            currentStart = index
+            let remainder = line.content == "-" ? "" : String(line.content.dropFirst(2))
+            if let (key, value) = yamlPair(remainder) {
+                currentValues[key] = value
+                currentLines[key] = index
+            }
+        } else if currentStart != nil, line.indent > sequenceIndent,
+                  let (key, value) = yamlPair(line.content) {
+            currentValues[key] = value
+            currentLines[key] = index
+        }
+        index += 1
+    }
+    if let entry = completed(endLine: index) { entries.append(entry) }
+
+    var seen = Set<String>()
+    let valid = entries.filter { entry in
+        guard let marker = entry.values["marker"], marker.utf16.count == 1,
+              marker != "[", marker != "]", seen.insert(marker).inserted
+        else { return false }
+        return true
+    }
+    guard let sequenceIndent else { return nil }
+    return EditablePluginStateLines(lines: rawLines, validEntries: valid,
+                                    sequenceIndent: sequenceIndent)
+}
+
+private func configurationHierarchy(in markdown: String)
+    -> (lines: [PluginYAMLLine], plugins: (index: Int, indent: Int))? {
+    guard let frontmatter = frontmatterRange(in: markdown) else { return nil }
+    let body = (markdown as NSString).substring(with: frontmatter.body)
+    let lines = body.components(separatedBy: "\n").map(PluginYAMLLine.init)
+    guard let editmd = child(named: "editmd", after: -1, parentIndent: -1, in: lines),
+          let plugins = child(named: "plugins", after: editmd.index,
+                              parentIndent: editmd.indent, in: lines)
+    else { return nil }
+    return (lines, plugins)
+}
+
+private func subtreeEnd(after index: Int, indent: Int,
+                        in lines: [PluginYAMLLine]) -> Int {
+    var cursor = index + 1
+    while cursor < lines.count {
+        let line = lines[cursor]
+        if !line.content.isEmpty, line.indent <= indent { break }
+        cursor += 1
+    }
+    return cursor
+}
+
+private func quotePluginYAMLScalar(_ value: String) -> String {
+    let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    return "\"\(escaped)\""
+}
+
+private func replacingPluginYAMLScalar(in line: String, key: String,
+                                       scalar: String) -> String? {
+    let leading = String(line.prefix { $0 == " " || $0 == "\t" })
+    var content = String(line.dropFirst(leading.count))
+    var itemPrefix = ""
+    if content.hasPrefix("- ") {
+        itemPrefix = "- "
+        content.removeFirst(2)
+    }
+    guard content.hasPrefix("\(key):") else { return nil }
+    let suffix = String(content.dropFirst(key.count + 1))
+    let comment: String
+    if let index = pluginYAMLCommentIndex(in: suffix) {
+        comment = " " + suffix[index...].trimmingCharacters(in: .whitespaces)
+    } else {
+        comment = ""
+    }
+    return "\(leading)\(itemPrefix)\(key): \(scalar)\(comment)"
+}
+
+private func pluginYAMLCommentIndex(in value: String) -> String.Index? {
+    var single = false
+    var double = false
+    var escaped = false
+    for index in value.indices {
+        let char = value[index]
+        if escaped { escaped = false; continue }
+        if char == "\\", double { escaped = true; continue }
+        if char == "'", !double { single.toggle(); continue }
+        if char == "\"", !single { double.toggle(); continue }
+        if char == "#", !single, !double,
+           (index == value.startIndex || value[value.index(before: index)].isWhitespace) {
+            return index
+        }
+    }
+    return nil
+}
 
 private struct PluginYAMLLine {
     let indent: Int

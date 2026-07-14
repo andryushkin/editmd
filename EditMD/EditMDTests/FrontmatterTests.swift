@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 @testable import EditMD
 
 final class FrontmatterTests: XCTestCase {
@@ -119,7 +120,11 @@ final class FrontmatterTests: XCTestCase {
     func testFrontmatterRendersAsPropertiesPanel() {
         let html = markdownHTMLBody("---\ntitle: A\n---\n\n# H\n")
         XCTAssertTrue(html.contains("section class=\"frontmatter\""), html)
-        XCTAssertTrue(html.contains("<h2 class=\"fm-title\">Properties</h2>"), html)
+        XCTAssertTrue(html.contains(
+            "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"), html)
+        XCTAssertTrue(html.contains("class=\"fm-disclosure\""), html)
+        XCTAssertTrue(html.contains("<span>Свойства</span></button>"), html)
+        XCTAssertTrue(html.contains("<div class=\"fm-content\">"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-icon\""), html)
         XCTAssertTrue(html.contains("<div class=\"fm-key\">title</div>"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule
@@ -157,5 +162,50 @@ final class FrontmatterTests: XCTestCase {
         let serialized = serializeAttributedToMarkdown(attributed)
         XCTAssertTrue(serialized.hasPrefix("---\ntitle: A\ntags: [x, y]\n---"), serialized)
         XCTAssertTrue(serialized.contains("# Heading"), serialized)
+    }
+}
+
+@Suite("Frontmatter disclosure presentation")
+struct FrontmatterDisclosureTests {
+    private let markdown = "---\ntitle: A\ntags: [x, y]\n---\n\n# Heading\n"
+
+    @Test func visualDisclosureChangesOnlyDisplayAndKeepsRawYAML() throws {
+        let expanded = renderMarkdownToAttributed(markdown)
+        let collapsed = renderMarkdownToAttributed(markdown, frontmatterCollapsed: true)
+        let titleRange = (expanded.string as NSString).range(of: frontmatterDisplayTitle)
+
+        #expect(titleRange.location != NSNotFound)
+        #expect(expanded.attribute(.mdFrontmatterToggle,
+                                   at: titleRange.location,
+                                   effectiveRange: nil) != nil)
+        #expect(expanded.string.contains("title: A"))
+        #expect(collapsed.string.contains(frontmatterDisplayTitle))
+        #expect(!collapsed.string.contains("title: A"))
+        #expect(serializeAttributedToMarkdown(expanded)
+            == serializeAttributedToMarkdown(collapsed))
+        #expect(serializeAttributedToMarkdown(collapsed).hasPrefix(
+            "---\ntitle: A\ntags: [x, y]\n---"))
+    }
+
+    @Test func previewDisclosureIsHydratedFromPersistentShellState() {
+        let body = markdownHTMLBody(markdown)
+        let page = previewHTMLPage(markdown: markdown, fontSize: 14)
+
+        #expect(body.contains(
+            "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"))
+        #expect(body.contains("class=\"fm-disclosure\""))
+        #expect(body.contains("<span>Свойства</span></button>"))
+        #expect(body.contains("<div class=\"fm-content\">"))
+        #expect(page.contains("var frontmatterCollapsed = false;"))
+        #expect(page.contains("function hydrateFrontmatterDisclosure()"))
+        #expect(page.contains("hydrateFrontmatterDisclosure();"))
+        #expect(page.contains("content.hidden = frontmatterCollapsed;"))
+    }
+
+    @Test func emptyFrontmatterStillGetsTheSharedDisclosureTitle() {
+        let body = markdownHTMLBody("---\n---\n\nBody")
+
+        #expect(body.contains("class=\"frontmatter\""))
+        #expect(body.contains("<span>Свойства</span></button>"))
     }
 }

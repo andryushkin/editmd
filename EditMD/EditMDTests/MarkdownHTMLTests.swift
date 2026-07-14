@@ -675,6 +675,56 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         XCTAssertFalse(html.contains("Before"), html)
     }
 
+    /// Frontmatter disclosure belongs to the persistent shell. Replacing the
+    /// body fragment during live Preview must hydrate the new card with the
+    /// user's existing collapsed state instead of expanding it again.
+    func testFrontmatterDisclosureSurvivesFragmentReplacement() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+        let loaded = expectation(description: "page loaded")
+        let delegate = LoadWaiter { loaded.fulfill() }
+        webView.navigationDelegate = delegate
+        let before = "---\ntitle: Before\n---\n\n# Body"
+        webView.loadHTMLString(previewHTMLPage(markdown: before, fontSize: 14),
+                               baseURL: nil)
+        await fulfillment(of: [loaded], timeout: 20)
+
+        let collapsed = try await webView.evaluateJavaScript("""
+        document.querySelector('.fm-title').click();
+        JSON.stringify({
+          title: document.querySelector('.fm-title').textContent,
+          expanded: document.querySelector('.fm-title').getAttribute('aria-expanded'),
+          hidden: document.querySelector('.fm-content').hidden
+        });
+        """) as? String ?? ""
+        XCTAssertTrue(collapsed.contains("Свойства"), collapsed)
+        XCTAssertTrue(collapsed.contains("\"expanded\":\"false\""), collapsed)
+        XCTAssertTrue(collapsed.contains("\"hidden\":true"), collapsed)
+
+        _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
+        let after = "---\ntitle: After\n---\n\n# Changed"
+        let applied = try await webView.callAsyncJavaScript(
+            "return window.editMDReplacePreview({html: html, revision: revision, position: null});",
+            arguments: [
+                "html": markdownHTMLBody(after),
+                "revision": NSNumber(value: UInt64(2)),
+            ],
+            in: nil,
+            contentWorld: .page)
+        XCTAssertEqual(applied as? Bool, true)
+
+        let hydrated = try await webView.evaluateJavaScript("""
+        JSON.stringify({
+          expanded: document.querySelector('.fm-title').getAttribute('aria-expanded'),
+          hidden: document.querySelector('.fm-content').hidden,
+          content: document.getElementById('preview-content').textContent
+        });
+        """) as? String ?? ""
+        XCTAssertTrue(hydrated.contains("\"expanded\":\"false\""), hydrated)
+        XCTAssertTrue(hydrated.contains("\"hidden\":true"), hydrated)
+        XCTAssertTrue(hydrated.contains("After"), hydrated)
+        XCTAssertFalse(hydrated.contains("Before"), hydrated)
+    }
+
     /// Re-interpreting the old viewport as a markdown offset in the new DOM
     /// nudged Preview on the first character after placing the caret. Content
     /// replacement without a fresh editor-scroll instruction must be pixel-stable.

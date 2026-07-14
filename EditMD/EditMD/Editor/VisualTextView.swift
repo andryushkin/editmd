@@ -377,6 +377,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// serialized frontmatter source itself changes.
         var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
         private var builtInPluginFrontmatter: String?
+        private var frontmatterCollapsed = false
 
         var visualStyle: VisualStyle {
             let settings = EditorSettings.shared.visual
@@ -394,7 +395,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        func loadDocument(pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot? = nil) {
+        func loadDocument(pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot? = nil,
+                          restoreCursorAfterLoad: Bool = true) {
             guard let textView, let storage = textView.textStorage else { return }
             textView.finishActiveTableEditing(commit: true)
             isLoadingDocument = true
@@ -404,7 +406,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             builtInPluginSnapshot = pluginSnapshot
             builtInPluginFrontmatter = builtInPluginFrontmatterSource(in: source)
             let rendered = renderMarkdownToAttributed(
-                source, style: visualStyle, pluginSnapshot: pluginSnapshot)
+                source, style: visualStyle, pluginSnapshot: pluginSnapshot,
+                frontmatterCollapsed: frontmatterCollapsed)
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
             lastParagraphRanges = serializeAttributedToMarkdownDetailed(storage).paragraphRanges
@@ -413,7 +416,20 @@ struct VisualMarkdownView: NSViewRepresentable {
             updateStats()
             applyReviewHighlights()
             isLoadingDocument = false
-            restoreCursor()
+            if restoreCursorAfterLoad { restoreCursor() }
+        }
+
+        /// Collapse is presentation-only: re-render the `.raw` island with a
+        /// shorter display string while retaining its verbatim YAML payload.
+        func toggleFrontmatterCollapse() {
+            guard frontmatterRange(in: parent.document.content) != nil,
+                  let textView else { return }
+            frontmatterCollapsed.toggle()
+            parent.positionStore?.markdownOffset = 0
+            loadDocument(pluginSnapshot: builtInPluginSnapshot,
+                         restoreCursorAfterLoad: false)
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
         }
 
         // MARK: Review-mark anchors (v37)

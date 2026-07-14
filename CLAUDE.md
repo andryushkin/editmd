@@ -55,6 +55,7 @@
 ## Ключевые инварианты (сводка; детали и контекст — в `docs/HISTORY.md`)
 
 - **Round-trip держит `.raw`** — display-текст островов (большие таблицы, frontmatter) косметичен и может отличаться от исходника; сериализатор читает `.raw`-атрибут дословно (v31/v33).
+- **Сворачивание frontmatter — только presentation state**: Visual не меняет `.raw`, а Preview хранит disclosure state в persistent shell, чтобы `innerHTML`-обновление его не сбрасывало.
 - **Не класть тяжёлые значения в атрибуты NSAttributedString без дешёвого `hash(into:)`** — NSTextStorage хеширует значения атрибутов при `fixAttributes`; `String.count` = O(n), в hot-path не вызывать (v29).
 - **Два независимых порога**: `maxNativeTableCells` (island vs `NSTextTable` в Visual, по ячейкам) и `markdownIsHeavy` (plain vs подсветка в Source, по размеру+таблицам) — не путать (v29).
 - **NSTextTable: один shared инстанс на таблицу**; NSTextTable вообще не работает при `isRichText=false` (v22).
