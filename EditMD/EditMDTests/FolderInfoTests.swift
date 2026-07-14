@@ -115,6 +115,29 @@ final class FolderInfoTests: XCTestCase {
         XCTAssertEqual(stats.subfolderCount, 0)
         XCTAssertTrue(stats.directMarkdownFolders.isEmpty)
     }
+
+    func testImageOnlyFolderIsNotClassifiedAsEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-image-stats-\(UUID().uuidString)")
+        let gallery = root.appendingPathComponent("gallery")
+        try FileManager.default.createDirectory(at: gallery, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data().write(to: gallery.appendingPathComponent("drawing.svg"))
+        try Data().write(to: gallery.appendingPathComponent("photo.JPG"))
+
+        let stats = scanFolderTreeStats(at: root)
+        XCTAssertEqual(stats.markdownCount, 2)
+        XCTAssertEqual(stats.subfolderCount, 1)
+        XCTAssertEqual(stats.directMarkdownFolders.map(\.lastPathComponent), ["gallery"])
+        XCTAssertTrue(stats.directEmptyFolders.isEmpty)
+    }
+
+    func testImageFileDetectionAndSidebarIcon() {
+        XCTAssertTrue(isImageFile(URL(fileURLWithPath: "/tmp/vector.SVG")))
+        XCTAssertTrue(isImageFile(URL(fileURLWithPath: "/tmp/photo.jpeg")))
+        XCTAssertFalse(isImageFile(URL(fileURLWithPath: "/tmp/note.md")))
+        XCTAssertEqual(sidebarFileIcon(for: URL(fileURLWithPath: "/tmp/photo.webp")), "photo")
+    }
 }
 
 @MainActor

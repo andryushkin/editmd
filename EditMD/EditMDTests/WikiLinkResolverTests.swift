@@ -121,6 +121,29 @@ final class WikiLinkResolverTests: XCTestCase {
         XCTAssertEqual(md.map { $0.lastPathComponent }, ["Note.md"])
     }
 
+    func testImageResolvesByExplicitExtension() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("Diagram.svg", in: root)
+
+        let resolver = WikiLinkResolver()
+        await resolver.setRoots([root])
+        let hits = await resolver.resolve("Diagram.svg")
+        XCTAssertEqual(hits.map(\.lastPathComponent), ["Diagram.svg"])
+    }
+
+    func testBareTargetListsNoteBeforeImage() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("Cover.svg", in: try subdir("a", in: root))
+        try write("Cover.md", in: try subdir("z", in: root))
+
+        let resolver = WikiLinkResolver()
+        await resolver.setRoots([root])
+        let hits = await resolver.resolve("Cover")
+        XCTAssertEqual(hits.map(\.lastPathComponent), ["Cover.md", "Cover.svg"])
+    }
+
     // MARK: - Plain local links (research_md → research_pdf style)
 
     func testVaultAbsoluteLinkResolvesAgainstVaultRoot() throws {

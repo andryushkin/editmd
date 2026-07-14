@@ -122,6 +122,10 @@ struct MainWindowView: View {
                 // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
                 PDFViewerHost(fileURL: url, allowsSidebar: true)
                     .id("pdf:" + url.absoluteString)
+            } else if let url = appState.currentURL, isImageFile(url) {
+                // Images are read-only and never enter the Markdown document path.
+                ImageViewerHost(fileURL: url, allowsSidebar: true)
+                    .id("image:" + url.absoluteString)
             } else if let url = appState.currentURL, AppState.isFolder(url) {
                 FolderInfoHost(folderURL: url)
                     .id("folder:" + url.absoluteString)

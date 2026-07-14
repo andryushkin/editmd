@@ -64,7 +64,7 @@ func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
 // MARK: - Recursive tree stats
 
 /// One node in the nested-folder tree (D8). `markdownCount` is the number of
-/// .md files DIRECTLY in this folder — descendants report their own counts.
+/// Displayable files DIRECTLY in this folder — descendants report their own counts.
 struct FolderTreeNode: Equatable, Sendable, Identifiable {
     var url: URL
     var markdownCount: Int
@@ -74,8 +74,8 @@ struct FolderTreeNode: Equatable, Sendable, Identifiable {
 
 /// Full-tree counts under a folder (any depth). The root itself is not counted
 /// as a subfolder. A subfolder is counted only if its subtree contains at least
-/// one markdown file (empty / non-md folders are ignored). `.textbundle`
-/// packages count as markdown and are not descended into. Hidden items skipped.
+/// one displayable file (empty / unrelated folders are ignored). `.textbundle`
+/// packages count as one document and are not descended into. Hidden items skipped.
 struct FolderTreeStats: Equatable, Sendable {
     var markdownCount: Int
     var subfolderCount: Int
@@ -91,9 +91,10 @@ struct FolderTreeStats: Equatable, Sendable {
 /// Checks `Task.isCancelled` so the UI can abandon a stale scan.
 func scanFolderTreeStats(at root: URL,
                          fileManager: FileManager = .default) -> FolderTreeStats {
-    // PDFs count as documents: the sidebar lists them, so a folder holding
-    // only PDFs must not be classified as "empty".
-    let mdExt: Set<String> = ["md", "markdown", "textbundle", "pdf"]
+    // Every file the sidebar displays counts as a document, so a folder holding
+    // only PDFs or images must not be classified as "empty".
+    let mdExt: Set<String> =
+        Set(["md", "markdown", "textbundle", "pdf"]).union(supportedImageFileExtensions)
     let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey]
 
     /// `hasMarkdown` — this directory's subtree has ≥1 md (not counting the
@@ -523,7 +524,7 @@ struct FolderInfoCard: View {
         .fixedSize(horizontal: true, vertical: false)
         .editMDHelp(statsLoading
                     ? "Подсчитывается…"
-                    : "Во всём дереве: \(treeStats?.markdownCount ?? 0) .md, \(treeStats?.subfolderCount ?? 0) подпапок")
+                    : "Во всём дереве: \(treeStats?.markdownCount ?? 0) файлов, \(treeStats?.subfolderCount ?? 0) подпапок")
     }
 
     private func compactStat(systemImage: String, value: String) -> some View {

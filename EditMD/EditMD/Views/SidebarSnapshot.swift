@@ -14,7 +14,7 @@ import Foundation
 /// listed end up here, so the file stays proportional to what was on screen,
 /// not to the whole vault.
 struct SidebarSnapshotEntry: Codable, Equatable, Sendable {
-    /// Direct md/pdf/textbundle children.
+    /// Direct Markdown/PDF/image children.
     var files: [String] = []
     /// Direct subfolders whose subtree holds at least one document.
     var mdFolders: [String] = []

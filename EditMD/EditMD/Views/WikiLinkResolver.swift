@@ -16,12 +16,14 @@ actor WikiLinkResolver {
     private var built = false
     private var roots: [URL] = []
 
-    /// Markdown documents + PDF — everything a `[[target]]` may point at.
-    private static let indexedExtensions: Set<String> = ["md", "markdown", "textbundle", "pdf"]
+    /// Every file EditMD can display directly may be a `[[target]]`.
+    private static let indexedExtensions: Set<String> =
+        Set(["md", "markdown", "textbundle", "pdf"]).union(supportedImageFileExtensions)
 
     /// Extensions the user may type explicitly in a target (`[[doc.pdf]]`).
     /// An explicit extension filters matches to that file type.
-    private static let explicitExtensions = ["md", "pdf"]
+    private static let explicitExtensions = ["md", "markdown", "textbundle", "pdf"]
+        + supportedImageFileExtensions.sorted()
 
     init() {}
 
@@ -41,10 +43,9 @@ actor WikiLinkResolver {
         index = [:]
     }
 
-    /// File URLs whose basename matches `target`, notes before PDFs, then by
-    /// path for stable ordering. A `folder/Note` target resolves by its last
-    /// path component; an explicit `.md` / `.pdf` the user typed narrows the
-    /// matches to that file type.
+    /// File URLs whose basename matches `target`, notes before read-only media,
+    /// then by path for stable ordering. A `folder/Note` target resolves by its
+    /// last path component; an explicit extension narrows matches to that type.
     func resolve(_ target: String) -> [URL] {
         buildIfNeeded()
         let (key, ext) = Self.normalizeTarget(target)
@@ -72,15 +73,22 @@ actor WikiLinkResolver {
         }
         for key in newIndex.keys {
             newIndex[key]?.sort {
-                // A bare [[Name]] shared by note.md and note.pdf opens the note.
-                let aPDF = $0.pathExtension.lowercased() == "pdf"
-                let bPDF = $1.pathExtension.lowercased() == "pdf"
-                if aPDF != bPDF { return bPDF }
+                // A bare [[Name]] shared by a note and media opens the editable note.
+                let aRank = Self.targetRank($0)
+                let bRank = Self.targetRank($1)
+                if aRank != bRank { return aRank < bRank }
                 return $0.path < $1.path
             }
         }
         index = newIndex
         built = true
+    }
+
+    private static func targetRank(_ url: URL) -> Int {
+        let ext = url.pathExtension.lowercased()
+        if ["md", "markdown", "textbundle"].contains(ext) { return 0 }
+        if ext == "pdf" { return 1 }
+        return 2
     }
 
     private static func normalizeTarget(_ target: String) -> (key: String, ext: String?) {
@@ -150,7 +158,7 @@ func openMarkdownLink(destination: String, from currentURL: URL?) {
     guard let resolved = resolveLocalLinkDestination(trimmed, fileDir: fileDir, vaultRoot: root)
     else { NSSound.beep(); return }
     let ext = resolved.pathExtension.lowercased()
-    if ["md", "markdown", "textbundle", "pdf"].contains(ext) {
+    if ["md", "markdown", "textbundle", "pdf"].contains(ext) || isImageFile(resolved) {
         AppState.shared.openInMainWindow(resolved)
     } else {
         NSWorkspace.shared.open(resolved)

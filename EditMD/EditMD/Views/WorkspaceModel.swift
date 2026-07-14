@@ -143,9 +143,10 @@ final class WorkspaceModel: ObservableObject {
 
     // MARK: - Folder scan
 
-    /// Everything the sidebar lists and the app opens in place: markdown
-    /// documents + PDF (read-only PDFKit viewer, wiki-link target).
-    nonisolated private static let listedExtensions: Set<String> = ["md", "markdown", "textbundle", "pdf"]
+    /// Everything the sidebar lists and the app opens in place: Markdown,
+    /// read-only PDF, and common image formats.
+    nonisolated private static let listedExtensions: Set<String> =
+        Set(["md", "markdown", "textbundle", "pdf"]).union(supportedImageFileExtensions)
 
     /// path → (epoch, direct md children). Views read listings through this
     /// cache: a single blocked `contentsOfDirectory` (TCC arbitration, dead

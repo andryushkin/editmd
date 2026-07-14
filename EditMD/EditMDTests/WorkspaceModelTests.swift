@@ -50,6 +50,16 @@ final class WorkspaceModelTests: XCTestCase {
                        ["a.md", "b.md", "paper.pdf", "sub.textbundle"])
     }
 
+    func testScanListsSupportedImagesAlongsideMarkdown() throws {
+        try Data().write(to: dir.appendingPathComponent("cover.SVG"))
+        try Data().write(to: dir.appendingPathComponent("photo.jpg"))
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        model.primeFolderListing(dir)
+        XCTAssertEqual(names(model.visibleFiles(model.workspaces[0])),
+                       ["a.md", "b.md", "cover.SVG", "photo.jpg", "sub.textbundle"])
+    }
+
     func testHideUnhide() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)

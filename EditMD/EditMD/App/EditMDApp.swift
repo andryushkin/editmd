@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 @main
 struct EditMDApp: App {
@@ -32,6 +33,7 @@ struct EditMDApp: App {
     @MainActor private func openFilePanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.markdown, .textBundle, .pdf]
+            + supportedImageContentTypes()
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             AppState.shared.openInMainWindow(url.standardizedFileURL)
@@ -409,6 +411,8 @@ private struct LiteWindowContent: View {
         Group {
             if let url, isPDFFile(url) {
                 PDFViewerHost(fileURL: url, allowsSidebar: false)
+            } else if let url, isImageFile(url) {
+                ImageViewerHost(fileURL: url, allowsSidebar: false)
             } else {
                 FileEditor(url: url, allowsSidebar: false, isMain: false)
             }

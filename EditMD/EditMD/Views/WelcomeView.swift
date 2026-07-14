@@ -416,7 +416,8 @@ struct WelcomeCard: View {
 
     private func openFilePanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.markdown, .textBundle]
+        panel.allowedContentTypes = [.markdown, .textBundle, .pdf]
+            + supportedImageContentTypes()
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             AppState.shared.openInMainWindow(url.standardizedFileURL)
@@ -468,7 +469,7 @@ private enum WelcomeRecentItem: Identifiable {
     var systemImage: String {
         switch self {
         case .workspace, .folder: return "folder.fill"
-        case .file: return "doc.text"
+        case .file(let url): return sidebarFileIcon(for: url)
         }
     }
 
