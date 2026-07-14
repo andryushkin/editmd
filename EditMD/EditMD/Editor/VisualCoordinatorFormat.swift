@@ -445,7 +445,8 @@ extension VisualMarkdownView.Coordinator {
             } else {
                 let depth: Int
                 switch target.kind {
-                case .bulletItem(let d), .orderedItem(let d, _), .taskItem(let d, _):
+                case .bulletItem(let d), .orderedItem(let d, _), .taskItem(let d, _),
+                     .builtInPluginTaskItem(let d, _):
                     depth = d
                 default:
                     depth = 0
@@ -611,6 +612,36 @@ extension VisualMarkdownView.Coordinator {
         guard case .taskItem(let depth, let done) = target.kind else { return }
         target.kind = .taskItem(depth: depth, done: !done)
         restamp(paragraph, to: target, in: textView)
+    }
+
+    func toggleBuiltInPluginTask(at paragraph: NSRange) {
+        guard let textView, let storage = textView.textStorage else { return }
+        var target = block(at: paragraph, in: storage)
+        guard case .builtInPluginTaskItem(let depth, let token) = target.kind else { return }
+        target.kind = .builtInPluginTaskItem(depth: depth, token: token.next)
+        restamp(paragraph, to: target, in: textView)
+    }
+
+    func cycleBuiltInPluginInlineToken(in range: NSRange) {
+        guard let textView, let storage = textView.textStorage,
+              range.length > 0, NSMaxRange(range) <= storage.length,
+              let payload = storage.attribute(.mdBuiltInPluginToken,
+                                              at: range.location,
+                                              effectiveRange: nil)
+                as? BuiltInPluginTokenPayload else { return }
+        let attrs = storage.attributes(at: range.location, effectiveRange: nil)
+        let font = attrs[.font] as? NSFont
+            ?? visualStyle.font(for: [], blockKind: .paragraph)
+        let color = attrs[.foregroundColor] as? NSColor
+            ?? textView.theme.textColor
+        let replacement = builtInPluginTokenAttributedString(
+            payload.next, font: font, textColor: color, attributes: attrs)
+        guard textView.shouldChangeText(in: range, replacementString: nil) else { return }
+        isMutating = true
+        storage.replaceCharacters(in: range, with: replacement)
+        isMutating = false
+        textView.didChangeText()
+        afterMutation()
     }
 
     /// Cmd+click on a wiki-link: resolve its target against the workspace

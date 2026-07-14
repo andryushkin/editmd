@@ -26,7 +26,8 @@ func handleVisualSpecialPaste(pasteMarkdown: () -> Bool,
 func autoformatKind(for text: String, currentKind: MDBlock.Kind) -> (kind: MDBlock.Kind, consumed: Int)? {
     let depth: Int
     switch currentKind {
-    case .bulletItem(let d), .orderedItem(let d, _), .taskItem(let d, _):
+    case .bulletItem(let d), .orderedItem(let d, _), .taskItem(let d, _),
+         .builtInPluginTaskItem(let d, _):
         depth = d
     case .paragraph:
         depth = 0
@@ -71,6 +72,11 @@ func continuationKind(after kind: MDBlock.Kind) -> MDBlock.Kind? {
         return .orderedItem(depth: depth, number: number + 1)
     case .taskItem(let depth, _):
         return .taskItem(depth: depth, done: false)
+    case .builtInPluginTaskItem(let depth, let token):
+        return .builtInPluginTaskItem(
+            depth: depth,
+            token: BuiltInPluginTokenPayload(pluginID: token.pluginID, states: token.states,
+                                             stateIndex: 0))
     case .listContinuation(let indent):
         return .listContinuation(indent: indent)
     case .codeBlock:
@@ -107,6 +113,8 @@ func indentedKind(_ kind: MDBlock.Kind, by delta: Int) -> MDBlock.Kind? {
         return clamp(d).map { .orderedItem(depth: $0, number: n) }
     case .taskItem(let d, let done):
         return clamp(d).map { .taskItem(depth: $0, done: done) }
+    case .builtInPluginTaskItem(let d, let token):
+        return clamp(d).map { .builtInPluginTaskItem(depth: $0, token: token) }
     default:
         return nil
     }
@@ -1139,7 +1147,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                 switch current.kind {
                 case .heading:
                     newBlockKind = atEnd ? MDBlock.Kind.paragraph : nil
-                case .bulletItem, .orderedItem, .taskItem:
+                case .bulletItem, .orderedItem, .taskItem, .builtInPluginTaskItem:
                     newBlockKind = continuation
                 default:
                     newBlockKind = nil
@@ -1227,7 +1235,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                     moveCursor(toCell: previous, group: current.group)
                 }
                 return true
-            case .bulletItem, .orderedItem, .taskItem:
+            case .bulletItem, .orderedItem, .taskItem, .builtInPluginTaskItem:
                 // Backspace at item start: outdent, then flatten to paragraph.
                 if let outdented = indentedKind(current.kind, by: -1) {
                     var newBlock = current

@@ -937,3 +937,21 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **`\$` в Visual теряет эскейп при сериализации**: cmark разэскейпит `\$`→`$` в plain-тексте, а `escapeInline` `$` не эскейпит (иначе валютные `$20` в любом документе получали бы diff-шум) — literal `$x$` после Visual-редактирования может стать формулой. Корнер, признан.
 - **Многострочный `$$` в blockquote не поддержан** (сканер отказывает — маска съела бы `>`); однострочные формы работают везде, включая таблицы и заголовки.
 - **Сентинел-учёт полагается на документ-порядок** Text-узлов; документ, сам содержащий U+E000, may съесть спан (guard: молча ничего не эмитим, не падаем).
+
+## Встроенные плагины и multi-checkbox (после **0.40.2**)
+
+- **Граница архитектуры:** плагины только встроенные и скомпилированные на Swift. `BuiltInMarkdownPlugin` + `BuiltInPluginRegistry` дают метаданные, document-scoped activation и semantic tokens; загрузки JavaScript, внешних bundle, marketplace и стороннего executable code нет. Это сознательно сохраняет hardened-runtime модель и не вводит отдельный permissions/sandbox/XPC слой.
+- **Frontmatter activation:** `editmd.plugins.multi-checkbox.states` — упорядоченный список состояний (`marker`, optional `label`, `icon`, `strikethrough`). `sf:<name>` использует SF Symbols, `emoji:<text>` — emoji. Минимум два уникальных marker; порядок определяет цикл с wrap последнего в первый.
+- **Checkbox ownership:** валидная конфигурация забирает checkbox-семантику всего файла. Описанные `[marker]` становятся multi-checkbox; неописанные core `[ ]`/`[x]`/`[X]` маскируются как literal text, а не остаются вторым двухсостоянийным механизмом. Без frontmatter стандартный GFM task list не меняется.
+- **Общий range contract:** `BuiltInPluginSnapshot` хранит UTF-16 ranges оригинального markdown. Для cmark parse копия length-preserving: list token нормализуется в `[ ]`, inline token маскируется U+E001; delayed Preview click перед заменой повторно сверяет offset/source. Frontmatter, code, link/image, wiki и math ranges защищены.
+- **Три режима:** Source получает plugin spans и не выдаёт core checkbox lint; Visual хранит inline payload в `.mdBuiltInPluginToken`, list payload в `.builtInPluginTaskItem`, сериализует исходный `[marker]` и циклически меняет marker/list/table с undo; Preview рендерит доступную кнопку, SF Symbol как локальный PNG data URI и отправляет source offset через отдельный WebKit handler. Strike-state зачёркивает list item.
+- **Таблицы:** native cells рендерят inline widget; virtualized large-table path использует тот же renderer/cache, а status-only cell циклически обновляется через существующий `updateTableIslandCell`, что покрывает `PMID_DOWNLOAD_LIST.md` без перевода большой таблицы в NSTextTable.
+- **UI/docs:** Settings ▸ Plugins — read-only inventory встроенных плагинов; подробный developer/user контракт и пример frontmatter находятся в `docs/plugins.md`.
+- **Тесты:** `BuiltInPluginsTests` — 12 кейсов: schema/order/icons/strike (включая все markers из `PMID_DOWNLOAD_LIST.md`), invalid config, protected syntax, list/prose/table scan, UTF-16 mask, cycle+wrap и очистка старого attachment/strike, Source/lint, Visual round-trip, Preview HTML/bridge и отключение обычных checkbox при activation.
+
+### Plugin gotchas
+
+- Plugin snapshot строится до удаления frontmatter, но маска Preview получает `sourceOffset=baseOffset`; иначе ranges после properties card смещаются.
+- U+E001 может быть разбит cmark по Text nodes, поэтому Preview потребляет sentinel runs в document order, как math U+E000, а не полагается только на локальный DOM offset.
+- При цикле SF Symbol → emoji нужно удалить старый `.attachment` из унаследованных attributes; иначе новый текст продолжает рисовать прежнюю картинку.
+- `EditMD/project.yml` до этого отставал от уже сгенерированного `0.40.2 (402)` в dirty worktree; источник истины синхронизирован с существовавшей версией перед xcodegen, без нового version bump.

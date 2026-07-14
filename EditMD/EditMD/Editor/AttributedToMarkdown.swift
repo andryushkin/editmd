@@ -162,6 +162,8 @@ private func kindPrefix(_ kind: MDBlock.Kind) -> String {
         return String(repeating: " ", count: depth * 4) + "\(number). "
     case .taskItem(let depth, let done):
         return String(repeating: " ", count: depth * 4) + (done ? "- [x] " : "- [ ] ")
+    case .builtInPluginTaskItem(let depth, let token):
+        return String(repeating: " ", count: depth * 4) + "- \(token.state.source) "
     case .listContinuation(let indent):
         return String(repeating: " ", count: indent)
     }
@@ -169,7 +171,7 @@ private func kindPrefix(_ kind: MDBlock.Kind) -> String {
 
 private func isListItem(_ kind: MDBlock.Kind) -> Bool {
     switch kind {
-    case .bulletItem, .orderedItem, .taskItem:
+    case .bulletItem, .orderedItem, .taskItem, .builtInPluginTaskItem:
         return true
     default:
         return false
@@ -178,7 +180,7 @@ private func isListItem(_ kind: MDBlock.Kind) -> Bool {
 
 private func bulletFamily(_ kind: MDBlock.Kind) -> Bool {
     switch kind {
-    case .bulletItem, .taskItem:
+    case .bulletItem, .taskItem, .builtInPluginTaskItem:
         return true
     default:
         return false
@@ -212,7 +214,8 @@ private func separator(_ a: MDBlock, _ b: MDBlock) -> String {
 private func escapeLeading(_ text: String, kind: MDBlock.Kind) -> String {
     switch kind {
     // Item text starting with "-", "1." etc. would nest a new block on reparse.
-    case .paragraph, .listContinuation, .bulletItem, .orderedItem, .taskItem:
+    case .paragraph, .listContinuation, .bulletItem, .orderedItem, .taskItem,
+         .builtInPluginTaskItem:
         break
     default:
         return text
@@ -261,6 +264,7 @@ private struct InlineRun {
     var link: String?
     var image: [String: String]?
     var wikiLink: MDWikiLinkPayload?
+    var builtInPluginToken: BuiltInPluginTokenPayload?
     /// Math run (`.mdMath`): the text is verbatim source incl. `$` delimiters.
     var isMath: Bool = false
     /// Rendered-formula attachment (`.mdMathTex`): the display text is a
@@ -281,6 +285,7 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             link: attrs[.mdLink] as? String,
             image: attrs[.mdImage] as? [String: String],
             wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload,
+            builtInPluginToken: attrs[.mdBuiltInPluginToken] as? BuiltInPluginTokenPayload,
             isMath: attrs[.mdMath] != nil,
             mathTex: attrs[.mdMathTex] as? String))
     }
@@ -332,7 +337,9 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             openMarker(marker, into: &result, stack: &stack)
         }
 
-        if let wiki = run.wikiLink {
+        if let token = run.builtInPluginToken {
+            result += token.state.source
+        } else if let wiki = run.wikiLink {
             // Round-trip source of truth: re-emit the verbatim inner text, never
             // reconstruct from parsed fields. After marker management so bold/
             // italic around a wiki-link keep their wrappers.

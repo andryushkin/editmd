@@ -33,6 +33,7 @@
 - [x] Таблицы: виртуальный `.kern` (пайпы в столбик, файл не меняется)
 - [x] Длинная ячейка > cap: рваная строка, остальные колонки держат ширину
 - [x] Heavy-документ: plain mono, без подсветки/линта (антифриз)
+- [x] Built-in multi-checkbox: все описанные frontmatter-статусы подсвечиваются; core checkbox-lint для активного файла отключён
 
 ### Линт
 
@@ -99,6 +100,7 @@
 - [x] Автоформат `- ` / `1. ` / `[] ` / `## `; fence+Enter → code block
 - [x] ⌘B / ⌘I; ⌘⇧L чеклист; ⌘K ссылка
 - [x] Клик по чекбоксу + undo
+- [x] Built-in multi-checkbox: SF Symbol/emoji, цикл кликом + undo, list/prose/table; strike-state зачёркивает list item
 - [x] Паста = plain text
 
 ### Синхронизация
@@ -125,6 +127,7 @@
 ### Интерактив
 
 - [x] Чекбоксы кликабельные → пишут в source
+- [x] Built-in multi-checkbox кликабельный в списках, тексте и таблицах → циклически пишет следующий frontmatter-статус в source
 - [x] Enter → Visual (полный Preview)
 - [x] http(s)-ссылки → браузер, Preview не уезжает
 - [x] Счётчик слов/символов в статус-строке
@@ -142,6 +145,7 @@
 - [x] Appearance: System / Light / Dark, персист
 - [x] Смена темы/overrides без рестарта
 - [x] Settings ⌘,: per-mode font / insets / column / ElementStyles
+- [x] Plugins tab: read-only список встроенных Swift-плагинов и их frontmatter keys
 - [x] Source = mono families; Visual/Preview = proportional
 - [x] `columnWidth` 0 = full, >0 = centered column
 

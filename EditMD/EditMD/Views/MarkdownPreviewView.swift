@@ -157,6 +157,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let userContentController = WKUserContentController()
         userContentController.add(TaskToggleHandler(coordinator: coordinator),
                                   name: "taskToggle")
+        userContentController.add(BuiltInPluginToggleHandler(coordinator: coordinator),
+                                  name: "builtInPluginToggle")
         userContentController.add(WikiLinkClickHandler(coordinator: coordinator),
                                   name: "wikiLinkClick")
         userContentController.add(LocalLinkClickHandler(coordinator: coordinator),
@@ -711,6 +713,17 @@ struct MarkdownPreviewView: NSViewRepresentable {
             document.applyUndoableContent(toggled, actionName: "Toggle Task")
         }
 
+        /// A compiled-in plugin token was clicked. Source offsets make the
+        /// operation deterministic across list, prose and table renderers.
+        func toggleBuiltInPlugin(at offset: Int) {
+            guard let document,
+                  let toggled = BuiltInPluginRegistry.cycleToken(
+                      in: document.content, at: offset)
+            else { return }
+            document.commitContentEdit()
+            document.applyUndoableContent(toggled, actionName: "Cycle Status")
+        }
+
         /// A wiki-link was clicked in the page: resolve its target and open the
         /// file (relative to this document's folder).
         func openWikiLink(target: String) {
@@ -1074,6 +1087,23 @@ private final class TaskToggleHandler: NSObject, WKScriptMessageHandler {
                                didReceive message: WKScriptMessage) {
         guard let index = message.body as? Int else { return }
         coordinator?.toggleTask(at: index)
+    }
+}
+
+/// Bridges clicks from compiled-in plugin widgets. The payload is an original
+/// markdown UTF-16 offset, verified again before the source is changed.
+@MainActor
+private final class BuiltInPluginToggleHandler: NSObject, WKScriptMessageHandler {
+    weak var coordinator: MarkdownPreviewView.Coordinator?
+
+    init(coordinator: MarkdownPreviewView.Coordinator) {
+        self.coordinator = coordinator
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard let offset = message.body as? Int else { return }
+        coordinator?.toggleBuiltInPlugin(at: offset)
     }
 }
 

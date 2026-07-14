@@ -1067,6 +1067,14 @@ struct SourceTextView: NSViewRepresentable {
                                          range: span.range)
                 case .mathMarker:
                     storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
+                case .builtInPluginToken(let payload):
+                    storage.addAttribute(.foregroundColor, value: theme.accentColor,
+                                         range: span.range)
+                    if payload.state.strikethrough {
+                        storage.addAttribute(.strikethroughStyle,
+                                             value: NSUnderlineStyle.single.rawValue,
+                                             range: span.range)
+                    }
                 default:
                     break
                 }
@@ -1259,6 +1267,13 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
                                  range: span.range)
         case .mathMarker:
             storage.addAttribute(.foregroundColor, value: theme.secondaryColor, range: span.range)
+        case .builtInPluginToken(let payload):
+            storage.addAttribute(.foregroundColor, value: theme.accentColor, range: span.range)
+            if payload.state.strikethrough {
+                storage.addAttribute(.strikethroughStyle,
+                                     value: NSUnderlineStyle.single.rawValue,
+                                     range: span.range)
+            }
         default:
             break
         }

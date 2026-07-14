@@ -24,11 +24,42 @@ struct SettingsView: View {
             ModeTab(settings: settings, mode: \.preview, monospaced: false,
                     resetAction: settings.resetPreview, extra: .lineHeight)
                 .tabItem { Label("Preview", systemImage: "eye") }
+            BuiltInPluginsTab()
+                .tabItem { Label("Plugins", systemImage: "puzzlepiece.extension") }
         }
         .frame(width: 720, height: 720)
         // The Settings window is its own scene — follow the appearance
         // override too, or it stays on the system theme while editing it.
         .preferredColorScheme(settings.general.appearance.colorScheme)
+    }
+}
+
+// MARK: - Built-in plugins
+
+private struct BuiltInPluginsTab: View {
+    var body: some View {
+        Form {
+            Section("Plugin model") {
+                Label("Developer-built Swift plugins only", systemImage: "checkmark.shield")
+                Text("Plugins are compiled into EditMD. Documents cannot load JavaScript, executable bundles, or downloaded code. A plugin becomes active only when its key is present in that document's frontmatter.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Available") {
+                ForEach(BuiltInPluginRegistry.descriptors) { plugin in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label(plugin.name, systemImage: "puzzlepiece.extension.fill")
+                            .font(.headline)
+                        Text(plugin.summary)
+                        Text(plugin.frontmatterKey)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -497,4 +528,3 @@ private func doubleBinding(_ binding: Binding<CGFloat>) -> Binding<Double> {
 private func doubleRange(_ range: ClosedRange<CGFloat>) -> ClosedRange<Double> {
     Double(range.lowerBound)...Double(range.upperBound)
 }
-

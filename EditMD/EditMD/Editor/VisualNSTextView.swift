@@ -74,6 +74,11 @@ final class VisualNSTextView: NSTextView {
     var bulletEntries: [(range: NSRange, depth: Int)] = []
     var numberEntries: [(range: NSRange, depth: Int, number: Int)] = []
     var taskEntries: [(range: NSRange, depth: Int, done: Bool)] = []
+    var builtInPluginTaskEntries: [(range: NSRange, depth: Int,
+                                    token: BuiltInPluginTokenPayload)] = []
+    var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty {
+        didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
+    }
     var quoteEntries: [(range: NSRange, depth: Int)] = []
     var codePanelRanges: [NSRange] = []
     var ruleRanges: [NSRange] = []
@@ -160,6 +165,18 @@ final class VisualNSTextView: NSTextView {
             focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
         } else {
             focusedIslandCell = nil
+        }
+        if let paragraph = builtInPluginTaskParagraph(at: point) {
+            visualCoordinator?.toggleBuiltInPluginTask(at: paragraph)
+            return
+        }
+        if let token = builtInPluginInlineToken(at: point) {
+            visualCoordinator?.cycleBuiltInPluginInlineToken(in: token.range)
+            return
+        }
+        if event.clickCount == 1, let hit = tableCellHit(at: point),
+           cycleBuiltInPluginIslandCell(hit) {
+            return
         }
         if let paragraph = taskParagraph(at: point) {
             visualCoordinator?.toggleTaskDone(at: paragraph)
@@ -266,6 +283,58 @@ final class VisualNSTextView: NSTextView {
             }
         }
         return nil
+    }
+
+    private func builtInPluginTaskParagraph(at point: NSPoint) -> NSRange? {
+        for entry in builtInPluginTaskEntries {
+            if let rect = markerRect(forParagraph: entry.range),
+               rect.insetBy(dx: -3, dy: -3).contains(point) {
+                return entry.range
+            }
+        }
+        return nil
+    }
+
+    private func builtInPluginInlineToken(at point: NSPoint)
+        -> (range: NSRange, payload: BuiltInPluginTokenPayload)? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                             fractionOfDistanceThroughGlyph: &fraction)
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        guard index < storage.length else { return nil }
+        var range = NSRange(location: 0, length: 0)
+        guard let payload = storage.attribute(.mdBuiltInPluginToken, at: index,
+                                              longestEffectiveRange: &range,
+                                              in: NSRange(location: 0,
+                                                          length: storage.length))
+                as? BuiltInPluginTokenPayload else { return nil }
+        return (range, payload)
+    }
+
+    private func cycleBuiltInPluginIslandCell(
+        _ hit: (entry: TableIslandEntry, row: Int, column: Int, rect: NSRect)) -> Bool {
+        let value: String
+        if hit.row == 0 {
+            guard hit.column < hit.entry.grid.headers.count else { return false }
+            value = hit.entry.grid.headers[hit.column]
+        } else {
+            let row = hit.row - 1
+            guard row < hit.entry.grid.rows.count,
+                  hit.column < hit.entry.grid.rows[row].count else { return false }
+            value = hit.entry.grid.rows[row][hit.column]
+        }
+        let leading = value.prefix { $0.isWhitespace }
+        let trailing = value.reversed().prefix { $0.isWhitespace }.reversed()
+        let core = value.trimmingCharacters(in: .whitespaces)
+        guard let payload = builtInPluginSnapshot.payload(matchingSource: core) else { return false }
+        let replacement = String(leading) + payload.next.state.source + String(trailing)
+        return visualCoordinator?.updateTableIslandCell(
+            paragraphLocation: hit.entry.range.location,
+            row: hit.row, column: hit.column, value: replacement) == true
     }
 
     private func tableCellHit(at point: NSPoint) -> (entry: TableIslandEntry, row: Int, column: Int, rect: NSRect)? {
@@ -949,6 +1018,13 @@ final class VisualNSTextView: NSTextView {
             }
         }
 
+
+        // Built-in plugin list markers.
+        for (range, _, token) in builtInPluginTaskEntries {
+            guard let box = markerRect(forParagraph: range) else { continue }
+            drawBuiltInPluginIcon(token.state.icon, label: token.state.label, in: box)
+        }
+
         // Thematic breaks
         for range in ruleRanges {
             guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
@@ -987,6 +1063,29 @@ final class VisualNSTextView: NSTextView {
                 : (drag.rowFrames.last?.maxY ?? first.maxY)
             theme.accentColor.setFill()
             NSRect(x: minX, y: y - 1, width: maxX - minX, height: 2).fill()
+        }
+    }
+
+
+    private func drawBuiltInPluginIcon(_ icon: BuiltInPluginIcon, label: String,
+                                       in box: NSRect) {
+        switch icon {
+        case .sfSymbol(let name):
+            guard let image = NSImage(systemSymbolName: name,
+                                      accessibilityDescription: label) else { return }
+            let config = NSImage.SymbolConfiguration(pointSize: box.height, weight: .regular)
+                .applying(.init(paletteColors: [theme.accentColor]))
+            let rendered = image.withSymbolConfiguration(config) ?? image
+            rendered.draw(in: box, from: .zero, operation: .sourceOver, fraction: 1,
+                          respectFlipped: true, hints: nil)
+        case .emoji(let value), .text(let value):
+            let string = NSAttributedString(string: value, attributes: [
+                .font: NSFont.systemFont(ofSize: box.height),
+                .foregroundColor: theme.accentColor,
+            ])
+            let size = string.size()
+            string.draw(at: NSPoint(x: box.midX - size.width / 2,
+                                    y: box.midY - size.height / 2))
         }
     }
 
@@ -1104,7 +1203,8 @@ final class VisualNSTextView: NSTextView {
                                                  textColor: textColor,
                                                  linkColor: linkColor,
                                                  codeColor: codeColor,
-                                                 boldColor: boldColor)
+                                                 boldColor: boldColor,
+                                                 pluginSnapshot: builtInPluginSnapshot)
         tableCellAttrCache[key] = rendered
         let copy = NSMutableAttributedString(attributedString: rendered)
         if copy.length > 0 {

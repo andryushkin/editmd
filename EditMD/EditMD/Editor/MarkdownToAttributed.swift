@@ -38,6 +38,7 @@ struct MDBlock: Equatable, Hashable {
         case bulletItem(depth: Int)
         case orderedItem(depth: Int, number: Int)
         case taskItem(depth: Int, done: Bool)
+        case builtInPluginTaskItem(depth: Int, token: BuiltInPluginTokenPayload)
         /// Extra paragraph of a multi-paragraph list item; indent = content column.
         case listContinuation(indent: Int)
         case thematicBreak
@@ -66,12 +67,14 @@ struct MDBlock: Equatable, Hashable {
                 hasher.combine(4); hasher.combine(depth); hasher.combine(number)
             case .taskItem(let depth, let done):
                 hasher.combine(5); hasher.combine(depth); hasher.combine(done)
-            case .listContinuation(let indent): hasher.combine(6); hasher.combine(indent)
-            case .thematicBreak: hasher.combine(7)
+            case .builtInPluginTaskItem(let depth, let token):
+                hasher.combine(6); hasher.combine(depth); hasher.combine(token)
+            case .listContinuation(let indent): hasher.combine(7); hasher.combine(indent)
+            case .thematicBreak: hasher.combine(8)
             case .tableCell(let row, let column, let columns, let alignment):
-                hasher.combine(8); hasher.combine(row); hasher.combine(column)
+                hasher.combine(9); hasher.combine(row); hasher.combine(column)
                 hasher.combine(columns); hasher.combine(alignment)
-            case .raw: hasher.combine(9)   // payload-free: docs have very few islands
+            case .raw: hasher.combine(10)   // payload-free: docs have very few islands
             }
         }
     }
@@ -91,6 +94,7 @@ extension NSAttributedString.Key {
     static let mdLink   = NSAttributedString.Key("md.link")    // String destination
     static let mdImage  = NSAttributedString.Key("md.image")   // [String: String] src/alt/title
     static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
+    static let mdBuiltInPluginToken = NSAttributedString.Key("md.builtInPluginToken")
     /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. The run text
     /// is the VERBATIM source including delimiters; the serializer re-emits it
     /// without markdown escaping (cheap NSNumber value — v29 hash invariant).
@@ -190,6 +194,7 @@ private final class VisualRenderer {
     /// `=` line inside `$$…$$` would otherwise make the block a setext H1 and
     /// escape processing would eat `\\`/`\,`.
     private let mathSpans: [MDMathSpan]
+    private let pluginSnapshot: BuiltInPluginSnapshot
     private let parseSource: String
     /// Spans that cover whole lines (multiline `$$` blocks) — rendered as one
     /// verbatim block run; per-span "already emitted" bookkeeping.
@@ -205,10 +210,13 @@ private final class VisualRenderer {
         self.nsSource = ns
         let math = scanMathSpans(in: source)
         self.mathSpans = math
+        let plugins = BuiltInPluginRegistry.snapshot(for: source)
+        self.pluginSnapshot = plugins
         self.multilineMath = math.map {
             $0.display && ns.range(of: "\n", options: [], range: $0.range).location != NSNotFound
         }
-        let (masked, _) = maskMathSpansForParsing(source, spans: math)
+        let (mathMasked, _) = maskMathSpansForParsing(source, spans: math)
+        let masked = maskBuiltInPluginTokensForParsing(mathMasked, snapshot: plugins)
         self.parseSource = masked
         // Masked and original have identical UTF-16 layout; the index must be
         // built from what cmark parses (its columns are UTF-8 bytes of that).
@@ -442,7 +450,7 @@ private final class VisualRenderer {
     /// item carry the raw space indent instead.
     private func listIndentForNonItem(_ kind: MDBlock.Kind) -> Bool {
         switch kind {
-        case .bulletItem, .orderedItem, .taskItem, .listContinuation:
+        case .bulletItem, .orderedItem, .taskItem, .builtInPluginTaskItem, .listContinuation:
             return false
         default:
             return true
@@ -470,7 +478,11 @@ private final class VisualRenderer {
             let kind: MDBlock.Kind
             let markerLen: Int
             if let checkbox = item.checkbox {
-                kind = .taskItem(depth: depth, done: checkbox == .checked)
+                if let token = pluginListToken(for: item) {
+                    kind = .builtInPluginTaskItem(depth: depth, token: token.payload)
+                } else {
+                    kind = .taskItem(depth: depth, done: checkbox == .checked)
+                }
                 markerLen = 6  // "- [x] "
             } else if ordered {
                 let number = start + index
@@ -519,6 +531,16 @@ private final class VisualRenderer {
             if !emittedHead {
                 appendParagraph(makeBlock(kind, ctx, group: group)) { _ in }
             }
+        }
+    }
+
+    private func pluginListToken(for item: ListItem) -> BuiltInPluginToken? {
+        guard let sourceRange = item.range else { return nil }
+        let start = lineIdx.offset(sourceRange.lowerBound.line, sourceRange.lowerBound.column)
+        let end = lineIdx.offset(sourceRange.upperBound.line, sourceRange.upperBound.column)
+        return pluginSnapshot.tokens.first {
+            $0.isListMarker && $0.payload.isInteractive
+                && $0.range.location >= start && NSMaxRange($0.range) <= end
         }
     }
 
@@ -658,13 +680,19 @@ private final class VisualRenderer {
         }
         let source = nsSource.substring(with: NSRange(location: loc, length: end - loc))
         let wikiMatches = scanWikiLinks(in: source)
+        let pluginMatches = pluginSnapshot.inlineTokens(
+            in: NSRange(location: loc, length: end - loc))
+            .map { token in
+                (range: NSRange(location: token.range.location - loc,
+                                length: token.range.length), token: token)
+            }
         // Math on the same source slice: `$…$` (and same-line `$$…$$`) become
         // VERBATIM runs carrying `.mdMath` — delimiters stay visible, and the
         // serializer re-emits the text unescaped, so `$\frac{a}{b}$` survives
         // the Visual round-trip. Multiline `$$` blocks span several Text
         // nodes and stay plain text here (Preview still renders them).
         let mathMatches = scanMathSpans(in: source)
-        guard !wikiMatches.isEmpty || !mathMatches.isEmpty else {
+        guard !wikiMatches.isEmpty || !mathMatches.isEmpty || !pluginMatches.isEmpty else {
             if text.string.utf16.contains(mathSentinelUnit) {
                 // Sentinels without a local match: the node overlaps a
                 // multiline span the block pass didn't own (lazy-continuation
@@ -683,10 +711,12 @@ private final class VisualRenderer {
         enum SourcePiece {
             case wiki(WikiLinkMatch)
             case math(MDMathSpan)
+            case plugin(BuiltInPluginToken)
         }
         var pieces: [(range: NSRange, piece: SourcePiece)] =
             wikiMatches.map { ($0.range, .wiki($0)) }
             + mathMatches.map { ($0.range, .math($0)) }
+            + pluginMatches.map { ($0.range, .plugin($0.token)) }
         pieces.sort { $0.range.location < $1.range.location }
         let ns = source as NSString
         var cursor = 0
@@ -709,6 +739,13 @@ private final class VisualRenderer {
                 appendMathRun(verbatim: ns.substring(with: range),
                               tex: ns.substring(with: m.innerRange),
                               display: m.display, attrs: attrs)
+            case .plugin(let token):
+                out.append(builtInPluginTokenAttributedString(
+                    token.payload,
+                    font: attrs[.font] as? NSFont ?? style.font(for: styles,
+                                                               blockKind: block.kind),
+                    textColor: attrs[.foregroundColor] as? NSColor ?? .labelColor,
+                    attributes: attrs))
             }
             cursor = NSMaxRange(range)
         }
@@ -787,7 +824,9 @@ func renderTableCellAttributed(_ markdown: String,
                                linkColor: NSColor,
                                codeColor: NSColor,
                                codeBackground: NSColor = NSColor(white: 0.5, alpha: 0.12),
-                               boldColor: NSColor? = nil) -> NSAttributedString {
+                               boldColor: NSColor? = nil,
+                               pluginSnapshot: BuiltInPluginSnapshot = .empty)
+    -> NSAttributedString {
     let out = NSMutableAttributedString()
     guard !markdown.isEmpty else { return out }
 
@@ -828,22 +867,56 @@ func renderTableCellAttributed(_ markdown: String,
     }
 
     func appendTextWithWikiLinks(_ text: String, styles: MDInlineStyle, isLink: Bool) {
-        let matches = scanWikiLinks(in: text)
-        guard !matches.isEmpty else {
+        let wikiMatches = scanWikiLinks(in: text)
+        let ns = text as NSString
+        var pluginMatches: [(range: NSRange, payload: BuiltInPluginTokenPayload)] = []
+        if !isLink, !styles.contains(.code) {
+            var index = 0
+            while index + 3 <= ns.length {
+                let range = NSRange(location: index, length: 3)
+                let candidate = ns.substring(with: range)
+                if let payload = pluginSnapshot.payload(matchingSource: candidate) {
+                    pluginMatches.append((range, payload))
+                    index += 3
+                } else {
+                    index += 1
+                }
+            }
+        }
+        guard !wikiMatches.isEmpty || !pluginMatches.isEmpty else {
             append(text, styles: styles, isLink: isLink)
             return
         }
-        let ns = text as NSString
+        enum Piece {
+            case wiki(WikiLinkMatch)
+            case plugin(BuiltInPluginTokenPayload)
+        }
+        var pieces: [(range: NSRange, piece: Piece)] = wikiMatches.map { ($0.range, .wiki($0)) }
+            + pluginMatches.map { ($0.range, .plugin($0.payload)) }
+        pieces.sort { $0.range.location < $1.range.location }
         var cursor = 0
-        for m in matches {
-            if m.range.location > cursor {
+        for (range, piece) in pieces where range.location >= cursor {
+            if range.location > cursor {
                 append(ns.substring(with: NSRange(location: cursor,
-                                                  length: m.range.location - cursor)),
+                                                  length: range.location - cursor)),
                        styles: styles, isLink: isLink)
             }
-            // Wiki-links look like links (Visual parity).
-            append(m.payload.displayText, styles: styles, isLink: true)
-            cursor = NSMaxRange(m.range)
+            switch piece {
+            case .wiki(let match):
+                append(match.payload.displayText, styles: styles, isLink: true)
+            case .plugin(let payload):
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .font: font(for: styles),
+                    .foregroundColor: textColor,
+                ]
+                if styles.contains(.strike) {
+                    attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                }
+                out.append(builtInPluginTokenAttributedString(
+                    payload, font: font(for: styles), textColor: textColor,
+                    attributes: attrs))
+            }
+            cursor = NSMaxRange(range)
         }
         if cursor < ns.length {
             append(ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),

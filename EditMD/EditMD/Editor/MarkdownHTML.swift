@@ -111,6 +111,7 @@ func markdownHTMLRender(_ text: String,
                         gutter: PreviewGutterOptions = .off,
                         syntaxHighlighting: Bool = true)
     -> (body: String, hasMath: Bool) {
+    let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: text)
     var source = text
     var prefix = ""
     var baseOffset = 0
@@ -139,7 +140,9 @@ func markdownHTMLRender(_ text: String,
     // escapes, `_`/`*` emphasis). The mask is UTF-16-length-preserving, so
     // every offset from the masked parse is valid in the original document.
     let mathSpans = scanMathSpans(in: source)
-    let (parseSource, sentinelUnits) = maskMathSpansForParsing(source, spans: mathSpans)
+    let (mathMaskedSource, sentinelUnits) = maskMathSpansForParsing(source, spans: mathSpans)
+    let parseSource = maskBuiltInPluginTokensForParsing(
+        mathMaskedSource, snapshot: pluginSnapshot, sourceOffset: baseOffset)
     let sourceNS = source as NSString
     let renderMath = mathSpans.enumerated().map { idx, span in
         HTMLMathSpan(
@@ -162,7 +165,8 @@ func markdownHTMLRender(_ text: String,
                                   lineBase: lineBase,
                                   gutter: gutter,
                                   syntaxHighlighting: syntaxHighlighting,
-                                  mathSpans: renderMath)
+                                  mathSpans: renderMath,
+                                  pluginTokens: pluginSnapshot.tokens)
     visitor.visit(document)
     return (prefix + visitor.result, !mathSpans.isEmpty)
 }
@@ -232,8 +236,12 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// Document-order math spans; Text nodes carry U+E000 sentinel runs that
     /// are consumed against these (first run of a span emits its HTML).
     let mathSpans: [HTMLMathSpan]
+    /// Global UTF-16 ranges. List tokens are normalized to GFM task markers;
+    /// inline tokens are represented by U+E001 runs in Text nodes.
+    let pluginTokens: [BuiltInPluginToken]
     private var mathCursor = 0
     private var pendingMathUnits = 0
+    private var pluginCursor = 0
 
     private var tableColumnAlignments: [Table.ColumnAlignment?]?
     private var currentTableColumn = 0
@@ -246,7 +254,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
          lineBase: Int = 0,
          gutter: PreviewGutterOptions = .off,
          syntaxHighlighting: Bool = true,
-         mathSpans: [HTMLMathSpan] = []) {
+         mathSpans: [HTMLMathSpan] = [],
+         pluginTokens: [BuiltInPluginToken] = []) {
         self.imageResolver = imageResolver
         self.lineIdx = lineIdx
         self.parsedSource = parsedSource
@@ -255,6 +264,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
         self.gutter = gutter
         self.syntaxHighlighting = syntaxHighlighting
         self.mathSpans = mathSpans
+        self.pluginTokens = pluginTokens
     }
 
     /// UTF-16 NSRange in the original markdown for a markup node's SourceRange.
@@ -429,7 +439,13 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        if let checkbox = listItem.checkbox {
+        if let token = pluginListToken(in: listItem) {
+            var classes = ["task", "multi-task"]
+            if token.payload.state.strikethrough { classes.append("multi-task-strike") }
+            openBlock("li", listItem, classes: classes)
+            result += builtInPluginTokenHTML(token.payload,
+                                             sourceOffset: token.range.location) + " "
+        } else if let checkbox = listItem.checkbox {
             openBlock("li", listItem, classes: ["task"])
             result += "<input type=\"checkbox\" disabled"
             if checkbox == .checked { result += " checked" }
@@ -446,6 +462,15 @@ private struct HTMLBodyVisitor: MarkupWalker {
         }
         for child in children { visit(child) }
         result += "</li>\n"
+    }
+
+    private func pluginListToken(in listItem: ListItem) -> BuiltInPluginToken? {
+        guard let range = mdNSRange(for: listItem) else { return nil }
+        return pluginTokens.first {
+            $0.isListMarker && $0.payload.isInteractive
+                && $0.range.location >= range.location
+                && NSMaxRange($0.range) <= NSMaxRange(range)
+        }
     }
 
     // MARK: Tables
@@ -507,7 +532,9 @@ private struct HTMLBodyVisitor: MarkupWalker {
         // Tag runs with source offsets so the Preview toolbar can wrap the
         // real selection (not the first plain-text match in the file).
         let base = mdNSRange(for: text)?.location
-        guard !mathSpans.isEmpty, s.utf16.contains(mathSentinelUnit) else {
+        let hasMath = s.utf16.contains(mathSentinelUnit)
+        let hasPlugin = s.utf16.contains(builtInPluginSentinelUnit)
+        guard hasMath || hasPlugin else {
             result += Self.inlineDecoratedHTML(s, sourceBase: base)
             return
         }
@@ -520,13 +547,35 @@ private struct HTMLBodyVisitor: MarkupWalker {
                 while j < ns.length, ns.character(at: j) == mathSentinelUnit { j += 1 }
                 consumeSentinelRun(j - i)
                 i = j
+            } else if ns.character(at: i) == builtInPluginSentinelUnit {
+                var j = i
+                while j < ns.length,
+                      ns.character(at: j) == builtInPluginSentinelUnit { j += 1 }
+                consumePluginSentinelRun(j - i)
+                i = j
             } else {
                 var j = i
-                while j < ns.length, ns.character(at: j) != mathSentinelUnit { j += 1 }
+                while j < ns.length,
+                      ns.character(at: j) != mathSentinelUnit,
+                      ns.character(at: j) != builtInPluginSentinelUnit { j += 1 }
                 let sub = ns.substring(with: NSRange(location: i, length: j - i))
                 result += Self.inlineDecoratedHTML(sub, sourceBase: base.map { $0 + i })
                 i = j
             }
+        }
+    }
+
+    private mutating func consumePluginSentinelRun(_ count: Int) {
+        let sentinelTokens = pluginTokens.filter {
+            !$0.isListMarker || !$0.payload.isInteractive
+        }
+        var remaining = count
+        while remaining > 0, pluginCursor < sentinelTokens.count {
+            let token = sentinelTokens[pluginCursor]
+            pluginCursor += 1
+            result += builtInPluginTokenHTML(token.payload,
+                                             sourceOffset: token.range.location)
+            remaining -= min(remaining, token.range.length)
         }
     }
 
@@ -817,6 +866,7 @@ func previewHTMLPageRender(markdown: String,
     let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
     let margin = columnWidth > 0 ? "0 auto" : "0"
     let bodyColor = textColorHex ?? "CanvasText"
+    let accentColor = accentColorHex ?? "LinkText"
     // Bottom keeps a comfortable scroll pad when Vertical is small; top is
     // exactly insetV so the strip→title gap matches Source/Visual.
     let padTop = Int(insetV.rounded())
@@ -865,6 +915,7 @@ func previewHTMLPageRender(markdown: String,
         --ln-col: \(lnColPx)px;
         --ln-size: \(lnFontPx)px;
         --ln-gap: \(lineNumberGapPx)px;
+        --accent: \(accentColor);
     }
     * { box-sizing: border-box; }
     /* WebKit's native scroll anchoring races our split-view restoration after
@@ -959,6 +1010,16 @@ func previewHTMLPageRender(markdown: String,
     li > p { margin: 0.2em 0; }
     li.task { list-style: none; margin-left: -1.35em; }
     li.task input { margin-right: 0.4em; vertical-align: -0.1em; }
+    .multi-checkbox {
+        appearance: none; border: 0; background: transparent; color: var(--accent);
+        font: inherit; line-height: 1; padding: 0 0.18em; margin: 0 0.18em 0 0;
+        cursor: pointer; vertical-align: -0.08em;
+    }
+    .multi-checkbox:hover { background: rgba(128,128,128,0.13); border-radius: 4px; }
+    .multi-checkbox:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .multi-checkbox-sf { width: 1em; height: 1em; object-fit: contain; vertical-align: -0.12em; }
+    li.multi-task-strike { text-decoration: line-through; opacity: 0.68; }
+    li.multi-task-strike > .multi-checkbox { text-decoration: none; opacity: 1; }
     hr { border: none; border-top: 2px solid rgba(128,128,128,0.3); margin: 1.6em 0; }
     table { border-collapse: collapse; margin: 1em 0; display: block; overflow-x: auto; }
     th, td { border: 1px solid rgba(128,128,128,0.35); padding: 6px 13px; }
@@ -1167,6 +1228,20 @@ func previewHTMLPageRender(markdown: String,
             box.onchange = function () {
                 var handlers = window.webkit && window.webkit.messageHandlers;
                 if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+            };
+        });
+    }
+    // Built-in plugins use source offsets rather than document-order indexes:
+    // a delayed click is rejected safely if the token moved meanwhile.
+    function hydrateBuiltInPluginTokens() {
+        document.querySelectorAll('button.multi-checkbox').forEach(function (button) {
+            button.onclick = function (event) {
+                event.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                var offset = Number(button.dataset.pluginOffset);
+                if (handlers && handlers.builtInPluginToggle && Number.isFinite(offset)) {
+                    handlers.builtInPluginToggle.postMessage(offset);
+                }
             };
         });
     }
@@ -1491,6 +1566,7 @@ func previewHTMLPageRender(markdown: String,
     // that depends on final geometry belongs in settlePreviewLayout.
     window.editMDHydratePreviewContent = function () {
         hydrateTaskCheckboxes();
+        hydrateBuiltInPluginTokens();
         hydrateWikiLinks();
         hydrateLocalLinks();
         hydratePreviewCopyButtons();

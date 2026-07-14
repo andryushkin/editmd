@@ -119,6 +119,11 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     // MARK: Rule: checkboxes (invalid char / empty / uppercase / missing spaces)
 
+    // A document-scoped multi-checkbox plugin replaces GFM's two-state
+    // grammar for this file, so the core [ ]/[x] style rules must not flag its
+    // developer-defined markers.
+    let multiCheckboxActive = MultiCheckboxPlugin.configuration(in: text) != nil
+
     // list marker, spaces, then a bracket pair holding at most ONE char.
     // Longer bracket content (`- [Link](url)`, `- [^1]`) never matches — the
     // main false-positive guard.
@@ -126,7 +131,7 @@ func lint(_ text: String) -> [LintDiagnostic] {
         pattern: #"^[ \t]*(?:>[ \t]?)*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([^\n\[\]]?)\](.?)"#,
         options: [.anchorsMatchLines])
     checkboxRx.enumerateMatches(in: text, range: NSRange(location: 0, length: nsText.length)) { m, _, _ in
-        guard let m else { return }
+        guard !multiCheckboxActive, let m else { return }
         let contentRange = m.range(at: 1)
         let bracketRange = NSRange(location: contentRange.location - 1,
                                    length: contentRange.length + 2)
@@ -180,7 +185,7 @@ func lint(_ text: String) -> [LintDiagnostic] {
         pattern: #"^[ \t]*(?:>[ \t]?)*([-*+])\[([^\n\[\]]?)\]"#,
         options: [.anchorsMatchLines])
     tightMarkerRx.enumerateMatches(in: text, range: NSRange(location: 0, length: nsText.length)) { m, _, _ in
-        guard let m else { return }
+        guard !multiCheckboxActive, let m else { return }
         let content = nsText.substring(with: m.range(at: 2))
         guard content == "" || content == " " || content == "x" || content == "X" else { return }
         let markerRange = m.range(at: 1)

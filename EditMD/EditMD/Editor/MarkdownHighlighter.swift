@@ -92,6 +92,7 @@ struct Span {
         case listItemBody(textStartCol: Int)  // full item range; 1-based col where text begins (after spaces + marker)
         case tableRow                    // alternating body rows, for background
         case taskListMarker(done: Bool)  // the [ ] or [x] part of a task list item
+        case builtInPluginToken(BuiltInPluginTokenPayload)
         case wikiLink(payload: MDWikiLinkPayload)  // inner content of a [[...]] wiki-link
         case wikiLinkSyntax                        // the `[[` and `]]` brackets
         case mathBody(display: Bool)               // TeX between $…$ / $$…$$
@@ -453,7 +454,7 @@ private struct SpanCollector: MarkupWalker {
 
 /// Parses the markdown text with swift-markdown and returns highlight spans.
 /// Pure function — no dependency on any view or controller.
-func collectSpans(_ text: String) -> [Span] {
+func collectCoreSpans(_ text: String) -> [Span] {
     guard !text.isEmpty else { return [] }
     // Math is masked out BEFORE parsing (same trick as the Preview): otherwise
     // cmark reads TeX as markdown — a `=` line inside `$$…$$` turns the whole
@@ -480,5 +481,17 @@ func collectSpans(_ text: String) -> [Span] {
         spans.append(Span(range: NSRange(location: NSMaxRange(m.range) - d, length: d),
                           kind: .mathMarker))
     }
+    return spans
+}
+
+/// Core markdown spans plus decorations requested by built-in plugins. Keeping
+/// the core pass separate lets plugins use the AST's protected ranges without
+/// recursively invoking the registry.
+func collectSpans(_ text: String) -> [Span] {
+    var spans = collectCoreSpans(text)
+    let snapshot = BuiltInPluginRegistry.snapshot(for: text, coreSpans: spans)
+    spans.append(contentsOf: snapshot.tokens.map {
+        Span(range: $0.range, kind: .builtInPluginToken($0.payload))
+    })
     return spans
 }

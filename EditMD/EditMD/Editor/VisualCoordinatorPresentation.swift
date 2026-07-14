@@ -11,7 +11,8 @@ extension VisualMarkdownView.Coordinator {
     /// rows (measuring every row of a 9000-row table would be wasteful),
     /// clamped to a sane min/max so one long cell can't blow out the grid.
     private func tableColumnEdges(_ grid: TableGrid, font: NSFont, headerFont: NSFont,
-                                  originX: CGFloat) -> [CGFloat] {
+                                  originX: CGFloat,
+                                  pluginSnapshot: BuiltInPluginSnapshot) -> [CGFloat] {
         let columns = grid.columnCount
         guard columns > 0 else { return [originX] }
         let cellPadding: CGFloat = 12   // 6pt on each side
@@ -23,7 +24,8 @@ extension VisualMarkdownView.Coordinator {
             renderTableCellAttributed(s, baseFont: f,
                                       textColor: .labelColor,
                                       linkColor: .linkColor,
-                                      codeColor: .systemOrange).size().width
+                                      codeColor: .systemOrange,
+                                      pluginSnapshot: pluginSnapshot).size().width
         }
         var widths = [CGFloat](repeating: minWidth, count: columns)
         for (c, header) in grid.headers.enumerated() where c < columns {
@@ -47,6 +49,8 @@ extension VisualMarkdownView.Coordinator {
         var bullets: [(range: NSRange, depth: Int)] = []
         var numbers: [(range: NSRange, depth: Int, number: Int)] = []
         var tasks: [(range: NSRange, depth: Int, done: Bool)] = []
+        var pluginTasks: [(range: NSRange, depth: Int,
+                           token: BuiltInPluginTokenPayload)] = []
         var quotes: [(range: NSRange, depth: Int)] = []
         var codeGroups: [Int: NSRange] = [:]
         var codeLanguages: [Int: String] = [:]
@@ -61,6 +65,7 @@ extension VisualMarkdownView.Coordinator {
         // reference the same instance or layout falls apart.
         var textTables: [Int: NSTextTable] = [:]
         let theme = textView.theme
+        let pluginSnapshot = BuiltInPluginRegistry.snapshot(for: parent.document.content)
 
         let spacingScale = EditorSettings.shared.visualSpacing.scale
         // Pre-scan: which paragraphs are first/last line of each code group,
@@ -131,6 +136,11 @@ extension VisualMarkdownView.Coordinator {
             case .taskItem(let depth, let done):
                 markerIndent = 24 + CGFloat(depth) * 22
                 tasks.append((paragraph, depth, done))
+                style.paragraphSpacing = 2 * spacingScale
+                lastListGroupDepth = (blockValue.group, depth)
+            case .builtInPluginTaskItem(let depth, let token):
+                markerIndent = 24 + CGFloat(depth) * 22
+                pluginTasks.append((paragraph, depth, token))
                 style.paragraphSpacing = 2 * spacingScale
                 lastListGroupDepth = (blockValue.group, depth)
             case .orderedItem(let depth, _):
@@ -218,7 +228,8 @@ extension VisualMarkdownView.Coordinator {
                     style.lineBreakMode = .byClipping
                     style.paragraphSpacing = 8 * spacingScale
                     let edges = tableColumnEdges(grid, font: bodyFont, headerFont: headerFont,
-                                                 originX: textView.textContainerInset.width)
+                                                 originX: textView.textContainerInset.width,
+                                                 pluginSnapshot: pluginSnapshot)
                     tableIslands.append(TableIslandEntry(range: paragraph, grid: grid,
                                                          columnEdges: edges, rowHeight: rowHeight,
                                                          font: bodyFont, headerFont: headerFont))
@@ -288,6 +299,8 @@ extension VisualMarkdownView.Coordinator {
         textView.bulletEntries = bullets
         textView.numberEntries = numbers
         textView.taskEntries = tasks
+        textView.builtInPluginTaskEntries = pluginTasks
+        textView.builtInPluginSnapshot = pluginSnapshot
         textView.quoteEntries = quotes
         textView.codePanelRanges = Array(codeGroups.values)
         textView.ruleRanges = ruleRanges
@@ -344,7 +357,7 @@ extension VisualMarkdownView.Coordinator {
 
     private func isListKind(_ kind: MDBlock.Kind) -> Bool {
         switch kind {
-        case .bulletItem, .orderedItem, .taskItem, .listContinuation:
+        case .bulletItem, .orderedItem, .taskItem, .builtInPluginTaskItem, .listContinuation:
             return true
         default:
             return false
@@ -369,6 +382,8 @@ extension VisualMarkdownView.Coordinator {
                                                paragraph: NSRange, block: MDBlock) {
         var isDone = false
         if case .taskItem(_, true) = block.kind { isDone = true }
+        if case .builtInPluginTaskItem(_, let token) = block.kind,
+           token.state.strikethrough { isDone = true }
         var isHeaderCell = false
         if case .tableCell(0, _, _, _) = block.kind { isHeaderCell = true }
         var headingLevel = 0
