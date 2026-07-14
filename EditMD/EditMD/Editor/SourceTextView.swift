@@ -746,6 +746,7 @@ struct SourceTextView: NSViewRepresentable {
                 setBody: { [weak self] in self?.transformSelectedLines(.body) },
                 clearInlineFormatting: { [weak self] in self?.clearInlineFormatting() },
                 insertDivider: { [weak self] in self?.insertDivider() },
+                insertImage: { [weak self] in self?.chooseAndInsertImage() },
                 cycleCase: { [weak self] in self?.cycleSelectionCase() },
                 toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
                 toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
@@ -781,6 +782,41 @@ struct SourceTextView: NSViewRepresentable {
             textView.didChangeText()
             textView.setSelectedRange(NSRange(location: range.location + (insert as NSString).length,
                                               length: 0))
+        }
+
+        private func chooseAndInsertImage() {
+            guard let asset = chooseImageForInsertion(document: parent.document,
+                                                       fileURL: parent.fileURL) else { return }
+            insertImage(asset)
+        }
+
+        /// Returns true whenever the clipboard carried an image, including an
+        /// image that could not be stored (do not fall through and paste its
+        /// filename/binary representation as text).
+        func pasteImageFromPasteboard() -> Bool {
+            guard let candidate = imageCandidate(from: .general) else { return false }
+            do {
+                let asset = try storeImageAsset(candidate, document: parent.document,
+                                                fileURL: parent.fileURL)
+                insertImage(asset)
+            } catch {
+                presentImageInsertionError(error)
+            }
+            return true
+        }
+
+        private func insertImage(_ asset: ImageInsertionAsset) {
+            guard let textView else { return }
+            let selection = textView.selectedRange()
+            let selected = selection.length > 0
+                ? (textView.string as NSString).substring(with: selection) : nil
+            let usableAlt = selected?.contains(where: { $0.isNewline }) == false ? selected : nil
+            let markdown = asset.markdown(alt: usableAlt)
+            guard textView.shouldChangeText(in: selection, replacementString: markdown) else { return }
+            textView.replaceCharacters(in: selection, with: markdown)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(
+                location: selection.location + (markdown as NSString).length, length: 0))
         }
 
         private func cycleSelectionCase() {
@@ -1290,10 +1326,15 @@ fileprivate final class SourceNSTextView: NSTextView {
 
     // Paste as plain text — rich content from the clipboard would introduce
     // attributes the highlighter doesn't own (isRichText is on only so our
-    // own per-element attributes render). Exception: a clipboard TABLE (HTML
-    // from web/Word/Excel, or TSV) pastes as pipe-table markdown.
+    // own per-element attributes render). Exceptions: clipboard images become
+    // assets + Markdown, and tables (HTML from web/Word/Excel, or TSV) become
+    // pipe-table Markdown.
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
+        if let coordinator = delegate as? SourceTextView.Coordinator,
+           coordinator.pasteImageFromPasteboard() {
+            return
+        }
         if !caretInsideFence(),
            let markdown = markdownTableFromPasteboard(
             html: pasteboard.string(forType: .html),

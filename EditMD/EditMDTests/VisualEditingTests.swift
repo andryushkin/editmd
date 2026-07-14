@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import EditMD
 
 /// Pure helpers behind Visual-mode editing semantics (v21).
@@ -52,10 +53,12 @@ final class VisualEditingTests: XCTestCase {
             for: .visual, showVisualExtras: true, showReviewAction: true)
 
         XCTAssertTrue(source.contains("bold"))
+        XCTAssertTrue(source.contains("image"))
         XCTAssertFalse(source.contains("review"))
         XCTAssertFalse(source.contains("copy"))
         XCTAssertFalse(source.contains("table"))
         XCTAssertTrue(visual.contains("table"))
+        XCTAssertTrue(visual.contains("image"))
         XCTAssertFalse(visual.contains("copy"))
     }
 
@@ -84,6 +87,7 @@ final class VisualEditingTests: XCTestCase {
         actions.toggleItalic = {}
         actions.toggleChecklist = {}
         actions.setHeading = { _ in }
+        actions.insertImage = {}
 
         MarkdownPreviewView.Coordinator().bindToolbar(actions)
 
@@ -93,6 +97,80 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertNil(actions.toggleItalic)
         XCTAssertNil(actions.toggleChecklist)
         XCTAssertNil(actions.setHeading)
+        XCTAssertNil(actions.insertImage)
+    }
+
+    // MARK: - Image insertion
+
+    func testImageMarkdownEscapesAltAndWrapsSpacedDestination() {
+        let asset = ImageInsertionAsset(source: "assets/my image(2).png",
+                                        suggestedAlt: "my image")
+        XCTAssertEqual(asset.markdown(alt: #"a[b]\c"#),
+                       #"![a\[b\]\\c](<assets/my image(2).png>)"#)
+    }
+
+    func testUniqueImageAssetFilenamePreservesExtension() {
+        let occupied: Set<String> = ["photo.png", "photo-2.png"]
+        XCTAssertEqual(uniqueImageAssetFilename("photo.png", exists: occupied.contains),
+                       "photo-3.png")
+        XCTAssertEqual(uniqueImageAssetFilename("fresh.svg", exists: occupied.contains),
+                       "fresh.svg")
+    }
+
+    @MainActor
+    func testStoresClipboardImageBesidePlainMarkdownAndAvoidsCollision() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-image-insert-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let documentURL = dir.appendingPathComponent("note.md")
+        try "".write(to: documentURL, atomically: true, encoding: .utf8)
+        let document = MarkdownDocument()
+
+        let first = try storeImageAsset(.data(Data([1, 2, 3]), filename: "Pasted image.png"),
+                                        document: document, fileURL: documentURL)
+        let second = try storeImageAsset(.data(Data([4]), filename: "Pasted image.png"),
+                                         document: document, fileURL: documentURL)
+
+        XCTAssertEqual(first.source, "assets/Pasted image.png")
+        XCTAssertEqual(second.source, "assets/Pasted image-2.png")
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent(first.source)),
+                       Data([1, 2, 3]))
+    }
+
+    @MainActor
+    func testStoresImageInsideTextbundleWrapper() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-textbundle-image-\(UUID().uuidString)")
+        let bundle = root.appendingPathComponent("Note.textbundle")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let document = MarkdownDocument()
+        let asset = try storeImageAsset(.data(Data([9, 8]), filename: "diagram.svg"),
+                                        document: document, fileURL: bundle)
+
+        XCTAssertEqual(asset.source, "assets/diagram.svg")
+        XCTAssertEqual(document.assetsFileWrapper?.fileWrappers?["diagram.svg"]?
+            .regularFileContents, Data([9, 8]))
+        XCTAssertEqual(try Data(contentsOf: bundle.appendingPathComponent(asset.source)),
+                       Data([9, 8]))
+    }
+
+    @MainActor
+    func testClipboardPNGBecomesImageCandidateButTextDoesNot() {
+        let board = NSPasteboard(name: NSPasteboard.Name("editmd-image-\(UUID().uuidString)"))
+        board.clearContents()
+        board.setData(Data([1, 2, 3]), forType: .png)
+        guard case .data(let bytes, let filename)? = imageCandidate(from: board) else {
+            return XCTFail("PNG pasteboard was not recognized")
+        }
+        XCTAssertEqual(bytes, Data([1, 2, 3]))
+        XCTAssertTrue(filename.hasPrefix("Pasted image "))
+        XCTAssertTrue(filename.hasSuffix(".png"))
+
+        board.clearContents()
+        board.setString("ordinary text", forType: .string)
+        XCTAssertNil(imageCandidate(from: board))
     }
 
     // MARK: - Autoformat triggers

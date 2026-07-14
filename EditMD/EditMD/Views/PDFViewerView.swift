@@ -20,6 +20,216 @@ func supportedImageContentTypes() -> [UTType] {
     supportedImageFileExtensions.sorted().compactMap { UTType(filenameExtension: $0) }
 }
 
+// MARK: - Image insertion assets
+
+/// A stored image ready to become Markdown. `source` is always relative to the
+/// document (`assets/name.ext`), so Preview, Visual and exported PDF resolve it
+/// the same way.
+struct ImageInsertionAsset: Equatable {
+    let source: String
+    let suggestedAlt: String
+
+    func markdown(alt requestedAlt: String? = nil) -> String {
+        let rawAlt = requestedAlt?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chosenAlt = rawAlt.flatMap { $0.isEmpty ? nil : $0 } ?? suggestedAlt
+        let alt = chosenAlt
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        let destination = source.contains(where: { $0.isWhitespace || $0 == "(" || $0 == ")" })
+            ? "<\(source)>" : source
+        return "![\(alt)](\(destination))"
+    }
+}
+
+enum ImageAssetCandidate {
+    case file(URL)
+    case data(Data, filename: String)
+
+    var filename: String {
+        switch self {
+        case .file(let url): return url.lastPathComponent
+        case .data(_, let filename): return filename
+        }
+    }
+}
+
+enum ImageInsertionError: LocalizedError {
+    case unsavedDocument
+    case unreadableImage
+
+    var errorDescription: String? {
+        switch self {
+        case .unsavedDocument: return "Сначала сохраните документ, чтобы создать папку assets."
+        case .unreadableImage: return "Не удалось прочитать изображение."
+        }
+    }
+}
+
+/// File picker used by the action-strip button.
+@MainActor
+func chooseImageForInsertion(document: MarkdownDocument,
+                             fileURL: URL?) -> ImageInsertionAsset? {
+    guard let fileURL else {
+        presentImageInsertionError(ImageInsertionError.unsavedDocument)
+        return nil
+    }
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = supportedImageContentTypes()
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = fileURL.pathExtension.lowercased() == "textbundle"
+        ? fileURL.appendingPathComponent("assets", isDirectory: true)
+        : fileURL.deletingLastPathComponent()
+    guard panel.runModal() == .OK, let selected = panel.url else { return nil }
+    do {
+        return try storeImageAsset(.file(selected), document: document, fileURL: fileURL)
+    } catch {
+        presentImageInsertionError(error)
+        return nil
+    }
+}
+
+/// Extracts an actual image from the pasteboard. Finder file URLs keep their
+/// original format; screenshots and copied bitmap pixels prefer PNG. Returns
+/// nil for ordinary text/HTML so the editor's existing paste path can continue.
+@MainActor
+func imageCandidate(from pasteboard: NSPasteboard) -> ImageAssetCandidate? {
+    for item in pasteboard.pasteboardItems ?? [] {
+        if let value = item.string(forType: .fileURL),
+           let url = URL(string: value), isImageFile(url) {
+            return .file(url)
+        }
+    }
+
+    let typed: [(NSPasteboard.PasteboardType, String)] = [
+        (.png, "png"),
+        (NSPasteboard.PasteboardType("public.jpeg"), "jpg"),
+        (NSPasteboard.PasteboardType("com.compuserve.gif"), "gif"),
+        (NSPasteboard.PasteboardType("org.webmproject.webp"), "webp"),
+        (NSPasteboard.PasteboardType("public.svg-image"), "svg"),
+        (NSPasteboard.PasteboardType("public.heic"), "heic"),
+    ]
+    for (type, ext) in typed {
+        if let data = pasteboard.data(forType: type), !data.isEmpty {
+            return .data(data, filename: pastedImageFilename(extension: ext))
+        }
+    }
+
+    // macOS screenshots commonly expose TIFF even when no PNG flavor exists.
+    // Normalize that payload to PNG: dramatically smaller and universally
+    // rendered by every EditMD surface.
+    if let tiff = pasteboard.data(forType: .tiff),
+       let bitmap = NSBitmapImageRep(data: tiff),
+       let png = bitmap.representation(using: .png, properties: [:]) {
+        return .data(png, filename: pastedImageFilename(extension: "png"))
+    }
+    return nil
+}
+
+@MainActor
+func storeImageAsset(_ candidate: ImageAssetCandidate,
+                     document: MarkdownDocument,
+                     fileURL: URL?) throws -> ImageInsertionAsset {
+    guard let fileURL else { throw ImageInsertionError.unsavedDocument }
+    let rawName = candidate.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawName.isEmpty else { throw ImageInsertionError.unreadableImage }
+    let baseName = URL(fileURLWithPath: rawName).lastPathComponent
+    let alt = URL(fileURLWithPath: baseName).deletingPathExtension().lastPathComponent
+
+    if fileURL.pathExtension.lowercased() == "textbundle" {
+        let assetsDir = fileURL.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
+        let assets = document.assetsFileWrapper
+            ?? FileWrapper(directoryWithFileWrappers: [:])
+        let existing = Set((assets.fileWrappers ?? [:]).keys.map { $0.lowercased() })
+        if case .file(let sourceURL) = candidate,
+           sourceURL.deletingLastPathComponent().standardizedFileURL
+                == assetsDir.standardizedFileURL,
+           existing.contains(sourceURL.lastPathComponent.lowercased()) {
+            return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
+                                       suggestedAlt: alt)
+        }
+        let name = uniqueImageAssetFilename(baseName) {
+            existing.contains($0.lowercased())
+                || FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
+        }
+        let data: Data
+        switch candidate {
+        case .file(let url):
+            guard let read = try? Data(contentsOf: url), !read.isEmpty
+            else { throw ImageInsertionError.unreadableImage }
+            data = read
+        case .data(let bytes, _):
+            guard !bytes.isEmpty else { throw ImageInsertionError.unreadableImage }
+            data = bytes
+        }
+        // Make the asset visible to Visual/Preview immediately; their image
+        // resolvers read package assets from disk. The matching FileWrapper
+        // below ensures the next atomic textbundle autosave preserves it.
+        try data.write(to: assetsDir.appendingPathComponent(name), options: .atomic)
+        let wrapper = FileWrapper(regularFileWithContents: data)
+        wrapper.preferredFilename = name
+        assets.preferredFilename = "assets"
+        assets.addFileWrapper(wrapper)
+        document.assetsFileWrapper = assets
+        return ImageInsertionAsset(source: "assets/\(name)", suggestedAlt: alt)
+    }
+
+    let assetsDir = fileURL.deletingLastPathComponent()
+        .appendingPathComponent("assets", isDirectory: true)
+    try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
+
+    if case .file(let sourceURL) = candidate,
+       sourceURL.deletingLastPathComponent().standardizedFileURL == assetsDir.standardizedFileURL {
+        return ImageInsertionAsset(source: "assets/\(sourceURL.lastPathComponent)",
+                                   suggestedAlt: alt)
+    }
+
+    let name = uniqueImageAssetFilename(baseName) {
+        FileManager.default.fileExists(atPath: assetsDir.appendingPathComponent($0).path)
+    }
+    let destination = assetsDir.appendingPathComponent(name)
+    switch candidate {
+    case .file(let sourceURL):
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+    case .data(let bytes, _):
+        guard !bytes.isEmpty else { throw ImageInsertionError.unreadableImage }
+        try bytes.write(to: destination, options: .atomic)
+    }
+    return ImageInsertionAsset(source: "assets/\(name)", suggestedAlt: alt)
+}
+
+func uniqueImageAssetFilename(_ original: String,
+                              exists: (String) -> Bool) -> String {
+    guard exists(original) else { return original }
+    let ns = original as NSString
+    let ext = ns.pathExtension
+    let stem = ns.deletingPathExtension
+    var index = 2
+    while true {
+        let candidate = ext.isEmpty ? "\(stem)-\(index)" : "\(stem)-\(index).\(ext)"
+        if !exists(candidate) { return candidate }
+        index += 1
+    }
+}
+
+private func pastedImageFilename(extension ext: String) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyyMMddHHmmss"
+    return "Pasted image \(formatter.string(from: Date())).\(ext)"
+}
+
+@MainActor
+func presentImageInsertionError(_ error: Error) {
+    let alert = NSAlert()
+    alert.messageText = "Не удалось добавить изображение"
+    alert.informativeText = error.localizedDescription
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
+}
+
 /// True for a `.pdf` file. PDFs are read-only viewer targets: listed in the
 /// sidebar next to markdown, resolvable via wiki-links, and shown through
 /// PDFKit — they never reach `DocumentRegistry` / the text editor.

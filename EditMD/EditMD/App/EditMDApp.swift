@@ -386,6 +386,11 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("k")
                 .disabled(actions?.editLink == nil)
+
+                Button("Add Image…") {
+                    actions?.insertImage?()
+                }
+                .disabled(actions?.insertImage == nil)
             }
         }
 

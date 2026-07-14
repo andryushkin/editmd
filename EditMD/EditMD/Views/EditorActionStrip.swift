@@ -28,6 +28,7 @@ final class EditorStripActions {
     var toggleChecklist: (() -> Void)?
     var toggleNumberedList: (() -> Void)?
     var toggleQuote: (() -> Void)?
+    var insertImage: (() -> Void)?
 
     // Visual-only
     var insertTable: (() -> Void)?
@@ -355,6 +356,10 @@ struct EditorActionStrip: View {
                           help: "Выделение (==…==)", menuIcon: "highlighter",
                           active: activeFormats.highlight,
                           action: { actions.run(actions.toggleHighlight) }),
+                StripItem(id: "image", glyph: .symbol("photo.badge.plus"),
+                          title: "Добавить изображение", help: "Добавить изображение…",
+                          menuIcon: "photo.badge.plus",
+                          action: { actions.run(actions.insertImage) }),
             ]
         case .review:
             items = [
@@ -593,7 +598,7 @@ private enum StripGroup: String, CaseIterable, Identifiable {
 
     var toolIDs: [String] {
         switch self {
-        case .inline: return ["bold", "italic", "strike", "code", "highlight"]
+        case .inline: return ["bold", "italic", "strike", "code", "highlight", "image"]
         case .review: return ["review"]
         case .paragraph:
             return ["h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock"]

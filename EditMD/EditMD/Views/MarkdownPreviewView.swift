@@ -690,6 +690,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             actions.toggleChecklist = nil
             actions.toggleNumberedList = nil
             actions.toggleQuote = nil
+            actions.insertImage = nil
             actions.clearInlineFormatting = nil
             actions.cycleCase = nil
             actions.insertDivider = nil

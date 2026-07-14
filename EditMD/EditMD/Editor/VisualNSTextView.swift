@@ -120,6 +120,7 @@ final class VisualNSTextView: NSTextView {
     // is rebuilt through our own semantic renderer; everything else remains
     // plain text.
     override func paste(_ sender: Any?) {
+        if visualCoordinator?.pasteImageFromPasteboard() == true { return }
         if visualCoordinator?.pasteMarkdownFromPasteboard() != true {
             pasteAsPlainText(sender)
         }

@@ -41,6 +41,8 @@ struct FormatActions {
     var clearInlineFormatting: (() -> Void)? = nil
     /// Insert a thematic break (`---`) — B3.
     var insertDivider: (() -> Void)? = nil
+    /// Pick an image, store it beside the document, and insert `![](...)`.
+    var insertImage: (() -> Void)? = nil
     /// Cycle selection case UPPER → lower → Capitalized — B5.
     var cycleCase: (() -> Void)? = nil
     var toggleBulletList: (() -> Void)? = nil

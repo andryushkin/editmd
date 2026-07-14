@@ -458,6 +458,7 @@ struct ContentView: View {
         stripActions.toggleChecklist = fa.toggleChecklist
         stripActions.toggleNumberedList = fa.toggleNumberedList
         stripActions.toggleQuote = fa.toggleQuote
+        stripActions.insertImage = fa.insertImage
         if visualExtras {
             stripActions.insertTable = fa.insertTable
             stripActions.tableAddRow = fa.tableAddRow

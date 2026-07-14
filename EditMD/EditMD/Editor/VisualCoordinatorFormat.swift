@@ -24,6 +24,7 @@ extension VisualMarkdownView.Coordinator {
             setBody: { [weak self] in self?.setBodyParagraph() },
             clearInlineFormatting: { [weak self] in self?.clearInlineFormatting() },
             insertDivider: { [weak self] in self?.insertDivider() },
+            insertImage: { [weak self] in self?.chooseAndInsertImage() },
             cycleCase: { [weak self] in self?.cycleSelectionCase() },
             toggleBulletList: { [weak self] in self?.toggleListKind(
                 isTarget: { if case .bulletItem = $0 { return true }; return false },
@@ -110,6 +111,44 @@ extension VisualMarkdownView.Coordinator {
         storage.replaceCharacters(in: selection, with: rendered)
         isMutating = false
         textView.didChangeText()
+        afterMutation()
+    }
+
+    private func chooseAndInsertImage() {
+        guard let asset = chooseImageForInsertion(document: parent.document,
+                                                   fileURL: parent.fileURL) else { return }
+        insertImage(asset)
+    }
+
+    /// Clipboard-image front door used before Visual's table/Markdown paste.
+    /// Returning true suppresses the plain-text fallback for binary payloads.
+    func pasteImageFromPasteboard() -> Bool {
+        guard let candidate = imageCandidate(from: .general) else { return false }
+        do {
+            let asset = try storeImageAsset(candidate, document: parent.document,
+                                            fileURL: parent.fileURL)
+            insertImage(asset)
+        } catch {
+            presentImageInsertionError(error)
+        }
+        return true
+    }
+
+    private func insertImage(_ asset: ImageInsertionAsset) {
+        guard let textView, let storage = textView.textStorage else { return }
+        let selection = textView.selectedRange()
+        let selected = selection.length > 0
+            ? (storage.string as NSString).substring(with: selection) : nil
+        let usableAlt = selected?.contains(where: { $0.isNewline || $0 == "\u{FFFC}" })
+            == false ? selected : nil
+        let rendered = renderForInsertion(asset.markdown(alt: usableAlt), into: storage)
+        guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
+        else { return }
+        isMutating = true
+        storage.replaceCharacters(in: selection, with: rendered)
+        isMutating = false
+        textView.didChangeText()
+        textView.setSelectedRange(NSRange(location: selection.location + rendered.length, length: 0))
         afterMutation()
     }
 
