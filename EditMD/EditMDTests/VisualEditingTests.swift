@@ -29,12 +29,34 @@ final class VisualEditingTests: XCTestCase {
     }
 
     func testPreviewActionStripContainsOnlyReviewSelectionTools() {
-        XCTAssertEqual(EditorActionStrip.previewToolIDs,
-                       Set(["strike", "highlight", "review"]))
-        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("checklist"),
+        let ids = EditorActionStrip.toolIDs(
+            for: .preview, showVisualExtras: false, showReviewAction: true)
+
+        XCTAssertEqual(ids, ["strike", "highlight", "review"])
+        XCTAssertFalse(ids.contains("checklist"),
                        "Preview toggles existing task boxes in-page; it must not create lists")
-        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("bold"))
-        XCTAssertFalse(EditorActionStrip.previewToolIDs.contains("heading"))
+        XCTAssertFalse(ids.contains("bold"))
+        XCTAssertFalse(ids.contains("h1"))
+    }
+
+    func testPreviewWithoutSidebarOmitsReviewAction() {
+        XCTAssertEqual(EditorActionStrip.toolIDs(
+            for: .preview, showVisualExtras: false, showReviewAction: false),
+                       ["strike", "highlight"])
+    }
+
+    func testSourceAndVisualKeepTheirEditingProfilesWithoutCopy() {
+        let source = EditorActionStrip.toolIDs(
+            for: .source, showVisualExtras: true, showReviewAction: true)
+        let visual = EditorActionStrip.toolIDs(
+            for: .visual, showVisualExtras: true, showReviewAction: true)
+
+        XCTAssertTrue(source.contains("bold"))
+        XCTAssertFalse(source.contains("review"))
+        XCTAssertFalse(source.contains("copy"))
+        XCTAssertFalse(source.contains("table"))
+        XCTAssertTrue(visual.contains("table"))
+        XCTAssertFalse(visual.contains("copy"))
     }
 
     @MainActor

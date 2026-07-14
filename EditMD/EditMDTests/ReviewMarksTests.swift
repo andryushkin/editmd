@@ -483,6 +483,16 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertTrue(model.consumeComposeRequest())
     }
 
+    @MainActor
+    func testComposeNoteResetsOnlyWhenAnchorChanges() {
+        let first = ReviewModel.CapturedAnchor(quote: "one", prefix: "", start: 0)
+        let second = ReviewModel.CapturedAnchor(quote: "two", prefix: "one ", start: 4)
+
+        XCTAssertFalse(ReviewSidebar.shouldResetComposeNote(previous: first, next: first))
+        XCTAssertTrue(ReviewSidebar.shouldResetComposeNote(previous: first, next: second))
+        XCTAssertTrue(ReviewSidebar.shouldResetComposeNote(previous: first, next: nil))
+    }
+
     /// Add + delete inside one runloop tick: two persists in flight. The
     /// fire-and-forget saves used to resurrect the deleted mark via the
     /// stale-base merge; the FIFO pipeline must keep it deleted.

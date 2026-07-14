@@ -53,12 +53,27 @@ final class EditorStripActions {
 /// that no longer fit the space between them collapse into an "…" menu — the
 /// switcher must never be overlapped.
 struct EditorActionStrip: View {
-    /// Preview is a review surface, not a second Markdown editor. Keep only
-    /// selection-level review actions there; task checkboxes remain directly
-    /// interactive inside the rendered page.
-    nonisolated static let previewToolIDs: Set<String> = [
-        "strike", "highlight", "review",
+    nonisolated private static let editingToolIDs = [
+        "bold", "italic", "strike", "code", "highlight",
+        "h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock",
+        "bullet", "checklist", "numbered", "quote",
     ]
+    nonisolated private static let visualExtraToolIDs = [
+        "table", "table.addRow", "table.delRow", "math.inline", "math.block",
+    ]
+
+    /// Pure, mode-aware source of truth for the tools the strip renders.
+    /// Preview is a review surface, not a second Markdown editor; task boxes
+    /// remain directly interactive inside the rendered page.
+    nonisolated static func toolIDs(for mode: EditorMode,
+                                    showVisualExtras: Bool,
+                                    showReviewAction: Bool) -> [String] {
+        if mode == .preview {
+            return ["strike", "highlight"] + (showReviewAction ? ["review"] : [])
+        }
+        let extras = mode == .visual && showVisualExtras ? visualExtraToolIDs : []
+        return editingToolIDs + extras
+    }
 
     /// Closures only — not observed for UI identity (mutating them must not
     /// republish during `updateNSView` or SwiftUI freezes).
@@ -109,6 +124,11 @@ struct EditorActionStrip: View {
 
     var body: some View {
         GeometryReader { geo in
+            // Build every StripItem once per body pass. The same instances feed
+            // visible pills, overflow and the hidden measurement layer.
+            let groups = activeGroups
+            let itemsByGroup = Dictionary(uniqueKeysWithValues:
+                groups.map { ($0, items(for: $0)) })
             let editingWidth = Self.resolvedEditingPaneWidth(
                 stripWidth: geo.size.width, editingPaneWidth: editingPaneWidth)
             let field = field(for: editingWidth)
@@ -123,14 +143,14 @@ struct EditorActionStrip: View {
                                        - modeWidth - Self.groupSpacing)
             let laneInsideEditor = max(0, editingWidth - lead - fieldTrail)
             let toolLaneWidth = min(laneBeforeMode, laneInsideEditor)
-            let plan = plan(available: toolLaneWidth)
+            let plan = plan(available: toolLaneWidth, groups: groups)
             HStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .center, spacing: Self.groupSpacing) {
                     ForEach(plan.visible) { group in
-                        groupPill(group)
+                        groupPill(group, items: itemsByGroup[group] ?? [])
                     }
                     if !plan.overflow.isEmpty {
-                        overflowPill(plan.overflow)
+                        overflowPill(plan.overflow, itemsByGroup: itemsByGroup)
                     }
                 }
                 .frame(width: toolLaneWidth, alignment: .leading)
@@ -156,7 +176,9 @@ struct EditorActionStrip: View {
                                       - (widths[Self.gutterKey] ?? 0)
                                       + Self.gutterGlyphInset))
             }
-            .background(alignment: .leading) { measurementLayer }
+            .background(alignment: .leading) {
+                measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
+            }
             .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
         .frame(height: stripHeight)
@@ -170,15 +192,16 @@ struct EditorActionStrip: View {
     // MARK: Overflow planning
 
     private var activeGroups: [StripGroup] {
-        StripGroup.allCases.filter { group in
-            (group != .extras || showVisualExtras) && !items(for: group).isEmpty
-        }
+        let ids = Set(Self.toolIDs(for: mode,
+                                   showVisualExtras: showVisualExtras,
+                                   showReviewAction: showReviewAction))
+        return StripGroup.allCases.filter { !ids.isDisjoint(with: $0.toolIDs) }
     }
 
     /// Greedy left-to-right fit. Until the measurement layer reports (first
     /// frame) every group is shown — `.clipped()` covers that one frame.
-    private func plan(available: CGFloat) -> (visible: [StripGroup], overflow: [StripGroup]) {
-        let groups = activeGroups
+    private func plan(available: CGFloat, groups: [StripGroup])
+        -> (visible: [StripGroup], overflow: [StripGroup]) {
         let measured = groups.map { widths[$0.rawValue] ?? 0 }
         guard !measured.contains(where: { $0 <= 0 }) else { return (groups, []) }
         let total = measured.reduce(0, +)
@@ -199,12 +222,15 @@ struct EditorActionStrip: View {
 
     /// Every pill laid out at its natural size, off-screen: a group that lives
     /// in the "…" menu still needs a width, or it could never come back.
-    private var measurementLayer: some View {
+    private func measurementLayer(groups: [StripGroup],
+                                  itemsByGroup: [StripGroup: [StripItem]]) -> some View {
         HStack(spacing: Self.groupSpacing) {
-            ForEach(activeGroups) { group in
-                groupPill(group).measureWidth(key: group.rawValue)
+            ForEach(groups) { group in
+                groupPill(group, items: itemsByGroup[group] ?? [])
+                    .measureWidth(key: group.rawValue)
             }
-            overflowPill([]).measureWidth(key: Self.overflowKey)
+            overflowPill([], itemsByGroup: itemsByGroup)
+                .measureWidth(key: Self.overflowKey)
             modePill.measureWidth(key: Self.modeKey)
             gutterPill.measureWidth(key: Self.gutterKey)
         }
@@ -215,7 +241,7 @@ struct EditorActionStrip: View {
 
     // MARK: Groups
 
-    @ViewBuilder private func groupPill(_ group: StripGroup) -> some View {
+    @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem]) -> some View {
         if group == .extras {
             // Table / formula stay menus in the strip; the "…" menu flattens
             // them into plain items.
@@ -226,7 +252,7 @@ struct EditorActionStrip: View {
             }
         } else {
             pill {
-                ForEach(Array(items(for: group).enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { sep }
                     itemButton(item)
                 }
@@ -234,12 +260,13 @@ struct EditorActionStrip: View {
         }
     }
 
-    private func overflowPill(_ groups: [StripGroup]) -> some View {
+    private func overflowPill(_ groups: [StripGroup],
+                              itemsByGroup: [StripGroup: [StripItem]]) -> some View {
         pill {
             Menu {
                 ForEach(groups) { group in
                     Section(group.title) {
-                        ForEach(items(for: group)) { item in
+                        ForEach(itemsByGroup[group] ?? []) { item in
                             Button {
                                 item.action()
                             } label: {
@@ -295,7 +322,7 @@ struct EditorActionStrip: View {
     // MARK: Items (one model for the pill and the "…" menu)
 
     private func items(for group: StripGroup) -> [StripItem] {
-        var items: [StripItem]
+        let items: [StripItem]
         switch group {
         case .inline:
             items = [
@@ -321,13 +348,14 @@ struct EditorActionStrip: View {
                           active: activeFormats.highlight,
                           action: { actions.run(actions.toggleHighlight) }),
             ]
-            if mode == .preview, showReviewAction {
-                items.append(StripItem(
+        case .review:
+            items = [
+                StripItem(
                     id: "review", glyph: .symbol("plus.bubble"),
                     title: "Добавить review-метку",
                     help: "Добавить review-метку из выделения",
-                    menuIcon: "plus.bubble", action: addReviewMark))
-            }
+                    menuIcon: "plus.bubble", action: addReviewMark),
+            ]
         case .paragraph:
             items = [
                 StripItem(id: "h1", glyph: .text("H1"), title: "Заголовок 1",
@@ -407,8 +435,10 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.insertBlockFormula) }),
             ]
         }
-        guard mode == .preview else { return items }
-        return items.filter { Self.previewToolIDs.contains($0.id) }
+        let allowed = Set(Self.toolIDs(for: mode,
+                                       showVisualExtras: showVisualExtras,
+                                       showReviewAction: showReviewAction))
+        return items.filter { allowed.contains($0.id) }
     }
 
     private func runHeading(_ level: Int) {
@@ -538,7 +568,7 @@ struct EditorActionStrip: View {
 
 /// Tool groups, in strip order. The trailing ones collapse into "…" first.
 private enum StripGroup: String, CaseIterable, Identifiable {
-    case inline, paragraph, lists, extras
+    case inline, review, paragraph, lists, extras
 
     var id: String { rawValue }
 
@@ -546,9 +576,22 @@ private enum StripGroup: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .inline:    return "Начертание"
+        case .review:    return "Review"
         case .paragraph: return "Абзац"
         case .lists:     return "Списки"
         case .extras:    return "Таблицы и формулы"
+        }
+    }
+
+    var toolIDs: Set<String> {
+        switch self {
+        case .inline: return ["bold", "italic", "strike", "code", "highlight"]
+        case .review: return ["review"]
+        case .paragraph:
+            return ["h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock"]
+        case .lists: return ["bullet", "checklist", "numbered", "quote"]
+        case .extras:
+            return ["table", "table.addRow", "table.delRow", "math.inline", "math.block"]
         }
     }
 }

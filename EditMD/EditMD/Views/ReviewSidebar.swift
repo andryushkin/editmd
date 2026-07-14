@@ -249,8 +249,17 @@ struct ReviewSidebar: View {
     }
 
     private func beginCompose() {
-        pendingAnchor = review.captureSelectionAnchor()
+        let nextAnchor = review.captureSelectionAnchor()
+        if Self.shouldResetComposeNote(previous: pendingAnchor, next: nextAnchor) {
+            composeNote = ""
+        }
+        pendingAnchor = nextAnchor
         composing = true
+    }
+
+    static func shouldResetComposeNote(previous: ReviewModel.CapturedAnchor?,
+                                       next: ReviewModel.CapturedAnchor?) -> Bool {
+        previous != next
     }
 
     private func saveCompose() {
