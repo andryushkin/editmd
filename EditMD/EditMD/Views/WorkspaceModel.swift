@@ -1,6 +1,32 @@
 import SwiftUI
 import AppKit
 
+enum FileMoveError: LocalizedError, Equatable, Sendable {
+    case sourceNoLongerExists
+    case unsupportedSource
+    case destinationNotFolder
+    case alreadyExists(String)
+    case openDocument
+    case moveInProgress
+
+    var errorDescription: String? {
+        switch self {
+        case .sourceNoLongerExists:
+            return "Файл больше не существует по прежнему пути."
+        case .unsupportedSource:
+            return "Можно перемещать только файлы, которые EditMD показывает в сайдбаре."
+        case .destinationNotFolder:
+            return "Папка назначения больше не существует."
+        case .alreadyExists(let name):
+            return "В папке назначения уже существует «\(name)»."
+        case .openDocument:
+            return "Сначала закройте этот файл во всех окнах EditMD."
+        case .moveInProgress:
+            return "Этот файл уже перемещается."
+        }
+    }
+}
+
 /// Backing state for the file sidebar (Phase 3): the adopted workspace folders,
 /// which files are hidden per folder, pinned loose files, and the session's
 /// loose (Finder-opened, not-in-a-workspace) files. Persisted to UserDefaults
@@ -57,6 +83,7 @@ final class WorkspaceModel: ObservableObject {
     private var tagScanPending = false
     private var tagIndexKey = ""
     private var folderRenamesInFlight = Set<String>()
+    private var fileMovesInFlight = Set<String>()
 
     private let defaults: UserDefaults
 
@@ -485,6 +512,135 @@ final class WorkspaceModel: ObservableObject {
             throw FolderCreateError.alreadyExists(newURL.lastPathComponent)
         }
         try fileManager.moveItem(at: oldURL, to: newURL)
+    }
+
+    /// Moves one sidebar document to another folder on disk. The disk mutation
+    /// completes before path-keyed UI state changes, so a failed move cannot
+    /// leave the sidebar pointing at a destination that was never created.
+    @discardableResult
+    func moveFileOnDisk(
+        _ rawSource: URL,
+        to rawDestinationFolder: URL,
+        openDocumentURLs: [URL]
+    ) async throws -> URL {
+        let source = rawSource.standardizedFileURL
+        let destinationFolder = rawDestinationFolder.standardizedFileURL
+        let destination = destinationFolder
+            .appendingPathComponent(source.lastPathComponent)
+            .standardizedFileURL
+        if destination == source { return source }
+
+        guard Self.listedExtensions.contains(source.pathExtension.lowercased()) else {
+            throw FileMoveError.unsupportedSource
+        }
+        guard !openDocumentURLs.contains(where: {
+            $0.standardizedFileURL == source
+        }) else {
+            throw FileMoveError.openDocument
+        }
+        guard fileMovesInFlight.insert(source.path).inserted else {
+            throw FileMoveError.moveInProgress
+        }
+        defer { fileMovesInFlight.remove(source.path) }
+
+        let oldWorkspace = workspaceOwning(source)
+        let oldRelative = oldWorkspace.flatMap { relativePath(of: source, in: $0) }
+        let wasHidden = oldWorkspace.flatMap { ws in
+            oldRelative.map { hiddenFiles[ws.folderPath]?.contains($0) == true }
+        } ?? false
+        let wasPinned = pinnedLoosePaths.contains(source.path)
+
+        // FileManager is synchronous and destination folders may live on slow
+        // external volumes, so keep the move off the main actor.
+        try await Task.detached(priority: .userInitiated) {
+            try Self.moveFileAndReviewSidecar(from: source, to: destination,
+                                              destinationFolder: destinationFolder)
+        }.value
+
+        migrateFileState(from: source, to: destination,
+                         oldWorkspace: oldWorkspace, oldRelative: oldRelative,
+                         wasHidden: wasHidden, wasPinned: wasPinned)
+        await WikiLinkResolver.shared.invalidate()
+        return destination
+    }
+
+    nonisolated private static func moveFileAndReviewSidecar(
+        from source: URL,
+        to destination: URL,
+        destinationFolder: URL
+    ) throws {
+        let fileManager = FileManager.default
+        var sourceIsDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: source.path, isDirectory: &sourceIsDirectory) else {
+            throw FileMoveError.sourceNoLongerExists
+        }
+        let sourceIsPackage = (try? source.resourceValues(forKeys: [.isPackageKey]))?.isPackage
+            ?? false
+        guard !sourceIsDirectory.boolValue || sourceIsPackage else {
+            throw FileMoveError.unsupportedSource
+        }
+        guard AppState.isFolder(destinationFolder) else {
+            throw FileMoveError.destinationNotFolder
+        }
+        guard !fileManager.fileExists(atPath: destination.path) else {
+            throw FileMoveError.alreadyExists(destination.lastPathComponent)
+        }
+
+        let oldSidecar = ReviewSidecar.url(for: source)
+        let newSidecar = ReviewSidecar.url(for: destination)
+        let hasSidecar = fileManager.fileExists(atPath: oldSidecar.path)
+        if hasSidecar, fileManager.fileExists(atPath: newSidecar.path) {
+            throw FileMoveError.alreadyExists(newSidecar.lastPathComponent)
+        }
+
+        try fileManager.moveItem(at: source, to: destination)
+        guard hasSidecar else { return }
+        do {
+            try fileManager.moveItem(at: oldSidecar, to: newSidecar)
+        } catch {
+            // The file and its review marks are one logical document. Restore
+            // the original file path when the sidecar cannot follow it.
+            try? fileManager.moveItem(at: destination, to: source)
+            throw error
+        }
+    }
+
+    private func migrateFileState(
+        from source: URL,
+        to destination: URL,
+        oldWorkspace: Workspace?,
+        oldRelative: String?,
+        wasHidden: Bool,
+        wasPinned: Bool
+    ) {
+        if let oldWorkspace, let oldRelative {
+            var oldSet = hiddenFiles[oldWorkspace.folderPath] ?? []
+            oldSet.remove(oldRelative)
+            hiddenFiles[oldWorkspace.folderPath] = oldSet.isEmpty ? nil : oldSet
+        }
+        if let newWorkspace = workspaceOwning(destination),
+           let newRelative = relativePath(of: destination, in: newWorkspace) {
+            var newSet = hiddenFiles[newWorkspace.folderPath] ?? []
+            if wasHidden { newSet.insert(newRelative) } else { newSet.remove(newRelative) }
+            hiddenFiles[newWorkspace.folderPath] = newSet.isEmpty ? nil : newSet
+        }
+
+        pinnedLoosePaths.removeAll { $0 == source.path }
+        looseFiles.removeAll { $0.standardizedFileURL == source }
+        if workspaceOwning(destination) == nil {
+            if wasPinned { pinnedLoosePaths.append(destination.path) }
+            looseFiles.append(destination)
+        }
+        if lastActivePath == source.path { lastActivePath = destination.path }
+
+        folderListings.removeAll()
+        listingScansInFlight.removeAll()
+        treeStatsScansInFlight.removeAll()
+        tagIndex = [:]
+        tagIndexKey = ""
+        if tagScanInFlight { tagScanPending = true }
+        snapshot.relocateFile(from: source.path, to: destination.path)
+        noteFilesystemChange()
     }
 
     private func migrateRootState(from oldRoot: String, to newRoot: String) {

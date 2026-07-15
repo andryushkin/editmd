@@ -182,9 +182,32 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Keeps pending routes coherent after a closed file moves. A file shown
+    /// in a live window is rejected before the disk operation.
+    func relocateFile(from oldURL: URL, to newURL: URL) {
+        let old = oldURL.standardizedFileURL
+        let new = newURL.standardizedFileURL
+        if currentURL?.standardizedFileURL == old { currentURL = new }
+        pendingSeparateURLs = pendingSeparateURLs.map {
+            $0.standardizedFileURL == old ? new : $0
+        }
+        if let pendingControlJump, pendingControlJump.url.standardizedFileURL == old {
+            self.pendingControlJump = (new, pendingControlJump.offset)
+        }
+    }
+
+    /// Editable documents live in DocumentRegistry; PDFs and images bypass it
+    /// but still expose representedURL on their AppKit window.
+    static func openDocumentURLsForDiskMutation() -> [URL] {
+        let representedFiles = NSApp.windows.compactMap(\.representedURL).filter {
+            !isFolder($0)
+        }
+        return Array(Set(DocumentRegistry.shared.openURLs + representedFiles))
+    }
+
     /// True for a real directory on disk that is not a package (`.textbundle`
     /// is a document, not a folder panel target).
-    static func isFolder(_ url: URL) -> Bool {
+    nonisolated static func isFolder(_ url: URL) -> Bool {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
               isDir.boolValue else { return false }

@@ -322,6 +322,138 @@ struct WorkspaceFolderIdentityTests {
     }
 }
 
+@Suite("File moves")
+@MainActor
+struct FileMoveTests {
+
+    @Test("Move crosses workspaces and preserves hidden review state")
+    func moveAcrossWorkspaces() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.first.appendingPathComponent("note.md")
+        let sourceSidecar = ReviewSidecar.url(for: source)
+        let existing = fixture.second.appendingPathComponent("alpha.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        try "marks".write(to: sourceSidecar, atomically: true, encoding: .utf8)
+        try "existing".write(to: existing, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+        model.hide(source)
+        model.noteActive(source)
+        model.snapshot.update(path: fixture.first.path) { $0.files = [source.path] }
+        model.snapshot.update(path: fixture.second.path) { $0.files = [existing.path] }
+
+        let destination = try await model.moveFileOnDisk(
+            source, to: fixture.second, openDocumentURLs: [])
+        let destinationSidecar = ReviewSidecar.url(for: destination)
+
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(!FileManager.default.fileExists(atPath: sourceSidecar.path))
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(FileManager.default.fileExists(atPath: destinationSidecar.path))
+        #expect(model.hiddenFiles[fixture.first.path] == nil)
+        #expect(model.hiddenFiles[fixture.second.path] == ["note.md"])
+        #expect(model.lastActivePath == destination.path)
+        #expect(model.snapshot.entry(for: fixture.first.path)?.files == [])
+        #expect(model.snapshot.entry(for: fixture.second.path)?.files == [
+            existing.path, destination.path
+        ])
+    }
+
+    @Test("Move never overwrites an existing destination")
+    func moveRejectsCollision() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.first.appendingPathComponent("note.md")
+        let existing = fixture.second.appendingPathComponent("note.md")
+        try "source".write(to: source, atomically: true, encoding: .utf8)
+        try "destination".write(to: existing, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+
+        do {
+            _ = try await model.moveFileOnDisk(
+                source, to: fixture.second, openDocumentURLs: [])
+            Issue.record("Expected a destination collision")
+        } catch {
+            #expect(error as? FileMoveError == .alreadyExists("note.md"))
+        }
+
+        #expect(try String(contentsOf: source, encoding: .utf8) == "source")
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "destination")
+    }
+
+    @Test("Move is blocked while the source document is open")
+    func moveRejectsOpenDocument() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.first.appendingPathComponent("note.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+
+        do {
+            _ = try await model.moveFileOnDisk(
+                source, to: fixture.second, openDocumentURLs: [source])
+            Issue.record("Expected an open-document error")
+        } catch {
+            #expect(error as? FileMoveError == .openDocument)
+        }
+
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(!FileManager.default.fileExists(
+            atPath: fixture.second.appendingPathComponent("note.md").path))
+    }
+
+    @Test("Moving a pinned loose file into a workspace clears loose state")
+    func looseFileBecomesWorkspaceFile() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.parent.appendingPathComponent("loose.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.second)
+        model.noteOpened(source)
+        model.pin(source)
+
+        let destination = try await model.moveFileOnDisk(
+            source, to: fixture.second, openDocumentURLs: [])
+
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(!model.isPinned(destination))
+        #expect(!model.looseFilesToShow.contains(destination))
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-file-move-\(UUID().uuidString)",
+                                    isDirectory: true)
+        let first = parent.appendingPathComponent("First", isDirectory: true)
+        let second = parent.appendingPathComponent("Second", isDirectory: true)
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let suiteName = "file-move-\(UUID().uuidString)"
+        return Fixture(parent: parent, first: first, second: second,
+                       suiteName: suiteName,
+                       defaults: try #require(UserDefaults(suiteName: suiteName)))
+    }
+
+    private struct Fixture {
+        let parent: URL
+        let first: URL
+        let second: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: parent)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+}
+
 @Suite("New file editor mode")
 @MainActor
 struct NewFileEditorModeTests {

@@ -109,6 +109,35 @@ final class SidebarSnapshotStore {
         scheduleSave()
     }
 
+    /// Keeps remembered direct file rows coherent after a document moves.
+    /// Entries that were never scanned remain absent and will be filled by the
+    /// normal lazy scan instead of being synthesized with incomplete stats.
+    func relocateFile(from oldPath: String, to newPath: String) {
+        guard oldPath != newPath else { return }
+        let destinationParent = URL(fileURLWithPath: newPath)
+            .deletingLastPathComponent().standardizedFileURL.path
+        var changed = false
+        for path in Array(entries.keys) {
+            guard var entry = entries[path] else { continue }
+            let before = entry.files
+            entry.files.removeAll { $0 == oldPath }
+            if path == destinationParent, !entry.files.contains(newPath) {
+                entry.files.append(newPath)
+                entry.files.sort {
+                    URL(fileURLWithPath: $0).lastPathComponent
+                        .localizedCaseInsensitiveCompare(
+                            URL(fileURLWithPath: $1).lastPathComponent) == .orderedAscending
+                }
+            }
+            guard entry.files != before else { continue }
+            entries[path] = entry
+            changed = true
+        }
+        guard changed else { return }
+        dirty = true
+        scheduleSave()
+    }
+
     /// Coalesces the burst of scans a launch produces into one write.
     private func scheduleSave() {
         saveTask?.cancel()

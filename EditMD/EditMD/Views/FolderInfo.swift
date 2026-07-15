@@ -294,20 +294,75 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
     Task { @MainActor in
         do {
             let oldURL = ws.url.standardizedFileURL
-            // PDFs bypass DocumentRegistry, so include represented file
-            // windows as well as editable Markdown buffers.
-            let representedFiles = NSApp.windows.compactMap(\.representedURL).filter {
-                !AppState.isFolder($0)
-            }
-            let openURLs = Array(Set(DocumentRegistry.shared.openURLs + representedFiles))
             let newURL = try await workspace.renameFolderOnDisk(
-                ws, to: name, openDocumentURLs: openURLs)
+                ws, to: name,
+                openDocumentURLs: AppState.openDocumentURLsForDiskMutation())
             guard newURL != oldURL else { return }
             AppState.shared.relocateFolder(from: oldURL, to: newURL)
             DocumentHistory.shared.relocateFolder(from: oldURL, to: newURL)
         } catch {
             presentFolderError(error, title: "Не удалось переименовать папку")
         }
+    }
+}
+
+@MainActor
+func promptForFileMove(_ file: URL, workspace: WorkspaceModel) {
+    let panel = NSOpenPanel()
+    panel.title = "Переместить файл"
+    panel.message = "Выберите папку назначения для «\(file.lastPathComponent)»."
+    panel.prompt = "Переместить"
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.canCreateDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.treatsFilePackagesAsDirectories = false
+    panel.directoryURL = file.deletingLastPathComponent()
+    guard panel.runModal() == .OK, let folder = panel.url else { return }
+    performFileMove(file, to: folder, workspace: workspace)
+}
+
+/// Shared completion path for context-menu and drag-and-drop moves.
+@MainActor
+func performFileMove(_ file: URL, to folder: URL, workspace: WorkspaceModel) {
+    let oldURL = file.standardizedFileURL
+    Task { @MainActor in
+        do {
+            let newURL = try await workspace.moveFileOnDisk(
+                oldURL, to: folder,
+                openDocumentURLs: AppState.openDocumentURLsForDiskMutation())
+            guard newURL != oldURL else { return }
+            AppState.shared.relocateFile(from: oldURL, to: newURL)
+            DocumentHistory.shared.relocateFile(from: oldURL, to: newURL)
+        } catch {
+            presentFolderError(error, title: "Не удалось переместить файл")
+        }
+    }
+}
+
+private struct FileMoveDropTargetModifier: ViewModifier {
+    @ObservedObject var workspace: WorkspaceModel
+    let folder: URL
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let source = urls.first else { return false }
+                performFileMove(source, to: folder, workspace: workspace)
+                return true
+            } isTargeted: { isTargeted = $0 }
+    }
+}
+
+extension View {
+    func fileMoveDropTarget(folder: URL, workspace: WorkspaceModel) -> some View {
+        modifier(FileMoveDropTargetModifier(workspace: workspace, folder: folder))
     }
 }
 
@@ -493,6 +548,7 @@ struct FolderInfoCard: View {
             .background(Color(nsColor: .textBackgroundColor))
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .fileMoveDropTarget(folder: folderURL, workspace: workspace)
         .overlay(alignment: .bottom) { copiedToast }
         .onAppear { reloadTreeStats() }
         .onChange(of: folderURL) { _ in reloadTreeStats() }

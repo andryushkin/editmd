@@ -326,6 +326,7 @@ struct WorkspaceSidebar: View {
             }
             Button("Убрать из сайдбара") { workspace.removeWorkspace(ws) }
         }
+        .fileMoveDropTarget(folder: ws.url, workspace: workspace)
 
         if !ws.collapsed {
             // Folders first (md-bearing; empty only with eye), then files.
@@ -382,6 +383,7 @@ struct WorkspaceSidebar: View {
         .contextMenu {
             Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
             Divider()
+            Button("Переместить…") { promptForFileMove(url, workspace: workspace) }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(url, in: ws) }
             } else {
@@ -392,6 +394,7 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
+        .draggable(url)
     }
 
     // MARK: - Loose row
@@ -410,6 +413,7 @@ struct WorkspaceSidebar: View {
         .contextMenu {
             Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
             Divider()
+            Button("Переместить…") { promptForFileMove(url, workspace: workspace) }
             Button(pinned ? "Открепить" : "Закрепить") {
                 pinned ? workspace.unpin(url) : workspace.pin(url)
             }
@@ -419,6 +423,7 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
+        .draggable(url)
     }
 
     private func isActive(_ url: URL) -> Bool {
@@ -539,6 +544,7 @@ private struct SubfolderNode: View {
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             }
         }
+        .fileMoveDropTarget(folder: folder, workspace: workspace)
 
         if expanded {
             // md folders → empty folders (eye) → visible files → hidden files (eye).
@@ -585,6 +591,7 @@ private struct SubfolderNode: View {
                 AppState.shared.openInSeparateWindow(file)
             }
             Divider()
+            Button("Переместить…") { promptForFileMove(file, workspace: workspace) }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(file) }
             } else {
@@ -598,5 +605,6 @@ private struct SubfolderNode: View {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
             }
         }
+        .draggable(file)
     }
 }

@@ -45,6 +45,13 @@ final class DocumentHistory: ObservableObject {
         }
     }
 
+    /// Preserves Back/Forward targets for a closed file moved on disk.
+    func relocateFile(from oldURL: URL, to newURL: URL) {
+        let old = oldURL.standardizedFileURL
+        let new = newURL.standardizedFileURL
+        urls = urls.map { $0.standardizedFileURL == old ? new : $0 }
+    }
+
     @objc private func windowDidBecomeKey(_ notification: Notification) {
         guard let url = (notification.object as? NSWindow)?.representedURL else { return }
         record(url.standardizedFileURL)
