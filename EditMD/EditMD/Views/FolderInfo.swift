@@ -522,12 +522,12 @@ private struct FileMoveDropTargetModifier: ViewModifier {
                     .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
                     .allowsHitTesting(false)
             }
-            .onDrop(of: [.editMDFileMove], isTargeted: $isTargeted) { providers in
+            .onDrop(of: [sidebarFileDragContentType], isTargeted: $isTargeted) { providers in
                 guard let provider = providers.first(where: {
-                    $0.hasItemConformingToTypeIdentifier(UTType.editMDFileMove.identifier)
+                    $0.hasItemConformingToTypeIdentifier(sidebarFileDragContentType.identifier)
                 }) else { return false }
                 provider.loadDataRepresentation(
-                    forTypeIdentifier: UTType.editMDFileMove.identifier
+                    forTypeIdentifier: sidebarFileDragContentType.identifier
                 ) { data, _ in
                     guard let data,
                           let payload = try? decodeSidebarFileDragPayload(data),

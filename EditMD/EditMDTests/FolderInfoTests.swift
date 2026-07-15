@@ -651,10 +651,13 @@ struct SidebarFileSelectionTests {
             URL(fileURLWithPath: "/tmp/nested/second.md")
         ]
         let provider = sidebarFileItemProvider(files: files)
+        #expect(sidebarFileDragContentType == .json)
+        #expect(provider.hasItemConformingToTypeIdentifier(
+            sidebarFileDragContentType.identifier))
 
         let data: Data = try await withCheckedThrowingContinuation { continuation in
             provider.loadDataRepresentation(
-                forTypeIdentifier: UTType.editMDFileMove.identifier
+                forTypeIdentifier: sidebarFileDragContentType.identifier
             ) { data, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -668,6 +671,21 @@ struct SidebarFileSelectionTests {
 
         #expect(try decodeSidebarFileDragPayload(data).files == files)
     }
+
+    @Test("Drag payload rejects JSON from another process")
+    func dragPayloadRejectsForeignProcess() throws {
+        let valid = try encodeSidebarFileDragPayload(SidebarFileDragPayload(
+            files: [URL(fileURLWithPath: "/tmp/first.md")]))
+        var object = try #require(
+            JSONSerialization.jsonObject(with: valid) as? [String: Any])
+        object["processToken"] = "someone.else"
+        let data = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: CocoaError.self) {
+            try decodeSidebarFileDragPayload(data)
+        }
+    }
+
 }
 
 @Suite("Long-running operation center")

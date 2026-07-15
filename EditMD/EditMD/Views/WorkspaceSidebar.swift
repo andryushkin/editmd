@@ -2,14 +2,23 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-extension UTType {
-    static let editMDFileMove = UTType(exportedAs: "com.editmd.file-move")
-}
+let sidebarFileDragContentType: UTType = .json
 
 /// Internal drag payload. One item provider carries the complete selection so
 /// a folder drop starts one transactional move instead of N independent moves.
 struct SidebarFileDragPayload: Codable, Equatable, Sendable {
+    static let format = "com.editmd.file-move.v1"
+    static let processToken = UUID().uuidString
+
+    let format: String
+    let processToken: String
     let files: [URL]
+
+    init(files: [URL]) {
+        format = Self.format
+        processToken = Self.processToken
+        self.files = files
+    }
 }
 
 func encodeSidebarFileDragPayload(_ payload: SidebarFileDragPayload) throws -> Data {
@@ -17,19 +26,24 @@ func encodeSidebarFileDragPayload(_ payload: SidebarFileDragPayload) throws -> D
 }
 
 func decodeSidebarFileDragPayload(_ data: Data) throws -> SidebarFileDragPayload {
-    try JSONDecoder().decode(SidebarFileDragPayload.self, from: data)
+    let payload = try JSONDecoder().decode(SidebarFileDragPayload.self, from: data)
+    guard payload.format == SidebarFileDragPayload.format,
+          payload.processToken == SidebarFileDragPayload.processToken else {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+    return payload
 }
 
-/// Explicit provider registration avoids the custom Codable Transferable
-/// import failure seen in live SwiftUI drag sessions. The one provider still
-/// carries the complete group, so the destination starts one batch move.
+/// A standard JSON representation lets AppKit negotiate the live drag session;
+/// the payload marker keeps unrelated JSON from becoming a file move. The one
+/// provider carries the complete group, so the destination starts one batch.
 @MainActor
 func sidebarFileItemProvider(files: [URL]) -> NSItemProvider {
     let payload = SidebarFileDragPayload(files: files.map(\.standardizedFileURL))
     let provider = NSItemProvider()
     guard let data = try? encodeSidebarFileDragPayload(payload) else { return provider }
     provider.registerDataRepresentation(
-        forTypeIdentifier: UTType.editMDFileMove.identifier,
+        forTypeIdentifier: sidebarFileDragContentType.identifier,
         visibility: .ownProcess
     ) { completion in
         completion(data, nil)
