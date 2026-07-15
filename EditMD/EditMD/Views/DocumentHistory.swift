@@ -38,6 +38,13 @@ final class DocumentHistory: ObservableObject {
         record(url.standardizedFileURL)
     }
 
+    /// Preserves Back/Forward targets when a workspace root is renamed.
+    func relocateFolder(from oldRoot: URL, to newRoot: URL) {
+        urls = urls.map {
+            WorkspaceModel.relocatedURL($0, from: oldRoot, to: newRoot)
+        }
+    }
+
     @objc private func windowDidBecomeKey(_ notification: Notification) {
         guard let url = (notification.object as? NSWindow)?.representedURL else { return }
         record(url.standardizedFileURL)

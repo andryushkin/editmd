@@ -47,6 +47,34 @@ enum FolderCreateError: LocalizedError, Equatable {
     }
 }
 
+enum FolderRenameError: LocalizedError, Equatable {
+    case folderNoLongerOpen
+    case folderNoLongerExists
+    case openDocuments(Int)
+    case renameInProgress
+
+    var errorDescription: String? {
+        switch self {
+        case .folderNoLongerOpen:
+            return "Эта папка больше не открыта в сайдбаре."
+        case .folderNoLongerExists:
+            return "Папка больше не существует по прежнему пути."
+        case .openDocuments(let count):
+            let suffix: String
+            if count % 10 == 1, count % 100 != 11 {
+                suffix = "документ"
+            } else if (2...4).contains(count % 10), !(12...14).contains(count % 100) {
+                suffix = "документа"
+            } else {
+                suffix = "документов"
+            }
+            return "Сначала закройте открытые файлы внутри папки (\(count) \(suffix))."
+        case .renameInProgress:
+            return "Эта папка уже переименовывается."
+        }
+    }
+}
+
 /// Prefer `README.md` over `index.md` (case-insensitive), only direct children.
 func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
     let items = (try? fileManager.contentsOfDirectory(
@@ -214,11 +242,12 @@ enum FolderStatsCache {
 // MARK: - Name prompt (AppKit)
 
 @MainActor
-func promptForNewName(title: String, message: String, defaultName: String) -> String? {
+func promptForNewName(title: String, message: String, defaultName: String,
+                      confirmTitle: String = "Создать", allowsEmpty: Bool = false) -> String? {
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = message
-    alert.addButton(withTitle: "Создать")
+    alert.addButton(withTitle: confirmTitle)
     alert.addButton(withTitle: "Отмена")
     let field = NSTextField(string: defaultName)
     field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
@@ -226,17 +255,60 @@ func promptForNewName(title: String, message: String, defaultName: String) -> St
     alert.window.initialFirstResponder = field
     guard alert.runModal() == .alertFirstButtonReturn else { return nil }
     let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    return name.isEmpty ? nil : name
+    return name.isEmpty && !allowsEmpty ? nil : name
 }
 
 @MainActor
-func presentFolderError(_ error: Error) {
+func presentFolderError(_ error: Error, title: String = "Не удалось создать") {
     let alert = NSAlert()
-    alert.messageText = "Не удалось создать"
+    alert.messageText = title
     alert.informativeText = error.localizedDescription
     alert.alertStyle = .warning
     alert.addButton(withTitle: "OK")
     alert.runModal()
+}
+
+@MainActor
+func promptForWorkspaceDisplayName(_ ws: WorkspaceModel.Workspace,
+                                   workspace: WorkspaceModel) {
+    guard let name = promptForNewName(
+        title: "Отображаемое имя",
+        message: "Это имя видно только в EditMD. Пустое поле вернёт настоящее имя папки.",
+        defaultName: ws.displayName ?? ws.folderName,
+        confirmTitle: "Сохранить",
+        allowsEmpty: true
+    ) else { return }
+    workspace.setDisplayName(name, for: ws)
+}
+
+@MainActor
+func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
+                                    workspace: WorkspaceModel) {
+    guard let name = promptForNewName(
+        title: "Переименовать папку на диске",
+        message: "Имя изменится также в Finder. Перед переименованием закройте файлы из этой папки.",
+        defaultName: ws.folderName,
+        confirmTitle: "Переименовать"
+    ) else { return }
+
+    Task { @MainActor in
+        do {
+            let oldURL = ws.url.standardizedFileURL
+            // PDFs bypass DocumentRegistry, so include represented file
+            // windows as well as editable Markdown buffers.
+            let representedFiles = NSApp.windows.compactMap(\.representedURL).filter {
+                !AppState.isFolder($0)
+            }
+            let openURLs = Array(Set(DocumentRegistry.shared.openURLs + representedFiles))
+            let newURL = try await workspace.renameFolderOnDisk(
+                ws, to: name, openDocumentURLs: openURLs)
+            guard newURL != oldURL else { return }
+            AppState.shared.relocateFolder(from: oldURL, to: newURL)
+            DocumentHistory.shared.relocateFolder(from: oldURL, to: newURL)
+        } catch {
+            presentFolderError(error, title: "Не удалось переименовать папку")
+        }
+    }
 }
 
 // MARK: - Main-window host (sidebar + card)
@@ -251,6 +323,10 @@ struct FolderInfoHost: View {
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
 
     private static let sidebarWidthRange = 150.0...400.0
+
+    private var windowTitle: String {
+        workspace.workspaceRoot(at: folderURL)?.name ?? folderURL.lastPathComponent
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -276,7 +352,7 @@ struct FolderInfoHost: View {
         .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
         .background(WindowAccessor { window in
             window.representedURL = folderURL
-            window.title = folderURL.lastPathComponent
+            window.title = windowTitle
         })
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -385,6 +461,10 @@ struct FolderInfoCard: View {
         (folderURL.path as NSString).abbreviatingWithTildeInPath
     }
 
+    private var rootWorkspace: WorkspaceModel.Workspace? {
+        workspace.workspaceRoot(at: folderURL)
+    }
+
     private var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: FolderGridTile.width, maximum: FolderGridTile.width),
                   spacing: 10)]
@@ -464,6 +544,10 @@ struct FolderInfoCard: View {
                 pillSeparator
                 iconButton("arrow.up.right.square", "Показать в Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+                }
+                if let rootWorkspace {
+                    pillSeparator
+                    folderIdentityMenu(rootWorkspace)
                 }
                 if let home = homeDoc {
                     let isReadme = home.lastPathComponent.lowercased().hasPrefix("readme")
@@ -560,6 +644,28 @@ struct FolderInfoCard: View {
         .editMDHelp(help)
     }
 
+    private func folderIdentityMenu(_ ws: WorkspaceModel.Workspace) -> some View {
+        Menu {
+            Button("Изменить отображаемое имя…") {
+                promptForWorkspaceDisplayName(ws, workspace: workspace)
+            }
+            Button("Переименовать папку на диске…") {
+                promptForWorkspaceFolderRename(ws, workspace: workspace)
+            }
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.primary)
+                .frame(width: SidebarChrome.iconButtonWidth,
+                       height: SidebarChrome.iconButtonHeight)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .editMDHelp("Имя папки")
+    }
+
     // MARK: Header
 
     private var header: some View {
@@ -569,10 +675,18 @@ struct FolderInfoCard: View {
                     .font(.system(size: previewH1Size))
                     .foregroundStyle(Color.accentColor)
                     .symbolRenderingMode(.hierarchical)
-                Text(folderURL.lastPathComponent)
+                Text(rootWorkspace?.name ?? folderURL.lastPathComponent)
                     .font(previewH1Font)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+            if let ws = rootWorkspace,
+               let displayName = ws.displayName,
+               displayName != ws.folderName {
+                Text("Папка: \(ws.folderName)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
             // Path under the folder icon (same leading as the glyph).

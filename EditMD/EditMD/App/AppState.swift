@@ -138,6 +138,24 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Keeps main-window routing and not-yet-mounted routes valid after a root
+    /// folder moves to a new path on disk.
+    func relocateFolder(from oldRoot: URL, to newRoot: URL) {
+        if let currentURL {
+            self.currentURL = WorkspaceModel.relocatedURL(
+                currentURL, from: oldRoot, to: newRoot)
+        }
+        pendingSeparateURLs = pendingSeparateURLs.map {
+            WorkspaceModel.relocatedURL($0, from: oldRoot, to: newRoot)
+        }
+        if let pendingControlJump {
+            self.pendingControlJump = (
+                WorkspaceModel.relocatedURL(
+                    pendingControlJump.url, from: oldRoot, to: newRoot),
+                pendingControlJump.offset)
+        }
+    }
+
     /// True for a real directory on disk that is not a package (`.textbundle`
     /// is a document, not a folder panel target).
     static func isFolder(_ url: URL) -> Bool {

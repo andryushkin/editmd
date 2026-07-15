@@ -81,6 +81,34 @@ final class SidebarSnapshotStore {
         scheduleSave()
     }
 
+    /// Rewrites every remembered folder and child URL after an adopted root is
+    /// renamed on disk. Without this, the next launch briefly redraws the old
+    /// tree before the first real scan replaces it.
+    func relocateRoot(from oldRoot: String, to newRoot: String) {
+        var relocated = entries
+        var changed = false
+        for (path, var entry) in entries {
+            let newPath = Self.relocatedPath(path, from: oldRoot, to: newRoot)
+            guard newPath != path else { continue }
+            relocated.removeValue(forKey: path)
+            entry.files = entry.files.map {
+                Self.relocatedPath($0, from: oldRoot, to: newRoot)
+            }
+            entry.mdFolders = entry.mdFolders.map {
+                Self.relocatedPath($0, from: oldRoot, to: newRoot)
+            }
+            entry.emptyFolders = entry.emptyFolders.map {
+                Self.relocatedPath($0, from: oldRoot, to: newRoot)
+            }
+            relocated[newPath] = entry
+            changed = true
+        }
+        guard changed else { return }
+        entries = relocated
+        dirty = true
+        scheduleSave()
+    }
+
     /// Coalesces the burst of scans a launch produces into one write.
     private func scheduleSave() {
         saveTask?.cancel()
@@ -128,5 +156,12 @@ final class SidebarSnapshotStore {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
+    }
+
+    private nonisolated static func relocatedPath(_ path: String, from oldRoot: String,
+                                                   to newRoot: String) -> String {
+        if path == oldRoot { return newRoot }
+        guard path.hasPrefix(oldRoot + "/") else { return path }
+        return newRoot + path.dropFirst(oldRoot.count)
     }
 }

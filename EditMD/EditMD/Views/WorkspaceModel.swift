@@ -22,12 +22,13 @@ final class WorkspaceModel: ObservableObject {
         var customName: String? = nil
         var id: String { folderPath }
         var url: URL { URL(fileURLWithPath: folderPath) }
-        var name: String {
-            if let customName, !customName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return customName
-            }
-            return url.lastPathComponent
+        var folderName: String { url.lastPathComponent }
+        var displayName: String? {
+            guard let customName else { return nil }
+            let trimmed = customName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
+        var name: String { displayName ?? folderName }
     }
 
     /// Adopted folders, always visible, collapsible.
@@ -55,6 +56,7 @@ final class WorkspaceModel: ObservableObject {
     private var tagScanInFlight = false
     private var tagScanPending = false
     private var tagIndexKey = ""
+    private var folderRenamesInFlight = Set<String>()
 
     private let defaults: UserDefaults
 
@@ -402,10 +404,119 @@ final class WorkspaceModel: ObservableObject {
     }
 
     /// Set a custom display name; empty / whitespace clears back to folder basename.
-    func renameWorkspace(_ ws: Workspace, to name: String) {
+    func setDisplayName(_ name: String, for ws: Workspace) {
         guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         workspaces[i].customName = trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// The adopted root at exactly `folder` (not merely an ancestor root).
+    func workspaceRoot(at folder: URL) -> Workspace? {
+        let path = folder.standardizedFileURL.path
+        return workspaces.first { $0.folderPath == path }
+    }
+
+    /// Renames an adopted root on disk, then migrates all path-keyed sidebar
+    /// state. Open documents are rejected because DocumentRegistry entries,
+    /// undo stacks, autosave and file watchers are URL-bound.
+    @discardableResult
+    func renameFolderOnDisk(
+        _ ws: Workspace,
+        to rawName: String,
+        openDocumentURLs: [URL]
+    ) async throws -> URL {
+        guard workspaces.contains(where: { $0.id == ws.id }) else {
+            throw FolderRenameError.folderNoLongerOpen
+        }
+        let oldURL = ws.url.standardizedFileURL
+        let newName = try FolderNaming.folderName(from: rawName)
+        if newName == oldURL.lastPathComponent { return oldURL }
+
+        let openCount = openDocumentURLs.reduce(into: 0) { count, url in
+            if Self.path(url.standardizedFileURL.path, isInside: oldURL.path) {
+                count += 1
+            }
+        }
+        guard openCount == 0 else {
+            throw FolderRenameError.openDocuments(openCount)
+        }
+        guard folderRenamesInFlight.insert(oldURL.path).inserted else {
+            throw FolderRenameError.renameInProgress
+        }
+        defer { folderRenamesInFlight.remove(oldURL.path) }
+
+        let newURL = oldURL.deletingLastPathComponent()
+            .appendingPathComponent(newName, isDirectory: true)
+            .standardizedFileURL
+        try await Task.detached(priority: .userInitiated) {
+            try Self.moveFolderOnDisk(from: oldURL, to: newURL)
+        }.value
+
+        migrateRootState(from: oldURL.path, to: newURL.path)
+        return newURL
+    }
+
+    nonisolated static func relocatedPath(_ path: String, from oldRoot: String,
+                                          to newRoot: String) -> String {
+        if path == oldRoot { return newRoot }
+        let prefix = oldRoot + "/"
+        guard path.hasPrefix(prefix) else { return path }
+        return newRoot + path.dropFirst(oldRoot.count)
+    }
+
+    nonisolated static func relocatedURL(_ url: URL, from oldRoot: URL,
+                                         to newRoot: URL) -> URL {
+        URL(fileURLWithPath: relocatedPath(url.standardizedFileURL.path,
+                                           from: oldRoot.standardizedFileURL.path,
+                                           to: newRoot.standardizedFileURL.path))
+            .standardizedFileURL
+    }
+
+    nonisolated private static func path(_ path: String, isInside root: String) -> Bool {
+        path == root || path.hasPrefix(root + "/")
+    }
+
+    nonisolated private static func moveFolderOnDisk(from oldURL: URL, to newURL: URL) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: oldURL.path) else {
+            throw FolderRenameError.folderNoLongerExists
+        }
+        guard !fileManager.fileExists(atPath: newURL.path) else {
+            throw FolderCreateError.alreadyExists(newURL.lastPathComponent)
+        }
+        try fileManager.moveItem(at: oldURL, to: newURL)
+    }
+
+    private func migrateRootState(from oldRoot: String, to newRoot: String) {
+        if let index = workspaces.firstIndex(where: { $0.folderPath == oldRoot }) {
+            workspaces[index].folderPath = newRoot
+        }
+        if let hidden = hiddenFiles.removeValue(forKey: oldRoot) {
+            hiddenFiles[newRoot] = hidden
+        }
+        expandedFolders = Set(expandedFolders.map {
+            Self.relocatedPath($0, from: oldRoot, to: newRoot)
+        })
+        if let lastActivePath {
+            self.lastActivePath = Self.relocatedPath(lastActivePath,
+                                                     from: oldRoot, to: newRoot)
+        }
+        pinnedLoosePaths = pinnedLoosePaths.map {
+            Self.relocatedPath($0, from: oldRoot, to: newRoot)
+        }
+        looseFiles = looseFiles.map {
+            URL(fileURLWithPath: Self.relocatedPath($0.standardizedFileURL.path,
+                                                    from: oldRoot, to: newRoot))
+        }
+
+        folderListings.removeAll()
+        listingScansInFlight.removeAll()
+        treeStatsScansInFlight.removeAll()
+        tagIndex = [:]
+        tagIndexKey = ""
+        if tagScanInFlight { tagScanPending = true }
+        snapshot.relocateRoot(from: oldRoot, to: newRoot)
+        noteFilesystemChange()
     }
 
     func toggleCollapsed(_ ws: Workspace) {
@@ -435,15 +546,40 @@ final class WorkspaceModel: ObservableObject {
         expandedFolders.remove(folder.standardizedFileURL.path)
     }
 
-    /// Runs the folder open panel and adopts the choice — shared by the sidebar
-    /// button and File ▸ Open Folder.
+    /// Runs the folder open panel and adopts an existing folder — shared by the
+    /// sidebar and File ▸ Open Folder.
     func promptAddFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             addWorkspace(url)
+        }
+    }
+
+    /// Runs a save-style panel so the user can choose a parent location and
+    /// enter the name of a folder that does not exist yet. The created folder
+    /// is adopted by the sidebar and opened in the main window.
+    func promptCreateFolder() {
+        let panel = NSSavePanel()
+        panel.title = "New Folder"
+        panel.message = "Choose where to create the folder and enter its name."
+        panel.nameFieldLabel = "Name:"
+        panel.nameFieldStringValue = "New Folder"
+        panel.prompt = "Create"
+        panel.canCreateDirectories = true
+        panel.showsTagField = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let folder = try createWorkspaceFolder(
+                named: url.lastPathComponent,
+                in: url.deletingLastPathComponent())
+            AppState.shared.openInMainWindow(folder)
+        } catch {
+            presentFolderError(error)
         }
     }
 
@@ -489,6 +625,21 @@ final class WorkspaceModel: ObservableObject {
             expandFolder(folder)
         }
         return dest.standardizedFileURL
+    }
+
+    /// Creates a new root folder on disk and adopts it in the sidebar.
+    @discardableResult
+    func createWorkspaceFolder(named name: String, in parent: URL) throws -> URL {
+        let folderName = try FolderNaming.folderName(from: name)
+        let dest = parent.appendingPathComponent(folderName)
+        guard !FileManager.default.fileExists(atPath: dest.path) else {
+            throw FolderCreateError.alreadyExists(folderName)
+        }
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: false)
+        let folder = dest.standardizedFileURL
+        addWorkspace(folder)
+        noteFilesystemChange()
+        return folder
     }
 
     // MARK: - Hide / unhide (relative paths from workspace root)

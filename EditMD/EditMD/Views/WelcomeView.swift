@@ -129,7 +129,7 @@ struct WelcomeCard: View {
             let path = ws.url.standardizedFileURL.path
             guard !seen.contains(path) else { continue }
             seen.insert(path)
-            items.append(.workspace(ws.url))
+            items.append(.workspace(ws.url, displayName: ws.name))
         }
 
         // Session history newest-first, skip folders already listed as workspaces.
@@ -441,13 +441,13 @@ struct WelcomeCard: View {
 // MARK: - Recent item model
 
 private enum WelcomeRecentItem: Identifiable {
-    case workspace(URL)
+    case workspace(URL, displayName: String)
     case folder(URL)
     case file(URL)
 
     var id: String {
         switch self {
-        case .workspace(let u): return "ws:" + u.path
+        case .workspace(let u, _): return "ws:" + u.path
         case .folder(let u): return "dir:" + u.path
         case .file(let u): return "file:" + u.path
         }
@@ -455,7 +455,7 @@ private enum WelcomeRecentItem: Identifiable {
 
     var url: URL {
         switch self {
-        case .workspace(let u), .folder(let u), .file(let u): return u
+        case .workspace(let u, _), .folder(let u), .file(let u): return u
         }
     }
 
@@ -473,7 +473,12 @@ private enum WelcomeRecentItem: Identifiable {
         }
     }
 
-    var title: String { url.lastPathComponent }
+    var title: String {
+        switch self {
+        case .workspace(_, let displayName): return displayName
+        case .folder(let url), .file(let url): return url.lastPathComponent
+        }
+    }
 
     var subtitle: String {
         (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath

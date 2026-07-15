@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 @testable import EditMD
 
 final class FolderInfoTests: XCTestCase {
@@ -182,6 +183,141 @@ final class FolderCreateWorkspaceTests: XCTestCase {
         _ = try model.createMarkdownFile(named: "A.md", in: dir)
         XCTAssertThrowsError(try model.createMarkdownFile(named: "A", in: dir)) { err in
             XCTAssertEqual(err as? FolderCreateError, .alreadyExists("A.md"))
+        }
+    }
+
+    func testCreateWorkspaceFolderCreatesAndAdoptsRoot() throws {
+        let model = WorkspaceModel(defaults: defaults)
+
+        let folder = try model.createWorkspaceFolder(named: "New Notes", in: dir)
+
+        XCTAssertEqual(folder, dir.appendingPathComponent("New Notes").standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertEqual(model.workspaces.map(\.folderPath), [folder.path])
+    }
+
+    func testCreateWorkspaceFolderRejectsExistingFolder() throws {
+        let model = WorkspaceModel(defaults: defaults)
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("Existing"), withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(
+            try model.createWorkspaceFolder(named: "Existing", in: dir)
+        ) { error in
+            XCTAssertEqual(error as? FolderCreateError, .alreadyExists("Existing"))
+        }
+        XCTAssertTrue(model.workspaces.isEmpty)
+    }
+}
+
+@Suite("Workspace folder identity")
+@MainActor
+struct WorkspaceFolderIdentityTests {
+
+    @Test("Display name is independent from the folder name")
+    func displayNameCanBeChangedAndCleared() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        let original = try #require(model.workspaces.first)
+        #expect(original.folderName == "Notes")
+        #expect(original.displayName == nil)
+        #expect(original.name == "Notes")
+
+        model.setDisplayName("Research", for: original)
+        #expect(model.workspaces.first?.folderName == "Notes")
+        #expect(model.workspaces.first?.displayName == "Research")
+        #expect(model.workspaces.first?.name == "Research")
+
+        model.setDisplayName("   ", for: try #require(model.workspaces.first))
+        #expect(model.workspaces.first?.displayName == nil)
+        #expect(model.workspaces.first?.name == "Notes")
+    }
+
+    @Test("Disk rename migrates path-keyed workspace state")
+    func diskRenameMigratesWorkspaceState() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let child = fixture.root.appendingPathComponent("Child", isDirectory: true)
+        let note = child.appendingPathComponent("note.md")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: false)
+        try "text".write(to: note, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+        let original = try #require(model.workspaces.first)
+        model.setDisplayName("Research", for: original)
+        model.hiddenFiles[fixture.root.path] = ["Child/note.md"]
+        model.expandedFolders.insert(child.path)
+        model.noteActive(child)
+        model.snapshot.update(path: fixture.root.path) { entry in
+            entry.files = [note.path]
+            entry.mdFolders = [child.path]
+        }
+
+        let renamed = try await model.renameFolderOnDisk(
+            original, to: "Archive", openDocumentURLs: [])
+        let renamedChild = renamed.appendingPathComponent("Child", isDirectory: true)
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.path))
+        #expect(FileManager.default.fileExists(atPath: renamedChild.path))
+        #expect(model.workspaces.first?.folderPath == renamed.path)
+        #expect(model.workspaces.first?.folderName == "Archive")
+        #expect(model.workspaces.first?.displayName == "Research")
+        #expect(model.hiddenFiles[renamed.path] == ["Child/note.md"])
+        #expect(model.hiddenFiles[fixture.root.path] == nil)
+        #expect(model.expandedFolders == [renamedChild.path])
+        #expect(model.lastActivePath == renamedChild.path)
+        #expect(model.snapshot.entry(for: fixture.root.path) == nil)
+        #expect(model.snapshot.entry(for: renamed.path)?.files == [
+            renamedChild.appendingPathComponent("note.md").path
+        ])
+        #expect(model.snapshot.entry(for: renamed.path)?.mdFolders == [renamedChild.path])
+    }
+
+    @Test("Disk rename is blocked while a document inside is open")
+    func diskRenameRejectsOpenDocuments() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let note = fixture.root.appendingPathComponent("note.md")
+        try "text".write(to: note, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+        let original = try #require(model.workspaces.first)
+
+        do {
+            _ = try await model.renameFolderOnDisk(
+                original, to: "Archive", openDocumentURLs: [note])
+            Issue.record("Expected an open-document error")
+        } catch {
+            #expect(error as? FolderRenameError == .openDocuments(1))
+        }
+
+        #expect(FileManager.default.fileExists(atPath: fixture.root.path))
+        #expect(model.workspaces.first?.folderPath == fixture.root.path)
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-rename-\(UUID().uuidString)", isDirectory: true)
+        let root = parent.appendingPathComponent("Notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let suiteName = "rename-\(UUID().uuidString)"
+        return Fixture(parent: parent, root: root, suiteName: suiteName,
+                       defaults: try #require(UserDefaults(suiteName: suiteName)))
+    }
+
+    private struct Fixture {
+        let parent: URL
+        let root: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: parent)
+            defaults.removePersistentDomain(forName: suiteName)
         }
     }
 }

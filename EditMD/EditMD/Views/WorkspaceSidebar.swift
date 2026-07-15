@@ -22,11 +22,6 @@ struct WorkspaceSidebar: View {
     @AppStorage("sidebarShowHidden") private var showHidden = false
     /// Bottom filter field — filters Files tree / Outline headings / Git paths.
     @State private var filterText = ""
-    /// A2: rename workspace root (alert + TextField).
-    @State private var showRenameAlert = false
-    @State private var renameDraft = ""
-    @State private var renameWorkspace: WorkspaceModel.Workspace?
-
     var body: some View {
         VStack(spacing: 0) {
             navigatorToolbar
@@ -64,20 +59,6 @@ struct WorkspaceSidebar: View {
         // Match the window chrome (toolbar / titlebar), not the greyer
         // under-page fill that made the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
-        .alert("Переименовать workspace", isPresented: $showRenameAlert) {
-            TextField("Имя", text: $renameDraft)
-            Button("Отмена", role: .cancel) {
-                renameWorkspace = nil
-            }
-            Button("Сохранить") {
-                if let ws = renameWorkspace {
-                    workspace.renameWorkspace(ws, to: renameDraft)
-                }
-                renameWorkspace = nil
-            }
-        } message: {
-            Text("Пустое имя сбрасывает отображаемое имя на имя папки.")
-        }
     }
 
     private var filterQuery: String {
@@ -168,11 +149,12 @@ struct WorkspaceSidebar: View {
 
     private var bottomBar: some View {
         HStack(spacing: 6) {
-            // "+" is Files-only (workspace adoption). Filter stays global —
+            // "+" is Files-only (folder creation/adoption). Filter stays global —
             // it also filters Outline / Git / Review.
             if tab == "files" {
                 Menu {
-                    Button("New Workspace…") { workspace.promptAddFolder() }
+                    Button("New Folder…") { workspace.promptCreateFolder() }
+                    Button("Open Folder…") { workspace.promptAddFolder() }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 13, weight: .medium))
@@ -183,7 +165,7 @@ struct WorkspaceSidebar: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .frame(width: 22, height: 22)
-                .editMDHelp("New Workspace…")
+                .editMDHelp("Add Folder…")
             }
 
             HStack(spacing: 5) {
@@ -331,11 +313,13 @@ struct WorkspaceSidebar: View {
                 .fill(ownsActive ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .contextMenu {
-            Button("Переименовать…") {
-                renameWorkspace = ws
-                renameDraft = ws.customName ?? ws.url.lastPathComponent
-                showRenameAlert = true
+            Button("Изменить отображаемое имя…") {
+                promptForWorkspaceDisplayName(ws, workspace: workspace)
             }
+            Button("Переименовать папку на диске…") {
+                promptForWorkspaceFolderRename(ws, workspace: workspace)
+            }
+            Divider()
             copyPathMenuItem(ws.url)
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([ws.url])
