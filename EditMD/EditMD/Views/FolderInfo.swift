@@ -307,6 +307,84 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
 }
 
 @MainActor
+func promptCreateMarkdownFile(in folder: URL, workspace: WorkspaceModel) {
+    guard let name = promptForNewName(
+        title: "Новый markdown-файл",
+        message: "Файл будет создан в «\(folder.lastPathComponent)».",
+        defaultName: "Untitled.md"
+    ) else { return }
+    do {
+        let url = try workspace.createMarkdownFile(named: name, in: folder)
+        AppState.shared.openCreatedFile(url)
+    } catch {
+        presentFolderError(error)
+    }
+}
+
+@MainActor
+func promptCreateSubfolder(in folder: URL, workspace: WorkspaceModel) {
+    guard let name = promptForNewName(
+        title: "Новая папка",
+        message: "Папка будет создана в «\(folder.lastPathComponent)».",
+        defaultName: "New Folder"
+    ) else { return }
+    do {
+        _ = try workspace.createSubfolder(named: name, in: folder)
+    } catch {
+        presentFolderError(error)
+    }
+}
+
+/// One source of truth for folder context commands across the sidebar and the
+/// folder info card. Root-only identity/removal actions appear only for an
+/// adopted workspace root; creation and path actions work for every folder.
+struct FolderContextMenu: View {
+    @ObservedObject var workspace: WorkspaceModel
+    let folder: URL
+    var showsOpen = false
+
+    private var rootWorkspace: WorkspaceModel.Workspace? {
+        workspace.workspaceRoot(at: folder)
+    }
+
+    var body: some View {
+        if showsOpen {
+            Button("Открыть") { AppState.shared.openInMainWindow(folder) }
+            Divider()
+        }
+        Button("Новый файл…") {
+            promptCreateMarkdownFile(in: folder, workspace: workspace)
+        }
+        Button("Новая папка…") {
+            promptCreateSubfolder(in: folder, workspace: workspace)
+        }
+        Divider()
+        if let rootWorkspace {
+            Button("Изменить отображаемое имя…") {
+                promptForWorkspaceDisplayName(rootWorkspace, workspace: workspace)
+            }
+            Button("Переименовать папку на диске…") {
+                promptForWorkspaceFolderRename(rootWorkspace, workspace: workspace)
+            }
+            Divider()
+        }
+        Button("Скопировать путь") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(folder.path, forType: .string)
+        }
+        Button("Показать в Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([folder])
+        }
+        if let rootWorkspace {
+            Divider()
+            Button("Убрать из сайдбара") {
+                workspace.removeWorkspace(rootWorkspace)
+            }
+        }
+    }
+}
+
+@MainActor
 @discardableResult
 func promptForFileMove(_ file: URL, workspace: WorkspaceModel) -> Bool {
     promptForFileMove([file], workspace: workspace)
@@ -546,33 +624,42 @@ struct FolderInfoHost: View {
 // MARK: - Nested tree row (separate type — recursive `some View` is illegal)
 
 private struct FolderTreeRowView: View {
+    @ObservedObject var workspace: WorkspaceModel
     let node: FolderTreeNode
     let depth: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                if depth > 0 {
-                    Spacer().frame(width: CGFloat(depth) * 14)
-                }
-                Image(systemName: "folder")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Text(node.url.lastPathComponent)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text("\(node.markdownCount)")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-            .onTapGesture {
+            Button {
                 AppState.shared.openInMainWindow(node.url)
+            } label: {
+                HStack(spacing: 6) {
+                    if depth > 0 {
+                        Spacer().frame(width: CGFloat(depth) * 14)
+                    }
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(node.url.lastPathComponent)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("\(node.markdownCount)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, 2)
+            .contextMenu {
+                FolderContextMenu(
+                    workspace: workspace,
+                    folder: node.url,
+                    showsOpen: true)
             }
             ForEach(node.children) { child in
-                FolderTreeRowView(node: child, depth: depth + 1)
+                FolderTreeRowView(workspace: workspace, node: child, depth: depth + 1)
             }
         }
     }
@@ -648,6 +735,9 @@ struct FolderInfoCard: View {
             .background(Color(nsColor: .textBackgroundColor))
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .contextMenu {
+            FolderContextMenu(workspace: workspace, folder: folderURL)
+        }
         .fileMoveDropTarget(folder: folderURL, workspace: workspace)
         .overlay(alignment: .bottom) { copiedToast }
         .onAppear { reloadTreeStats() }
@@ -870,7 +960,7 @@ struct FolderInfoCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 sectionHeader("ПОДПАПКИ")
                 ForEach(nodes) { node in
-                    FolderTreeRowView(node: node, depth: 0)
+                    FolderTreeRowView(workspace: workspace, node: node, depth: 0)
                 }
             }
             .padding(.leading, contentIconRail)
@@ -910,13 +1000,8 @@ struct FolderInfoCard: View {
                                        onTap: { AppState.shared.openInMainWindow(file) },
                                        onTrailing: { workspace.hide(file) })
                         .contextMenu {
-                            Button("Открыть в отдельном окне") {
-                                AppState.shared.openInSeparateWindow(file)
-                            }
-                            Button("Скрыть из списка") { workspace.hide(file) }
-                            Button("Показать в Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([file])
-                            }
+                            FolderInfoFileContextMenu(
+                                workspace: workspace, file: file, hidden: false)
                         }
                     }
                 }
@@ -938,10 +1023,8 @@ struct FolderInfoCard: View {
                                            onTap: { AppState.shared.openInMainWindow(file) },
                                            onTrailing: { workspace.unhide(file) })
                             .contextMenu {
-                                Button("Вернуть в список") { workspace.unhide(file) }
-                                Button("Показать в Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([file])
-                                }
+                                FolderInfoFileContextMenu(
+                                    workspace: workspace, file: file, hidden: true)
                             }
                         }
                     }
@@ -966,9 +1049,7 @@ struct FolderInfoCard: View {
                        onTap: { AppState.shared.openInMainWindow(sub) },
                        onTrailing: {})
         .contextMenu {
-            Button("Показать в Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([sub])
-            }
+            FolderContextMenu(workspace: workspace, folder: sub, showsOpen: true)
         }
     }
 
@@ -1006,30 +1087,36 @@ struct FolderInfoCard: View {
     // MARK: Create actions
 
     private func newFile() {
-        guard let name = promptForNewName(
-            title: "Новый markdown-файл",
-            message: "Файл будет создан в «\(folderURL.lastPathComponent)».",
-            defaultName: "Untitled.md"
-        ) else { return }
-        do {
-            let url = try workspace.createMarkdownFile(named: name, in: folderURL)
-            AppState.shared.openCreatedFile(url)
-        } catch {
-            presentFolderError(error)
-        }
+        promptCreateMarkdownFile(in: folderURL, workspace: workspace)
     }
 
     private func newFolder() {
-        guard let name = promptForNewName(
-            title: "Новая папка",
-            message: "Папка будет создана в «\(folderURL.lastPathComponent)».",
-            defaultName: "New Folder"
-        ) else { return }
-        do {
-            _ = try workspace.createSubfolder(named: name, in: folderURL)
-            // Stay on the parent card; tree expands so the new folder is visible.
-        } catch {
-            presentFolderError(error)
+        promptCreateSubfolder(in: folderURL, workspace: workspace)
+    }
+}
+
+private struct FolderInfoFileContextMenu: View {
+    @ObservedObject var workspace: WorkspaceModel
+    let file: URL
+    let hidden: Bool
+
+    var body: some View {
+        Button("Открыть в отдельном окне") {
+            AppState.shared.openInSeparateWindow(file)
+        }
+        Divider()
+        Button("Переместить…") {
+            promptForFileMove(file, workspace: workspace)
+        }
+        Button(hidden ? "Вернуть в список" : "Скрыть из списка") {
+            if hidden { workspace.unhide(file) } else { workspace.hide(file) }
+        }
+        Button("Скопировать путь") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(file.path, forType: .string)
+        }
+        Button("Показать в Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([file])
         }
     }
 }

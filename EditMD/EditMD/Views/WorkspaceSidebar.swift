@@ -361,18 +361,7 @@ struct WorkspaceSidebar: View {
                 .fill(ownsActive ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .contextMenu {
-            Button("Изменить отображаемое имя…") {
-                promptForWorkspaceDisplayName(ws, workspace: workspace)
-            }
-            Button("Переименовать папку на диске…") {
-                promptForWorkspaceFolderRename(ws, workspace: workspace)
-            }
-            Divider()
-            copyPathMenuItem(ws.url)
-            Button("Показать в Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([ws.url])
-            }
-            Button("Убрать из сайдбара") { workspace.removeWorkspace(ws) }
+            FolderContextMenu(workspace: workspace, folder: ws.url, showsOpen: true)
         }
         .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
             selectedFiles.removeAll()
@@ -613,13 +602,7 @@ private struct SubfolderNode: View {
                 .fill(selected ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .contextMenu {
-            Button("Скопировать путь") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(folder.path, forType: .string)
-            }
-            Button("Показать в Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([folder])
-            }
+            FolderContextMenu(workspace: workspace, folder: folder, showsOpen: true)
         }
         .fileMoveDropTarget(folder: folder, workspace: workspace) {
             selectedFiles.removeAll()
