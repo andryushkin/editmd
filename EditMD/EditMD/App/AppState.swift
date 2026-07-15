@@ -1,6 +1,107 @@
 import SwiftUI
 import AppKit
 
+/// App-wide delayed progress state for operations that may outlive an
+/// interaction frame. Work starts (and input is blocked) immediately, while
+/// the visual indicator appears only after a short delay to avoid flashing for
+/// fast operations. Multiple callers can overlap safely.
+@MainActor
+final class LongRunningOperationCenter: ObservableObject {
+    struct Operation: Identifiable, Equatable, Sendable {
+        let id: UUID
+        let title: String
+    }
+
+    static let shared = LongRunningOperationCenter()
+
+    @Published private(set) var visibleOperation: Operation?
+    @Published private(set) var isBlocking = false
+
+    private let revealDelay: Duration
+    private var active: [Operation] = []
+    private var revealed = Set<UUID>()
+    private var revealTasks: [UUID: Task<Void, Never>] = [:]
+
+    init(revealDelay: Duration = .milliseconds(250)) {
+        self.revealDelay = revealDelay
+    }
+
+    @discardableResult
+    func begin(title: String) -> UUID {
+        let operation = Operation(id: UUID(), title: title)
+        active.append(operation)
+        isBlocking = true
+        revealTasks[operation.id] = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: revealDelay)
+            guard !Task.isCancelled,
+                  active.contains(where: { $0.id == operation.id }) else { return }
+            revealed.insert(operation.id)
+            refreshVisibleOperation()
+        }
+        return operation.id
+    }
+
+    func finish(_ id: UUID) {
+        revealTasks.removeValue(forKey: id)?.cancel()
+        active.removeAll { $0.id == id }
+        revealed.remove(id)
+        isBlocking = !active.isEmpty
+        refreshVisibleOperation()
+    }
+
+    func run<T>(title: String,
+                operation: @MainActor () async throws -> T) async rethrows -> T {
+        let id = begin(title: title)
+        defer { finish(id) }
+        return try await operation()
+    }
+
+    private func refreshVisibleOperation() {
+        visibleOperation = active.last { revealed.contains($0.id) }
+    }
+}
+
+private struct LongRunningOperationOverlayModifier: ViewModifier {
+    @ObservedObject private var operations = LongRunningOperationCenter.shared
+
+    func body(content: Content) -> some View {
+        ZStack {
+            content
+                .allowsHitTesting(!operations.isBlocking)
+
+            if let operation = operations.visibleOperation {
+                Color.black.opacity(0.08)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(operation.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.regularMaterial,
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(operation.title)
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: operations.visibleOperation?.id)
+    }
+}
+
+extension View {
+    func longRunningOperationOverlay() -> some View {
+        modifier(LongRunningOperationOverlayModifier())
+    }
+}
+
 enum EditorOpenReason: Sendable {
     case existing
     case created
@@ -32,6 +133,13 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
 @MainActor
 final class AppState: ObservableObject {
 
+    struct FilePresentationState: Equatable, Sendable {
+        enum Focus: Equatable, Sendable { case main, separate, neither }
+        let wasInMain: Bool
+        let hadSeparateWindow: Bool
+        let focus: Focus
+    }
+
     static let shared = AppState()
 
     /// Active path of the main window.
@@ -47,6 +155,7 @@ final class AppState: ObservableObject {
 
     private var openWindow: OpenWindowAction?
     private var pendingSeparateURLs: [URL] = []
+    private weak var mainWindow: NSWindow?
     private let defaults: UserDefaults
 
     /// Pending control-channel jump (url + UTF-16 markdown offset), consumed
@@ -89,6 +198,10 @@ final class AppState: ObservableObject {
         let pending = pendingSeparateURLs
         pendingSeparateURLs.removeAll()
         for url in pending { action(value: url) }
+    }
+
+    func bindMainWindow(_ window: NSWindow) {
+        mainWindow = window
     }
 
     // MARK: Routing
@@ -182,8 +295,53 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Keeps pending routes coherent after a closed file moves. A file shown
-    /// in a live window is rejected before the disk operation.
+    /// Captures and closes every presentation of a file before its path moves.
+    /// The singleton main window stays alive on Welcome; value-based lite
+    /// windows close and are recreated with the destination URL.
+    func detachFileForMove(_ url: URL) -> FilePresentationState {
+        let source = url.standardizedFileURL
+        let wasInMain = currentURL?.standardizedFileURL == source
+        let separateWindows = NSApp.windows.filter { window in
+            window !== mainWindow
+                && window.representedURL?.standardizedFileURL == source
+        }
+        let focus: FilePresentationState.Focus
+        if wasInMain, mainWindow?.isKeyWindow == true {
+            focus = .main
+        } else if separateWindows.contains(where: \.isKeyWindow) {
+            focus = .separate
+        } else {
+            focus = .neither
+        }
+
+        if wasInMain {
+            isUntitled = false
+            currentURL = nil
+        }
+        separateWindows.forEach { $0.close() }
+        return FilePresentationState(
+            wasInMain: wasInMain,
+            hadSeparateWindow: !separateWindows.isEmpty,
+            focus: focus)
+    }
+
+    /// Restores the same main/lite presentation topology after a move (or at
+    /// the old URL after rollback), reopening the previously focused kind last.
+    func restoreFilePresentation(_ state: FilePresentationState, at url: URL) {
+        switch state.focus {
+        case .separate:
+            if state.wasInMain { openInMainWindow(url) }
+            if state.hadSeparateWindow { openInSeparateWindow(url) }
+        case .main:
+            if state.hadSeparateWindow { openInSeparateWindow(url) }
+            if state.wasInMain { openInMainWindow(url) }
+        case .neither:
+            if state.wasInMain { openInMainWindow(url) }
+            if state.hadSeparateWindow { openInSeparateWindow(url) }
+        }
+    }
+
+    /// Keeps pending routes coherent after a file moves.
     func relocateFile(from oldURL: URL, to newURL: URL) {
         let old = oldURL.standardizedFileURL
         let new = newURL.standardizedFileURL

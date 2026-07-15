@@ -326,14 +326,37 @@ func promptForFileMove(_ file: URL, workspace: WorkspaceModel) {
 @MainActor
 func performFileMove(_ file: URL, to folder: URL, workspace: WorkspaceModel) {
     let oldURL = file.standardizedFileURL
+    guard oldURL.deletingLastPathComponent() != folder.standardizedFileURL else { return }
     Task { @MainActor in
         do {
-            let newURL = try await workspace.moveFileOnDisk(
-                oldURL, to: folder,
-                openDocumentURLs: AppState.openDocumentURLsForDiskMutation())
-            guard newURL != oldURL else { return }
-            AppState.shared.relocateFile(from: oldURL, to: newURL)
-            DocumentHistory.shared.relocateFile(from: oldURL, to: newURL)
+            try await LongRunningOperationCenter.shared.run(
+                title: "Перемещаем «\(oldURL.lastPathComponent)»…"
+            ) {
+                // Review saves run through a FIFO sidecar pipeline. Let every
+                // mutation reach disk before the sidecar follows the file.
+                if ReviewModel.shared.fileURL?.standardizedFileURL == oldURL {
+                    await ReviewModel.shared.flushPipeline()
+                }
+
+                let registry = DocumentRegistry.shared
+                let appState = AppState.shared
+                _ = try registry.prepareForMove(oldURL)
+                let presentation = appState.detachFileForMove(oldURL)
+                do {
+                    let newURL = try await workspace.moveFileOnDisk(oldURL, to: folder)
+                    guard newURL != oldURL else {
+                        appState.restoreFilePresentation(presentation, at: oldURL)
+                        return
+                    }
+                    registry.relocatePreparedDocument(from: oldURL, to: newURL)
+                    appState.relocateFile(from: oldURL, to: newURL)
+                    DocumentHistory.shared.relocateFile(from: oldURL, to: newURL)
+                    appState.restoreFilePresentation(presentation, at: newURL)
+                } catch {
+                    appState.restoreFilePresentation(presentation, at: oldURL)
+                    throw error
+                }
+            }
         } catch {
             presentFolderError(error, title: "Не удалось переместить файл")
         }

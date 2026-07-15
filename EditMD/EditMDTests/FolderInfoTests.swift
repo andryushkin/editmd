@@ -346,7 +346,7 @@ struct FileMoveTests {
         model.snapshot.update(path: fixture.second.path) { $0.files = [existing.path] }
 
         let destination = try await model.moveFileOnDisk(
-            source, to: fixture.second, openDocumentURLs: [])
+            source, to: fixture.second)
         let destinationSidecar = ReviewSidecar.url(for: destination)
 
         #expect(!FileManager.default.fileExists(atPath: source.path))
@@ -376,7 +376,7 @@ struct FileMoveTests {
 
         do {
             _ = try await model.moveFileOnDisk(
-                source, to: fixture.second, openDocumentURLs: [])
+                source, to: fixture.second)
             Issue.record("Expected a destination collision")
         } catch {
             #expect(error as? FileMoveError == .alreadyExists("note.md"))
@@ -386,25 +386,32 @@ struct FileMoveTests {
         #expect(try String(contentsOf: existing, encoding: .utf8) == "destination")
     }
 
-    @Test("Move is blocked while the source document is open")
-    func moveRejectsOpenDocument() async throws {
+    @Test("Open document is saved and its model follows the moved path")
+    func openDocumentFollowsMove() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let source = fixture.first.appendingPathComponent("note.md")
-        try "text".write(to: source, atomically: true, encoding: .utf8)
+        try "disk".write(to: source, atomically: true, encoding: .utf8)
         let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+        let registry = DocumentRegistry()
+        let document = try registry.acquire(source)
+        document.content = "edited"
+        registry.markDirty(source)
 
-        do {
-            _ = try await model.moveFileOnDisk(
-                source, to: fixture.second, openDocumentURLs: [source])
-            Issue.record("Expected an open-document error")
-        } catch {
-            #expect(error as? FileMoveError == .openDocument)
-        }
+        #expect(try registry.prepareForMove(source))
+        #expect(!registry.isOpen(source))
+        #expect(try String(contentsOf: source, encoding: .utf8) == "edited")
 
-        #expect(FileManager.default.fileExists(atPath: source.path))
-        #expect(!FileManager.default.fileExists(
-            atPath: fixture.second.appendingPathComponent("note.md").path))
+        let destination = try await model.moveFileOnDisk(source, to: fixture.second)
+        registry.relocatePreparedDocument(from: source, to: destination)
+        let reopened = try registry.acquire(destination)
+
+        #expect(reopened === document)
+        #expect(reopened.content == "edited")
+        #expect(registry.isOpen(destination))
+        registry.release(destination)
     }
 
     @Test("Moving a pinned loose file into a workspace clears loose state")
@@ -419,7 +426,7 @@ struct FileMoveTests {
         model.pin(source)
 
         let destination = try await model.moveFileOnDisk(
-            source, to: fixture.second, openDocumentURLs: [])
+            source, to: fixture.second)
 
         #expect(FileManager.default.fileExists(atPath: destination.path))
         #expect(!model.isPinned(destination))
@@ -451,6 +458,33 @@ struct FileMoveTests {
             try? FileManager.default.removeItem(at: parent)
             defaults.removePersistentDomain(forName: suiteName)
         }
+    }
+}
+
+@Suite("Long-running operation center")
+@MainActor
+struct LongRunningOperationCenterTests {
+
+    @Test("Fast operation blocks input without revealing delayed progress")
+    func fastOperationDoesNotFlash() async {
+        let center = LongRunningOperationCenter(revealDelay: .seconds(60))
+        let result = await center.run(title: "Moving…") { 42 }
+
+        #expect(result == 42)
+        #expect(!center.isBlocking)
+        #expect(center.visibleOperation == nil)
+    }
+
+    @Test("Finishing one operation keeps overlapping work blocked")
+    func overlappingOperationsStayBlocked() {
+        let center = LongRunningOperationCenter(revealDelay: .seconds(60))
+        let first = center.begin(title: "First")
+        let second = center.begin(title: "Second")
+
+        center.finish(second)
+        #expect(center.isBlocking)
+        center.finish(first)
+        #expect(!center.isBlocking)
     }
 }
 

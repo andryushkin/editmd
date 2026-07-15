@@ -279,6 +279,36 @@ final class DocumentRegistry {
         try flush(entry)
     }
 
+    /// Flushes and detaches a live document before its path changes on disk.
+    /// The model is parked in the session cache so reopening at the destination
+    /// can preserve its undo stack. Later DocHost releases for the old URL are
+    /// harmless because the live entry has already been removed.
+    @discardableResult
+    func prepareForMove(_ url: URL) throws -> Bool {
+        let key = url.standardizedFileURL
+        guard let entry = entries[key] else { return false }
+        entry.autosaveTask?.cancel()
+        entry.document.commitContentEdit()
+        try flush(entry)
+        stopWatching(entry)
+        entries.removeValue(forKey: key)
+        parkInSessionCache(key, document: entry.document,
+                           knownModDate: entry.knownModDate)
+        ExternalChangeCenter.shared.dismiss(key)
+        return true
+    }
+
+    /// Re-keys the parked model after a successful disk move. The next acquire
+    /// at `newURL` restores the same document and undo manager.
+    func relocatePreparedDocument(from oldURL: URL, to newURL: URL) {
+        let old = oldURL.standardizedFileURL
+        let new = newURL.standardizedFileURL
+        guard let index = sessionCache.firstIndex(where: { $0.url == old }) else { return }
+        let cached = sessionCache.remove(at: index)
+        sessionCache.removeAll { $0.url == new }
+        sessionCache.insert((new, cached.document, cached.knownModDate), at: 0)
+    }
+
     /// Public re-check for a single open file (window focus, tests).
     /// Always attempts a content compare when the file exists — callers that
     /// already know the disk changed (tests, explicit refresh) must not be

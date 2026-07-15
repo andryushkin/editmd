@@ -6,7 +6,6 @@ enum FileMoveError: LocalizedError, Equatable, Sendable {
     case unsupportedSource
     case destinationNotFolder
     case alreadyExists(String)
-    case openDocument
     case moveInProgress
 
     var errorDescription: String? {
@@ -19,8 +18,6 @@ enum FileMoveError: LocalizedError, Equatable, Sendable {
             return "Папка назначения больше не существует."
         case .alreadyExists(let name):
             return "В папке назначения уже существует «\(name)»."
-        case .openDocument:
-            return "Сначала закройте этот файл во всех окнах EditMD."
         case .moveInProgress:
             return "Этот файл уже перемещается."
         }
@@ -520,8 +517,7 @@ final class WorkspaceModel: ObservableObject {
     @discardableResult
     func moveFileOnDisk(
         _ rawSource: URL,
-        to rawDestinationFolder: URL,
-        openDocumentURLs: [URL]
+        to rawDestinationFolder: URL
     ) async throws -> URL {
         let source = rawSource.standardizedFileURL
         let destinationFolder = rawDestinationFolder.standardizedFileURL
@@ -532,11 +528,6 @@ final class WorkspaceModel: ObservableObject {
 
         guard Self.listedExtensions.contains(source.pathExtension.lowercased()) else {
             throw FileMoveError.unsupportedSource
-        }
-        guard !openDocumentURLs.contains(where: {
-            $0.standardizedFileURL == source
-        }) else {
-            throw FileMoveError.openDocument
         }
         guard fileMovesInFlight.insert(source.path).inserted else {
             throw FileMoveError.moveInProgress

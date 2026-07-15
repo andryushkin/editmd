@@ -402,6 +402,7 @@ struct EditMDApp: App {
 
         Settings {
             SettingsView()
+                .longRunningOperationOverlay()
         }
     }
 }
@@ -423,5 +424,6 @@ private struct LiteWindowContent: View {
             }
         }
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)
+        .longRunningOperationOverlay()
     }
 }
