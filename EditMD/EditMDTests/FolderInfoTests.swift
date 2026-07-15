@@ -433,6 +433,100 @@ struct FileMoveTests {
         #expect(!model.looseFilesToShow.contains(destination))
     }
 
+    @Test("Batch move accepts files from different folders and workspaces")
+    func batchMoveAcrossFolders() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let nested = fixture.first.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let first = fixture.first.appendingPathComponent("first.md")
+        let second = nested.appendingPathComponent("second.md")
+        try "first".write(to: first, atomically: true, encoding: .utf8)
+        try "second".write(to: second, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+        model.hide(second)
+
+        let moves = try await model.moveFilesOnDisk(
+            [first, second], to: fixture.second)
+
+        #expect(moves.map(\.source) == [first, second])
+        #expect(moves.map(\.destination) == [
+            fixture.second.appendingPathComponent("first.md"),
+            fixture.second.appendingPathComponent("second.md")
+        ])
+        #expect(!FileManager.default.fileExists(atPath: first.path))
+        #expect(!FileManager.default.fileExists(atPath: second.path))
+        #expect(try String(contentsOf: moves[0].destination, encoding: .utf8) == "first")
+        #expect(try String(contentsOf: moves[1].destination, encoding: .utf8) == "second")
+        #expect(model.hiddenFiles[fixture.first.path] == nil)
+        #expect(model.hiddenFiles[fixture.second.path] == ["second.md"])
+    }
+
+    @Test("Batch collision is rejected before any source moves")
+    func batchRejectsDuplicateBasenamesAtomically() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let nested = fixture.first.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let first = fixture.first.appendingPathComponent("same.md")
+        let second = nested.appendingPathComponent("same.md")
+        try "first".write(to: first, atomically: true, encoding: .utf8)
+        try "second".write(to: second, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+
+        do {
+            _ = try await model.moveFilesOnDisk([first, second], to: fixture.second)
+            Issue.record("Expected a duplicate destination collision")
+        } catch {
+            #expect(error as? FileMoveError == .alreadyExists("same.md"))
+        }
+
+        #expect(try String(contentsOf: first, encoding: .utf8) == "first")
+        #expect(try String(contentsOf: second, encoding: .utf8) == "second")
+        #expect(!FileManager.default.fileExists(
+            atPath: fixture.second.appendingPathComponent("same.md").path))
+    }
+
+    @Test("Multiple open document models follow a batch move")
+    func openDocumentsFollowBatchMove() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let first = fixture.first.appendingPathComponent("first.md")
+        let second = fixture.first.appendingPathComponent("second.md")
+        try "disk one".write(to: first, atomically: true, encoding: .utf8)
+        try "disk two".write(to: second, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+        let registry = DocumentRegistry()
+        let firstDocument = try registry.acquire(first)
+        let secondDocument = try registry.acquire(second)
+        firstDocument.content = "edited one"
+        secondDocument.content = "edited two"
+        registry.markDirty(first)
+        registry.markDirty(second)
+
+        #expect(try registry.prepareForMove(first))
+        #expect(try registry.prepareForMove(second))
+        let moves = try await model.moveFilesOnDisk([first, second], to: fixture.second)
+        for move in moves {
+            registry.relocatePreparedDocument(from: move.source, to: move.destination)
+        }
+        let reopenedFirst = try registry.acquire(moves[0].destination)
+        let reopenedSecond = try registry.acquire(moves[1].destination)
+
+        #expect(reopenedFirst === firstDocument)
+        #expect(reopenedSecond === secondDocument)
+        #expect(reopenedFirst.content == "edited one")
+        #expect(reopenedSecond.content == "edited two")
+        registry.release(moves[0].destination)
+        registry.release(moves[1].destination)
+    }
+
     private func makeFixture() throws -> Fixture {
         let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent("editmd-file-move-\(UUID().uuidString)",
@@ -458,6 +552,48 @@ struct FileMoveTests {
             try? FileManager.default.removeItem(at: parent)
             defaults.removePersistentDomain(forName: suiteName)
         }
+    }
+}
+
+@Suite("Sidebar file selection")
+@MainActor
+struct SidebarFileSelectionTests {
+
+    @Test("Command-click toggles without opening")
+    func commandClickTogglesSelection() {
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        var selection = Set<URL>()
+
+        #expect(!updateSidebarFileSelection(
+            for: first, commandHeld: true, selectedFiles: &selection))
+        #expect(selection == [first])
+        #expect(!updateSidebarFileSelection(
+            for: first, commandHeld: true, selectedFiles: &selection))
+        #expect(selection.isEmpty)
+    }
+
+    @Test("Normal click replaces the group, selects, and opens the row")
+    func normalClickReplacesSelection() {
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+        var selection: Set<URL> = [first, second]
+
+        #expect(updateSidebarFileSelection(
+            for: first, commandHeld: false, selectedFiles: &selection))
+        #expect(selection == [first])
+    }
+
+    @Test("A selected drag carries the whole stable group")
+    func selectedDragCarriesGroup() {
+        let first = URL(fileURLWithPath: "/tmp/a/first.md")
+        let second = URL(fileURLWithPath: "/tmp/b/second.md")
+        let selection: Set<URL> = [second, first]
+
+        #expect(sidebarMoveFiles(anchor: first, selectedFiles: selection) == [first, second])
+        #expect(sidebarMoveFiles(
+            anchor: URL(fileURLWithPath: "/tmp/third.md"),
+            selectedFiles: selection
+        ) == [URL(fileURLWithPath: "/tmp/third.md")])
     }
 }
 

@@ -26,6 +26,8 @@ struct FileRow: View {
     var icon: String = "doc.text"
     var subtitle: String?
     let isActive: Bool
+    /// Part of the explicit multi-file selection (Command-click).
+    var isSelected = false
     /// Hidden file shown in review mode — soften label, keep eye button crisp.
     var dimmed = false
     var depth: Int = 0
@@ -71,9 +73,11 @@ struct FileRow: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isActive
-                      ? AnyShapeStyle(Color.accentColor.opacity(0.14))
+                .fill(isSelected
+                      ? AnyShapeStyle(Color.accentColor.opacity(0.22))
+                      : (isActive ? AnyShapeStyle(Color.accentColor.opacity(0.14))
                       : (hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
+                )
         )
         .padding(.horizontal, 4)
         .contentShape(Rectangle())

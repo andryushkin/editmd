@@ -1,5 +1,51 @@
 import SwiftUI
 import AppKit
+import CoreTransferable
+import UniformTypeIdentifiers
+
+extension UTType {
+    static let editMDFileMove = UTType(exportedAs: "com.editmd.file-move")
+}
+
+/// Internal drag payload. One item provider carries the complete selection so
+/// a folder drop starts one transactional move instead of N independent moves.
+struct SidebarFileDragPayload: Codable, Equatable, Sendable, Transferable {
+    let files: [URL]
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .editMDFileMove)
+    }
+}
+
+/// Command-click follows the standard macOS toggle-selection convention.
+/// A normal click replaces the group with that row and tells the caller to
+/// open it, so the visually inspected file is already the selection anchor.
+@discardableResult
+func updateSidebarFileSelection(
+    for rawFile: URL,
+    commandHeld: Bool,
+    selectedFiles: inout Set<URL>
+) -> Bool {
+    let file = rawFile.standardizedFileURL
+    if commandHeld {
+        if selectedFiles.contains(file) {
+            selectedFiles.remove(file)
+        } else {
+            selectedFiles.insert(file)
+        }
+        return false
+    }
+    selectedFiles = [file]
+    return true
+}
+
+/// Dragging or invoking Move on a selected row acts on the whole selection.
+/// A non-selected row remains an independent single-file operation.
+func sidebarMoveFiles(anchor rawAnchor: URL, selectedFiles: Set<URL>) -> [URL] {
+    let anchor = rawAnchor.standardizedFileURL
+    guard selectedFiles.contains(anchor) else { return [anchor] }
+    return selectedFiles.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+}
 
 /// The left sidebar: Xcode-style icon toolbar switches Files / Outline / Git;
 /// Files shows adopted workspace folders (collapsible tree) + loose
@@ -22,6 +68,7 @@ struct WorkspaceSidebar: View {
     @AppStorage("sidebarShowHidden") private var showHidden = false
     /// Bottom filter field — filters Files tree / Outline headings / Git paths.
     @State private var filterText = ""
+    @State private var selectedFiles = Set<URL>()
     var body: some View {
         VStack(spacing: 0) {
             navigatorToolbar
@@ -59,6 +106,7 @@ struct WorkspaceSidebar: View {
         // Match the window chrome (toolbar / titlebar), not the greyer
         // under-page fill that made the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: tab) { _ in selectedFiles.removeAll() }
     }
 
     private var filterQuery: String {
@@ -326,7 +374,9 @@ struct WorkspaceSidebar: View {
             }
             Button("Убрать из сайдбара") { workspace.removeWorkspace(ws) }
         }
-        .fileMoveDropTarget(folder: ws.url, workspace: workspace)
+        .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
+            selectedFiles.removeAll()
+        }
 
         if !ws.collapsed {
             // Folders first (md-bearing; empty only with eye), then files.
@@ -336,6 +386,7 @@ struct WorkspaceSidebar: View {
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1,
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
+                              selectedFiles: $selectedFiles,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             if showHidden {
@@ -343,6 +394,7 @@ struct WorkspaceSidebar: View {
                     SubfolderNode(workspace: workspace, folder: sub, depth: 1,
                                   filter: filterQuery, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
+                                  selectedFiles: $selectedFiles,
                                   onOpen: onOpen, onOpenFolder: onOpenFolder)
                 }
             }
@@ -375,15 +427,16 @@ struct WorkspaceSidebar: View {
                 icon: sidebarFileIcon(for: url),
                 subtitle: nil,
                 isActive: isActive(url),
+                isSelected: selectedFiles.contains(url.standardizedFileURL),
                 dimmed: hidden,
                 depth: 1,
                 trailing: hidden ? .unhide : .hide,
-                onTap: { onOpen(url) },
+                onTap: { handleFileTap(url) },
                 onTrailing: { hidden ? workspace.unhide(url, in: ws) : workspace.hide(url, in: ws) })
         .contextMenu {
             Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
             Divider()
-            Button("Переместить…") { promptForFileMove(url, workspace: workspace) }
+            Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(url, in: ws) }
             } else {
@@ -394,7 +447,8 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
-        .draggable(url)
+        .draggable(SidebarFileDragPayload(
+            files: sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)))
     }
 
     // MARK: - Loose row
@@ -406,14 +460,15 @@ struct WorkspaceSidebar: View {
                        icon: sidebarFileIcon(for: url),
                        subtitle: dir,
                        isActive: isActive(url),
+                       isSelected: selectedFiles.contains(url.standardizedFileURL),
                        dimmed: false,
                        trailing: .pin(pinned),
-                       onTap: { onOpen(url) },
+                       onTap: { handleFileTap(url) },
                        onTrailing: { pinned ? workspace.unpin(url) : workspace.pin(url) })
         .contextMenu {
             Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
             Divider()
-            Button("Переместить…") { promptForFileMove(url, workspace: workspace) }
+            Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
             Button(pinned ? "Открепить" : "Закрепить") {
                 pinned ? workspace.unpin(url) : workspace.pin(url)
             }
@@ -423,7 +478,28 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
-        .draggable(url)
+        .draggable(SidebarFileDragPayload(
+            files: sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)))
+    }
+
+    private func handleFileTap(_ url: URL) {
+        let shouldOpen = updateSidebarFileSelection(
+            for: url,
+            commandHeld: NSEvent.modifierFlags.contains(.command),
+            selectedFiles: &selectedFiles)
+        if shouldOpen { onOpen(url) }
+    }
+
+    private func moveMenuTitle(for url: URL) -> String {
+        let count = sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles).count
+        return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+    }
+
+    private func promptToMoveSelection(anchoredAt url: URL) {
+        let files = sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)
+        if promptForFileMove(files, workspace: workspace) {
+            selectedFiles.removeAll()
+        }
     }
 
     private func isActive(_ url: URL) -> Bool {
@@ -464,6 +540,7 @@ private struct SubfolderNode: View {
     let showHidden: Bool
     /// No markdown in this folder’s tree — dimmed; only listed when eye is on.
     var isEmptyFolder: Bool = false
+    @Binding var selectedFiles: Set<URL>
     let onOpen: (URL) -> Void
     let onOpenFolder: (URL) -> Void
 
@@ -544,7 +621,9 @@ private struct SubfolderNode: View {
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
             }
         }
-        .fileMoveDropTarget(folder: folder, workspace: workspace)
+        .fileMoveDropTarget(folder: folder, workspace: workspace) {
+            selectedFiles.removeAll()
+        }
 
         if expanded {
             // md folders → empty folders (eye) → visible files → hidden files (eye).
@@ -552,6 +631,7 @@ private struct SubfolderNode: View {
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                               filter: filter, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
+                              selectedFiles: $selectedFiles,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             if showHidden {
@@ -559,6 +639,7 @@ private struct SubfolderNode: View {
                     SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                                   filter: filter, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
+                                  selectedFiles: $selectedFiles,
                                   onOpen: onOpen, onOpenFolder: onOpenFolder)
                 }
             }
@@ -579,10 +660,11 @@ private struct SubfolderNode: View {
         FileRow(name: file.lastPathComponent,
                 icon: sidebarFileIcon(for: file),
                 isActive: file.standardizedFileURL == activeURL?.standardizedFileURL,
+                isSelected: selectedFiles.contains(file.standardizedFileURL),
                 dimmed: hidden,
                 depth: depth + 1,
                 trailing: hidden ? .unhide : .hide,
-                onTap: { onOpen(file) },
+                onTap: { handleFileTap(file) },
                 onTrailing: {
                     if hidden { workspace.unhide(file) } else { workspace.hide(file) }
                 })
@@ -591,7 +673,7 @@ private struct SubfolderNode: View {
                 AppState.shared.openInSeparateWindow(file)
             }
             Divider()
-            Button("Переместить…") { promptForFileMove(file, workspace: workspace) }
+            Button(moveMenuTitle(for: file)) { promptToMoveSelection(anchoredAt: file) }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(file) }
             } else {
@@ -605,6 +687,27 @@ private struct SubfolderNode: View {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
             }
         }
-        .draggable(file)
+        .draggable(SidebarFileDragPayload(
+            files: sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles)))
+    }
+
+    private func handleFileTap(_ file: URL) {
+        let shouldOpen = updateSidebarFileSelection(
+            for: file,
+            commandHeld: NSEvent.modifierFlags.contains(.command),
+            selectedFiles: &selectedFiles)
+        if shouldOpen { onOpen(file) }
+    }
+
+    private func moveMenuTitle(for file: URL) -> String {
+        let count = sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles).count
+        return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+    }
+
+    private func promptToMoveSelection(anchoredAt file: URL) {
+        let files = sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles)
+        if promptForFileMove(files, workspace: workspace) {
+            selectedFiles.removeAll()
+        }
     }
 }

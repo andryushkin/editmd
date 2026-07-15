@@ -307,65 +307,133 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
 }
 
 @MainActor
-func promptForFileMove(_ file: URL, workspace: WorkspaceModel) {
+@discardableResult
+func promptForFileMove(_ file: URL, workspace: WorkspaceModel) -> Bool {
+    promptForFileMove([file], workspace: workspace)
+}
+
+@MainActor
+@discardableResult
+func promptForFileMove(_ rawFiles: [URL], workspace: WorkspaceModel) -> Bool {
+    let files = uniqueStandardizedFiles(rawFiles)
+    guard let first = files.first else { return false }
     let panel = NSOpenPanel()
-    panel.title = "Переместить файл"
-    panel.message = "Выберите папку назначения для «\(file.lastPathComponent)»."
+    panel.title = files.count == 1 ? "Переместить файл" : "Переместить файлы"
+    panel.message = files.count == 1
+        ? "Выберите папку назначения для «\(first.lastPathComponent)»."
+        : "Выберите общую папку назначения для \(files.count) выбранных файлов."
     panel.prompt = "Переместить"
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     panel.treatsFilePackagesAsDirectories = false
-    panel.directoryURL = file.deletingLastPathComponent()
-    guard panel.runModal() == .OK, let folder = panel.url else { return }
-    performFileMove(file, to: folder, workspace: workspace)
+    panel.directoryURL = first.deletingLastPathComponent()
+    guard panel.runModal() == .OK, let folder = panel.url else { return false }
+    performFileMoves(files, to: folder, workspace: workspace)
+    return true
 }
 
 /// Shared completion path for context-menu and drag-and-drop moves.
 @MainActor
 func performFileMove(_ file: URL, to folder: URL, workspace: WorkspaceModel) {
-    let oldURL = file.standardizedFileURL
-    guard oldURL.deletingLastPathComponent() != folder.standardizedFileURL else { return }
+    performFileMoves([file], to: folder, workspace: workspace)
+}
+
+private struct PreparedFileMove {
+    let source: URL
+    let presentation: AppState.FilePresentationState
+}
+
+/// Shared transactional completion path for context-menu and drag-and-drop.
+/// Every open document is parked before disk I/O, then the whole presentation
+/// topology is restored at either all new paths or all original paths.
+@MainActor
+func performFileMoves(_ rawFiles: [URL], to rawFolder: URL, workspace: WorkspaceModel) {
+    let folder = rawFolder.standardizedFileURL
+    let files = uniqueStandardizedFiles(rawFiles).filter {
+        $0.deletingLastPathComponent() != folder
+    }
+    guard !files.isEmpty else { return }
     Task { @MainActor in
         do {
             try await LongRunningOperationCenter.shared.run(
-                title: "Перемещаем «\(oldURL.lastPathComponent)»…"
+                title: files.count == 1
+                    ? "Перемещаем «\(files[0].lastPathComponent)»…"
+                    : "Перемещаем файлы (\(files.count))…"
             ) {
                 // Review saves run through a FIFO sidecar pipeline. Let every
                 // mutation reach disk before the sidecar follows the file.
-                if ReviewModel.shared.fileURL?.standardizedFileURL == oldURL {
+                if let reviewURL = ReviewModel.shared.fileURL?.standardizedFileURL,
+                   files.contains(reviewURL) {
                     await ReviewModel.shared.flushPipeline()
                 }
 
                 let registry = DocumentRegistry.shared
                 let appState = AppState.shared
-                _ = try registry.prepareForMove(oldURL)
-                let presentation = appState.detachFileForMove(oldURL)
+                var prepared: [PreparedFileMove] = []
                 do {
-                    let newURL = try await workspace.moveFileOnDisk(oldURL, to: folder)
-                    guard newURL != oldURL else {
-                        appState.restoreFilePresentation(presentation, at: oldURL)
-                        return
+                    for source in files {
+                        _ = try registry.prepareForMove(source)
+                        prepared.append(PreparedFileMove(
+                            source: source,
+                            presentation: appState.detachFileForMove(source)))
                     }
-                    registry.relocatePreparedDocument(from: oldURL, to: newURL)
-                    appState.relocateFile(from: oldURL, to: newURL)
-                    DocumentHistory.shared.relocateFile(from: oldURL, to: newURL)
-                    appState.restoreFilePresentation(presentation, at: newURL)
+                    let moves = try await workspace.moveFilesOnDisk(files, to: folder)
+                    let destinations = Dictionary(
+                        uniqueKeysWithValues: moves.map { ($0.source, $0.destination) })
+                    for move in moves {
+                        registry.relocatePreparedDocument(
+                            from: move.source, to: move.destination)
+                        appState.relocateFile(from: move.source, to: move.destination)
+                        DocumentHistory.shared.relocateFile(
+                            from: move.source, to: move.destination)
+                    }
+                    restorePreparedFiles(prepared, destinations: destinations)
                 } catch {
-                    appState.restoreFilePresentation(presentation, at: oldURL)
+                    restorePreparedFiles(prepared, destinations: [:])
                     throw error
                 }
             }
         } catch {
-            presentFolderError(error, title: "Не удалось переместить файл")
+            presentFolderError(
+                error,
+                title: files.count == 1
+                    ? "Не удалось переместить файл"
+                    : "Не удалось переместить файлы")
         }
+    }
+}
+
+private func uniqueStandardizedFiles(_ rawFiles: [URL]) -> [URL] {
+    var seen = Set<URL>()
+    return rawFiles.compactMap { raw in
+        let file = raw.standardizedFileURL
+        return seen.insert(file).inserted ? file : nil
+    }
+}
+
+@MainActor
+private func restorePreparedFiles(
+    _ prepared: [PreparedFileMove],
+    destinations: [URL: URL]
+) {
+    // The globally focused presentation is reopened last, after the rest of
+    // the batch can no longer steal focus from it.
+    let ordered = prepared.sorted { lhs, rhs in
+        lhs.presentation.focus == .neither && rhs.presentation.focus != .neither
+    }
+    for item in ordered {
+        AppState.shared.restoreFilePresentation(
+            item.presentation,
+            at: destinations[item.source] ?? item.source)
     }
 }
 
 private struct FileMoveDropTargetModifier: ViewModifier {
     @ObservedObject var workspace: WorkspaceModel
     let folder: URL
+    let onMoveStarted: () -> Void
     @State private var isTargeted = false
 
     func body(content: Content) -> some View {
@@ -375,17 +443,26 @@ private struct FileMoveDropTargetModifier: ViewModifier {
                     .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
                     .allowsHitTesting(false)
             }
-            .dropDestination(for: URL.self) { urls, _ in
-                guard let source = urls.first else { return false }
-                performFileMove(source, to: folder, workspace: workspace)
+            .dropDestination(for: SidebarFileDragPayload.self) { payloads, _ in
+                let files = payloads.flatMap(\.files)
+                guard !files.isEmpty else { return false }
+                performFileMoves(files, to: folder, workspace: workspace)
+                onMoveStarted()
                 return true
             } isTargeted: { isTargeted = $0 }
     }
 }
 
 extension View {
-    func fileMoveDropTarget(folder: URL, workspace: WorkspaceModel) -> some View {
-        modifier(FileMoveDropTargetModifier(workspace: workspace, folder: folder))
+    func fileMoveDropTarget(
+        folder: URL,
+        workspace: WorkspaceModel,
+        onMoveStarted: @escaping () -> Void = {}
+    ) -> some View {
+        modifier(FileMoveDropTargetModifier(
+            workspace: workspace,
+            folder: folder,
+            onMoveStarted: onMoveStarted))
     }
 }
 
