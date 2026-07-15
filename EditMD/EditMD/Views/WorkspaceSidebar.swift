@@ -435,7 +435,7 @@ struct WorkspaceSidebar: View {
 
     @ViewBuilder private func workspaceGroup(_ ws: WorkspaceModel.Workspace) -> some View {
         let selected = isActive(ws.url)
-        // A6: also highlight the root when the open file lives inside this workspace.
+        // Mark the owning root through its icon when the open file lives inside it.
         let ownsActive = selected || containsActiveFile(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
@@ -467,8 +467,8 @@ struct WorkspaceSidebar: View {
                         .font(.system(size: 11))
                         .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
                     Text(ws.name.uppercased())
-                        .font(.system(size: 10.5, weight: ownsActive ? .bold : .semibold))
-                        .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -479,10 +479,6 @@ struct WorkspaceSidebar: View {
         .padding(.horizontal, 8)
         .padding(.top, 8)
         .padding(.bottom, 3)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(ownsActive ? Color.accentColor.opacity(0.14) : Color.clear)
-        )
         .contextMenu {
             FolderContextMenu(workspace: workspace, folder: ws.url, showsOpen: true)
         }
