@@ -615,6 +615,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Сайдбар.** `WorkspaceModel` (несколько workspace-папок, скрытые по папкам, пины loose-файлов, session-loose; персист UserDefaults по пути) + `WorkspaceSidebar` (сегмент Files/Outline, глаз показывает скрытые с restore, пины, ПКМ). File▸Open Folder ⇧⌘O.
 - **Создание корневой папки (2026-07-15).** Плюс в Files различает `New Folder…` и `Open Folder…`: первый открывает save-style panel, где выбирают родительский каталог и имя ещё не существующей папки, затем создаёт её, добавляет в сайдбар и открывает. Во внешнем UI это «папка»; `Workspace` остаётся внутренним термином для корня Git/Review/integration scope.
 - **Имя папки и display name (2026-07-15).** По умолчанию корень показывается как настоящая папка. Пользователь может отдельно задать отображаемое имя EditMD; если оно отличается, карточка папки показывает обе сущности. Из сайдбара и карточки доступны отдельные команды для display name и физического rename. Rename на диске переносит path-keyed state/snapshot/history, но блокируется, пока внутри корня открыт документ: `DocumentRegistry`, undo/autosave и watchers привязаны к прежнему URL.
+- **Режим нового файла (2026-07-15).** Файл, созданный из карточки папки, и untitled через File ▸ New открываются в Visual. Обычная навигация по существующим файлам сохраняет выбранный режим, Finder/Dock по-прежнему открывает Preview.
 
 ### v28 — gotchas
 

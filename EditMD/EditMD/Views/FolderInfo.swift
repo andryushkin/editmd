@@ -857,7 +857,7 @@ struct FolderInfoCard: View {
         ) else { return }
         do {
             let url = try workspace.createMarkdownFile(named: name, in: folderURL)
-            AppState.shared.openInMainWindow(url)
+            AppState.shared.openCreatedFile(url)
         } catch {
             presentFolderError(error)
         }

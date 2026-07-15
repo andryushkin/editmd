@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The four editor modes: raw markdown, hybrid WYSIWYG, rendered preview,
 /// and the fixed Source + Preview workspace.
-enum EditorMode: String, CaseIterable, Identifiable {
+enum EditorMode: String, CaseIterable, Identifiable, Sendable {
     case source
     case visual
     case preview

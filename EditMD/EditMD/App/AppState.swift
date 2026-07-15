@@ -1,6 +1,22 @@
 import SwiftUI
 import AppKit
 
+enum EditorOpenReason: Sendable {
+    case existing
+    case created
+    case finder
+}
+
+/// Existing in-app navigation preserves the user's current mode. Creation and
+/// Finder/Dock opens have explicit read/write-first defaults.
+func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
+    switch reason {
+    case .existing: return nil
+    case .created: return .visual
+    case .finder: return .preview
+    }
+}
+
 /// App-wide window routing state (Phase 2 of the move off DocumentGroup).
 ///
 /// The MAIN workspace window is a single `Window` scene that shows whatever
@@ -31,6 +47,7 @@ final class AppState: ObservableObject {
 
     private var openWindow: OpenWindowAction?
     private var pendingSeparateURLs: [URL] = []
+    private let defaults: UserDefaults
 
     /// Pending control-channel jump (url + UTF-16 markdown offset), consumed
     /// by the main window once the target file is mounted. Replaces the old
@@ -38,7 +55,9 @@ final class AppState: ObservableObject {
     /// file took longer than the timer to open.
     private var pendingControlJump: (url: URL, offset: Int)?
 
-    private init() {}
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     // MARK: Control-channel jump
 
@@ -78,8 +97,7 @@ final class AppState: ObservableObject {
     /// Always starts in Preview — Finder/Dock opens are read-first; mode
     /// switches still persist for subsequent in-app opens (sidebar, wiki, etc.).
     func handleOpen(_ url: URL) {
-        // Same key as ContentView's `@AppStorage("editorMode")`.
-        UserDefaults.standard.set(EditorMode.preview.rawValue, forKey: "editorMode")
+        applyEditorModeOverride(for: .finder)
         // Finder only delivers files (and packages); folders come from the sidebar.
         if EditorSettings.shared.general.liteMode {
             openInSeparateWindow(url)
@@ -98,9 +116,17 @@ final class AppState: ObservableObject {
 
     /// Empty untitled markdown in the main window (File ▸ New).
     func openUntitled() {
+        applyEditorModeOverride(for: .created)
         isUntitled = true
         currentURL = nil
         openWindow?(id: WindowID.main)
+    }
+
+    /// Opens a file that EditMD has just created. New documents start in the
+    /// write-first Visual mode; ordinary navigation keeps the selected mode.
+    func openCreatedFile(_ url: URL) {
+        applyEditorModeOverride(for: .created)
+        openInMainWindow(url)
     }
 
     /// Loads `url` into the main window, bringing it to the front.
@@ -164,6 +190,12 @@ final class AppState: ObservableObject {
               isDir.boolValue else { return false }
         let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
         return !isPackage
+    }
+
+    private func applyEditorModeOverride(for reason: EditorOpenReason) {
+        guard let mode = editorModeOverride(for: reason) else { return }
+        // Same key as ContentView's `@AppStorage("editorMode")`.
+        defaults.set(mode.rawValue, forKey: "editorMode")
     }
 }
 

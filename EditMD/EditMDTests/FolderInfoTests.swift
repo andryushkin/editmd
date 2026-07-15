@@ -321,3 +321,36 @@ struct WorkspaceFolderIdentityTests {
         }
     }
 }
+
+@Suite("New file editor mode")
+@MainActor
+struct NewFileEditorModeTests {
+
+    @Test("Opening reason selects the intended override", arguments: [
+        (EditorOpenReason.created, EditorMode.visual),
+        (EditorOpenReason.finder, EditorMode.preview)
+    ])
+    func explicitModeOverrides(reason: EditorOpenReason, expected: EditorMode) {
+        #expect(editorModeOverride(for: reason) == expected)
+    }
+
+    @Test("Ordinary navigation preserves the selected mode")
+    func existingFileHasNoOverride() {
+        #expect(editorModeOverride(for: .existing) == nil)
+    }
+
+    @Test("Untitled documents start in Visual")
+    func untitledStartsInVisual() throws {
+        let suiteName = "new-file-mode-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(EditorMode.source.rawValue, forKey: "editorMode")
+        let appState = AppState(defaults: defaults)
+
+        appState.openUntitled()
+
+        #expect(defaults.string(forKey: "editorMode") == EditorMode.visual.rawValue)
+        #expect(appState.isUntitled)
+        #expect(appState.currentURL == nil)
+    }
+}
