@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import CoreTransferable
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -9,42 +8,165 @@ extension UTType {
 
 /// Internal drag payload. One item provider carries the complete selection so
 /// a folder drop starts one transactional move instead of N independent moves.
-struct SidebarFileDragPayload: Codable, Equatable, Sendable, Transferable {
+struct SidebarFileDragPayload: Codable, Equatable, Sendable {
     let files: [URL]
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .editMDFileMove)
-    }
 }
 
-/// Command-click follows the standard macOS toggle-selection convention.
-/// A normal click replaces the group with that row and tells the caller to
-/// open it, so the visually inspected file is already the selection anchor.
+func encodeSidebarFileDragPayload(_ payload: SidebarFileDragPayload) throws -> Data {
+    try JSONEncoder().encode(payload)
+}
+
+func decodeSidebarFileDragPayload(_ data: Data) throws -> SidebarFileDragPayload {
+    try JSONDecoder().decode(SidebarFileDragPayload.self, from: data)
+}
+
+/// Explicit provider registration avoids the custom Codable Transferable
+/// import failure seen in live SwiftUI drag sessions. The one provider still
+/// carries the complete group, so the destination starts one batch move.
+@MainActor
+func sidebarFileItemProvider(files: [URL]) -> NSItemProvider {
+    let payload = SidebarFileDragPayload(files: files.map(\.standardizedFileURL))
+    let provider = NSItemProvider()
+    guard let data = try? encodeSidebarFileDragPayload(payload) else { return provider }
+    provider.registerDataRepresentation(
+        forTypeIdentifier: UTType.editMDFileMove.identifier,
+        visibility: .ownProcess
+    ) { completion in
+        completion(data, nil)
+        return nil
+    }
+    return provider
+}
+
+/// Command-click toggles individual rows; Shift-click selects the visible range
+/// from the stable anchor. A normal click replaces the group and opens the row,
+/// so the visually inspected file is already the selection anchor.
 @discardableResult
 func updateSidebarFileSelection(
     for rawFile: URL,
     commandHeld: Bool,
-    selectedFiles: inout Set<URL>
+    shiftHeld: Bool,
+    orderedFiles rawOrderedFiles: [URL],
+    selectedFiles: inout Set<URL>,
+    selectionAnchor: inout URL?
 ) -> Bool {
     let file = rawFile.standardizedFileURL
+    let orderedFiles = rawOrderedFiles.map(\.standardizedFileURL)
+    if shiftHeld {
+        let anchor = selectionAnchor?.standardizedFileURL
+            ?? selectedFiles.first?.standardizedFileURL
+            ?? file
+        if let anchorIndex = orderedFiles.firstIndex(of: anchor),
+           let fileIndex = orderedFiles.firstIndex(of: file) {
+            let bounds = min(anchorIndex, fileIndex)...max(anchorIndex, fileIndex)
+            let range = Set(orderedFiles[bounds])
+            if commandHeld {
+                selectedFiles.formUnion(range)
+            } else {
+                selectedFiles = range
+            }
+        } else {
+            selectedFiles = [file]
+            selectionAnchor = file
+        }
+        return false
+    }
     if commandHeld {
         if selectedFiles.contains(file) {
             selectedFiles.remove(file)
         } else {
             selectedFiles.insert(file)
         }
+        selectionAnchor = file
         return false
     }
     selectedFiles = [file]
+    selectionAnchor = file
     return true
 }
 
 /// Dragging or invoking Move on a selected row acts on the whole selection.
 /// A non-selected row remains an independent single-file operation.
-func sidebarMoveFiles(anchor rawAnchor: URL, selectedFiles: Set<URL>) -> [URL] {
+func sidebarMoveFiles(
+    anchor rawAnchor: URL,
+    selectedFiles: Set<URL>,
+    orderedFiles rawOrderedFiles: [URL]
+) -> [URL] {
     let anchor = rawAnchor.standardizedFileURL
     guard selectedFiles.contains(anchor) else { return [anchor] }
-    return selectedFiles.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    let orderedFiles = rawOrderedFiles.map(\.standardizedFileURL)
+    let visible = orderedFiles.filter(selectedFiles.contains)
+    let visibleSet = Set(visible)
+    let remainder = selectedFiles.subtracting(visibleSet).sorted {
+        $0.path.localizedStandardCompare($1.path) == .orderedAscending
+    }
+    return visible + remainder
+}
+
+@MainActor
+func sidebarVisibleFileOrder(
+    workspace: WorkspaceModel,
+    filter rawFilter: String,
+    showHidden: Bool
+) -> [URL] {
+    let filter = rawFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+    func nameMatches(_ name: String) -> Bool {
+        filter.isEmpty || name.localizedCaseInsensitiveContains(filter)
+    }
+    func filteredFolders(_ folders: [URL]) -> [URL] {
+        folders.filter {
+            filter.isEmpty || nameMatches($0.lastPathComponent) || workspace.isExpanded($0)
+        }
+    }
+
+    var files: [URL] = []
+    func appendExpandedFolder(_ folder: URL) {
+        guard workspace.isExpanded(folder) else { return }
+        for subfolder in filteredFolders(workspace.markdownSubfolders(in: folder)) {
+            appendExpandedFolder(subfolder)
+        }
+        if showHidden {
+            for subfolder in filteredFolders(workspace.emptySubfolders(in: folder)) {
+                appendExpandedFolder(subfolder)
+            }
+        }
+        files.append(contentsOf: workspace.visibleMarkdown(in: folder).filter {
+            nameMatches($0.lastPathComponent)
+        })
+        if showHidden {
+            files.append(contentsOf: workspace.hiddenMarkdown(in: folder).filter {
+                nameMatches($0.lastPathComponent)
+            })
+        }
+    }
+
+    for root in workspace.workspaces where !root.collapsed {
+        for subfolder in filteredFolders(workspace.markdownSubfolders(in: root.url)) {
+            appendExpandedFolder(subfolder)
+        }
+        if showHidden {
+            for subfolder in filteredFolders(workspace.emptySubfolders(in: root.url)) {
+                appendExpandedFolder(subfolder)
+            }
+        }
+        files.append(contentsOf: workspace.visibleFiles(root).filter {
+            nameMatches($0.lastPathComponent)
+        })
+        if showHidden {
+            files.append(contentsOf: workspace.hiddenFilesList(root).filter {
+                nameMatches($0.lastPathComponent)
+            })
+        }
+    }
+    files.append(contentsOf: workspace.looseFilesToShow.filter {
+        nameMatches($0.lastPathComponent)
+    })
+
+    var seen = Set<URL>()
+    return files.compactMap {
+        let file = $0.standardizedFileURL
+        return seen.insert(file).inserted ? file : nil
+    }
 }
 
 /// The left sidebar: Xcode-style icon toolbar switches Files / Outline / Git;
@@ -69,6 +191,7 @@ struct WorkspaceSidebar: View {
     /// Bottom filter field — filters Files tree / Outline headings / Git paths.
     @State private var filterText = ""
     @State private var selectedFiles = Set<URL>()
+    @State private var selectionAnchor: URL?
     var body: some View {
         VStack(spacing: 0) {
             navigatorToolbar
@@ -106,7 +229,7 @@ struct WorkspaceSidebar: View {
         // Match the window chrome (toolbar / titlebar), not the greyer
         // under-page fill that made the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: tab) { _ in selectedFiles.removeAll() }
+        .onChange(of: tab) { _ in clearFileSelection() }
     }
 
     private var filterQuery: String {
@@ -364,7 +487,7 @@ struct WorkspaceSidebar: View {
             FolderContextMenu(workspace: workspace, folder: ws.url, showsOpen: true)
         }
         .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
-            selectedFiles.removeAll()
+            clearFileSelection()
         }
 
         if !ws.collapsed {
@@ -376,6 +499,7 @@ struct WorkspaceSidebar: View {
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
+                              selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             if showHidden {
@@ -384,6 +508,7 @@ struct WorkspaceSidebar: View {
                                   filter: filterQuery, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
+                                  selectionAnchor: $selectionAnchor,
                                   onOpen: onOpen, onOpenFolder: onOpenFolder)
                 }
             }
@@ -436,8 +561,9 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
-        .draggable(SidebarFileDragPayload(
-            files: sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)))
+        .onDrag {
+            sidebarFileItemProvider(files: moveFiles(anchoredAt: url))
+        }
     }
 
     // MARK: - Loose row
@@ -467,28 +593,50 @@ struct WorkspaceSidebar: View {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
-        .draggable(SidebarFileDragPayload(
-            files: sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)))
+        .onDrag {
+            sidebarFileItemProvider(files: moveFiles(anchoredAt: url))
+        }
     }
 
     private func handleFileTap(_ url: URL) {
+        let modifiers = NSEvent.modifierFlags
         let shouldOpen = updateSidebarFileSelection(
             for: url,
-            commandHeld: NSEvent.modifierFlags.contains(.command),
-            selectedFiles: &selectedFiles)
+            commandHeld: modifiers.contains(.command),
+            shiftHeld: modifiers.contains(.shift),
+            orderedFiles: currentFileOrder(),
+            selectedFiles: &selectedFiles,
+            selectionAnchor: &selectionAnchor)
         if shouldOpen { onOpen(url) }
     }
 
     private func moveMenuTitle(for url: URL) -> String {
-        let count = sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles).count
+        let count = moveFiles(anchoredAt: url).count
         return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
     }
 
     private func promptToMoveSelection(anchoredAt url: URL) {
-        let files = sidebarMoveFiles(anchor: url, selectedFiles: selectedFiles)
+        let files = moveFiles(anchoredAt: url)
         if promptForFileMove(files, workspace: workspace) {
-            selectedFiles.removeAll()
+            clearFileSelection()
         }
+    }
+
+    private func currentFileOrder() -> [URL] {
+        sidebarVisibleFileOrder(
+            workspace: workspace, filter: filterQuery, showHidden: showHidden)
+    }
+
+    private func moveFiles(anchoredAt url: URL) -> [URL] {
+        sidebarMoveFiles(
+            anchor: url,
+            selectedFiles: selectedFiles,
+            orderedFiles: currentFileOrder())
+    }
+
+    private func clearFileSelection() {
+        selectedFiles.removeAll()
+        selectionAnchor = nil
     }
 
     private func isActive(_ url: URL) -> Bool {
@@ -530,6 +678,7 @@ private struct SubfolderNode: View {
     /// No markdown in this folder’s tree — dimmed; only listed when eye is on.
     var isEmptyFolder: Bool = false
     @Binding var selectedFiles: Set<URL>
+    @Binding var selectionAnchor: URL?
     let onOpen: (URL) -> Void
     let onOpenFolder: (URL) -> Void
 
@@ -606,6 +755,7 @@ private struct SubfolderNode: View {
         }
         .fileMoveDropTarget(folder: folder, workspace: workspace) {
             selectedFiles.removeAll()
+            selectionAnchor = nil
         }
 
         if expanded {
@@ -615,6 +765,7 @@ private struct SubfolderNode: View {
                               filter: filter, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
+                              selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             if showHidden {
@@ -623,6 +774,7 @@ private struct SubfolderNode: View {
                                   filter: filter, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
+                                  selectionAnchor: $selectionAnchor,
                                   onOpen: onOpen, onOpenFolder: onOpenFolder)
                 }
             }
@@ -670,27 +822,44 @@ private struct SubfolderNode: View {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
             }
         }
-        .draggable(SidebarFileDragPayload(
-            files: sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles)))
+        .onDrag {
+            sidebarFileItemProvider(files: moveFiles(anchoredAt: file))
+        }
     }
 
     private func handleFileTap(_ file: URL) {
+        let modifiers = NSEvent.modifierFlags
         let shouldOpen = updateSidebarFileSelection(
             for: file,
-            commandHeld: NSEvent.modifierFlags.contains(.command),
-            selectedFiles: &selectedFiles)
+            commandHeld: modifiers.contains(.command),
+            shiftHeld: modifiers.contains(.shift),
+            orderedFiles: currentFileOrder(),
+            selectedFiles: &selectedFiles,
+            selectionAnchor: &selectionAnchor)
         if shouldOpen { onOpen(file) }
     }
 
     private func moveMenuTitle(for file: URL) -> String {
-        let count = sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles).count
+        let count = moveFiles(anchoredAt: file).count
         return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
     }
 
     private func promptToMoveSelection(anchoredAt file: URL) {
-        let files = sidebarMoveFiles(anchor: file, selectedFiles: selectedFiles)
+        let files = moveFiles(anchoredAt: file)
         if promptForFileMove(files, workspace: workspace) {
             selectedFiles.removeAll()
+            selectionAnchor = nil
         }
+    }
+
+    private func currentFileOrder() -> [URL] {
+        sidebarVisibleFileOrder(workspace: workspace, filter: filter, showHidden: showHidden)
+    }
+
+    private func moveFiles(anchoredAt file: URL) -> [URL] {
+        sidebarMoveFiles(
+            anchor: file,
+            selectedFiles: selectedFiles,
+            orderedFiles: currentFileOrder())
     }
 }

@@ -1,5 +1,6 @@
 import XCTest
 import Testing
+import UniformTypeIdentifiers
 @testable import EditMD
 
 final class FolderInfoTests: XCTestCase {
@@ -563,12 +564,18 @@ struct SidebarFileSelectionTests {
     func commandClickTogglesSelection() {
         let first = URL(fileURLWithPath: "/tmp/first.md")
         var selection = Set<URL>()
+        var anchor: URL?
 
         #expect(!updateSidebarFileSelection(
-            for: first, commandHeld: true, selectedFiles: &selection))
+            for: first, commandHeld: true, shiftHeld: false,
+            orderedFiles: [first], selectedFiles: &selection,
+            selectionAnchor: &anchor))
         #expect(selection == [first])
+        #expect(anchor == first)
         #expect(!updateSidebarFileSelection(
-            for: first, commandHeld: true, selectedFiles: &selection))
+            for: first, commandHeld: true, shiftHeld: false,
+            orderedFiles: [first], selectedFiles: &selection,
+            selectionAnchor: &anchor))
         #expect(selection.isEmpty)
     }
 
@@ -577,10 +584,34 @@ struct SidebarFileSelectionTests {
         let first = URL(fileURLWithPath: "/tmp/first.md")
         let second = URL(fileURLWithPath: "/tmp/second.md")
         var selection: Set<URL> = [first, second]
+        var anchor: URL? = second
 
         #expect(updateSidebarFileSelection(
-            for: first, commandHeld: false, selectedFiles: &selection))
+            for: first, commandHeld: false, shiftHeld: false,
+            orderedFiles: [first, second], selectedFiles: &selection,
+            selectionAnchor: &anchor))
         #expect(selection == [first])
+        #expect(anchor == first)
+    }
+
+    @Test("Shift-click selects the visible range from the anchor")
+    func shiftClickSelectsRange() {
+        let files = (1...4).map { URL(fileURLWithPath: "/tmp/\($0).md") }
+        var selection: Set<URL> = [files[0]]
+        var anchor: URL? = files[0]
+
+        #expect(!updateSidebarFileSelection(
+            for: files[2], commandHeld: false, shiftHeld: true,
+            orderedFiles: files, selectedFiles: &selection,
+            selectionAnchor: &anchor))
+        #expect(selection == Set(files[0...2]))
+        #expect(anchor == files[0])
+
+        #expect(!updateSidebarFileSelection(
+            for: files[1], commandHeld: false, shiftHeld: true,
+            orderedFiles: files, selectedFiles: &selection,
+            selectionAnchor: &anchor))
+        #expect(selection == Set(files[0...1]))
     }
 
     @Test("A selected drag carries the whole stable group")
@@ -589,11 +620,53 @@ struct SidebarFileSelectionTests {
         let second = URL(fileURLWithPath: "/tmp/b/second.md")
         let selection: Set<URL> = [second, first]
 
-        #expect(sidebarMoveFiles(anchor: first, selectedFiles: selection) == [first, second])
+        #expect(sidebarMoveFiles(
+            anchor: first,
+            selectedFiles: selection,
+            orderedFiles: [first, second]
+        ) == [first, second])
         #expect(sidebarMoveFiles(
             anchor: URL(fileURLWithPath: "/tmp/third.md"),
-            selectedFiles: selection
+            selectedFiles: selection,
+            orderedFiles: [first, second]
         ) == [URL(fileURLWithPath: "/tmp/third.md")])
+    }
+
+    @Test("Drag payload round-trips the complete group")
+    func dragPayloadRoundTrips() throws {
+        let files = [
+            URL(fileURLWithPath: "/tmp/first.md"),
+            URL(fileURLWithPath: "/tmp/nested/second.md")
+        ]
+        let payload = SidebarFileDragPayload(files: files)
+
+        let data = try encodeSidebarFileDragPayload(payload)
+        #expect(try decodeSidebarFileDragPayload(data) == payload)
+    }
+
+    @Test("Drag item provider exports the registered group representation")
+    func dragProviderExportsGroup() async throws {
+        let files = [
+            URL(fileURLWithPath: "/tmp/first.md"),
+            URL(fileURLWithPath: "/tmp/nested/second.md")
+        ]
+        let provider = sidebarFileItemProvider(files: files)
+
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            provider.loadDataRepresentation(
+                forTypeIdentifier: UTType.editMDFileMove.identifier
+            ) { data, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: CocoaError(.fileReadUnknown))
+                }
+            }
+        }
+
+        #expect(try decodeSidebarFileDragPayload(data).files == files)
     }
 }
 

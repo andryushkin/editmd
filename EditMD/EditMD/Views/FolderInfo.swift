@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Pure naming / home-doc helpers
 
@@ -521,13 +522,23 @@ private struct FileMoveDropTargetModifier: ViewModifier {
                     .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
                     .allowsHitTesting(false)
             }
-            .dropDestination(for: SidebarFileDragPayload.self) { payloads, _ in
-                let files = payloads.flatMap(\.files)
-                guard !files.isEmpty else { return false }
-                performFileMoves(files, to: folder, workspace: workspace)
-                onMoveStarted()
+            .onDrop(of: [.editMDFileMove], isTargeted: $isTargeted) { providers in
+                guard let provider = providers.first(where: {
+                    $0.hasItemConformingToTypeIdentifier(UTType.editMDFileMove.identifier)
+                }) else { return false }
+                provider.loadDataRepresentation(
+                    forTypeIdentifier: UTType.editMDFileMove.identifier
+                ) { data, _ in
+                    guard let data,
+                          let payload = try? decodeSidebarFileDragPayload(data),
+                          !payload.files.isEmpty else { return }
+                    Task { @MainActor in
+                        performFileMoves(payload.files, to: folder, workspace: workspace)
+                        onMoveStarted()
+                    }
+                }
                 return true
-            } isTargeted: { isTargeted = $0 }
+            }
     }
 }
 
