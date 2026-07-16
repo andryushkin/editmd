@@ -42,6 +42,7 @@
 		36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */; };
 		38A47C74B7F33C780835BC54 /* SidebarRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8507D994F9CAE5DEB23B585 /* SidebarRows.swift */; };
 		39FF4B376A819DEDA3A8491A /* DiffApprovalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D536FE582904D531A04E7431 /* DiffApprovalController.swift */; };
+		3BC7EACE8DFAB72C9F7CD374 /* FrontmatterEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */; };
 		3C5E65B1A3D8D027C70E514E /* InspectorSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */; };
 		3E483A036C489B19FC7CE13B /* MarkdownHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73443608878228D727F6A239 /* MarkdownHighlighter.swift */; };
 		3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */; };
@@ -57,6 +58,7 @@
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		5DF3620561EB18DD158495CD /* EditorFieldGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */; };
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
+		6078210FA16D4E0A5BC55B1E /* FrontmatterEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5D8FA20CA685CC5C6221B3 /* FrontmatterEditTests.swift */; };
 		60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666BC06A474E4D37C8EA0265 /* LinkIndex.swift */; };
 		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
@@ -164,6 +166,7 @@
 		18F81FF14127B33B6927883A /* MathScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScanTests.swift; sourceTree = "<group>"; };
 		1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebar.swift; sourceTree = "<group>"; };
 		20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownToAttributed.swift; sourceTree = "<group>"; };
+		24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterEdit.swift; sourceTree = "<group>"; };
 		2621A82FDDEF41681AC8F3B0 /* ControlRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRouter.swift; sourceTree = "<group>"; };
 		299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedValues.swift; sourceTree = "<group>"; };
 		336FFD4A0B5057982542467A /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
@@ -246,6 +249,7 @@
 		B8507D994F9CAE5DEB23B585 /* SidebarRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRows.swift; sourceTree = "<group>"; };
 		BAD84F80960334B09CB707FA /* OutlineSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlineSidebar.swift; sourceTree = "<group>"; };
 		BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServerTests.swift; sourceTree = "<group>"; };
+		BC5D8FA20CA685CC5C6221B3 /* FrontmatterEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterEditTests.swift; sourceTree = "<group>"; };
 		BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffApprovalControllerTests.swift; sourceTree = "<group>"; };
 		BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfoTests.swift; sourceTree = "<group>"; };
 		C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFieldGeometry.swift; sourceTree = "<group>"; };
@@ -354,6 +358,7 @@
 				3AE2DF26F3AB64CCC94BBA0C /* FileInfoStats.swift */,
 				699B6916CC8820D33D30549E /* FormattingHelpers.swift */,
 				84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */,
+				24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */,
 				EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */,
 				50BA444A2429A2E9B1751007 /* KaTeXResources.swift */,
 				F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */,
@@ -506,6 +511,7 @@
 				DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */,
 				BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */,
 				703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */,
+				BC5D8FA20CA685CC5C6221B3 /* FrontmatterEditTests.swift */,
 				95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */,
 				A75D9EDD5F391199A959F85D /* GitCLITests.swift */,
 				683585ED84041D652B804F1F /* IDELockFileTests.swift */,
@@ -680,6 +686,7 @@
 				8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */,
 				4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */,
 				29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */,
+				6078210FA16D4E0A5BC55B1E /* FrontmatterEditTests.swift in Sources */,
 				D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */,
 				1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */,
 				DD6EE1E2FE82AC1E82097306 /* IDELockFileTests.swift in Sources */,
@@ -744,6 +751,7 @@
 				A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */,
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */,
+				3BC7EACE8DFAB72C9F7CD374 /* FrontmatterEdit.swift in Sources */,
 				515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */,
 				14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */,
 				EB1794B535F9012AA920A33C /* GitUI.swift in Sources */,

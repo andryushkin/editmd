@@ -244,13 +244,13 @@ private func classifyScalar(_ s: String) -> YAMLTokenKind {
 
 // MARK: - Small helpers
 
-private func leadingWhitespaceCount(_ s: String) -> Int {
+func leadingWhitespaceCount(_ s: String) -> Int {
     s.prefix(while: { $0 == " " || $0 == "\t" }).count
 }
 
 /// First `:` that separates a mapping key from its value: outside quotes and
 /// followed by a space or end-of-line (so `url: http://x` splits after `url`).
-private func keyColonIndex(_ s: String) -> String.Index? {
+func keyColonIndex(_ s: String) -> String.Index? {
     let chars = Array(s)
     var inSingle = false, inDouble = false
     for k in 0..<chars.count {
@@ -268,7 +268,7 @@ private func keyColonIndex(_ s: String) -> String.Index? {
 
 /// Index of a trailing `#` comment: a `#` at line start or preceded by
 /// whitespace, outside quotes.
-private func trailingCommentIndex(_ s: String) -> String.Index? {
+func trailingCommentIndex(_ s: String) -> String.Index? {
     let chars = Array(s)
     var inSingle = false, inDouble = false
     for k in 0..<chars.count {
@@ -284,13 +284,13 @@ private func trailingCommentIndex(_ s: String) -> String.Index? {
     return nil
 }
 
-private func splitFlowList(_ inner: String) -> [String] {
+func splitFlowList(_ inner: String) -> [String] {
     inner.split(separator: ",")
         .map { unquote($0.trimmingCharacters(in: .whitespaces)) }
         .filter { !$0.isEmpty }
 }
 
-private func unquote(_ s: String) -> String {
+func unquote(_ s: String) -> String {
     guard s.count >= 2 else { return s }
     if (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
         return String(s.dropFirst().dropLast())
@@ -298,7 +298,7 @@ private func unquote(_ s: String) -> String {
     return s
 }
 
-private func isYAMLNumber(_ s: String) -> Bool {
+func isYAMLNumber(_ s: String) -> Bool {
     var idx = s.startIndex
     if s.hasPrefix("-") { idx = s.index(after: idx) }
     guard idx < s.endIndex else { return false }
