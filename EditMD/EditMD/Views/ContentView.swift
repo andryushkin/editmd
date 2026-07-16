@@ -20,10 +20,13 @@ struct ContentView: View {
     var onSaveAs: () -> Void = {}
 
     @AppStorage("editorMode") private var storedMode: String = EditorMode.preview.rawValue
-    /// Sidebar (document outline) show/hide + width, persisted like the mode.
+    /// Left workspace sidebar show/hide + width, persisted like the mode.
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
     @AppStorage("sidebarTab") private var sidebarTab = "files"
+    /// Right document-scope inspector (Outline / Info / …).
+    @AppStorage("inspectorVisible") private var inspectorVisible = false
+    @AppStorage("inspectorWidth") private var inspectorWidth = 220.0
     /// Dedicated Source + Preview mode: edit pane's share of the split.
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
@@ -50,6 +53,7 @@ struct ContentView: View {
     @State private var gitRefreshTask: Task<Void, Never>?
 
     private static let sidebarWidthRange = 150.0...400.0
+    private static let inspectorWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
@@ -100,32 +104,47 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if sidebarVisible && allowsSidebar {
-                    WorkspaceSidebar(
-                        workspace: workspace,
-                        outlineContent: document.content,
-                        activeURL: fileURL,
-                        onOpen: openFromSidebar,
-                        onOpenFolder: { AppState.shared.openInMainWindow($0) },
-                        onJump: { offset in positionStore.requestJump(toMarkdownOffset: offset) }
-                    )
-                    .frame(width: sidebarWidth)
-                    paneDivider(space: .global) { x in
-                        sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                           max(Self.sidebarWidthRange.lowerBound, Double(x)))
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    if sidebarVisible && allowsSidebar {
+                        WorkspaceSidebar(
+                            workspace: workspace,
+                            outlineContent: document.content,
+                            activeURL: fileURL,
+                            onOpen: openFromSidebar,
+                            onOpenFolder: { AppState.shared.openInMainWindow($0) },
+                            onJump: { offset in positionStore.requestJump(toMarkdownOffset: offset) }
+                        )
+                        .frame(width: sidebarWidth)
+                        paneDivider(space: .named("mainPanes")) { x in
+                            sidebarWidth = min(Self.sidebarWidthRange.upperBound,
+                                               max(Self.sidebarWidthRange.lowerBound, Double(x)))
+                        }
+                        // draw/hit above the editor column: without this the
+                        // editor (drawn last) shadows the right half of the
+                        // 12pt grab strip (agterm's sidebar-divider lesson).
+                        .zIndex(1)
                     }
-                    // draw/hit above the editor column: without this the
-                    // editor (drawn last) shadows the right half of the
-                    // 12pt grab strip (agterm's sidebar-divider lesson).
-                    .zIndex(1)
+                    editorArea
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if inspectorVisible {
+                        // Grab strip LEFT of the right panel (mirror of left sidebar).
+                        paneDivider(space: .named("mainPanes")) { x in
+                            let w = Double(geo.size.width) - Double(x)
+                            inspectorWidth = min(Self.inspectorWidthRange.upperBound,
+                                                 max(Self.inspectorWidthRange.lowerBound, w))
+                        }
+                        .zIndex(1)
+                        InspectorSidebar(fileURL: fileURL)
+                            .frame(width: inspectorWidth)
+                    }
                 }
-                editorArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .coordinateSpace(name: "mainPanes")
+                // animate collapse/expand uniformly, whatever flips the flag
+                // (toolbar button, View menu ⌃⌘S / ⌥⌘0).
+                .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
+                .animation(.easeInOut(duration: 0.15), value: inspectorVisible)
             }
-            // animate collapse/expand uniformly, whatever flips the flag
-            // (toolbar button, View menu ⌃⌘S).
-            .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
             statusBar
         }
         // Appearance override lives on the window root (MainWindowView /
@@ -141,6 +160,7 @@ struct ContentView: View {
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
+        .focusedSceneValue(\.inspectorVisible, $inspectorVisible)
         .focusedSceneValue(\.documentUndoActions, DocumentUndoActions(
             undo: { document.performUndo() },
             redo: { document.performRedo() }

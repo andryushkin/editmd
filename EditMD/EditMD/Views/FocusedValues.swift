@@ -96,6 +96,10 @@ struct SidebarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+struct InspectorVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 struct DocumentUndoActionsKey: FocusedValueKey {
     typealias Value = DocumentUndoActions
 }
@@ -123,11 +127,17 @@ extension FocusedValues {
         set { self[EditorModeKey.self] = newValue }
     }
 
-    /// Outline sidebar show/hide — the View menu (⌃⌘S) and the toolbar
-    /// button share this binding.
+    /// Left (workspace) sidebar show/hide — the View menu (⌃⌘S) and the
+    /// toolbar button share this binding.
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
         set { self[SidebarVisibleKey.self] = newValue }
+    }
+
+    /// Right inspector (document-scope) show/hide — View menu ⌥⌘0.
+    var inspectorVisible: Binding<Bool>? {
+        get { self[InspectorVisibleKey.self] }
+        set { self[InspectorVisibleKey.self] = newValue }
     }
 
     /// Document-scoped undo (survives mode switches). Edit ▸ Undo/Redo + ⌘Z.

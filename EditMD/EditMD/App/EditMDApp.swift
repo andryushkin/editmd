@@ -10,6 +10,7 @@ struct EditMDApp: App {
     @FocusedValue(\.formatActions) var actions
     @FocusedValue(\.editorMode) var editorMode
     @FocusedValue(\.sidebarVisible) var sidebarVisible
+    @FocusedValue(\.inspectorVisible) var inspectorVisible
     @FocusedValue(\.documentActions) var documentActions
     @FocusedValue(\.documentUndoActions) var documentUndoActions
 
@@ -243,6 +244,15 @@ struct EditMDApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.control, .command])
                 .disabled(sidebarVisible == nil)
+
+                // Right inspector (document-scope). ⌥⌘0 mirrors Xcode's
+                // Inspectors shortcut; ⌥⌘1…6 remain Format ▸ Heading.
+                Button(inspectorVisible?.wrappedValue == true
+                       ? "Hide Inspector" : "Show Inspector") {
+                    inspectorVisible?.wrappedValue.toggle()
+                }
+                .keyboardShortcut("0", modifiers: [.option, .command])
+                .disabled(inspectorVisible == nil)
 
                 // D1: toggle shared with Settings ▸ gutter; editors already react (v27).
                 Toggle("Line Numbers", isOn: Binding(
