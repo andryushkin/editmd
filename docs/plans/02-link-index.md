@@ -1,8 +1,13 @@
 # План 02 — Ссылочный индекс workspace + вкладки Ссылки/Backlinks
 
-Статус: не начат
+Статус: сделано
 Зависимости: 01 (правый сайдбар — место монтирования вкладок)
 Разблокирует: 03 (wiki-link UX), 06 (vault-lint)
+
+Выполнено (2026-07-16):
+- [x] Этап 1 — `scanOutgoingLinks` + unit tests (`LinkScan.swift`)
+- [x] Этап 2 — `LinkIndex` (full/incremental scan, backlinks, flush hooks)
+- [x] Этап 3 — вкладки Ссылки/Backlinks + счётчики в Info
 
 ## Цель
 

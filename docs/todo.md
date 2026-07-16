@@ -42,7 +42,7 @@ Documents-поверхность (правый inspector документа: С�
 | # | Раздел | План | Зависит от | Статус |
 |---|--------|------|------------|--------|
 | 01 | Правый сайдбар: каркас, Outline, Info | [plans/01-right-sidebar.md](plans/01-right-sidebar.md) | — | сделано |
-| 02 | Ссылочный индекс + вкладки Ссылки/Backlinks | [plans/02-link-index.md](plans/02-link-index.md) | 01 | не начат |
+| 02 | Ссылочный индекс + вкладки Ссылки/Backlinks | [plans/02-link-index.md](plans/02-link-index.md) | 01 | сделано |
 | 03 | Wiki-link UX: автодополнение, переход к заголовку | [plans/03-wikilink-ux.md](plans/03-wikilink-ux.md) | 02 | не начат |
 | 04 | Properties-панель: frontmatter-форма и YAML | [plans/04-properties-panel.md](plans/04-properties-panel.md) | 01 | не начат |
 | 05 | История файла: git + локальные ревизии + restore | [plans/05-file-history.md](plans/05-file-history.md) | 01 | не начат |
