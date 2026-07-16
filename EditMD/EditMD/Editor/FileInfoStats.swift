@@ -112,6 +112,17 @@ func detectLineEndings(in text: String) -> LineEndingKind {
     return .cr
 }
 
+/// Convert every line terminator to LF and ensure the document ends with one.
+/// Returns nil when the buffer already satisfies both conditions.
+func normalizeLineEndings(text: String) -> String? {
+    var normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+    normalized = normalized.replacingOccurrences(of: "\r", with: "\n")
+    if !normalized.hasSuffix("\n") {
+        normalized.append("\n")
+    }
+    return normalized == text ? nil : normalized
+}
+
 // MARK: - Disk metadata (off-main)
 
 /// Lightweight file attributes for the Info tab. Fetched off-main via

@@ -139,4 +139,36 @@ final class InspectorSidebarTests: XCTestCase {
         let s = computeFileInfoStats(text: "a\rb\nc")
         XCTAssertEqual(s.lineEndings, .mixed)
     }
+
+    func testNormalizeCRLFToLFAndAddFinalNewline() {
+        XCTAssertEqual(normalizeLineEndings(text: "one\r\ntwo"), "one\ntwo\n")
+    }
+
+    func testNormalizeMixedLineEndingsToLF() {
+        XCTAssertEqual(normalizeLineEndings(text: "a\r\nb\rc\n"), "a\nb\nc\n")
+    }
+
+    func testNormalizeLineEndingsIsIdempotent() {
+        XCTAssertNil(normalizeLineEndings(text: "a\nb\n"))
+    }
+
+    @MainActor
+    func testNormalizeLineEndingsIsUndoable() throws {
+        let doc = MarkdownDocument()
+        doc.content = "one\r\ntwo"
+        doc.contentUndoManager.groupsByEvent = false
+
+        let normalized = try XCTUnwrap(normalizeLineEndings(text: doc.content))
+        doc.applyDocumentEdit(normalized, actionName: "Normalize Line Endings")
+
+        XCTAssertEqual(doc.content, "one\ntwo\n")
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "one\r\ntwo")
+    }
+
+    func testSavingDoesNotNormalizeLineEndingsImplicitly() {
+        let original = "one\r\ntwo"
+        let wrapper = makeMarkdownWrapper(content: original, assets: nil, isTextBundle: false)
+        XCTAssertEqual(wrapper.regularFileContents, original.data(using: .utf8))
+    }
 }

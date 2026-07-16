@@ -44,6 +44,7 @@ struct InspectorSidebar: View {
                     FileInfoPanel(
                         fileURL: fileURL,
                         content: outlineContent,
+                        document: document,
                         gitSnapshot: gitSnapshot,
                         linkIndex: linkIndex
                     )
@@ -528,6 +529,7 @@ private func emptyState(_ text: String) -> some View {
 private struct FileInfoPanel: View {
     let fileURL: URL?
     let content: String
+    @ObservedObject var document: MarkdownDocument
     let gitSnapshot: GitFileSnapshot
     @ObservedObject var linkIndex: LinkIndex
     @ObservedObject private var vaultLint = VaultLintModel.shared
@@ -618,6 +620,15 @@ private struct FileInfoPanel: View {
         infoRow(label: "Концы строк", value: lineEndingCaption(stats.lineEndings))
         infoRow(label: "Newline в конце",
                 value: stats.hasTrailingNewline ? "да" : "нет")
+        if let normalized = normalizeLineEndings(text: content) {
+            Button("Нормализовать") {
+                document.applyDocumentEdit(normalized, actionName: "Normalize Line Endings")
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(Color.accentColor)
+            .editMDHelp("Преобразовать концы строк в LF и добавить финальный newline")
+        }
     }
 
     @ViewBuilder private var gitSection: some View {
