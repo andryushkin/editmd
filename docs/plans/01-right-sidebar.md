@@ -1,8 +1,13 @@
 # План 01 — Правый сайдбар: каркас, Outline, Info
 
-Статус: не начат
+Статус: сделано
 Зависимости: нет
 Разблокирует: 02 (вкладки Ссылки/Backlinks), 04 (Properties), 05 (История)
+
+Выполнено (2026-07-16):
+- [x] Этап 1 — каркас панели (`InspectorSidebar`, resize, AppStorage, ⌥⌘0)
+- [x] Этап 2 — переезд Outline + миграция `sidebarTab == "outline"` → `"files"`
+- [x] Этап 3 — вкладка Info (`FileInfoStats`, disk/git, заглушка Связи)
 
 ## Цель
 
