@@ -78,6 +78,7 @@ struct Span {
         case codeMarker
         case linkText(destination: String?), linkSyntax
         case quoteBody, quoteMarker
+        case calloutMarker(type: String)
         // New
         case codeBlockBody(language: String), codeBlockFence
         case thematicBreak
@@ -156,6 +157,10 @@ private struct SpanCollector: MarkupWalker {
             descendInto(blockQuote); return
         }
         spans.append(Span(range: r, kind: .quoteBody))
+        if let callout = markdownCallout(in: nsText as String, quoteRange: r) {
+            spans.append(Span(range: callout.markerRange,
+                              kind: .calloutMarker(type: callout.type)))
+        }
         let sc = srcRange.lowerBound.column
         let sl = srcRange.lowerBound.line
         let el = srcRange.upperBound.line

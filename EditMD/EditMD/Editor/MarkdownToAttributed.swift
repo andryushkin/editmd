@@ -82,6 +82,8 @@ struct MDBlock: Equatable, Hashable {
     var quoteDepth: Int = 0
     /// Identity of the outermost containing blockquote (quote continuity).
     var quoteGroup: Int = -1
+    /// Original callout type for presentation; nil for an ordinary quote.
+    var calloutType: String? = nil
     /// Identity of the containing list / code block (grouping on serialize).
     var group: Int = -1
     /// Leading spaces for blocks nested inside a list item.
@@ -95,6 +97,7 @@ extension NSAttributedString.Key {
     static let mdImage  = NSAttributedString.Key("md.image")   // [String: String] src/alt/title
     static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
     static let mdBuiltInPluginToken = NSAttributedString.Key("md.builtInPluginToken")
+    static let mdCalloutSoftBreak = NSAttributedString.Key("md.calloutSoftBreak")
     /// Click target for the presentation-only frontmatter disclosure title.
     static let mdFrontmatterToggle = NSAttributedString.Key("md.frontmatterToggle")
     /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. The run text
@@ -242,6 +245,7 @@ private final class VisualRenderer {
     struct Ctx {
         var quoteDepth = 0
         var quoteGroup = -1
+        var calloutType: String?
         var listIndent = 0
     }
 
@@ -378,7 +382,21 @@ private final class VisualRenderer {
         case let quote as BlockQuote:
             var inner = ctx
             inner.quoteDepth += 1
-            if ctx.quoteDepth == 0 { inner.quoteGroup = nextGroup() }
+            if ctx.quoteDepth == 0 {
+                inner.quoteGroup = nextGroup()
+                if let sourceRange = quote.range {
+                    let location = lineIdx.offset(sourceRange.lowerBound.line,
+                                                  sourceRange.lowerBound.column)
+                    let end = lineIdx.offset(sourceRange.upperBound.line,
+                                             sourceRange.upperBound.column)
+                    if end >= location,
+                       let callout = markdownCallout(
+                        in: source,
+                        quoteRange: NSRange(location: location, length: end - location)) {
+                        inner.calloutType = callout.type
+                    }
+                }
+            }
             for child in quote.children { renderBlock(child, ctx: inner) }
         case let code as CodeBlock:
             renderCodeBlock(code, ctx: ctx)
@@ -518,6 +536,7 @@ private final class VisualRenderer {
 
     private func makeBlock(_ kind: MDBlock.Kind, _ ctx: Ctx, group: Int = -1) -> MDBlock {
         MDBlock(kind: kind, quoteDepth: ctx.quoteDepth, quoteGroup: ctx.quoteGroup,
+                calloutType: ctx.calloutType,
                 group: group,
                 listIndent: listIndentForNonItem(kind) ? ctx.listIndent : 0)
     }
@@ -702,7 +721,11 @@ private final class VisualRenderer {
             case let image as Markdown.Image:
                 appendImage(image, block: block, styles: styles, link: link)
             case is SoftBreak:
-                appendText(" ", block: block, styles: styles, link: link)
+                if block.calloutType != nil {
+                    appendCalloutSoftBreak(block: block, styles: styles, link: link)
+                } else {
+                    appendText(" ", block: block, styles: styles, link: link)
+                }
             case is LineBreak:
                 appendText(mdHardBreak, block: block, styles: styles, link: link)
             case let html as InlineHTML:
@@ -730,6 +753,12 @@ private final class VisualRenderer {
         out.append(NSAttributedString(string: string,
                                       attributes: baseAttributes(block: block, styles: styles,
                                                                  link: link)))
+    }
+
+    private func appendCalloutSoftBreak(block: MDBlock, styles: MDInlineStyle, link: String?) {
+        var attributes = baseAttributes(block: block, styles: styles, link: link)
+        attributes[.mdCalloutSoftBreak] = true
+        out.append(NSAttributedString(string: mdHardBreak, attributes: attributes))
     }
 
     /// A Text node may contain `[[wiki-links]]` and `==highlight==`, which

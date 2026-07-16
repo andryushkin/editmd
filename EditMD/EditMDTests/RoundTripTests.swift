@@ -93,6 +93,10 @@ final class RoundTripTests: XCTestCase {
     func testQuote() { assertStable("> quoted line") }
     func testQuoteTwoParagraphs() { assertStable("> first\n>\n> second") }
     func testNestedQuote() { assertStable("> > deep\n>\n> back") }
+    func testCalloutByteStable() {
+        assertStable("> [!note] Title\n> body")
+        assertStable("> [!Domain-Type] Domain\n>\n> Details")
+    }
 
     func testCodeBlock() { assertStable("```swift\nlet x = 1\n```") }
     func testCodeBlockNoLanguage() { assertStable("```\nplain\n```") }

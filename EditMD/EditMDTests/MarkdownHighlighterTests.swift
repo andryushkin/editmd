@@ -323,6 +323,38 @@ final class CollectSpansTests: XCTestCase {
         XCTAssertEqual(markers[0].range, NSRange(location: 0, length: 2))
     }
 
+    func testCalloutMarkerSpanPreservesKnownAndUnknownTypes() {
+        for (input, expected) in [("> [!warning] Careful", "warning"),
+                                  ("> [!custom] Domain", "custom")] {
+            let markers = collectSpans(input).compactMap { span -> (String, NSRange)? in
+                guard case .calloutMarker(let type) = span.kind else { return nil }
+                return (type, span.range)
+            }
+            XCTAssertEqual(markers.count, 1)
+            XCTAssertEqual(markers.first?.0, expected)
+            XCTAssertEqual((input as NSString).substring(with: markers[0].1), "[!\(expected)]")
+        }
+    }
+
+    func testFoldableAndListCalloutsStayOrdinaryQuotes() {
+        for input in ["> [!note]- folded", "- > [!note] inside list"] {
+            XCTAssertFalse(collectSpans(input).contains {
+                if case .calloutMarker = $0.kind { return true }
+                return false
+            })
+        }
+    }
+
+    func testCalloutScannerPreservesTypeAndTitle() throws {
+        let input = "> [!Domain-Type] Optional title"
+        let callout = try XCTUnwrap(markdownCallout(
+            in: input,
+            quoteRange: NSRange(location: 0, length: (input as NSString).length)))
+        XCTAssertEqual(callout.type, "Domain-Type")
+        XCTAssertEqual(callout.style, .note)
+        XCTAssertEqual(callout.title, "Optional title")
+    }
+
     func testMultiLineBlockquote() {
         // "> line1\n> line2" = 15 ASCII chars
         // quoteMarker on line1 at loc=0, on line2 at loc=8

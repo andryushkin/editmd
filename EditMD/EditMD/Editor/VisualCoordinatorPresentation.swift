@@ -51,7 +51,8 @@ extension VisualMarkdownView.Coordinator {
         var tasks: [(range: NSRange, depth: Int, done: Bool)] = []
         var pluginTasks: [(range: NSRange, depth: Int,
                            token: BuiltInPluginTokenPayload)] = []
-        var quotes: [(range: NSRange, depth: Int)] = []
+        var quotes: [VisualQuoteEntry] = []
+        var seenCalloutGroups = Set<Int>()
         var codeGroups: [Int: NSRange] = [:]
         var codeLanguages: [Int: String] = [:]
         var ruleRanges: [NSRange] = []
@@ -254,7 +255,13 @@ extension VisualMarkdownView.Coordinator {
 
             if blockValue.quoteDepth > 0 {
                 markerIndent += CGFloat(blockValue.quoteDepth) * 18
-                quotes.append((paragraph, blockValue.quoteDepth))
+                let showsCalloutIcon = blockValue.calloutType != nil
+                    && seenCalloutGroups.insert(blockValue.quoteGroup).inserted
+                quotes.append(VisualQuoteEntry(
+                    range: paragraph,
+                    depth: blockValue.quoteDepth,
+                    calloutType: blockValue.calloutType,
+                    showsCalloutIcon: showsCalloutIcon))
             }
             style.firstLineHeadIndent = markerIndent
             style.headIndent = markerIndent

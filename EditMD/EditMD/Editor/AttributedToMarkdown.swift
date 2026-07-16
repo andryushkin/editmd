@@ -270,6 +270,7 @@ private struct InlineRun {
     /// Rendered-formula attachment (`.mdMathTex`): the display text is a
     /// single U+FFFC; THIS string is the verbatim source to emit.
     var mathTex: String?
+    var isCalloutSoftBreak = false
 }
 
 private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
@@ -287,7 +288,8 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             wikiLink: attrs[.mdWikiLink] as? MDWikiLinkPayload,
             builtInPluginToken: attrs[.mdBuiltInPluginToken] as? BuiltInPluginTokenPayload,
             isMath: attrs[.mdMath] != nil,
-            mathTex: attrs[.mdMathTex] as? String))
+            mathTex: attrs[.mdMathTex] as? String,
+            isCalloutSoftBreak: attrs[.mdCalloutSoftBreak] != nil))
     }
 
     // Autolink: a whole-paragraph unstyled link whose text equals its
@@ -360,13 +362,25 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
             // (`\frac` → `\\frac`, `_` → `\_`). Multiline `$$` blocks show
             // U+2028 line breaks in Visual; the file gets real newlines back.
             result += run.text.replacingOccurrences(of: mdHardBreak, with: "\n")
+        } else if run.isCalloutSoftBreak {
+            result += "\n" + continuationPrefix
         } else if run.styles.contains(.code) {
             result += codeSpan(run.text)
         } else if run.styles.contains(.rawHTML) {
             result += run.text
         } else {
-            result += escapeInline(run.text, continuationPrefix: continuationPrefix,
-                                   escapePipes: escapePipes)
+            let escaped = escapeInline(run.text, continuationPrefix: continuationPrefix,
+                                       escapePipes: escapePipes)
+            if let calloutType = block.calloutType, result.isEmpty {
+                let escapedMarker = "\\[!\(calloutType)\\]"
+                if escaped.hasPrefix(escapedMarker) {
+                    result += "[!\(calloutType)]" + escaped.dropFirst(escapedMarker.count)
+                } else {
+                    result += escaped
+                }
+            } else {
+                result += escaped
+            }
         }
     }
     for marker in stack.reversed() { result += marker.closer }

@@ -84,6 +84,7 @@
 		7A6EDE024A1422CC6B904E75 /* SearchMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3EBC6E2CFEF584EA18A057 /* SearchMatch.swift */; };
 		7C36BA28C707B88D76A6DDBB /* FileTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83986ED9BC2FF6060A1254F2 /* FileTemplates.swift */; };
 		7E698ED39A84574149B1B31F /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2E01E52E9D350180F84BCF /* LineNumberGutter.swift */; };
+		7F57C0EC4C8CEAC7472E1A4B /* MarkdownCallout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D3D813EE4916BCB54B32D3 /* MarkdownCallout.swift */; };
 		810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */; };
 		82F97A527857A21C40BF35CD /* VaultLintReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */; };
 		83ED51D42ADA1AD8B4C41FC2 /* LinkScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 920961C775AF3E1E6E2AAF93 /* LinkScan.swift */; };
@@ -303,6 +304,7 @@
 		E31548F0C4231C7F51D2F326 /* ClaudeIDEBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEBridge.swift; sourceTree = "<group>"; };
 		E376139687B7CCA83695B07F /* KitchenSink.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = KitchenSink.md; sourceTree = "<group>"; };
 		E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEToolsTests.swift; sourceTree = "<group>"; };
+		E6D3D813EE4916BCB54B32D3 /* MarkdownCallout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownCallout.swift; sourceTree = "<group>"; };
 		E86500DFCE1FD7E94B9A48A1 /* VaultLintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLintTests.swift; sourceTree = "<group>"; };
 		EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCommitWatcher.swift; sourceTree = "<group>"; };
 		EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServer.swift; sourceTree = "<group>"; };
@@ -398,6 +400,7 @@
 				F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */,
 				CC2E01E52E9D350180F84BCF /* LineNumberGutter.swift */,
 				920961C775AF3E1E6E2AAF93 /* LinkScan.swift */,
+				E6D3D813EE4916BCB54B32D3 /* MarkdownCallout.swift */,
 				73443608878228D727F6A239 /* MarkdownHighlighter.swift */,
 				6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */,
 				DA44CE853828E5B49C3A9C8B /* MarkdownLint.swift */,
@@ -823,6 +826,7 @@
 				60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */,
 				83ED51D42ADA1AD8B4C41FC2 /* LinkScan.swift in Sources */,
 				84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */,
+				7F57C0EC4C8CEAC7472E1A4B /* MarkdownCallout.swift in Sources */,
 				36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */,
 				FC3186EAE0C45CF6A7A4EFAC /* MarkdownHTML.swift in Sources */,
 				3E483A036C489B19FC7CE13B /* MarkdownHighlighter.swift in Sources */,

@@ -78,6 +78,13 @@ private final class TableCellEditorCell: NSTextFieldCell {
     }
 }
 
+struct VisualQuoteEntry {
+    let range: NSRange
+    let depth: Int
+    let calloutType: String?
+    let showsCalloutIcon: Bool
+}
+
 final class VisualNSTextView: NSTextView {
     var theme: EditorTheme = .system
     /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
@@ -91,7 +98,7 @@ final class VisualNSTextView: NSTextView {
     var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty {
         didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
     }
-    var quoteEntries: [(range: NSRange, depth: Int)] = []
+    var quoteEntries: [VisualQuoteEntry] = []
     var codePanelRanges: [NSRange] = []
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
@@ -994,15 +1001,32 @@ final class VisualNSTextView: NSTextView {
         }
 
         // Quote bars
-        for (range, depth) in quoteEntries {
-            guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
+        for entry in quoteEntries {
+            guard let rectUnion = unionRect(for: entry.range), rectUnion.intersects(rect) else { continue }
             let quoteBox = rectUnion.insetBy(dx: 0, dy: -3)
-            theme.quoteBackground.setFill()
+            let callout: MarkdownCallout? = entry.calloutType.map { type in
+                let style = MarkdownCalloutStyle(rawValue: type.lowercased()) ?? .note
+                return MarkdownCallout(type: type, style: style, title: nil,
+                                       markerRange: NSRange(location: 0, length: 0))
+            }
+            (callout?.color.withAlphaComponent(0.09) ?? theme.quoteBackground).setFill()
             NSBezierPath(roundedRect: quoteBox, xRadius: 5, yRadius: 5).fill()
-            theme.accentColor.withAlphaComponent(0.72).setFill()
-            for level in 0..<depth {
+            (callout?.color ?? theme.accentColor).withAlphaComponent(0.78).setFill()
+            for level in 0..<entry.depth {
                 NSRect(x: inset.width + CGFloat(level) * 18, y: rectUnion.minY,
                        width: theme.quoteBarWidth, height: rectUnion.height).fill()
+            }
+            if entry.showsCalloutIcon, let callout,
+               let image = NSImage(systemSymbolName: callout.iconSystemName,
+                                   accessibilityDescription: callout.type) {
+                let iconRect = NSRect(
+                    x: inset.width + CGFloat(max(0, entry.depth - 1)) * 18 + 5,
+                    y: rectUnion.minY + 1,
+                    width: 11,
+                    height: 11)
+                callout.color.set()
+                image.draw(in: iconRect, from: .zero, operation: .sourceOver,
+                           fraction: 0.95, respectFlipped: true, hints: nil)
             }
         }
 

@@ -5,6 +5,17 @@ import AppKit
 /// Pure helpers behind Visual-mode editing semantics (v21).
 final class VisualEditingTests: XCTestCase {
 
+    func testVisualCalloutCarriesPresentationTypeWithoutChangingText() throws {
+        for type in ["warning", "Domain-Type"] {
+            let markdown = "> [!\(type)] Title\n> body"
+            let attributed = renderMarkdownToAttributed(markdown)
+            let block = try XCTUnwrap(attributed.attribute(
+                .mdBlock, at: 0, effectiveRange: nil) as? MDBlock)
+            XCTAssertEqual(block.calloutType, type)
+            XCTAssertEqual(serializeAttributedToMarkdown(attributed), markdown)
+        }
+    }
+
     func testEditorModesIncludeDedicatedSourcePreviewSplit() {
         XCTAssertEqual(EditorMode.allCases.map(\.rawValue),
                        ["source", "visual", "preview", "split"])

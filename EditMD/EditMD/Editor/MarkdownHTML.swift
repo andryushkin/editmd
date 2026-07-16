@@ -449,7 +449,17 @@ private struct HTMLBodyVisitor: MarkupWalker {
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
         // No data-ln on the wrapper — children (p / nested quote) carry source lines.
         // Otherwise the same line number appears twice (wrapper + first child).
-        result += "<blockquote>\n"
+        let callout = mdNSRange(for: blockQuote).flatMap {
+            markdownCallout(in: originalSource as String, quoteRange: $0)
+        }
+        if let callout {
+            result += "<blockquote class=\"callout callout-\(callout.style.rawValue)\""
+                + " data-callout=\"\(htmlAttributeEscape(callout.type))\">\n"
+                + "<span class=\"callout-icon\" aria-hidden=\"true\">"
+                + htmlEscape(callout.iconText) + "</span>\n"
+        } else {
+            result += "<blockquote>\n"
+        }
         descendInto(blockQuote)
         result += "</blockquote>\n"
     }
@@ -1109,6 +1119,22 @@ func previewHTMLPageRender(markdown: String,
         background: rgba(0,122,255,0.07);
         opacity: 0.9;
     }
+    blockquote.callout {
+        --callout-rgb: 0,122,255;
+        position: relative;
+        border-left-color: rgb(var(--callout-rgb));
+        background: rgba(var(--callout-rgb),0.09);
+        padding-left: 2.2em;
+        opacity: 1;
+    }
+    blockquote.callout-tip { --callout-rgb: 40,160,80; }
+    blockquote.callout-warning { --callout-rgb: 230,126,34; }
+    blockquote.callout-important { --callout-rgb: 175,82,222; }
+    blockquote.callout-example { --callout-rgb: 88,86,214; }
+    .callout-icon {
+        position: absolute; left: 0.72em; top: 0.72em;
+        color: rgb(var(--callout-rgb)); font-weight: 700;
+    }
     ul, ol { padding-left: 1.7em; margin: 0.6em 0; }
     li { margin: 0.2em 0; }
     li > p { margin: 0.2em 0; }
@@ -1148,6 +1174,7 @@ func previewHTMLPageRender(markdown: String,
             background: rgba(10,132,255,0.11);
             border-left-color: rgba(10,132,255,0.78);
         }
+        blockquote.callout { background: rgba(var(--callout-rgb),0.14); }
     }
     /* Review-mark wash (v37) — open smotr anchors painted over data-md-lo spans.
        Preview is the primary review surface; Source/Visual washes are secondary. */

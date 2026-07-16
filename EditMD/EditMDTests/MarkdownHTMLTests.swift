@@ -367,6 +367,17 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("copyPreviewText(clone.innerText || '', btn)"), page)
     }
 
+    func testCalloutPreviewUsesKnownStyleAndPreservesUnknownType() {
+        let warning = markdownHTMLBody("> [!warning] Careful")
+        XCTAssertTrue(warning.contains("class=\"callout callout-warning\""), warning)
+        XCTAssertTrue(warning.contains("data-callout=\"warning\""), warning)
+        XCTAssertTrue(warning.contains("class=\"callout-icon\""), warning)
+
+        let custom = markdownHTMLBody("> [!custom] Domain")
+        XCTAssertTrue(custom.contains("class=\"callout callout-note\""), custom)
+        XCTAssertTrue(custom.contains("data-callout=\"custom\""), custom)
+    }
+
     func testPreviewLineNumbersUseOneGlobalColumnAndLargerGap() {
         let gutter = PreviewGutterOptions(showLineNumbers: true)
         let page = previewHTMLPage(markdown: "# H\n\n- item\n\n> quote",

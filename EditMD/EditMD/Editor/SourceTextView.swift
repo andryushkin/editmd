@@ -1112,6 +1112,14 @@ struct SourceTextView: NSViewRepresentable {
                     if let c = els.quote.color {
                         storage.addAttribute(.foregroundColor, value: c, range: span.range)
                     }
+                case .calloutMarker(let type):
+                    let style = MarkdownCalloutStyle(rawValue: type.lowercased()) ?? .note
+                    let color = MarkdownCallout(type: type, style: style, title: nil,
+                                                markerRange: span.range).color
+                    storage.addAttributes([
+                        .foregroundColor: color,
+                        .font: sourceFont(size: baseFont.pointSize, weight: .semibold),
+                    ], range: span.range)
                 case .codeBlockBody(let language):
                     defer { codeBlockIndex += 1 }
                     if EditorSettings.shared.general.syntaxHighlighting,
@@ -1314,6 +1322,14 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
             if let c = els.quote.color {
                 storage.addAttribute(.foregroundColor, value: c, range: span.range)
             }
+        case .calloutMarker(let type):
+            let style = MarkdownCalloutStyle(rawValue: type.lowercased()) ?? .note
+            let color = MarkdownCallout(type: type, style: style, title: nil,
+                                        markerRange: span.range).color
+            storage.addAttributes([
+                .foregroundColor: color,
+                .font: font(size: baseFont.pointSize, weight: .semibold),
+            ], range: span.range)
         case .codeBlockBody(let language):
             // A one-shot render (no view to repaint later) — highlight inline.
             if EditorSettings.shared.general.syntaxHighlighting,
