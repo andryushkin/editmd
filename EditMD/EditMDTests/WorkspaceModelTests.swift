@@ -142,6 +142,31 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertFalse(m2.looseFilesToShow.contains(draft))  // session file did not
     }
 
+    func testWorkspaceFavoritesPersistAndMissingClickRemoves() throws {
+        let favorite = dir.appendingPathComponent("a.md")
+        let m1 = WorkspaceModel(defaults: defaults)
+        m1.addWorkspace(dir)
+        m1.addFavorite(favorite)
+
+        let m2 = WorkspaceModel(defaults: defaults)
+        XCTAssertEqual(m2.favoriteFiles, [favorite.standardizedFileURL])
+        XCTAssertTrue(m2.isFavorite(favorite))
+
+        try FileManager.default.removeItem(at: favorite)
+        XCTAssertNil(m2.favoriteOpenTarget(favorite))
+        XCTAssertFalse(m2.isFavorite(favorite))
+        XCTAssertTrue(m2.favoriteFiles.isEmpty)
+    }
+
+    func testWorkspaceFavoritesAreLimitedToFiftyPerRoot() throws {
+        let model = WorkspaceModel(defaults: defaults)
+        model.addWorkspace(dir)
+        for index in 0..<51 {
+            model.addFavorite(dir.appendingPathComponent("\(index).md"))
+        }
+        XCTAssertEqual(model.favoriteFiles.count, 50)
+    }
+
     func testSubfoldersListsChildDirsSkippingHidden() throws {
         try FileManager.default.createDirectory(
             at: dir.appendingPathComponent("notes"), withIntermediateDirectories: true)

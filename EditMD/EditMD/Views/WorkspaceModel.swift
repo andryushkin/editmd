@@ -98,6 +98,12 @@ final class WorkspaceModel: ObservableObject {
     @Published var hiddenFiles: [String: Set<String>] { didSet { persist(hiddenFiles, Keys.hidden) } }
     /// Pinned loose files (persist across launches), stored as paths.
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
+    /// Adopted workspace root path → favorite document paths (maximum 50 per root).
+    @Published private(set) var favoritePathsByWorkspace: [String: [String]] {
+        didSet { persist(favoritePathsByWorkspace, Keys.favorites) }
+    }
+    /// Availability is refreshed off-main; SwiftUI body never stats favorite files.
+    @Published private(set) var missingFavoritePaths: Set<String> = []
     /// Session-only loose files (opened this run, not in any workspace).
     @Published var looseFiles: [URL] = []
     /// Paths of subfolders expanded in the tree. Session state, not persisted:
@@ -125,6 +131,7 @@ final class WorkspaceModel: ObservableObject {
         static let folders = "workspace.folders"
         static let hidden = "workspace.hidden"
         static let pinned = "workspace.pinned"
+        static let favorites = "workspace.favorites"
         static let lastActive = "workspace.lastActive"
     }
 
@@ -139,8 +146,10 @@ final class WorkspaceModel: ObservableObject {
         workspaces = Self.load(defaults, Keys.folders) ?? []
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
+        favoritePathsByWorkspace = Self.load(defaults, Keys.favorites) ?? [:]
         lastActivePath = Self.load(defaults, Keys.lastActive)
         normalizeStartupTree()
+        refreshFavoriteAvailability()
         // Folder contents may change in Finder/Terminal while EditMD is in the
         // background — re-validate listings lazily on return (selector-based:
         // the block API's @Sendable closure clashes with @MainActor).
@@ -202,6 +211,7 @@ final class WorkspaceModel: ObservableObject {
 
     @objc private func appDidBecomeActive() {
         noteFilesystemChange()
+        refreshFavoriteAvailability()
     }
 
     // MARK: - Folder scan
@@ -648,6 +658,7 @@ final class WorkspaceModel: ObservableObject {
         let oldRelative: String?
         let wasHidden: Bool
         let wasPinned: Bool
+        let wasFavorite: Bool
     }
 
     /// Moves one sidebar document to another folder on disk.
@@ -712,7 +723,8 @@ final class WorkspaceModel: ObservableObject {
                 oldWorkspace: oldWorkspace,
                 oldRelative: oldRelative,
                 wasHidden: wasHidden,
-                wasPinned: pinnedLoosePaths.contains(source.path))
+                wasPinned: pinnedLoosePaths.contains(source.path),
+                wasFavorite: isFavorite(source))
         }
 
         // FileManager is synchronous and destination folders may live on slow
@@ -737,7 +749,8 @@ final class WorkspaceModel: ObservableObject {
                         oldWorkspace: state.oldWorkspace,
                         oldRelative: state.oldRelative,
                         wasHidden: state.wasHidden,
-                        wasPinned: state.wasPinned)
+                        wasPinned: state.wasPinned,
+                        wasFavorite: state.wasFavorite)
                 }
                 finishFileMoves()
                 await WikiLinkResolver.shared.invalidate()
@@ -752,7 +765,8 @@ final class WorkspaceModel: ObservableObject {
                 oldWorkspace: state.oldWorkspace,
                 oldRelative: state.oldRelative,
                 wasHidden: state.wasHidden,
-                wasPinned: state.wasPinned)
+                wasPinned: state.wasPinned,
+                wasFavorite: state.wasFavorite)
         }
         finishFileMoves()
         await WikiLinkResolver.shared.invalidate()
@@ -997,7 +1011,8 @@ final class WorkspaceModel: ObservableObject {
         oldWorkspace: Workspace?,
         oldRelative: String?,
         wasHidden: Bool,
-        wasPinned: Bool
+        wasPinned: Bool,
+        wasFavorite: Bool
     ) {
         if let oldWorkspace, let oldRelative {
             var oldSet = hiddenFiles[oldWorkspace.folderPath] ?? []
@@ -1018,6 +1033,9 @@ final class WorkspaceModel: ObservableObject {
             looseFiles.append(destination)
         }
         if lastActivePath == source.path { lastActivePath = destination.path }
+
+        removeFavorite(source)
+        if wasFavorite { addFavorite(destination) }
 
         snapshot.relocateFile(from: source.path, to: destination.path)
     }
@@ -1056,6 +1074,17 @@ final class WorkspaceModel: ObservableObject {
         pinnedLoosePaths = pinnedLoosePaths.map {
             Self.relocatedPath($0, from: oldRoot, to: newRoot)
         }
+        var relocatedFavorites: [String: [String]] = [:]
+        for (root, paths) in favoritePathsByWorkspace {
+            let relocatedRoot = Self.relocatedPath(root, from: oldRoot, to: newRoot)
+            relocatedFavorites[relocatedRoot, default: []].append(contentsOf: paths.map {
+                Self.relocatedPath($0, from: oldRoot, to: newRoot)
+            })
+        }
+        favoritePathsByWorkspace = relocatedFavorites
+        missingFavoritePaths = Set(missingFavoritePaths.map {
+            Self.relocatedPath($0, from: oldRoot, to: newRoot)
+        })
         looseFiles = looseFiles.map {
             URL(fileURLWithPath: Self.relocatedPath($0.standardizedFileURL.path,
                                                     from: oldRoot, to: newRoot))
@@ -1327,6 +1356,68 @@ final class WorkspaceModel: ObservableObject {
         let std = url.standardizedFileURL
         pinnedLoosePaths.removeAll { $0 == std.path }
         looseFiles.removeAll { $0.standardizedFileURL == std }
+    }
+
+    // MARK: - Workspace favorites
+
+    var favoriteFiles: [URL] {
+        workspaces.flatMap { workspace in
+            (favoritePathsByWorkspace[workspace.folderPath] ?? []).map {
+                URL(fileURLWithPath: $0).standardizedFileURL
+            }
+        }
+    }
+
+    func isFavorite(_ url: URL) -> Bool {
+        let file = url.standardizedFileURL
+        guard let workspace = workspaceOwning(file) else { return false }
+        return favoritePathsByWorkspace[workspace.folderPath]?.contains(file.path) == true
+    }
+
+    func addFavorite(_ url: URL) {
+        let file = url.standardizedFileURL
+        guard let workspace = workspaceOwning(file) else { return }
+        var paths = favoritePathsByWorkspace[workspace.folderPath] ?? []
+        guard !paths.contains(file.path), paths.count < 50 else { return }
+        paths.append(file.path)
+        favoritePathsByWorkspace[workspace.folderPath] = paths
+        missingFavoritePaths.remove(file.path)
+    }
+
+    func removeFavorite(_ url: URL) {
+        let file = url.standardizedFileURL
+        for workspace in workspaces {
+            guard var paths = favoritePathsByWorkspace[workspace.folderPath],
+                  paths.contains(file.path) else { continue }
+            paths.removeAll { $0 == file.path }
+            favoritePathsByWorkspace[workspace.folderPath] = paths.isEmpty ? nil : paths
+        }
+        missingFavoritePaths.remove(file.path)
+    }
+
+    /// A missing favorite is removed only after the user clicks it.
+    func favoriteOpenTarget(_ url: URL) -> URL? {
+        let file = url.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: file.path) else {
+            removeFavorite(file)
+            return nil
+        }
+        return file
+    }
+
+    func isFavoriteMissing(_ url: URL) -> Bool {
+        missingFavoritePaths.contains(url.standardizedFileURL.path)
+    }
+
+    func refreshFavoriteAvailability() {
+        let paths = favoriteFiles.map(\.path)
+        Task { @MainActor in
+            let missing = await Task.detached(priority: .utility) {
+                Set(paths.filter { !FileManager.default.fileExists(atPath: $0) })
+            }.value
+            guard Set(self.favoriteFiles.map(\.path)) == Set(paths) else { return }
+            self.missingFavoritePaths = missing
+        }
     }
 
     // MARK: - Persistence

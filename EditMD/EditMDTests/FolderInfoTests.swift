@@ -336,6 +336,7 @@ struct WorkspaceFolderIdentityTests {
         let original = try #require(model.workspaces.first)
         model.setDisplayName("Research", for: original)
         model.hiddenFiles[fixture.root.path] = ["Child/note.md"]
+        model.addFavorite(note)
         model.expandedFolders.insert(child.path)
         model.noteActive(child)
         model.snapshot.update(path: fixture.root.path) { entry in
@@ -354,6 +355,8 @@ struct WorkspaceFolderIdentityTests {
         #expect(model.workspaces.first?.displayName == "Research")
         #expect(model.hiddenFiles[renamed.path] == ["Child/note.md"])
         #expect(model.hiddenFiles[fixture.root.path] == nil)
+        #expect(model.isFavorite(renamedChild.appendingPathComponent("note.md")))
+        #expect(!model.isFavorite(note))
         #expect(model.expandedFolders == [renamedChild.path])
         #expect(model.lastActivePath == renamedChild.path)
         #expect(model.snapshot.entry(for: fixture.root.path) == nil)
@@ -519,6 +522,24 @@ struct FileMoveTests {
         #expect(FileManager.default.fileExists(atPath: destination.path))
         #expect(!model.isPinned(destination))
         #expect(!model.looseFilesToShow.contains(destination))
+    }
+
+    @Test("Moving a favorite preserves it at the destination workspace")
+    func favoriteFollowsMove() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.first.appendingPathComponent("favorite.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.first)
+        model.addWorkspace(fixture.second)
+        model.addFavorite(source)
+
+        let destination = try await model.moveFileOnDisk(source, to: fixture.second)
+
+        #expect(!model.isFavorite(source))
+        #expect(model.isFavorite(destination))
+        #expect(model.favoriteFiles == [destination])
     }
 
     @Test("Batch move accepts files from different folders and workspaces")

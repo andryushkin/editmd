@@ -426,6 +426,17 @@ struct WorkspaceSidebar: View {
                 if workspace.workspaces.isEmpty && workspace.looseFilesToShow.isEmpty {
                     emptyState
                 }
+                if !filteredFavorites.isEmpty {
+                    sectionHeader("Избранное")
+                    ForEach(filteredFavorites, id: \.self) { favorite in
+                        favoriteRow(favorite)
+                    }
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(height: 1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
                 ForEach(workspace.workspaces) { ws in
                     workspaceGroup(ws)
                 }
@@ -443,6 +454,33 @@ struct WorkspaceSidebar: View {
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
+        }
+    }
+
+    private var filteredFavorites: [URL] {
+        workspace.favoriteFiles.filter { nameMatches($0.lastPathComponent) }
+    }
+
+    private func favoriteRow(_ url: URL) -> some View {
+        let missing = workspace.isFavoriteMissing(url)
+        return FileRow(
+            name: url.lastPathComponent,
+            icon: sidebarFileIcon(for: url),
+            subtitle: missing ? "Файл не найден — нажмите, чтобы убрать" : nil,
+            isActive: isActive(url),
+            dimmed: missing,
+            trailing: .none,
+            onTap: {
+                if let target = workspace.favoriteOpenTarget(url) { onOpen(target) }
+            })
+        .contextMenu {
+            Button("Убрать из избранного") { workspace.removeFavorite(url) }
+            if !missing {
+                copyPathMenuItem(url)
+                Button("Показать в Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
         }
     }
 
@@ -585,6 +623,11 @@ struct WorkspaceSidebar: View {
             Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
             Divider()
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
+            Button(workspace.isFavorite(url) ? "Убрать из избранного" : "В избранное") {
+                workspace.isFavorite(url)
+                    ? workspace.removeFavorite(url)
+                    : workspace.addFavorite(url)
+            }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(url, in: ws) }
             } else {
@@ -840,6 +883,11 @@ private struct SubfolderNode: View {
             }
             Divider()
             Button(moveMenuTitle(for: file)) { promptToMoveSelection(anchoredAt: file) }
+            Button(workspace.isFavorite(file) ? "Убрать из избранного" : "В избранное") {
+                workspace.isFavorite(file)
+                    ? workspace.removeFavorite(file)
+                    : workspace.addFavorite(file)
+            }
             if hidden {
                 Button("Вернуть в список") { workspace.unhide(file) }
             } else {
