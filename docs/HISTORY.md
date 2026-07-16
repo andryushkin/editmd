@@ -1,6 +1,6 @@
 # EditMD — история версий
 
-Полная история релизов v1–v35: что сделано в каждой версии и её gotchas. Вынесена из `CLAUDE.md` (2026-07-10), чтобы держать основной гайд компактным. В `CLAUDE.md` остались Overview, краткая карта версий, сводка ключевых инвариантов и вечные gotchas; здесь — первоисточник. Перед работой над областью, которую строила конкретная версия (таблицы, wiki-links, frontmatter, git-интеграция…), читай её раздел.
+История релизов и post-release спринтов: что сделано, почему и какие gotchas пережили ревью. Вынесена из `CLAUDE.md` (2026-07-10), чтобы рабочий гайд оставался коротким. Перед работой над конкретной подсистемой (таблицы, wiki-links, frontmatter, split preview, изображения…) читай её раздел здесь.
 
 ## Roadmap трёх режимов (принят 2026-07-06)
 
@@ -614,9 +614,9 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Слой документа.** `DocumentStore.swift`: `parseMarkdownWrapper`/`makeMarkdownWrapper` (общий core сериализации) + `loadMarkdownDocument`/`writeMarkdownDocument` (диск) + `DocumentRegistry` (URL→`MarkdownDocument`, refcount, dirty, debounce-autosave). `MarkdownDocument` делегирует в этот core (паритет по построению).
 - **Сайдбар.** `WorkspaceModel` (несколько workspace-папок, скрытые по папкам, пины loose-файлов, session-loose; персист UserDefaults по пути) + `WorkspaceSidebar` (сегмент Files/Outline, глаз показывает скрытые с restore, пины, ПКМ). Активный корень отмечается только синей иконкой папки: фон и текст заголовка остаются нейтральными, чтобы не конкурировать с выбранным файлом. File▸Open Folder ⇧⌘O.
 - **Создание корневой папки (2026-07-15).** Плюс в Files различает `New Folder…` и `Open Folder…`: первый открывает save-style panel, где выбирают родительский каталог и имя ещё не существующей папки, затем создаёт её, добавляет в сайдбар и открывает. Во внешнем UI это «папка»; `Workspace` остаётся внутренним термином для корня Git/Review/integration scope.
-- **Имя папки и display name (2026-07-15).** По умолчанию корень показывается как настоящая папка. Пользователь может отдельно задать отображаемое имя EditMD; если оно отличается, карточка папки показывает обе сущности. Из сайдбара и карточки доступны отдельные команды для display name и физического rename. Rename на диске переносит path-keyed state/snapshot/history, но блокируется, пока внутри корня открыт документ: `DocumentRegistry`, undo/autosave и watchers привязаны к прежнему URL.
+- **Имя папки и display name (2026-07-15, hardened 2026-07-16).** По умолчанию корень показывается как настоящая папка. Пользователь может отдельно задать отображаемое имя EditMD; если оно отличается, карточка папки показывает обе сущности. Из сайдбара и карточки доступны отдельные команды для display name и физического rename. Rename на диске переносит path-keyed state/snapshot/history для корня и всех вложенных adopted roots, включая их hidden-state; закрытые модели `DocumentRegistry` и их undo re-keyed под новый корень, а при неоднозначном исходе сбрасываются. Открытый документ внутри корня блокирует операцию: autosave и watchers привязаны к прежнему URL. Транзакция сначала получает эксклюзивный FIFO permit `ReviewModel`, затем без следующей suspension ставит `AppState`-gates на старый и ожидаемый новый корень: Finder/control-открытия и sidecar-действия ждут завершения и переигрываются по фактически выжившему URL. Неоднозначный rollback сбрасывает действия для небезопасных корней вместо воскрешения пути; отсутствующий до старта source никогда не принимает за survivor чужую папку по destination. Case-only rename на нечувствительном к регистру томе проходит через уникальный временный sibling; если второй move и rollback оба падают, наружу возвращается фактически выживший old/new/temp URL.
 - **Режим нового файла (2026-07-15).** Файл, созданный из карточки папки, и untitled через File ▸ New открываются в Visual. Обычная навигация по существующим файлам сохраняет выбранный режим, Finder/Dock по-прежнему открывает Preview.
-- **Перемещение файлов (2026-07-15).** Файл можно перетащить на корень workspace, подпапку или открытую карточку папки либо вызвать «Переместить…» и выбрать каталог. ⌘-клик переключает отдельные строки, Shift-клик выделяет видимый диапазон от последнего selection anchor; drag или команда на выбранной строке переносит весь набор. Drag transport использует явный `NSItemProvider` с одним маркированным JSON payload группы под системным `public.json`: собственный UTI не был зарегистрирован в app bundle и поэтому не согласовывался реальным AppKit drag session, хотя provider unit-тест мог загрузить его напрямую. Source и destination используют одну константу типа, а случайный process token не даёт принять внешний JSON за внутренний перенос. Batch сначала проверяет все источники, одинаковые basename и существующие destinations, затем выполняет disk moves; ошибка посередине откатывает уже перенесённые файлы, а path-keyed UI state обновляется только после полного успеха. `.review.json` следует за каждым файлом. Открытые Markdown flush-ятся и паркуются в `DocumentRegistry` session cache, main/lite-представления закрываются и после batch восстанавливаются по новым URL с теми же моделями и undo; у активного review сначала дожидаемся FIFO sidecar pipeline. Hidden/loose/pinned, last-active, sidebar snapshot, history, tags и wiki-link index мигрируют для каждого файла. Общий `LongRunningOperationCenter` сразу блокирует ввод, но показывает material-overlay с `ProgressView` только после 250 мс, поэтому быстрые операции не мигают; слой подключён ко всем main/lite/settings roots и поддерживает перекрывающиеся задачи. Относительные markdown-ссылки внутри переносимых документов автоматически не переписываются.
+- **Перемещение файлов (2026-07-15, hardened 2026-07-16).** Файл можно перетащить на корень workspace, подпапку или открытую карточку папки либо вызвать «Переместить…» и выбрать каталог. ⌘-клик переключает отдельные строки, Shift-клик выделяет видимый диапазон от последнего selection anchor; drag или команда на выбранной строке переносит весь набор. Drag transport использует явный `NSItemProvider` с одним маркированным JSON payload группы под системным `public.json`: собственный UTI не был зарегистрирован в app bundle и поэтому не согласовывался реальным AppKit drag session, хотя provider unit-тест мог загрузить его напрямую. Source и destination используют одну константу типа, а случайный process token не даёт принять внешний JSON за внутренний перенос. Batch сначала проверяет все источники, одинаковые basename, существующие destinations и destination-sidecar (даже если у source нет review), затем выполняет disk moves. `.review.json` следует за каждым файлом. Ошибка посередине откатывает уже перенесённые пары; если rollback сам падает, фактическое наличие file/sidecar по обоим путям перепроверяется, path-keyed state и parked presentations привязываются к реально выжившим destinations, а split/ambiguous state остаётся явной ошибкой. До disk I/O транзакция получает общий Review FIFO permit и `AppState`-gates, резервирует сначала все destinations, затем без suspension все sources, и лишь после этого начинает off-main persist: поздние save, `marks.add/list`, agent edit и внешние open не воскрешают старый путь и не занимают будущий destination. Открытые и cached Markdown переносятся через отдельный uncapped prepared-store; clean buffer не переписывается, dirty/unmarked snapshot сохраняется off-main. Обязательная сверка с диском держит dismissed-конфликт unresolved до явного Disk/Mine/save, а для `.textbundle` сравнивает рекурсивный content-fingerprint assets, отделяя локально добавленную картинку от внешней замены её байтов. После batch те же модели и undo восстанавливаются по итоговым URL; route replay выполняется атомарно в исходном FIFO-порядке, а неоднозначные пути сбрасываются явно. Hidden/loose/pinned, last-active, sidebar snapshot, history, tags и wiki-link index мигрируют для каждого файла. Общий `LongRunningOperationCenter` сразу блокирует ввод, но показывает material-overlay с `ProgressView` только после 250 мс, поэтому быстрые операции не мигают; слой подключён ко всем main/lite/settings roots и поддерживает перекрывающиеся задачи. Относительные markdown-ссылки внутри переносимых документов автоматически не переписываются.
 - **Контекст папки (2026-07-15).** Корни и подпапки в Files, карточка открытой папки, её плитки и дерево используют один `FolderContextMenu`: открыть (когда папка ещё не открыта), создать файл/подпапку, скопировать путь и показать в Finder. Для adopted root дополнительно доступны display name, физическое переименование и удаление из сайдбара. Меню файлов на карточке выровнено с сайдбаром: отдельное окно, перенос, hide/unhide, путь и Finder.
 
 ### v28 — gotchas
@@ -920,7 +920,14 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Grip-зона** — 22pt слева от левого края таблицы; у island при горизонтальном скролле уезжает вместе с краем (offset > 0 → ручка может скрыться).
 - **Hover-хит нативной строки** идёт через nearest-glyph: точка в жёлобе мапится на ближайший глиф строки — попадание подтверждается `zone.contains(point)`, иначе ручка просто не показывается.
 
-## Формулы-спринт (после pdf-спринта) — $…$ / $$…$$ с KaTeX в Preview — app **0.39.0**
+## PDF-спринт — просмотр файлов и локальные markdown-ссылки
+
+- PDF открываются read-only через PDFKit в главном и lite-окнах, мимо `DocumentRegistry`. Файлы участвуют в sidebar/tree stats, File ▸ Open и wiki-link resolution; bare `[[Name]]` предпочитает markdown, явное расширение фиксирует тип.
+- Локальные markdown-ссылки резолвятся как в Obsidian: `/path` — от корня adopted workspace (fallback — ближайший `.obsidian`), относительный путь — от папки документа; fragment и percent encoding нормализуются. Markdown/PDF открываются внутри EditMD, остальные типы — системой.
+- Preview ловит schemeless href через JS bridge: `loadHTMLString(baseURL: nil)` не даёт браузеру полезной базы, поэтому одного `WKNavigationDelegate` недостаточно. Visual открывает локальную `.mdLink` по ⌘-клику без требования URL scheme.
+- `PDFViewerHost` и последующий `ImageViewerHost` используют общий `MediaViewerHost` для sidebar/window chrome.
+
+## Формулы-спринт (после PDF-спринта) — $…$ / $$…$$ с KaTeX в Preview — app **0.39.0**
 
 Отображение LaTeX-формул: `$inline$` и `$$display$$` через все три режима. Preview — настоящий рендер (KaTeX, офлайн), Source/Visual — подсветка сырого TeX.
 
@@ -933,7 +940,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Тесты:** `MathScanTests` (сканер/гарды/маска/аттачменты, 25 кейсов) + 8 math-кейсов в `MarkdownHTMLTests` + 4 round-trip фикстуры (всего 697).
 
 ### Формулы-спринт — gotchas
-- **Цвет формулы-картинки запечён при рендере** (`resolvedLabelColor` через effectiveAppearance) — переключение Light/Dark не перекрашивает уже отрисованные аттачменты до ре-рендера документа (смена режима/файла).
+- **Цвет формулы-картинки был запечён при рендере** (`resolvedLabelColor` через effectiveAppearance) — переключение Light/Dark не перекрашивало аттачменты. Исправлено в 0.39.2 ниже через tint на отрисовке.
 - **Copy/paste формул внутри Visual может потерять `.mdMathTex`** (RTFD не переносит кастомные ключи) — сериализатор глотает голый U+FFFC, формула тихо исчезает из markdown; вставлять формулы заново через ∫ или Source.
 - **Покрытие TeX у SwiftMath ≠ KaTeX** — что не разобралось, показывается сырым тонированным текстом (и корректно сериализуется); Preview может отрендерить то, что Visual не смог.
 
@@ -942,6 +949,50 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **`\$` в Visual теряет эскейп при сериализации**: cmark разэскейпит `\$`→`$` в plain-тексте, а `escapeInline` `$` не эскейпит (иначе валютные `$20` в любом документе получали бы diff-шум) — literal `$x$` после Visual-редактирования может стать формулой. Корнер, признан.
 - **Многострочный `$$` в blockquote не поддержан** (сканер отказывает — маска съела бы `>`); однострочные формы работают везде, включая таблицы и заголовки.
 - **Сентинел-учёт полагается на документ-порядок** Text-узлов; документ, сам содержащий U+E000, may съесть спан (guard: молча ничего не эмитим, не падаем).
+
+## Подсветка кода — app **0.39.1**
+
+- `HighlighterSwift` запускает highlight.js через JavaScriptCore. `CodeSyntaxHighlighter` — общий источник токенов для Source/Visual и HTML-спанов Preview/PDF; aliases языков нормализуются, блоки без языка не автодетектятся.
+- Каждый токен несёт light+dark palette. Source/Visual получают dynamic `NSColor`, HTML — CSS variables; appearance выбирается на отрисовке.
+- Editor path работает cache-first и прогревает промахи off-main (`stale-while-revalidate`). Blocking разрешён только для разового HTML/export. Frontmatter YAML использует тот же pipeline.
+
+## Формулы и appearance — app **0.39.2**
+
+- Формулы Visual больше не запекают `NSApp.effectiveAppearance`: один силуэт тонируется при draw через `NSImage(size:flipped:drawingHandler:)`, `cacheMode = .never`.
+- Display formulas в Preview получили внешний вертикальный ритм на `.math-display`; внутренний margin KaTeX обнулён, иначе BFC из-за overflow складывал оба отступа.
+
+## Гаттер и action strip — app **0.39.3**
+
+- Переключатель режимов и line-number toggle перенесены в `EditorActionStrip`; `StripItem` — единый источник для pill и overflow menu.
+- Source/Visual рисуют номера в зарезервированном левом text inset через `LineNumberGutter`, а не `NSRulerView`, который прибивает цифры к краю scroll view.
+- Strip и gutter используют общую `EditorFieldGeometry`; Preview повторяет те же метрики в HTML/CSS. Дублирование формул геометрии уже приводило к рассинхрону.
+
+## Split scroll и live Preview — apps **0.39.4–0.40.2**
+
+- Двусторонний scroll sync использует отдельный `previewScrollOffset`, чтобы транспорт split-прокрутки не затирал каретку. Позиция непрерывная и привязывается к markdown offsets/data anchors внутри блоков.
+- Live Preview обновляет существующий WKWebView через JS bridge и сохраняет scroll/focus; тяжёлые HTML/KaTeX/image операции кэшируются и не должны замораживать печать.
+- Рендер и scroll callbacks имеют echo/throttle guards: editor→preview и preview→editor не образуют feedback loop.
+- В 0.40.2 Preview-strip сокращён до действий, которые честно работают в read-only DOM; ID инструментов и overflow routing сведены к одному источнику.
+
+## Image viewer и вставка изображений (после **0.40.2**)
+
+Серия `e2bcfa1..668a1f1`: просмотр локальных изображений, кнопка добавления и paste из буфера с последующим ревью регрессий.
+
+- **Viewer:** форматы `png/jpg/jpeg/gif/svg/webp/heic/tiff/tif/bmp` маршрутизируются в native image canvas; MIME/extension/picker routing питаются от `supportedImageMIMETypes`. PDF и image windows разделяют `MediaViewerHost`.
+- **Insertion:** picker и clipboard кладут байты в `assets/` и вставляют относительный `![alt](destination)`. `markdownImageSyntax` общий для insertion и round-trip; destination/alt не экранируются второй независимой реализацией.
+- **Paste funnel:** Source пробует table → image → plain text; Visual — markdown/table → image → plain text. Порядок lazy: Word/Excel/Numbers кладут рядом HTML и TIFF/PDF preview, поэтому image-first убивал табличную вставку.
+- **Контекст:** Source внутри fenced block не запускает special doors; Visual использует общий `visualContextAllowsStructuredPaste` для markdown, image paste и кнопки и запрещает структуру в `codeBlock`, `tableCell`, `.raw`.
+- **Fallback:** storage error возвращает `false`, чтобы обычный paste получил текстовую часть payload. `true` означает, что вставка действительно состоялась или payload намеренно потреблён.
+- **Assets:** повторные байты переиспользуют существующий файл. Дедуп сначала фильтрует по size и только затем сравнивает содержимое. В textbundle диск — источник существующих assets, найденный файл добавляется в `assetsFileWrapper`; генерация имени дополнительно проверяет `fileExists`, включая hidden/symlink collision.
+- **Reload:** `ImageCanvasView` сравнивает URL + mtime + size и делает stat/read в detached task. При смене URL старая канва очищается и виден loading; при обновлении того же URL старая картинка остаётся до успешной замены. Проверка запускается оппортунистически из `updateNSView`, отдельного watcher нет.
+- **Тесты:** routing/guards/fallback, markdown serialization, collision/content dedup, textbundle disk-without-wrapper и file-version покрыты в `VisualEditingTests`; полный suite после финального фикса — 766 тестов.
+
+### Image sprint — gotchas
+
+- Не ставить broad image-flavor перед семантическими paste doors: TIFF часто является лишь рендером другого clipboard payload.
+- Не делать synchronous file read в `updateNSView` или SwiftUI `body`. Paste хранит asset синхронно только потому, что AppKit требует немедленно решить, разрешать ли plain-text fallback; поэтому scan должен оставаться metadata-first.
+- `showLoading` имеет разную семантику для URL change и same-URL reload: в первом случае чужие пиксели опаснее мигания, во втором полезно сохранить текущую картинку.
+- Не сканировать `FileWrapper.regularFileContents` без size metadata: для открытого textbundle те же assets уже находятся на диске и проходят общий disk dedup.
 
 ## Встроенные плагины и multi-checkbox (после **0.40.2**)
 
@@ -952,7 +1003,11 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Три режима:** Source получает plugin spans и не выдаёт core checkbox lint; Visual хранит inline payload в `.mdBuiltInPluginToken`, list payload в `.builtInPluginTaskItem`, сериализует исходный `[marker]` и циклически меняет marker/list/table с undo; Preview рендерит доступную кнопку, SF Symbol как локальный PNG data URI и отправляет source offset через отдельный WebKit handler. Strike-state зачёркивает list item.
 - **Таблицы:** native cells рендерят inline widget; virtualized large-table path использует тот же renderer/cache, а status-only cell циклически обновляется через существующий `updateTableIslandCell`, что покрывает `PMID_DOWNLOAD_LIST.md` без перевода большой таблицы в NSTextTable.
 - **UI/docs:** Settings ▸ Plugins — read-only inventory встроенных плагинов; подробный developer/user контракт и пример frontmatter находятся в `docs/plugins.md`.
-- **Тесты:** `BuiltInPluginsTests` — 23 кейса: schema/order/icons/strike (включая все markers из `PMID_DOWNLOAD_LIST.md`), canonical indentationless YAML sequence, invalid config, protected syntax, list/prose/table scan, escaped marker в island-cell, cached-snapshot cycle через states, отсутствовавшие при загрузке, frontmatter-scoped snapshot refresh, UTF-16 mask, cycle+wrap и очистка старого attachment/strike, Source/lint, Visual round-trip, Preview HTML/bridge, точный sentinel offset/fallback, hit-rect и отключение обычных checkbox при activation.
+- **Document install door:** фиксированное puzzle-menu общей action strip доступно в Source/Visual/Preview/Split и строится из registry descriptors. Multi-checkbox вставляет undoable одно-state шаблон: создаёт frontmatter с нуля либо вкладывается в существующие `editmd`/`plugins`; declaration gate не допускает второй блок даже при невалидной существующей конфигурации.
+- **Preview configuration:** активный plugin frontmatter заменяет сырой вложенный `editmd`-ряд на интерактивную карточку состояний. Add state, marker, label, Emoji/SF Symbol/Text и strikethrough идут через typed WebKit bridge, registry whitelist и общий undo path; системная Character Viewer вставляет emoji в сфокусированное поле. Inline lint не пропускает multi-unit, `[`/`]` и duplicate markers, а неизвестный SF Symbol виден в строке. Marker rename мигрирует существующие semantic tokens, сохраняя code/link/wiki/math; YAML-комментарий на изменяемой строке сохраняется.
+- **Preview editor continuity:** перед заменой `#preview-content` persistent shell запоминает plugin ID, state index, control и selection, после hydration восстанавливает их без scroll jump. Swift перед каждой fragment replacement сбрасывает `hasEditablePreviewFocus`; новый `focusin` выставляет его снова, поэтому удалённый WebKit node не блокирует Return-to-edit навсегда. Невалидный объявленный блок (включая duplicate marker) получает видимую diagnostic card вместо тихого отключения, а пустой frontmatter без свойств не создаёт пустую карточку «Свойства».
+- **Visual invalid configuration:** read-only Visual не пытается строить редактор невалидного YAML. Registry diagnostic появляется в статус-баре как `Multi-checkbox · Needs attention`; tooltip объясняет ошибку, клик открывает Source на frontmatter. Preview-only marker input больше не эмитит неиспользуемый `data-initial`.
+- **Тесты:** `BuiltInPluginsTests` и Swift Testing suite конфигуратора покрывают schema/order/icons/strike (включая markers из `PMID_DOWNLOAD_LIST.md`), one-state activation, установку во все формы frontmatter, add-state, declaration gate, canonical indentationless YAML sequence, invalid config, protected syntax, Source/Visual/Preview round-trip/bridge, cycle+wrap и отключение обычных checkbox при activation.
 
 ### Plugin review hardening
 
@@ -962,8 +1017,6 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Tables/Preview:** large-table cell строит один `Document`; тот же AST задаёт code/link/image context, wiki/math фильтруются локально, а raw slice конкретного Text берётся прямо по UTF-8 source columns — `\[?\]` остаётся literal без отдельного `collectCoreSpans`/`LineIndex`. Preview сопоставляет sentinel на точном source offset через document-order cursor за O(n), при отсутствии AST range использует следующий semantic token, а при mismatch восстанавливает original source slice.
 - **Commands/capabilities:** Format ▸ Checklist считает core и plugin tasks одной checklist-family и для действия, и для active menu indicator; в активном документе новая checklist начинается с первого state из frontmatter. Lint спрашивает у registry capability `ownsCoreCheckboxSyntax`, а не знает `MultiCheckboxPlugin` напрямую.
 - **YAML:** parser принимает как indented sequence под `states:`, так и канонический indentationless sequence с `- marker:` на том же indent.
-- **Preview editor continuity:** persistent shell переносит plugin ID, state index, active control и selection через замену `#preview-content`; Swift заранее сбрасывает `hasEditablePreviewFocus`, чтобы удалённый WebKit node не блокировал Return-to-edit. Невалидный объявленный блок, включая duplicate marker, показывает diagnostic card, а пустой frontmatter не создаёт пустую карточку «Свойства».
-- **Visual invalid configuration:** read-only Visual показывает registry diagnostic в статус-баре как `Multi-checkbox · Needs attention`; tooltip объясняет ошибку, клик открывает Source на frontmatter. Preview marker input больше не эмитит неиспользуемый `data-initial`.
 
 ### Plugin gotchas
 
