@@ -1032,3 +1032,10 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Активный multi-checkbox в раскрытом Visual не сжимается до бесполезного `editmd:`: read-only legend показывает каждое состояние в порядке цикла как «иконка — `[marker]` — название» и визуально отмечает strikethrough-state. Поля редактирования остаются только в Preview/Source.
 - Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
 - Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.
+
+## Properties-панель (план 04)
+
+- Правый inspector: вкладка «Свойства» (`list.bullet.rectangle`) — frontmatter текущего документа как форма. Ядро `Editor/FrontmatterEdit.swift`: построчные `replace/insert/remove` + list, без YAML-сериализатора; complex / duplicate / multiline → отказ (Source only).
+- Типы: string / number / bool / date / tags / aliases / list / complex. Коммит string/number — Enter или blur; bool/date — сразу; списки — чипы + add/remove item. Undo через `MarkdownDocument.applyDocumentEdit` (тот же путь, что plugin-card).
+- **Поведенческое:** frontmatter в Visual и Preview **по умолчанию свёрнут** (editing живёт в панели). Disclosure-toggle session-local как раньше; отдельный Settings-switch не добавлялся.
+- Preview plugin-card по-прежнему редактирует whitelisted поля multi-checkbox; панель — произвольные простые top-level поля (двойной UI допустим).
