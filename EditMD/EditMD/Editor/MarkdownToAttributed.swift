@@ -184,7 +184,7 @@ private extension NSFont {
 func renderMarkdownToAttributed(_ markdown: String,
                                 style: VisualStyle = VisualStyle(),
                                 pluginSnapshot: BuiltInPluginSnapshot? = nil,
-                                frontmatterCollapsed: Bool = false)
+                                frontmatterCollapsed: Bool = true)
     -> NSAttributedString {
     VisualRenderer(source: markdown, style: style,
                    pluginSnapshot: pluginSnapshot,

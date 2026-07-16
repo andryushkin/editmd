@@ -431,7 +431,8 @@ struct BuiltInPluginPreviewConfigurationTests {
     }
 
     @Test func visualFrontmatterShowsReadOnlyIconMarkerLegend() throws {
-        let attributed = renderMarkdownToAttributed(frontmatter + "\n[-] Item")
+        let attributed = renderMarkdownToAttributed(
+            frontmatter + "\n[-] Item", frontmatterCollapsed: false)
         let display = attributed.string
 
         #expect(display.contains("Multi-checkbox"))

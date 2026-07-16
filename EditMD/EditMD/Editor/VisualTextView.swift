@@ -380,7 +380,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// serialized frontmatter source itself changes.
         var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
         private var builtInPluginFrontmatter: String?
-        private var frontmatterCollapsed = false
+        /// Default collapsed once the Properties inspector owns editing
+        /// (plan 04). User disclosure toggle still flips session state.
+        private var frontmatterCollapsed = true
 
         var visualStyle: VisualStyle {
             let settings = EditorSettings.shared.visual

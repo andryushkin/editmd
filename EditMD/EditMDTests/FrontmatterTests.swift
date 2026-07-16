@@ -170,7 +170,7 @@ struct FrontmatterDisclosureTests {
     private let markdown = "---\ntitle: A\ntags: [x, y]\n---\n\n# Heading\n"
 
     @Test func visualDisclosureChangesOnlyDisplayAndKeepsRawYAML() throws {
-        let expanded = renderMarkdownToAttributed(markdown)
+        let expanded = renderMarkdownToAttributed(markdown, frontmatterCollapsed: false)
         let collapsed = renderMarkdownToAttributed(markdown, frontmatterCollapsed: true)
         let titleRange = (expanded.string as NSString).range(of: frontmatterDisplayTitle)
 
@@ -196,10 +196,18 @@ struct FrontmatterDisclosureTests {
         #expect(body.contains("class=\"fm-disclosure\""))
         #expect(body.contains("<span>Свойства</span></button>"))
         #expect(body.contains("<div class=\"fm-content\">"))
-        #expect(page.contains("var frontmatterCollapsed = false;"))
+        // Default collapsed after Properties panel (plan 04 stage 5).
+        #expect(page.contains("var frontmatterCollapsed = true;"))
         #expect(page.contains("function hydrateFrontmatterDisclosure()"))
         #expect(page.contains("hydrateFrontmatterDisclosure();"))
         #expect(page.contains("content.hidden = frontmatterCollapsed;"))
+    }
+
+    @Test func visualFrontmatterDefaultsToCollapsed() {
+        let attributed = renderMarkdownToAttributed(markdown)
+        #expect(attributed.string.contains(frontmatterDisplayTitle))
+        #expect(!attributed.string.contains("title: A"),
+                "default Visual render should collapse frontmatter body")
     }
 
     @Test func emptyFrontmatterDoesNotRenderAnEmptyPropertiesCard() {

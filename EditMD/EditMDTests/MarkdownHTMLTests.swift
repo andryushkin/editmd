@@ -697,7 +697,11 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         webView.loadHTMLString(previewHTMLPage(markdown: before, fontSize: 14), baseURL: nil)
         await fulfillment(of: [loaded], timeout: 20)
 
+        // Frontmatter defaults to collapsed (Properties panel); expand so the
+        // plugin-card controls are focusable — same as a user editing in Preview.
         let focused = try await webView.evaluateJavaScript("""
+        var title = document.querySelector('.fm-title');
+        if (title && title.getAttribute('aria-expanded') === 'false') title.click();
         var field = document.querySelector('.fm-plugin-icon-value');
         field.focus();
         field.setSelectionRange(2, 4);
@@ -742,9 +746,9 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         XCTAssertFalse(webView.hasEditablePreviewFocus)
     }
 
-    /// Frontmatter disclosure belongs to the persistent shell. Replacing the
-    /// body fragment during live Preview must hydrate the new card with the
-    /// user's existing collapsed state instead of expanding it again.
+    /// Frontmatter disclosure belongs to the persistent shell. Default is
+    /// collapsed (Properties panel owns editing). Replacing the body fragment
+    /// during live Preview must re-hydrate the user's shell state — not reset it.
     func testFrontmatterDisclosureSurvivesFragmentReplacement() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
         let loaded = expectation(description: "page loaded")
@@ -755,17 +759,20 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
                                baseURL: nil)
         await fulfillment(of: [loaded], timeout: 20)
 
-        let collapsed = try await webView.evaluateJavaScript("""
-        document.querySelector('.fm-title').click();
+        // Default collapsed (plan 04 stage 5).
+        let initial = try await webView.evaluateJavaScript("""
         JSON.stringify({
           title: document.querySelector('.fm-title').textContent,
           expanded: document.querySelector('.fm-title').getAttribute('aria-expanded'),
           hidden: document.querySelector('.fm-content').hidden
         });
         """) as? String ?? ""
-        XCTAssertTrue(collapsed.contains("Свойства"), collapsed)
-        XCTAssertTrue(collapsed.contains("\"expanded\":\"false\""), collapsed)
-        XCTAssertTrue(collapsed.contains("\"hidden\":true"), collapsed)
+        XCTAssertTrue(initial.contains("Свойства"), initial)
+        XCTAssertTrue(initial.contains("\"expanded\":\"false\""), initial)
+        XCTAssertTrue(initial.contains("\"hidden\":true"), initial)
+
+        // User expands — shell state flips; fragment replace must keep it.
+        _ = try await webView.evaluateJavaScript("document.querySelector('.fm-title').click();")
 
         _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
         let after = "---\ntitle: After\n---\n\n# Changed"
@@ -786,8 +793,8 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
           content: document.getElementById('preview-content').textContent
         });
         """) as? String ?? ""
-        XCTAssertTrue(hydrated.contains("\"expanded\":\"false\""), hydrated)
-        XCTAssertTrue(hydrated.contains("\"hidden\":true"), hydrated)
+        XCTAssertTrue(hydrated.contains("\"expanded\":\"true\""), hydrated)
+        XCTAssertTrue(hydrated.contains("\"hidden\":false"), hydrated)
         XCTAssertTrue(hydrated.contains("After"), hydrated)
         XCTAssertFalse(hydrated.contains("Before"), hydrated)
     }

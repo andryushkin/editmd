@@ -1959,7 +1959,9 @@ func previewHTMLPageRender(markdown: String,
 
     // The shell owns this state, not the replaceable fragment. Consequently a
     // live Preview innerHTML update keeps the user's disclosure choice.
-    var frontmatterCollapsed = false;
+    // Default collapsed: Properties inspector owns frontmatter editing (plan 04).
+    // Disclosure state lives in this persistent shell across fragment updates.
+    var frontmatterCollapsed = true;
     function applyFrontmatterDisclosure(section) {
         var title = section.querySelector('.fm-title');
         var content = section.querySelector('.fm-content');
