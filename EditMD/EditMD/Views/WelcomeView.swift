@@ -18,7 +18,6 @@ struct WelcomeHost: View {
             if sidebarVisible {
                 WorkspaceSidebar(
                     workspace: workspace,
-                    outlineContent: "",
                     activeURL: nil,
                     onOpen: { AppState.shared.openInMainWindow($0) },
                     onOpenFolder: { AppState.shared.openInMainWindow($0) },

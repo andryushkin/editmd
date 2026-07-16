@@ -109,7 +109,6 @@ struct ContentView: View {
                     if sidebarVisible && allowsSidebar {
                         WorkspaceSidebar(
                             workspace: workspace,
-                            outlineContent: document.content,
                             activeURL: fileURL,
                             onOpen: openFromSidebar,
                             onOpenFolder: { AppState.shared.openInMainWindow($0) },
@@ -135,8 +134,14 @@ struct ContentView: View {
                                                  max(Self.inspectorWidthRange.lowerBound, w))
                         }
                         .zIndex(1)
-                        InspectorSidebar(fileURL: fileURL)
-                            .frame(width: inspectorWidth)
+                        InspectorSidebar(
+                            fileURL: fileURL,
+                            outlineContent: document.content,
+                            onJump: { offset in
+                                positionStore.requestJump(toMarkdownOffset: offset)
+                            }
+                        )
+                        .frame(width: inspectorWidth)
                     }
                 }
                 .coordinateSpace(name: "mainPanes")

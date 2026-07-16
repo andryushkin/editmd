@@ -71,6 +71,7 @@
 		7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD16A03238CB74404043EB7D /* TagsSidebar.swift */; };
 		7A4E694B97739F877CBA0691 /* ReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14742851ED5AEE37BAF1419 /* ReviewModel.swift */; };
 		7E698ED39A84574149B1B31F /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2E01E52E9D350180F84BCF /* LineNumberGutter.swift */; };
+		810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */; };
 		84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */; };
 		84CF1A4445DEF3DA95260487 /* ClaudeIDEUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */; };
 		84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */; };
@@ -216,6 +217,7 @@
 		A13117B53A0709929BE14082 /* SkillInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillInstaller.swift; sourceTree = "<group>"; };
 		A14742851ED5AEE37BAF1419 /* ReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewModel.swift; sourceTree = "<group>"; };
 		A4840BC0DD8B410D784453BC /* GitSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSidebar.swift; sourceTree = "<group>"; };
+		A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebarTests.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
 		AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistory.swift; sourceTree = "<group>"; };
@@ -486,6 +488,7 @@
 				95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */,
 				A75D9EDD5F391199A959F85D /* GitCLITests.swift */,
 				683585ED84041D652B804F1F /* IDELockFileTests.swift */,
+				A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */,
 				712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */,
 				924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */,
 				55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */,
@@ -656,6 +659,7 @@
 				D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */,
 				1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */,
 				DD6EE1E2FE82AC1E82097306 /* IDELockFileTests.swift in Sources */,
+				810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */,
 				0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */,
 				AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */,
 				DC139233A12E3FF14314161B /* MCPProtocolTests.swift in Sources */,

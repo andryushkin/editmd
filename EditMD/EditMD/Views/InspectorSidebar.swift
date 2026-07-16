@@ -6,8 +6,12 @@ import AppKit
 /// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
 struct InspectorSidebar: View {
     let fileURL: URL?
+    let outlineContent: String
+    let onJump: (Int) -> Void
 
     @AppStorage("inspectorTab") private var tab = "outline"
+    /// Bottom filter field — filters Outline headings (and future lists).
+    @State private var filterText = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,12 +22,17 @@ struct InspectorSidebar: View {
 
             Group {
                 switch tab {
-                default:
-                    // Stage 1: Info stub. Outline and full Info arrive in later stages.
+                case "info":
                     infoStub
+                default:
+                    // "outline" and any unknown key fall back to Outline.
+                    OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            // Filter only (no + / eye — those are workspace-scope).
+            bottomBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -33,6 +42,10 @@ struct InspectorSidebar: View {
 
     private var navigatorToolbar: some View {
         HStack(spacing: 0) {
+            navTabButton(id: "outline",
+                         systemImage: "list.bullet.indent",
+                         help: "Outline")
+            navDivider
             navTabButton(id: "info",
                          systemImage: "info.circle",
                          help: "Info")
@@ -46,8 +59,15 @@ struct InspectorSidebar: View {
         )
     }
 
+    private var navDivider: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 3)
+    }
+
     private func navTabButton(id: String, systemImage: String, help: String) -> some View {
-        let selected = tab == id || (tab != "info" && id == "info")
+        let selected = tab == id
         return Button {
             tab = id
         } label: {
@@ -66,7 +86,30 @@ struct InspectorSidebar: View {
         .editMDHelp(help)
     }
 
-    // MARK: - Info stub (stage 1)
+    // MARK: - Bottom bar (Filter only)
+
+    private var bottomBar: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("Filter", text: $filterText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: SidebarChrome.wellColor))
+            )
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Info stub (full panel arrives in stage 3)
 
     private var infoStub: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -183,13 +183,16 @@ func sidebarVisibleFileOrder(
     }
 }
 
-/// The left sidebar: Xcode-style icon toolbar switches Files / Outline / Git;
-/// Files shows adopted workspace folders (collapsible tree) + loose
-/// Finder-opened files; Outline reuses `OutlineSidebar`; Git is
-/// workspace-scoped status + Commit/Push.
+/// Maps a persisted left-sidebar tab key to a still-valid one.
+/// Outline moved to the right inspector (plan 01); `"outline"` → `"files"`.
+func migrateWorkspaceSidebarTab(_ tab: String) -> String {
+    tab == "outline" ? "files" : tab
+}
+
+/// The left sidebar: Xcode-style icon toolbar switches Files / Git / Review /
+/// Tags (workspace-scope). Outline moved to the right inspector (document-scope).
 struct WorkspaceSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
-    let outlineContent: String
     let activeURL: URL?
     /// Left-click a file: the host decides (replace in place, or the
     /// "already open in another window" modal).
@@ -202,7 +205,7 @@ struct WorkspaceSidebar: View {
     @ObservedObject private var review = ReviewModel.shared
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("sidebarShowHidden") private var showHidden = false
-    /// Bottom filter field — filters Files tree / Outline headings / Git paths.
+    /// Bottom filter field — filters Files tree / Git paths / Review / Tags.
     @State private var filterText = ""
     @State private var selectedFiles = Set<URL>()
     @State private var selectionAnchor: URL?
@@ -215,8 +218,6 @@ struct WorkspaceSidebar: View {
 
             Group {
                 switch tab {
-                case "outline":
-                    OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
                 case "git":
                     GitSidebar(
                         workspace: workspace,
@@ -229,11 +230,12 @@ struct WorkspaceSidebar: View {
                 case "tags":
                     TagsSidebar(workspace: workspace, filter: filterText, onOpen: onOpen)
                 default:
+                    // "files" and retired keys (e.g. pre-inspector "outline") → Files.
                     filesTab
                 }
             }
             // Fill remaining height so bottomBar stays pinned even when the
-            // active tab has little content (empty Outline / short Review).
+            // active tab has little content (empty Review).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Xcode-style bottom strip: + · Filter · eye
@@ -243,7 +245,19 @@ struct WorkspaceSidebar: View {
         // Match the window chrome (toolbar / titlebar), not the greyer
         // under-page fill that made the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: tab) { _ in clearFileSelection() }
+        .onAppear { applySidebarTabMigration() }
+        .onChange(of: tab) { _ in
+            clearFileSelection()
+            applySidebarTabMigration()
+        }
+    }
+
+    /// Outline left the left sidebar (plan 01). Persisted `sidebarTab == "outline"`
+    /// would otherwise land in `default` (Files) with a stale AppStorage value —
+    /// reset explicitly so storage matches the visible tab.
+    private func applySidebarTabMigration() {
+        let migrated = migrateWorkspaceSidebarTab(tab)
+        if migrated != tab { tab = migrated }
     }
 
     private var filterQuery: String {
@@ -266,10 +280,6 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "files",
                          systemImage: "folder",
                          help: "Files")
-            navDivider
-            navTabButton(id: "outline",
-                         systemImage: "list.bullet.indent",
-                         help: "Outline")
             navDivider
             navTabButton(id: "git",
                          systemImage: "arrow.triangle.branch",
@@ -335,7 +345,7 @@ struct WorkspaceSidebar: View {
     private var bottomBar: some View {
         HStack(spacing: 6) {
             // "+" is Files-only (folder creation/adoption). Filter stays global —
-            // it also filters Outline / Git / Review.
+            // it also filters Git / Review / Tags.
             if tab == "files" {
                 Menu {
                     Button("New Folder…") { workspace.promptCreateFolder() }

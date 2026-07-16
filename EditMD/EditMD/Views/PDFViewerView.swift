@@ -359,7 +359,6 @@ private struct MediaViewerHost<Viewer: View>: View {
             if allowsSidebar && sidebarVisible {
                 WorkspaceSidebar(
                     workspace: workspace,
-                    outlineContent: "",
                     activeURL: fileURL,
                     onOpen: { AppState.shared.openInMainWindow($0) },
                     onOpenFolder: { AppState.shared.openInMainWindow($0) },
