@@ -37,6 +37,13 @@ enum LintRule: String, Equatable {
     case headingMissingSpace
     case unclosedCodeFence
     case tableCellCountMismatch
+    // Vault-lint (plan 06) — produced only by merge, never by `lint(_:)`.
+    case vaultDeadWikiLink
+    case vaultAmbiguousWikiLink
+    case vaultSelfWikiLink
+    case vaultDeadRelativeLink
+    case vaultDeadImageLink
+    case vaultDeadHeadingAnchor
 }
 
 struct LintDiagnostic: Equatable {
