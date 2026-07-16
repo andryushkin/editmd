@@ -25,6 +25,7 @@
 		14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4840BC0DD8B410D784453BC /* GitSidebar.swift */; };
 		16A09F6624873FD33471F396 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 3502DDBEA215B3B26B719677 /* SwiftMath */; };
 		173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */; };
+		175865854FE20802B678A99A /* LinkIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5095045B9037F0630921FB05 /* LinkIndexTests.swift */; };
 		186E6C22B5D0D627F9A7A735 /* katex.css in Resources */ = {isa = PBXBuildFile; fileRef = 7876EB215E777CB863F2221B /* katex.css */; };
 		193F11852B92E034FAC48D21 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */; };
 		1E1C496DB940AEC5A01CD263 /* ClaudeIDETools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7534B860CEE234DA0F13BA8B /* ClaudeIDETools.swift */; };
@@ -56,6 +57,7 @@
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		5DF3620561EB18DD158495CD /* EditorFieldGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */; };
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
+		60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666BC06A474E4D37C8EA0265 /* LinkIndex.swift */; };
 		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
@@ -173,6 +175,7 @@
 		437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreviewView.swift; sourceTree = "<group>"; };
 		4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualTextView.swift; sourceTree = "<group>"; };
 		4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownOutline.swift; sourceTree = "<group>"; };
+		5095045B9037F0630921FB05 /* LinkIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndexTests.swift; sourceTree = "<group>"; };
 		50BA444A2429A2E9B1751007 /* KaTeXResources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaTeXResources.swift; sourceTree = "<group>"; };
 		5155511FAA84E40D16B091B7 /* SKILL.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SKILL.md; sourceTree = "<group>"; };
 		52D121A56408289D8F49E90D /* DocumentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStore.swift; sourceTree = "<group>"; };
@@ -182,6 +185,7 @@
 		57F65113867F0DDDF47D9686 /* GitUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitUI.swift; sourceTree = "<group>"; };
 		5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSnapshot.swift; sourceTree = "<group>"; };
 		5DE049C40EE9A0CB2F09BFBF /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
+		666BC06A474E4D37C8EA0265 /* LinkIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndex.swift; sourceTree = "<group>"; };
 		6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedToMarkdown.swift; sourceTree = "<group>"; };
 		683585ED84041D652B804F1F /* IDELockFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFileTests.swift; sourceTree = "<group>"; };
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
@@ -413,6 +417,7 @@
 				A4840BC0DD8B410D784453BC /* GitSidebar.swift */,
 				57F65113867F0DDDF47D9686 /* GitUI.swift */,
 				1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */,
+				666BC06A474E4D37C8EA0265 /* LinkIndex.swift */,
 				437866ECDC36D19D4993CF5E /* MarkdownPreviewView.swift */,
 				BAD84F80960334B09CB707FA /* OutlineSidebar.swift */,
 				855030C27B3542DC0CF21A0F /* PDFViewerView.swift */,
@@ -499,6 +504,7 @@
 				A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */,
 				712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */,
 				924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */,
+				5095045B9037F0630921FB05 /* LinkIndexTests.swift */,
 				D45090939E587BA5C57087E3 /* LinkScanTests.swift */,
 				55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */,
 				B5D846CE48E058A5CF592086 /* MarkdownHTMLTests.swift */,
@@ -671,6 +677,7 @@
 				810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */,
 				0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */,
 				AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */,
+				175865854FE20802B678A99A /* LinkIndexTests.swift in Sources */,
 				9E73EAAA73509F0687D41207 /* LinkScanTests.swift in Sources */,
 				DC139233A12E3FF14314161B /* MCPProtocolTests.swift in Sources */,
 				B8C565E206D80AB162BE9AFF /* MarkdownHTMLTests.swift in Sources */,
@@ -735,6 +742,7 @@
 				E0C5F0E5FA0696446CBF0AFE /* KaTeXResources.swift in Sources */,
 				3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */,
 				7E698ED39A84574149B1B31F /* LineNumberGutter.swift in Sources */,
+				60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */,
 				83ED51D42ADA1AD8B4C41FC2 /* LinkScan.swift in Sources */,
 				84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */,
 				36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */,

@@ -1141,7 +1141,11 @@ final class WorkspaceModel: ObservableObject {
     /// list children observe the model; reading this forces a refresh pass.
     @Published private(set) var contentEpoch: Int = 0
 
-    func noteFilesystemChange() { contentEpoch += 1 }
+    func noteFilesystemChange() {
+        contentEpoch += 1
+        // Link graph is presentation state over the tree — rebuild in background.
+        LinkIndex.shared.invalidate(workspace: self)
+    }
 
     /// Creates an empty markdown file in `folder`. `name` is the user-facing
     /// name (`.md` is appended when missing). Returns the new file URL.

@@ -928,6 +928,8 @@ final class DocumentRegistry {
         let existingAssets = (try? loadMarkdownDocument(from: key))?.assets
         try writeMarkdownDocument(content: content, assets: existingAssets, to: key)
         LineChangeTracker.shared.noteBaseline(url: key, content: content)
+        // Closed-file agent edit: same incremental index path as flush.
+        LinkIndex.shared.noteDocumentPersisted(url: key, content: content)
         // A brand-new file has to appear in the sidebar without a manual refresh.
         WorkspaceModel.shared.noteFilesystemChange()
     }
@@ -1027,6 +1029,8 @@ final class DocumentRegistry {
         // After save, a concurrent `git commit` (or hook) may have advanced;
         // re-check path hash so dirty-line marks can clear on real commits only.
         GitCommitWatcher.shared.check(url: entry.url)
+        // Link index: incremental rescan of this file only (plan 02).
+        LinkIndex.shared.noteDocumentPersisted(url: entry.url, content: content)
     }
 
     private func clearPendingConflict(_ entry: Entry) {
