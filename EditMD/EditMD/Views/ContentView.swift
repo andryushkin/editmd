@@ -142,7 +142,11 @@ struct ContentView: View {
                             onJump: { offset in
                                 positionStore.requestJump(toMarkdownOffset: offset)
                             },
-                            onOpen: openFromSidebar
+                            onOpen: openFromSidebar,
+                            onOpenInSource: { offset in
+                                setEditorMode(.source)
+                                positionStore.requestJump(toMarkdownOffset: offset)
+                            }
                         )
                         .frame(width: inspectorWidth)
                     }

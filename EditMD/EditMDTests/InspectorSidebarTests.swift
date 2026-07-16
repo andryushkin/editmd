@@ -80,6 +80,35 @@ final class InspectorSidebarTests: XCTestCase {
         XCTAssertEqual(s.headings, 2)
     }
 
+    // MARK: - Properties tab (read-only classification surface)
+
+    func testClassifyFeedsPropertiesPanel() {
+        let doc = """
+        ---
+        title: Note
+        tags: [a, b]
+        nested:
+          x: 1
+        ---
+        body
+        """
+        let fields = classifyFrontmatterFields(in: doc)
+        XCTAssertEqual(fields.map(\.key), ["title", "tags", "nested"])
+        XCTAssertEqual(fields[0].kind, .string)
+        XCTAssertEqual(fields[1].kind, .tags)
+        XCTAssertEqual(fields[2].kind, .complex)
+        XCTAssertFalse(fields[2].isEditable)
+        XCTAssertNotNil(fields[2].utf16Offset)
+    }
+
+    func testPropertiesOpenInSourceOffset() {
+        let doc = "---\ntitle: A\nnested:\n  x: 1\n---\n"
+        let offset = frontmatterFieldUTF16Offset(in: doc, key: "nested")
+        XCTAssertEqual(offset, 4 + ("title: A\n" as NSString).length)
+        let slice = (doc as NSString).substring(from: offset!)
+        XCTAssertTrue(slice.hasPrefix("nested:"))
+    }
+
     func testFormatByteSize() {
         XCTAssertEqual(formatByteSize(500), "500 B")
         XCTAssertEqual(formatByteSize(2048), "2.0 KB")

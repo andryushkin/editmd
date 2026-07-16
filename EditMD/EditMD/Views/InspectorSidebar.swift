@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Right inspector panel for document-scope UI (Outline, Info, Links,
-/// Backlinks, later History / Properties). Mirrors the left `WorkspaceSidebar`
+/// Backlinks, Properties, later History). Mirrors the left `WorkspaceSidebar`
 /// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
 struct InspectorSidebar: View {
     let fileURL: URL?
@@ -14,11 +14,17 @@ struct InspectorSidebar: View {
     let onJump: (Int) -> Void
     /// Open a file in the main window (links / backlinks targets).
     let onOpen: (URL) -> Void
+    /// Switch to Source and place the caret (Properties «Открыть в Source»).
+    var onOpenInSource: ((Int) -> Void)? = nil
 
     @ObservedObject private var linkIndex = LinkIndex.shared
     @AppStorage("inspectorTab") private var tab = "outline"
     /// Bottom filter field — filters Outline / Links / Backlinks lists.
     @State private var filterText = ""
+
+    private var showsFilterBar: Bool {
+        tab != "info" && tab != "properties"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +41,11 @@ struct InspectorSidebar: View {
                         content: outlineContent,
                         gitSnapshot: gitSnapshot,
                         linkIndex: linkIndex
+                    )
+                case "properties":
+                    PropertiesPanel(
+                        content: outlineContent,
+                        onOpenInSource: onOpenInSource
                     )
                 case "links":
                     OutgoingLinksPanel(
@@ -61,7 +72,7 @@ struct InspectorSidebar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Filter for list tabs only.
-            if tab != "info" {
+            if showsFilterBar {
                 bottomBar
             }
         }
@@ -77,6 +88,10 @@ struct InspectorSidebar: View {
             navTabButton(id: "outline",
                          systemImage: "list.bullet.indent",
                          help: "Outline")
+            navDivider
+            navTabButton(id: "properties",
+                         systemImage: "list.bullet.rectangle",
+                         help: "Свойства — frontmatter")
             navDivider
             navTabButton(id: "links",
                          systemImage: "link",
