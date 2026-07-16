@@ -53,6 +53,9 @@ enum FolderRenameError: LocalizedError, Equatable {
     case folderNoLongerExists
     case openDocuments(Int)
     case renameInProgress
+    /// A filesystem operation failed after probing every path it may have
+    /// touched. A non-nil URL is the one unambiguous surviving folder.
+    case diskFailure(URL?)
 
     var errorDescription: String? {
         switch self {
@@ -72,6 +75,11 @@ enum FolderRenameError: LocalizedError, Equatable {
             return "Сначала закройте открытые файлы внутри папки (\(count) \(suffix))."
         case .renameInProgress:
             return "Эта папка уже переименовывается."
+        case .diskFailure(let survivor):
+            if let survivor {
+                return "Не удалось завершить переименование. Папка сохранена по пути «\(survivor.path)»; состояние EditMD обновлено на этот путь."
+            }
+            return "Не удалось завершить переименование, а состояние папки на диске неоднозначно. Проверьте исходный и новый пути в Finder."
         }
     }
 }
@@ -293,14 +301,92 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
     ) else { return }
 
     Task { @MainActor in
+        let oldURL = ws.url.standardizedFileURL
+        let expectedNewURL = oldURL.deletingLastPathComponent()
+            .appendingPathComponent(name, isDirectory: true)
+            .standardizedFileURL
         do {
-            let oldURL = ws.url.standardizedFileURL
-            let newURL = try await workspace.renameFolderOnDisk(
-                ws, to: name,
-                openDocumentURLs: AppState.openDocumentURLsForDiskMutation())
-            guard newURL != oldURL else { return }
-            AppState.shared.relocateFolder(from: oldURL, to: newURL)
-            DocumentHistory.shared.relocateFolder(from: oldURL, to: newURL)
+            try await LongRunningOperationCenter.shared.run(
+                title: "Переименовываем «\(oldURL.lastPathComponent)»…"
+            ) {
+                let review = ReviewModel.shared
+                let reviewToken = await review.beginPathMutation()
+                let appState = AppState.shared
+                let pathMutations = [
+                    (url: oldURL,
+                     token: appState.beginPathMutation(at: oldURL)),
+                    (url: expectedNewURL,
+                     token: appState.beginPathMutation(at: expectedNewURL))
+                ]
+                var discardedRouteTokens = Set<UUID>()
+                defer {
+                    appState.finishPathMutations(
+                        Set(pathMutations.map(\.token)),
+                        discardingRouteIDs: discardedRouteTokens)
+                }
+                do {
+                    let newURL = try await workspace.renameFolderOnDisk(
+                        ws, to: name,
+                        openDocumentURLs: AppState.openDocumentURLsForDiskMutation())
+                    guard newURL != oldURL else {
+                        review.cancelPathMutation(reviewToken)
+                        return
+                    }
+                    DocumentRegistry.shared.relocateFolder(
+                        from: oldURL, to: newURL)
+                    review.completePathMutation(
+                        reviewToken,
+                        relocatingFolderFrom: oldURL,
+                        to: newURL)
+                    appState.relocateFolder(from: oldURL, to: newURL)
+                    DocumentHistory.shared.relocateFolder(
+                        from: oldURL, to: newURL)
+                } catch let error as FolderRenameError {
+                    if case .diskFailure(let survivor) = error {
+                        if let survivor {
+                            let survivor = survivor.standardizedFileURL
+                            if survivor == oldURL {
+                                review.completePathMutation(
+                                    reviewToken,
+                                    droppingFoldersAt: [expectedNewURL])
+                            } else {
+                                let droppedRoots = survivor == expectedNewURL
+                                    ? []
+                                    : [expectedNewURL]
+                                DocumentRegistry.shared.relocateFolder(
+                                    from: oldURL, to: survivor)
+                                review.completePathMutation(
+                                    reviewToken,
+                                    relocatingFolderFrom: oldURL,
+                                    to: survivor,
+                                    droppingFoldersAt: droppedRoots)
+                                appState.relocateFolder(
+                                    from: oldURL, to: survivor)
+                                DocumentHistory.shared.relocateFolder(
+                                    from: oldURL, to: survivor)
+                            }
+                            if survivor != expectedNewURL {
+                                discardedRouteTokens.insert(
+                                    pathMutations[1].token)
+                            }
+                        } else {
+                            DocumentRegistry.shared.discardFolderCaches(
+                                at: [oldURL, expectedNewURL])
+                            review.completePathMutation(
+                                reviewToken,
+                                droppingFoldersAt: [oldURL, expectedNewURL])
+                            discardedRouteTokens.formUnion(
+                                pathMutations.map(\.token))
+                        }
+                    } else {
+                        review.cancelPathMutation(reviewToken)
+                    }
+                    throw error
+                } catch {
+                    review.cancelPathMutation(reviewToken)
+                    throw error
+                }
+            }
         } catch {
             presentFolderError(error, title: "Не удалось переименовать папку")
         }
@@ -422,6 +508,61 @@ func performFileMove(_ file: URL, to folder: URL, workspace: WorkspaceModel) {
 private struct PreparedFileMove {
     let source: URL
     let presentation: AppState.FilePresentationState
+    let preparation: DocumentMovePreparation?
+}
+
+private struct FileMovePathMutation {
+    let source: URL
+    let destination: URL
+    let sourceToken: UUID
+    let destinationToken: UUID
+
+    var tokens: Set<UUID> { [sourceToken, destinationToken] }
+}
+
+/// Where a parked presentation can safely resume after a move rollback failed.
+/// Ambiguous disk or sidecar state deliberately has no automatic reopen path.
+enum FileMoveRecoveryResolution: Equatable, Sendable {
+    case source
+    case destination(URL)
+    case unresolved
+}
+
+func fileMoveRecoveryResolutions(
+    for rawFiles: [URL],
+    after error: Error
+) -> [URL: FileMoveRecoveryResolution] {
+    var resolutions: [URL: FileMoveRecoveryResolution] = [:]
+    for file in rawFiles {
+        resolutions[file.standardizedFileURL] = .source
+    }
+
+    guard let moveError = error as? FileMoveError,
+          case .rollbackFailed(let states) = moveError else {
+        return resolutions
+    }
+
+    for state in states {
+        let source = state.move.source.standardizedFileURL
+        guard resolutions[source] != nil else { continue }
+
+        let sidecarCanStayAtSource = !state.reviewSidecarAtDestination
+            && (!state.expectedReviewSidecar || state.reviewSidecarAtSource)
+        let sidecarCanStayAtDestination = !state.reviewSidecarAtSource
+            && (!state.expectedReviewSidecar || state.reviewSidecarAtDestination)
+
+        if state.fileAtSource, !state.fileAtDestination,
+           sidecarCanStayAtSource {
+            resolutions[source] = .source
+        } else if !state.fileAtSource, state.fileAtDestination,
+                  sidecarCanStayAtDestination {
+            resolutions[source] = .destination(
+                state.move.destination.standardizedFileURL)
+        } else {
+            resolutions[source] = .unresolved
+        }
+    }
+    return resolutions
 }
 
 /// Shared transactional completion path for context-menu and drag-and-drop.
@@ -441,26 +582,75 @@ func performFileMoves(_ rawFiles: [URL], to rawFolder: URL, workspace: Workspace
                     ? "Перемещаем «\(files[0].lastPathComponent)»…"
                     : "Перемещаем файлы (\(files.count))…"
             ) {
-                // Review saves run through a FIFO sidecar pipeline. Let every
-                // mutation reach disk before the sidecar follows the file.
-                if let reviewURL = ReviewModel.shared.fileURL?.standardizedFileURL,
-                   files.contains(reviewURL) {
-                    await ReviewModel.shared.flushPipeline()
+                // Acquire the global FIFO permit before installing path gates.
+                // A transaction queued behind an earlier rename must not keep
+                // gates that the earlier transaction can relocate underneath
+                // its still-stale source arguments.
+                let review = ReviewModel.shared
+                let reviewToken = await review.beginPathMutation()
+                var reviewMutationResolved = false
+                defer {
+                    if !reviewMutationResolved {
+                        review.cancelPathMutation(reviewToken)
+                    }
                 }
 
                 let registry = DocumentRegistry.shared
                 let appState = AppState.shared
+                let pathMutations = files.map { source in
+                    let destination = folder
+                        .appendingPathComponent(source.lastPathComponent)
+                        .standardizedFileURL
+                    return FileMovePathMutation(
+                        source: source,
+                        destination: destination,
+                        sourceToken: appState.beginPathMutation(at: source),
+                        destinationToken: appState.beginPathMutation(at: destination))
+                }
+                let routeTokensBySource = Dictionary(
+                    uniqueKeysWithValues: pathMutations.map {
+                        ($0.source, $0.tokens)
+                    })
+                var discardedRouteTokens = Set<UUID>()
+                defer {
+                    appState.finishPathMutations(
+                        Set(pathMutations.flatMap(\.tokens)),
+                        discardingRouteIDs: discardedRouteTokens)
+                }
+
                 var prepared: [PreparedFileMove] = []
+                var destinationPreparations: [URL: DocumentMovePreparation] = [:]
                 do {
+                    // Reserve every future path before extracting any live
+                    // source model. If one destination is occupied, every
+                    // editor remains attached to its ordinary registry entry.
+                    for mutation in pathMutations {
+                        destinationPreparations[mutation.source] = try registry
+                            .reserveMoveDestination(mutation.destination)
+                    }
+
+                    // No suspension in this pass: the whole batch becomes
+                    // registry-owned before the first dirty snapshot write.
+                    // A control/agent edit cannot slip into a later source
+                    // while an earlier source is persisting off-main.
                     for source in files {
-                        _ = try registry.prepareForMove(source)
+                        let preparation = try registry.beginMovePreparation(source)
                         prepared.append(PreparedFileMove(
                             source: source,
-                            presentation: appState.detachFileForMove(source)))
+                            presentation: appState.detachFileForMove(source),
+                            preparation: preparation))
+                    }
+                    for item in prepared {
+                        if let preparation = item.preparation {
+                            try await registry.persistMovePreparation(preparation)
+                        }
                     }
                     let moves = try await workspace.moveFilesOnDisk(files, to: folder)
                     let destinations = Dictionary(
                         uniqueKeysWithValues: moves.map { ($0.source, $0.destination) })
+                    for reservation in destinationPreparations.values {
+                        registry.discardMovePreparation(reservation)
+                    }
                     for move in moves {
                         registry.relocatePreparedDocument(
                             from: move.source, to: move.destination)
@@ -468,9 +658,113 @@ func performFileMoves(_ rawFiles: [URL], to rawFolder: URL, workspace: Workspace
                         DocumentHistory.shared.relocateFile(
                             from: move.source, to: move.destination)
                     }
-                    restorePreparedFiles(prepared, destinations: destinations)
+                    review.completePathMutation(
+                        reviewToken,
+                        relocatingFiles: moves.map {
+                            ReviewModel.FileRelocation(
+                                from: $0.source, to: $0.destination)
+                        })
+                    reviewMutationResolved = true
+                    restorePreparedFiles(
+                        prepared,
+                        destinations: destinations,
+                        routeTokens: routeTokensBySource)
                 } catch {
-                    restorePreparedFiles(prepared, destinations: [:])
+                    var resolutions = fileMoveRecoveryResolutions(
+                        for: files, after: error)
+                    let pathsToProbe = pathMutations.flatMap {
+                        [$0.source, $0.destination]
+                    }
+                    let existingPaths = await Task.detached(
+                        priority: .userInitiated
+                    ) {
+                        Set(pathsToProbe.filter {
+                            FileManager.default.fileExists(atPath: $0.path)
+                        })
+                    }.value
+                    for source in files {
+                        switch resolutions[source] ?? .source {
+                        case .source where !existingPaths.contains(source):
+                            resolutions[source] = .unresolved
+                        case .destination(let destination)
+                            where !existingPaths.contains(destination):
+                            resolutions[source] = .unresolved
+                        default:
+                            break
+                        }
+                    }
+                    // Keep every destination reserved through the awaited
+                    // filesystem probe. Release them only now, immediately
+                    // before applying the final source/destination outcomes.
+                    for reservation in destinationPreparations.values {
+                        registry.discardMovePreparation(reservation)
+                    }
+                    var destinations: [URL: URL] = [:]
+                    var reviewRelocations: [ReviewModel.FileRelocation] = []
+                    var unresolved = Set<URL>()
+
+                    for item in prepared {
+                        switch resolutions[item.source] ?? .source {
+                        case .source:
+                            registry.cancelMovePreparation(item.preparation)
+                        case .destination(let destination):
+                            registry.relocatePreparedDocument(
+                                from: item.source, to: destination)
+                            appState.relocateFile(
+                                from: item.source, to: destination)
+                            DocumentHistory.shared.relocateFile(
+                                from: item.source, to: destination)
+                            destinations[item.source] = destination
+                            reviewRelocations.append(.init(
+                                from: item.source, to: destination))
+                        case .unresolved:
+                            registry.discardMovePreparation(item.preparation)
+                            unresolved.insert(item.source)
+                        }
+                    }
+
+                    var reviewDroppedPaths = unresolved
+                    for mutation in pathMutations {
+                        switch resolutions[mutation.source] ?? .source {
+                        case .source:
+                            if !existingPaths.contains(mutation.destination) {
+                                discardedRouteTokens.insert(
+                                    mutation.destinationToken)
+                                reviewDroppedPaths.insert(
+                                    mutation.destination)
+                            }
+                        case .destination:
+                            break
+                        case .unresolved:
+                            discardedRouteTokens.formUnion(mutation.tokens)
+                            reviewDroppedPaths.formUnion([
+                                mutation.source, mutation.destination
+                            ])
+                        }
+                    }
+                    let isRollbackFailure: Bool = {
+                        guard let moveError = error as? FileMoveError,
+                              case .rollbackFailed = moveError else {
+                            return false
+                        }
+                        return true
+                    }()
+                    if !reviewRelocations.isEmpty
+                        || !reviewDroppedPaths.isEmpty
+                        || isRollbackFailure {
+                        review.completePathMutation(
+                            reviewToken,
+                            relocatingFiles: reviewRelocations,
+                            droppingFiles: Array(reviewDroppedPaths))
+                    } else {
+                        review.cancelPathMutation(reviewToken)
+                    }
+                    reviewMutationResolved = true
+                    restorePreparedFiles(
+                        prepared,
+                        destinations: destinations,
+                        skipping: unresolved,
+                        routeTokens: routeTokensBySource)
                     throw error
                 }
             }
@@ -495,17 +789,22 @@ private func uniqueStandardizedFiles(_ rawFiles: [URL]) -> [URL] {
 @MainActor
 private func restorePreparedFiles(
     _ prepared: [PreparedFileMove],
-    destinations: [URL: URL]
+    destinations: [URL: URL],
+    skipping skippedSources: Set<URL> = [],
+    routeTokens: [URL: Set<UUID>] = [:]
 ) {
     // The globally focused presentation is reopened last, after the rest of
     // the batch can no longer steal focus from it.
-    let ordered = prepared.sorted { lhs, rhs in
+    let ordered = prepared.filter {
+        !skippedSources.contains($0.source)
+    }.sorted { lhs, rhs in
         lhs.presentation.focus == .neither && rhs.presentation.focus != .neither
     }
     for item in ordered {
         AppState.shared.restoreFilePresentation(
             item.presentation,
-            at: destinations[item.source] ?? item.source)
+            at: destinations[item.source] ?? item.source,
+            ignoringPathMutationIDs: routeTokens[item.source] ?? [])
     }
 }
 

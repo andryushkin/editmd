@@ -263,7 +263,124 @@ final class ControlChannelTests: XCTestCase {
         let disk = ReviewSidecar.loadOrEmpty(for: file)
         XCTAssertEqual(disk.marks.count, 1)
         XCTAssertEqual(disk.marks.first?.note, "сноска")
+        XCTAssertEqual(r.data?["path"], .string(file.standardizedFileURL.path))
         XCTAssertEqual(r.data?["rev"], .int(disk.rev))
+    }
+
+    /// A control request can arrive after the source disappeared from disk but
+    /// before the in-flight move publishes its final path. The synchronous
+    /// AppState precheck must admit it, and ReviewModel's barrier must relocate
+    /// the queued disk read before the socket follow-up runs.
+    @MainActor
+    func testControlMarksListFollowsMissingPathThroughActiveGate() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(
+                "editmd-ctl-gated-marks-\(UUID().uuidString)",
+                isDirectory: true)
+        let sourceFolder = root.appendingPathComponent("source", isDirectory: true)
+        let destinationFolder = root.appendingPathComponent(
+            "destination", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destinationFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldFile = sourceFolder.appendingPathComponent("note.md")
+        let newFile = destinationFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let routeToken = AppState.shared.beginPathMutation(at: oldFile)
+        let reviewToken = await ReviewModel.shared.beginPathMutation()
+        var completed = false
+        defer {
+            if !completed {
+                ReviewModel.shared.cancelPathMutation(reviewToken)
+                AppState.shared.finishPathMutation(routeToken)
+            }
+        }
+
+        try FileManager.default.moveItem(at: oldFile, to: newFile)
+        let request = ControlRequest(
+            id: "gated-list",
+            cmd: "marks.list",
+            args: ["path": .string(oldFile.path)])
+        guard case .followUp(let followUp) = ControlRouter.handle(request) else {
+            return XCTFail("marks.list must enqueue a deferred disk read")
+        }
+
+        ReviewModel.shared.completePathMutation(
+            reviewToken,
+            relocatingFiles: [.init(from: oldFile, to: newFile)])
+        AppState.shared.relocateFile(from: oldFile, to: newFile)
+        AppState.shared.finishPathMutation(routeToken)
+        completed = true
+
+        let response = await Task.detached { followUp() }.value
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertEqual(response.data?["path"],
+                       .string(newFile.standardizedFileURL.path))
+        XCTAssertEqual(response.data?["count"], .int(0))
+    }
+
+    @MainActor
+    func testControlMarksAddFollowsMissingPathThroughActiveGate() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(
+                "editmd-ctl-gated-add-\(UUID().uuidString)",
+                isDirectory: true)
+        let sourceFolder = root.appendingPathComponent("source", isDirectory: true)
+        let destinationFolder = root.appendingPathComponent(
+            "destination", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destinationFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldFile = sourceFolder.appendingPathComponent("note.md")
+        let newFile = destinationFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let routeToken = AppState.shared.beginPathMutation(at: oldFile)
+        let reviewToken = await ReviewModel.shared.beginPathMutation()
+        var completed = false
+        defer {
+            if !completed {
+                ReviewModel.shared.cancelPathMutation(reviewToken)
+                AppState.shared.finishPathMutation(routeToken)
+            }
+        }
+
+        try FileManager.default.moveItem(at: oldFile, to: newFile)
+        let request = ControlRequest(
+            id: "gated-add",
+            cmd: "marks.add",
+            args: [
+                "path": .string(oldFile.path),
+                "type": .string("comment"),
+                "quote": .string("hello"),
+                "note": .string("follow the move"),
+            ])
+        guard case .followUp(let followUp) = ControlRouter.handle(request) else {
+            return XCTFail("marks.add must enqueue a deferred disk write")
+        }
+
+        ReviewModel.shared.completePathMutation(
+            reviewToken,
+            relocatingFiles: [.init(from: oldFile, to: newFile)])
+        AppState.shared.relocateFile(from: oldFile, to: newFile)
+        AppState.shared.finishPathMutation(routeToken)
+        completed = true
+
+        let response = await Task.detached { followUp() }.value
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertEqual(response.data?["path"],
+                       .string(newFile.standardizedFileURL.path))
+        let disk = ReviewSidecar.loadOrEmpty(for: newFile)
+        XCTAssertEqual(disk.marks.map(\.note), ["follow the move"])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ReviewSidecar.url(for: oldFile).path))
     }
 
     // MARK: Stage-3 — paths, off-main diff, pending jump

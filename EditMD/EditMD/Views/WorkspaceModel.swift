@@ -1,12 +1,45 @@
 import SwiftUI
 import AppKit
 
+struct FileMoveResult: Equatable, Sendable {
+    let source: URL
+    let destination: URL
+}
+
+typealias FileMoveItemOperation = @Sendable (
+    _ source: URL, _ destination: URL
+) throws -> Void
+
+/// Filesystem state left behind when a move transaction could not be rolled
+/// back completely. Callers use the file flags to relocate any parked/open
+/// document to the path that actually survived; the sidecar flags make a split
+/// document/review state explicit instead of hiding a second rollback failure.
+struct FileMoveRollbackState: Equatable, Sendable {
+    let move: FileMoveResult
+    let expectedReviewSidecar: Bool
+    let fileAtSource: Bool
+    let fileAtDestination: Bool
+    let reviewSidecarAtSource: Bool
+    let reviewSidecarAtDestination: Bool
+
+    var fileRemainsAtDestination: Bool {
+        fileAtDestination && !fileAtSource
+    }
+
+    var isFullyRolledBack: Bool {
+        fileAtSource && !fileAtDestination
+            && (!expectedReviewSidecar
+                || (reviewSidecarAtSource && !reviewSidecarAtDestination))
+    }
+}
+
 enum FileMoveError: LocalizedError, Equatable, Sendable {
     case sourceNoLongerExists
     case unsupportedSource
     case destinationNotFolder
     case alreadyExists(String)
     case moveInProgress
+    case rollbackFailed([FileMoveRollbackState])
 
     var errorDescription: String? {
         switch self {
@@ -20,13 +53,12 @@ enum FileMoveError: LocalizedError, Equatable, Sendable {
             return "В папке назначения уже существует «\(name)»."
         case .moveInProgress:
             return "Этот файл уже перемещается."
+        case .rollbackFailed(let states):
+            let names = states.map { "«\($0.move.destination.lastPathComponent)»" }
+                .joined(separator: ", ")
+            return "Не удалось полностью отменить перенос \(names). Пути на диске были перепроверены; обновите открытые документы перед продолжением."
         }
     }
-}
-
-struct FileMoveResult: Equatable, Sendable {
-    let source: URL
-    let destination: URL
 }
 
 /// Backing state for the file sidebar (Phase 3): the adopted workspace folders,
@@ -477,9 +509,17 @@ final class WorkspaceModel: ObservableObject {
         let newURL = oldURL.deletingLastPathComponent()
             .appendingPathComponent(newName, isDirectory: true)
             .standardizedFileURL
-        try await Task.detached(priority: .userInitiated) {
-            try Self.moveFolderOnDisk(from: oldURL, to: newURL)
-        }.value
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try Self.moveFolderOnDisk(from: oldURL, to: newURL)
+            }.value
+        } catch let error as FolderRenameError {
+            if case .diskFailure(let survivor?) = error,
+               survivor.standardizedFileURL != oldURL {
+                migrateRootState(from: oldURL.path, to: survivor.path)
+            }
+            throw error
+        }
 
         migrateRootState(from: oldURL.path, to: newURL.path)
         return newURL
@@ -505,15 +545,101 @@ final class WorkspaceModel: ObservableObject {
         path == root || path.hasPrefix(root + "/")
     }
 
-    nonisolated private static func moveFolderOnDisk(from oldURL: URL, to newURL: URL) throws {
+    nonisolated static func moveFolderOnDisk(
+        from oldURL: URL,
+        to newURL: URL,
+        moveItem: FileMoveItemOperation = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
+    ) throws {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: oldURL.path) else {
+            // No filesystem mutation has started, so an existing destination
+            // is not a survivor of this transaction — it may be an unrelated
+            // folder and must never inherit the workspace identity.
             throw FolderRenameError.folderNoLongerExists
         }
-        guard !fileManager.fileExists(atPath: newURL.path) else {
-            throw FolderCreateError.alreadyExists(newURL.lastPathComponent)
+        if fileManager.fileExists(atPath: newURL.path) {
+            guard sameFilesystemItem(oldURL, newURL) else {
+                throw FolderCreateError.alreadyExists(newURL.lastPathComponent)
+            }
+            try moveFolderThroughTemporary(
+                from: oldURL, to: newURL, moveItem: moveItem)
+            return
         }
-        try fileManager.moveItem(at: oldURL, to: newURL)
+        do {
+            try moveItem(oldURL, newURL)
+        } catch {
+            throw FolderRenameError.diskFailure(
+                probedFolderSurvivor([oldURL, newURL]))
+        }
+    }
+
+    /// A case-insensitive volume reports `Notes` and `notes` as the same
+    /// existing item. Move through a unique sibling so the final component is
+    /// really updated, and surface the probed survivor if either later step
+    /// and its recovery fail.
+    nonisolated static func moveFolderThroughTemporary(
+        from oldURL: URL,
+        to newURL: URL,
+        moveItem: FileMoveItemOperation
+    ) throws {
+        var temporaryURL: URL
+        repeat {
+            temporaryURL = oldURL.deletingLastPathComponent()
+                .appendingPathComponent(
+                    ".editmd-rename-\(UUID().uuidString)",
+                    isDirectory: true)
+        } while FileManager.default.fileExists(atPath: temporaryURL.path)
+
+        do {
+            try moveItem(oldURL, temporaryURL)
+        } catch {
+            throw FolderRenameError.diskFailure(
+                probedFolderSurvivor([oldURL, newURL, temporaryURL]))
+        }
+        do {
+            try moveItem(temporaryURL, newURL)
+        } catch {
+            do {
+                try moveItem(temporaryURL, oldURL)
+            } catch {
+                throw FolderRenameError.diskFailure(
+                    probedFolderSurvivor([oldURL, newURL, temporaryURL]))
+            }
+            throw FolderRenameError.diskFailure(oldURL)
+        }
+    }
+
+    nonisolated private static func sameFilesystemItem(_ lhs: URL, _ rhs: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.fileResourceIdentifierKey]
+        guard let lhsID = try? lhs.resourceValues(forKeys: keys).fileResourceIdentifier,
+              let rhsID = try? rhs.resourceValues(forKeys: keys).fileResourceIdentifier,
+              let lhsObject = lhsID as? NSObject,
+              let rhsObject = rhsID as? NSObject else { return false }
+        return lhsObject == rhsObject
+    }
+
+    /// Returns the actual on-disk spelling of one unambiguous survivor. On a
+    /// case-insensitive volume the resource `name` reveals the real casing.
+    nonisolated private static func probedFolderSurvivor(
+        _ candidates: [URL]
+    ) -> URL? {
+        var survivors: [URL] = []
+        for candidate in candidates where FileManager.default.fileExists(
+            atPath: candidate.path) {
+            let actualName = (try? candidate.resourceValues(
+                forKeys: [.nameKey]))?.name
+            let actual = actualName.map {
+                candidate.deletingLastPathComponent()
+                    .appendingPathComponent($0, isDirectory: true)
+                    .standardizedFileURL
+            } ?? candidate.standardizedFileURL
+            if !survivors.contains(where: { sameFilesystemItem($0, actual) }) {
+                survivors.append(actual)
+            }
+        }
+        return survivors.count == 1 ? survivors[0] : nil
     }
 
     private struct FileMoveState {
@@ -541,7 +667,10 @@ final class WorkspaceModel: ObservableObject {
     @discardableResult
     func moveFilesOnDisk(
         _ rawSources: [URL],
-        to rawDestinationFolder: URL
+        to rawDestinationFolder: URL,
+        moveItem: @escaping FileMoveItemOperation = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
     ) async throws -> [FileMoveResult] {
         let destinationFolder = rawDestinationFolder.standardizedFileURL
         var seen = Set<URL>()
@@ -588,10 +717,33 @@ final class WorkspaceModel: ObservableObject {
 
         // FileManager is synchronous and destination folders may live on slow
         // external volumes, so keep the move off the main actor.
-        try await Task.detached(priority: .userInitiated) {
-            try Self.moveFilesAndReviewSidecars(
-                moves, destinationFolder: destinationFolder)
-        }.value
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try Self.moveFilesAndReviewSidecars(
+                    moves,
+                    destinationFolder: destinationFolder,
+                    moveItem: moveItem)
+            }.value
+        } catch {
+            if let moveError = error as? FileMoveError,
+               case .rollbackFailed(let rollbackStates) = moveError {
+                for rollbackState in rollbackStates where rollbackState.fileRemainsAtDestination {
+                    guard let state = states.first(where: {
+                        $0.source == rollbackState.move.source
+                    }) else { continue }
+                    migrateFileState(
+                        from: state.source,
+                        to: rollbackState.move.destination,
+                        oldWorkspace: state.oldWorkspace,
+                        oldRelative: state.oldRelative,
+                        wasHidden: state.wasHidden,
+                        wasPinned: state.wasPinned)
+                }
+                finishFileMoves()
+                await WikiLinkResolver.shared.invalidate()
+            }
+            throw error
+        }
 
         for (state, move) in zip(states, moves) {
             migrateFileState(
@@ -607,9 +759,14 @@ final class WorkspaceModel: ObservableObject {
         return moves
     }
 
-    nonisolated private static func moveFilesAndReviewSidecars(
+    /// Internal disk core so tests can inject a failing move primitive and
+    /// verify rollback reporting without relying on filesystem permissions.
+    nonisolated static func moveFilesAndReviewSidecars(
         _ moves: [FileMoveResult],
-        destinationFolder: URL
+        destinationFolder: URL,
+        moveItem: FileMoveItemOperation = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
     ) throws {
         let fileManager = FileManager.default
         guard AppState.isFolder(destinationFolder) else {
@@ -634,29 +791,57 @@ final class WorkspaceModel: ObservableObject {
                   !fileManager.fileExists(atPath: move.destination.path) else {
                 throw FileMoveError.alreadyExists(move.destination.lastPathComponent)
             }
-            let oldSidecar = ReviewSidecar.url(for: move.source)
             let newSidecar = ReviewSidecar.url(for: move.destination)
-            if fileManager.fileExists(atPath: oldSidecar.path),
-               fileManager.fileExists(atPath: newSidecar.path) {
+            if fileManager.fileExists(atPath: newSidecar.path) {
                 throw FileMoveError.alreadyExists(newSidecar.lastPathComponent)
             }
         }
 
-        var completed: [FileMoveResult] = []
+        var completed: [(move: FileMoveResult, hadReviewSidecar: Bool)] = []
         do {
             for move in moves {
-                try moveFileAndReviewSidecar(
+                let hadReviewSidecar = try moveFileAndReviewSidecar(
                     from: move.source,
                     to: move.destination,
-                    destinationFolder: destinationFolder)
-                completed.append(move)
+                    destinationFolder: destinationFolder,
+                    moveItem: moveItem)
+                completed.append((move, hadReviewSidecar))
             }
         } catch {
-            for move in completed.reversed() {
-                try? moveFileAndReviewSidecar(
-                    from: move.destination,
-                    to: move.source,
-                    destinationFolder: move.source.deletingLastPathComponent())
+            var rollbackStates: [FileMoveRollbackState]
+            if let moveError = error as? FileMoveError,
+               case .rollbackFailed(let states) = moveError {
+                rollbackStates = states
+            } else {
+                rollbackStates = []
+            }
+
+            for completedMove in completed.reversed() {
+                do {
+                    try rollbackCompletedMove(
+                        completedMove.move,
+                        hadReviewSidecar: completedMove.hadReviewSidecar,
+                        moveItem: moveItem)
+                } catch let rollbackError as FileMoveError {
+                    if case .rollbackFailed(let states) = rollbackError {
+                        rollbackStates.append(contentsOf: states)
+                    } else {
+                        rollbackStates.append(rollbackState(
+                            for: completedMove.move,
+                            expectedReviewSidecar: completedMove.hadReviewSidecar))
+                    }
+                } catch {
+                    rollbackStates.append(rollbackState(
+                        for: completedMove.move,
+                        expectedReviewSidecar: completedMove.hadReviewSidecar))
+                }
+            }
+            if !rollbackStates.isEmpty {
+                var seen = Set<String>()
+                let uniqueStates = rollbackStates.filter {
+                    seen.insert($0.move.source.path).inserted
+                }
+                throw FileMoveError.rollbackFailed(uniqueStates)
             }
             throw error
         }
@@ -665,8 +850,9 @@ final class WorkspaceModel: ObservableObject {
     nonisolated private static func moveFileAndReviewSidecar(
         from source: URL,
         to destination: URL,
-        destinationFolder: URL
-    ) throws {
+        destinationFolder: URL,
+        moveItem: FileMoveItemOperation
+    ) throws -> Bool {
         let fileManager = FileManager.default
         var sourceIsDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: source.path, isDirectory: &sourceIsDirectory) else {
@@ -687,20 +873,122 @@ final class WorkspaceModel: ObservableObject {
         let oldSidecar = ReviewSidecar.url(for: source)
         let newSidecar = ReviewSidecar.url(for: destination)
         let hasSidecar = fileManager.fileExists(atPath: oldSidecar.path)
-        if hasSidecar, fileManager.fileExists(atPath: newSidecar.path) {
+        if fileManager.fileExists(atPath: newSidecar.path) {
             throw FileMoveError.alreadyExists(newSidecar.lastPathComponent)
         }
 
-        try fileManager.moveItem(at: source, to: destination)
-        guard hasSidecar else { return }
         do {
-            try fileManager.moveItem(at: oldSidecar, to: newSidecar)
+            try moveItem(source, destination)
         } catch {
+            let moveError = error
+            let move = FileMoveResult(source: source, destination: destination)
+            let state = rollbackState(
+                for: move, expectedReviewSidecar: hasSidecar)
+            guard state.isFullyRolledBack else {
+                if state.fileRemainsAtDestination {
+                    do {
+                        try moveItem(destination, source)
+                    } catch {
+                        throw FileMoveError.rollbackFailed([
+                            rollbackState(
+                                for: move,
+                                expectedReviewSidecar: hasSidecar)
+                        ])
+                    }
+                    let recovered = rollbackState(
+                        for: move, expectedReviewSidecar: hasSidecar)
+                    guard recovered.isFullyRolledBack else {
+                        throw FileMoveError.rollbackFailed([recovered])
+                    }
+                    throw moveError
+                }
+                throw FileMoveError.rollbackFailed([state])
+            }
+            throw moveError
+        }
+        guard hasSidecar else { return false }
+        do {
+            try moveItem(oldSidecar, newSidecar)
+        } catch {
+            let sidecarError = error
             // The file and its review marks are one logical document. Restore
             // the original file path when the sidecar cannot follow it.
-            try? fileManager.moveItem(at: destination, to: source)
-            throw error
+            do {
+                try moveItem(destination, source)
+            } catch {
+                throw FileMoveError.rollbackFailed([
+                    rollbackState(for: FileMoveResult(
+                        source: source, destination: destination),
+                    expectedReviewSidecar: true)
+                ])
+            }
+            let state = rollbackState(
+                for: FileMoveResult(source: source, destination: destination),
+                expectedReviewSidecar: true)
+            guard state.isFullyRolledBack else {
+                throw FileMoveError.rollbackFailed([state])
+            }
+            throw sidecarError
         }
+        return true
+    }
+
+    nonisolated private static func rollbackCompletedMove(
+        _ move: FileMoveResult,
+        hadReviewSidecar: Bool,
+        moveItem: FileMoveItemOperation
+    ) throws {
+        do {
+            try moveItem(move.destination, move.source)
+        } catch {
+            throw FileMoveError.rollbackFailed([
+                rollbackState(for: move, expectedReviewSidecar: hadReviewSidecar)
+            ])
+        }
+
+        if hadReviewSidecar {
+            let oldSidecar = ReviewSidecar.url(for: move.source)
+            let newSidecar = ReviewSidecar.url(for: move.destination)
+            do {
+                try moveItem(newSidecar, oldSidecar)
+            } catch {
+                // Keep the document and its sidecar at the destination when
+                // possible. Whether this recovery succeeds or not, report the
+                // probed state instead of hiding either failure.
+                do {
+                    try moveItem(move.source, move.destination)
+                } catch {
+                    throw FileMoveError.rollbackFailed([
+                        rollbackState(for: move, expectedReviewSidecar: true)
+                    ])
+                }
+                throw FileMoveError.rollbackFailed([
+                    rollbackState(for: move, expectedReviewSidecar: true)
+                ])
+            }
+        }
+
+        let state = rollbackState(
+            for: move, expectedReviewSidecar: hadReviewSidecar)
+        guard state.isFullyRolledBack else {
+            throw FileMoveError.rollbackFailed([state])
+        }
+    }
+
+    nonisolated private static func rollbackState(
+        for move: FileMoveResult,
+        expectedReviewSidecar: Bool
+    ) -> FileMoveRollbackState {
+        let fileManager = FileManager.default
+        let oldSidecar = ReviewSidecar.url(for: move.source)
+        let newSidecar = ReviewSidecar.url(for: move.destination)
+        return FileMoveRollbackState(
+            move: move,
+            expectedReviewSidecar: expectedReviewSidecar,
+            fileAtSource: fileManager.fileExists(atPath: move.source.path),
+            fileAtDestination: fileManager.fileExists(atPath: move.destination.path),
+            reviewSidecarAtSource: fileManager.fileExists(atPath: oldSidecar.path),
+            reviewSidecarAtDestination: fileManager.fileExists(atPath: newSidecar.path))
     }
 
     private func migrateFileState(
@@ -745,12 +1033,19 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func migrateRootState(from oldRoot: String, to newRoot: String) {
-        if let index = workspaces.firstIndex(where: { $0.folderPath == oldRoot }) {
-            workspaces[index].folderPath = newRoot
+        workspaces = workspaces.map { workspace in
+            var relocated = workspace
+            relocated.folderPath = Self.relocatedPath(
+                workspace.folderPath, from: oldRoot, to: newRoot)
+            return relocated
         }
-        if let hidden = hiddenFiles.removeValue(forKey: oldRoot) {
-            hiddenFiles[newRoot] = hidden
+
+        var relocatedHidden: [String: Set<String>] = [:]
+        for (root, hidden) in hiddenFiles {
+            let relocatedRoot = Self.relocatedPath(root, from: oldRoot, to: newRoot)
+            relocatedHidden[relocatedRoot, default: []].formUnion(hidden)
         }
+        hiddenFiles = relocatedHidden
         expandedFolders = Set(expandedFolders.map {
             Self.relocatedPath($0, from: oldRoot, to: newRoot)
         })

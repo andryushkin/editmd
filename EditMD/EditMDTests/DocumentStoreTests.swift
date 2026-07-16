@@ -256,4 +256,614 @@ final class DocumentStoreTests: XCTestCase {
 
         registry.release(url)
     }
+
+    @MainActor
+    func testMovePreparationBlocksUnresolvedExternalConflictWithoutWriting() throws {
+        let probe = DocumentMoveWriterProbe()
+        let registry = DocumentRegistry(moveWriter: probe.write)
+        let url = tmp.appendingPathComponent("move-conflict.md")
+        try writeMarkdownDocument(content: "disk-old", assets: nil, to: url)
+        let originalModDate = try XCTUnwrap(
+            url.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate)
+
+        let document = try registry.acquire(url)
+        document.content = "local-unsaved"
+        registry.markDirty(url)
+        try writeMarkdownDocument(content: "disk-new", assets: nil, to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: originalModDate],
+            ofItemAtPath: url.path)
+
+        do {
+            _ = try registry.beginMovePreparation(url)
+            XCTFail("Move preflight must reconcile a not-yet-debounced disk change")
+        } catch let error as DocumentMovePreparationError {
+            XCTAssertEqual(error, .unresolvedExternalConflict("move-conflict.md"))
+        }
+
+        XCTAssertEqual(probe.callCount, 0)
+        XCTAssertTrue(registry.isOpen(url))
+        XCTAssertEqual(document.content, "local-unsaved")
+        XCTAssertEqual(try loadMarkdownDocument(from: url).content, "disk-new",
+                       "move preparation must not silently choose Keep Mine")
+
+        registry.applyExternalContent(url, content: "disk-new")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testDismissedExternalConflictStillBlocksMovePreparation() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("dismissed-move-conflict.md")
+        try writeMarkdownDocument(content: "disk-old", assets: nil, to: url)
+
+        let document = try registry.acquire(url)
+        document.content = "local-unsaved"
+        registry.markDirty(url)
+        try writeMarkdownDocument(content: "disk-new", assets: nil, to: url)
+        XCTAssertFalse(registry.syncFromDiskIfNeeded(url))
+
+        registry.dismissExternalChange(url)
+        XCTAssertThrowsError(try registry.beginMovePreparation(url)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .unresolvedExternalConflict("dismissed-move-conflict.md"))
+        }
+        XCTAssertEqual(document.content, "local-unsaved")
+        XCTAssertEqual(try loadMarkdownDocument(from: url).content, "disk-new")
+
+        registry.applyExternalContent(url, content: "disk-new")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testMovePreparationWritesOnlyDirtyDocuments() async throws {
+        let probe = DocumentMoveWriterProbe()
+        let registry = DocumentRegistry(moveWriter: probe.write)
+        let cleanURL = tmp.appendingPathComponent("clean.md")
+        let dirtyURL = tmp.appendingPathComponent("dirty.md")
+        try writeMarkdownDocument(content: "clean", assets: nil, to: cleanURL)
+        try writeMarkdownDocument(content: "old", assets: nil, to: dirtyURL)
+
+        let cleanDocument = try registry.acquire(cleanURL)
+        let cleanPreparation = try XCTUnwrap(
+            registry.beginMovePreparation(cleanURL))
+        try await registry.persistMovePreparation(cleanPreparation)
+        XCTAssertEqual(probe.callCount, 0,
+                       "clean move preparation must avoid an atomic rewrite")
+        XCTAssertThrowsError(try registry.acquire(cleanURL)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("clean.md"),
+                "a prepared model must stay transaction-owned until cancel or relocate")
+        }
+        registry.cancelMovePreparation(cleanPreparation)
+        XCTAssertTrue(try registry.acquire(cleanURL) === cleanDocument)
+        registry.release(cleanURL)
+
+        let dirtyDocument = try registry.acquire(dirtyURL)
+        dirtyDocument.content = "edited"
+        registry.markDirty(dirtyURL)
+        let dirtyPreparation = try XCTUnwrap(
+            registry.beginMovePreparation(dirtyURL))
+        try await registry.persistMovePreparation(dirtyPreparation)
+        XCTAssertEqual(probe.callCount, 1)
+        XCTAssertFalse(probe.didWriteOnMainThread,
+                       "dirty move writes must not execute on MainActor")
+        XCTAssertEqual(try loadMarkdownDocument(from: dirtyURL).content, "edited")
+        registry.cancelMovePreparation(dirtyPreparation)
+        XCTAssertTrue(try registry.acquire(dirtyURL) === dirtyDocument)
+        registry.release(dirtyURL)
+    }
+
+    @MainActor
+    func testMovePreparationPersistsLocalTextBundleAssetChanges() async throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("local-assets.textbundle")
+        try writeMarkdownDocument(
+            content: "Body",
+            assets: makeNestedAssets("disk-asset"),
+            to: url)
+
+        let document = try registry.acquire(url)
+        document.assetsFileWrapper = makeNestedAssets("local-asset")
+        registry.markDirty(url)
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(url))
+        try await registry.persistMovePreparation(preparation)
+        let loaded = try loadMarkdownDocument(from: url)
+        XCTAssertEqual(nestedAssetPayload(loaded.assets), "local-asset")
+
+        registry.cancelMovePreparation(preparation)
+        XCTAssertTrue(try registry.acquire(url) === document)
+        registry.release(url)
+    }
+
+    @MainActor
+    func testExternalNestedAssetChangeBlocksMoveEvenAfterDismiss() throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("external-assets.textbundle")
+        try writeMarkdownDocument(
+            content: "Body",
+            assets: makeNestedAssets("disk-old"),
+            to: url)
+
+        let document = try registry.acquire(url)
+        document.assetsFileWrapper = makeNestedAssets("local-unsaved")
+        registry.markDirty(url)
+        try writeMarkdownDocument(
+            content: "Body",
+            assets: makeNestedAssets("disk-external"),
+            to: url)
+
+        XCTAssertThrowsError(try registry.beginMovePreparation(url)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .unresolvedExternalConflict("external-assets.textbundle"))
+        }
+        registry.dismissExternalChange(url)
+        XCTAssertThrowsError(try registry.beginMovePreparation(url)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .unresolvedExternalConflict("external-assets.textbundle"))
+        }
+        XCTAssertEqual(
+            nestedAssetPayload(document.assetsFileWrapper), "local-unsaved")
+        XCTAssertEqual(
+            nestedAssetPayload(try loadMarkdownDocument(from: url).assets),
+            "disk-external")
+
+        registry.applyExternalContent(url, content: "Body")
+        XCTAssertEqual(
+            nestedAssetPayload(document.assetsFileWrapper), "disk-external")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testFailedMoveWriteKeepsPreparedModelDirtyForRestore() async throws {
+        struct ExpectedFailure: Error {}
+        let registry = DocumentRegistry { _, _ in throw ExpectedFailure() }
+        let url = tmp.appendingPathComponent("failed-write.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: url)
+        let document = try registry.acquire(url)
+        document.contentUndoManager.groupsByEvent = false
+        document.applyUndoableContent("edited", actionName: "Edit")
+        registry.markDirty(url)
+
+        let preparation = try XCTUnwrap(
+            registry.beginMovePreparation(url))
+        do {
+            try await registry.persistMovePreparation(preparation)
+            XCTFail("Expected the injected write failure")
+        } catch is ExpectedFailure {}
+
+        XCTAssertFalse(registry.isOpen(url))
+        XCTAssertEqual(try loadMarkdownDocument(from: url).content, "disk")
+        registry.cancelMovePreparation(preparation)
+        let restored = try registry.acquire(url)
+        XCTAssertTrue(restored === document)
+        XCTAssertTrue(registry.isDirty(url))
+        XCTAssertTrue(restored.contentUndoManager.canUndo)
+        try registry.saveNow(url)
+        XCTAssertFalse(registry.isDirty(url))
+        XCTAssertEqual(try loadMarkdownDocument(from: url).content, "edited",
+                       "the expected stale disk after a failed write is not an external conflict")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testAvailablePreparedModelReconcilesActualDestinationBeforeAcquire() async throws {
+        let registry = DocumentRegistry()
+        let source = tmp.appendingPathComponent("prepared-source.md")
+        let destination = tmp.appendingPathComponent("prepared-destination.md")
+        try writeMarkdownDocument(content: "before", assets: nil, to: source)
+
+        let document = try registry.acquire(source)
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(source))
+        try await registry.persistMovePreparation(preparation)
+        try FileManager.default.moveItem(at: source, to: destination)
+        registry.relocatePreparedDocument(from: source, to: destination)
+
+        try writeMarkdownDocument(content: "external-at-destination", assets: nil, to: destination)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: destination.path)
+
+        let restored = try registry.acquire(destination)
+        XCTAssertTrue(restored === document)
+        XCTAssertEqual(restored.content, "external-at-destination",
+                       "available hand-off must reconcile the destination, not the old source")
+        registry.release(destination)
+    }
+
+    @MainActor
+    func testMoveReservationBlocksReentrantOpenWithoutInMemoryModel() async throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("closed-no-cache.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: url)
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(url))
+        XCTAssertThrowsError(try registry.acquire(url)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("closed-no-cache.md"))
+        }
+        XCTAssertThrowsError(try registry.applyAgentEdit(url, content: "racing edit")) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("closed-no-cache.md"))
+        }
+
+        try await registry.persistMovePreparation(preparation)
+        registry.cancelMovePreparation(preparation)
+        let opened = try registry.acquire(url)
+        XCTAssertEqual(opened.content, "disk")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testDestinationReservationRejectsModelsAndBlocksUntilReleased() throws {
+        let registry = DocumentRegistry()
+        let occupied = tmp.appendingPathComponent("occupied-destination.md")
+        let free = tmp.appendingPathComponent("free-destination.md")
+        try writeMarkdownDocument(content: "occupied", assets: nil, to: occupied)
+        try writeMarkdownDocument(content: "free", assets: nil, to: free)
+
+        let occupiedDocument = try registry.acquire(occupied)
+        XCTAssertThrowsError(try registry.reserveMoveDestination(occupied)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("occupied-destination.md"))
+        }
+        registry.release(occupied)
+        XCTAssertThrowsError(try registry.reserveMoveDestination(occupied)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("occupied-destination.md"),
+                "a cached destination must be rejected without evicting its identity")
+        }
+        XCTAssertTrue(try registry.acquire(occupied) === occupiedDocument)
+        registry.release(occupied)
+
+        let reservation = try registry.reserveMoveDestination(free)
+        XCTAssertThrowsError(try registry.acquire(free)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("free-destination.md"))
+        }
+        XCTAssertThrowsError(try registry.applyAgentEdit(free, content: "racing edit")) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("free-destination.md"))
+        }
+        registry.cancelMovePreparation(reservation)
+        let opened = try registry.acquire(free)
+        XCTAssertEqual(opened.content, "free")
+        registry.release(free)
+
+        registry.clearSessionCache()
+        let discardedReservation = try registry.reserveMoveDestination(free)
+        registry.discardMovePreparation(discardedReservation)
+        let reopened = try registry.acquire(free)
+        XCTAssertEqual(reopened.content, "free")
+        registry.release(free)
+    }
+
+    @MainActor
+    func testURLOnlyMoveReservationRelocatesAndReleasesDestination() async throws {
+        let registry = DocumentRegistry()
+        let source = tmp.appendingPathComponent("url-only-source.md")
+        let destination = tmp.appendingPathComponent("url-only-destination.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: source)
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(source))
+        try await registry.persistMovePreparation(preparation)
+        try FileManager.default.moveItem(at: source, to: destination)
+        registry.relocatePreparedDocument(from: source, to: destination)
+
+        let opened = try registry.acquire(destination)
+        XCTAssertEqual(opened.content, "disk")
+        registry.release(destination)
+    }
+
+    @MainActor
+    func testCachedMoveRelocatesIdentityAndUndoWithoutRevivingOldPath() async throws {
+        let registry = DocumentRegistry()
+        let source = tmp.appendingPathComponent("cached-source.md")
+        let destination = tmp.appendingPathComponent("cached-destination.md")
+        try writeMarkdownDocument(content: "original", assets: nil, to: source)
+
+        let cachedDocument = try registry.acquire(source)
+        cachedDocument.contentUndoManager.groupsByEvent = false
+        cachedDocument.applyUndoableContent("edited", actionName: "Edit")
+        registry.markDirty(source)
+        registry.release(source)
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(source))
+        XCTAssertThrowsError(try registry.acquire(source)) { error in
+            XCTAssertEqual(
+                error as? DocumentMovePreparationError,
+                .moveInProgress("cached-source.md"))
+        }
+        try await registry.persistMovePreparation(preparation)
+        try FileManager.default.moveItem(at: source, to: destination)
+        registry.relocatePreparedDocument(from: source, to: destination)
+
+        try writeMarkdownDocument(content: "replacement", assets: nil, to: source)
+        let oldPathDocument = try registry.acquire(source)
+        XCTAssertFalse(oldPathDocument === cachedDocument,
+                       "the source cache key must be consumed by relocation")
+        XCTAssertEqual(oldPathDocument.content, "replacement")
+
+        let movedDocument = try registry.acquire(destination)
+        XCTAssertTrue(movedDocument === cachedDocument)
+        XCTAssertEqual(movedDocument.content, "edited")
+        XCTAssertTrue(movedDocument.contentUndoManager.canUndo)
+        registry.release(source)
+        registry.release(destination)
+    }
+
+    @MainActor
+    func testCachedUnmarkedBufferIsPersistedBeforeMove() async throws {
+        let registry = DocumentRegistry()
+        let source = tmp.appendingPathComponent("cached-unmarked-source.md")
+        let destination = tmp.appendingPathComponent("cached-unmarked-destination.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: source)
+
+        let cachedDocument = try registry.acquire(source)
+        cachedDocument.contentUndoManager.groupsByEvent = false
+        cachedDocument.applyUndoableContent("memory", actionName: "Edit")
+        // Deliberately omit markDirty: move preflight is a correctness boundary
+        // and must compare the cached buffer with its disk baseline itself.
+        registry.release(source)
+        XCTAssertEqual(try loadMarkdownDocument(from: source).content, "disk")
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(source))
+        try await registry.persistMovePreparation(preparation)
+        XCTAssertEqual(try loadMarkdownDocument(from: source).content, "memory")
+        try FileManager.default.moveItem(at: source, to: destination)
+        registry.relocatePreparedDocument(from: source, to: destination)
+
+        let restored = try registry.acquire(destination)
+        XCTAssertTrue(restored === cachedDocument)
+        XCTAssertEqual(restored.content, "memory")
+        XCTAssertEqual(try loadMarkdownDocument(from: destination).content, "memory")
+        XCTAssertTrue(restored.contentUndoManager.canUndo)
+        registry.release(destination)
+    }
+
+    @MainActor
+    func testCachedMoveCancelRestoresIdentityAtSource() async throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("cached-cancel.md")
+        try writeMarkdownDocument(content: "original", assets: nil, to: url)
+
+        let cachedDocument = try registry.acquire(url)
+        cachedDocument.contentUndoManager.groupsByEvent = false
+        cachedDocument.applyUndoableContent("edited", actionName: "Edit")
+        registry.markDirty(url)
+        registry.release(url)
+
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(url))
+        try await registry.persistMovePreparation(preparation)
+        registry.cancelMovePreparation(preparation)
+
+        let restored = try registry.acquire(url)
+        XCTAssertTrue(restored === cachedDocument)
+        XCTAssertTrue(restored.contentUndoManager.canUndo)
+        registry.release(url)
+    }
+
+    @MainActor
+    func testCachedMoveDiscardDropsParkedIdentity() async throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("cached-discard.md")
+        try writeMarkdownDocument(content: "disk", assets: nil, to: url)
+
+        let cachedDocument = try registry.acquire(url)
+        registry.release(url)
+        let preparation = try XCTUnwrap(registry.beginMovePreparation(url))
+        try await registry.persistMovePreparation(preparation)
+        registry.discardMovePreparation(preparation)
+
+        let reopened = try registry.acquire(url)
+        XCTAssertFalse(reopened === cachedDocument)
+        XCTAssertEqual(reopened.content, "disk")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testDiscardedMovePreparationDoesNotRestoreDirtyModel() async throws {
+        let registry = DocumentRegistry()
+        let url = tmp.appendingPathComponent("discarded-preparation.md")
+        try writeMarkdownDocument(content: "disk-old", assets: nil, to: url)
+
+        let preparedDocument = try registry.acquire(url)
+        preparedDocument.content = "prepared-dirty"
+        registry.markDirty(url)
+        let preparation = try XCTUnwrap(
+            registry.beginMovePreparation(url))
+        try await registry.persistMovePreparation(preparation)
+
+        try writeMarkdownDocument(content: "repaired-on-disk", assets: nil, to: url)
+        registry.discardMovePreparation(preparation)
+
+        let reopenedDocument = try registry.acquire(url)
+        XCTAssertFalse(reopenedDocument === preparedDocument,
+                       "discard must remove the ambiguously keyed model identity")
+        XCTAssertEqual(reopenedDocument.content, "repaired-on-disk",
+                       "the next explicit open must load the repaired disk file")
+        registry.release(url)
+    }
+
+    @MainActor
+    func testFolderRelocationRekeysClosedIdentityAndDropsStaleDestinationCache() throws {
+        let registry = DocumentRegistry()
+        let oldRoot = tmp.appendingPathComponent("Old Root", isDirectory: true)
+        let newRoot = tmp.appendingPathComponent("New Root", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: oldRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: newRoot, withIntermediateDirectories: true)
+        let oldFile = oldRoot.appendingPathComponent("note.md")
+        let staleDestinationFile = newRoot.appendingPathComponent("note.md")
+        let oldUncachedFile = oldRoot.appendingPathComponent("uncached.md")
+        let staleExtraDestinationFile = newRoot.appendingPathComponent("uncached.md")
+        try writeMarkdownDocument(content: "source", assets: nil, to: oldFile)
+        try writeMarkdownDocument(
+            content: "source-uncached", assets: nil, to: oldUncachedFile)
+        try writeMarkdownDocument(
+            content: "stale-destination", assets: nil, to: staleDestinationFile)
+        try writeMarkdownDocument(
+            content: "stale-extra", assets: nil, to: staleExtraDestinationFile)
+
+        let sourceDocument = try registry.acquire(oldFile)
+        sourceDocument.contentUndoManager.groupsByEvent = false
+        sourceDocument.applyUndoableContent("source-edited", actionName: "Edit")
+        registry.markDirty(oldFile)
+        registry.release(oldFile)
+        let staleDestinationDocument = try registry.acquire(staleDestinationFile)
+        registry.release(staleDestinationFile)
+        let staleExtraDocument = try registry.acquire(staleExtraDestinationFile)
+        registry.release(staleExtraDestinationFile)
+
+        try FileManager.default.removeItem(at: newRoot)
+        try FileManager.default.moveItem(at: oldRoot, to: newRoot)
+        registry.relocateFolder(from: oldRoot, to: newRoot)
+
+        let newFile = newRoot.appendingPathComponent("note.md")
+        let restored = try registry.acquire(newFile)
+        XCTAssertTrue(restored === sourceDocument)
+        XCTAssertFalse(restored === staleDestinationDocument)
+        XCTAssertTrue(restored.contentUndoManager.canUndo)
+        XCTAssertEqual(restored.content, "source-edited")
+        registry.release(newFile)
+
+        let relocatedUncachedFile = newRoot.appendingPathComponent("uncached.md")
+        let uncached = try registry.acquire(relocatedUncachedFile)
+        XCTAssertFalse(uncached === staleExtraDocument)
+        XCTAssertEqual(uncached.content, "source-uncached")
+        registry.release(relocatedUncachedFile)
+    }
+
+    @MainActor
+    func testAmbiguousFolderOutcomeDropsClosedIdentity() throws {
+        let registry = DocumentRegistry()
+        let root = tmp.appendingPathComponent("Ambiguous Root", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("note.md")
+        try writeMarkdownDocument(content: "before", assets: nil, to: file)
+
+        let cached = try registry.acquire(file)
+        registry.release(file)
+        registry.discardFolderCaches(at: [root])
+        try writeMarkdownDocument(content: "repaired", assets: nil, to: file)
+
+        let reopened = try registry.acquire(file)
+        XCTAssertFalse(reopened === cached)
+        XCTAssertEqual(reopened.content, "repaired")
+        registry.release(file)
+    }
+
+    @MainActor
+    func testPreparedBatchIsNotEvictedBySessionCacheLimit() async throws {
+        let destinationFolder = tmp.appendingPathComponent("Moved", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: destinationFolder, withIntermediateDirectories: true)
+        let registry = DocumentRegistry()
+        let count = DocumentRegistry.sessionCacheLimit + 2
+        var sources: [URL] = []
+        var destinations: [URL] = []
+        var documents: [MarkdownDocument] = []
+        var preparations: [DocumentMovePreparation] = []
+
+        for index in 0..<count {
+            let source = tmp.appendingPathComponent("note-\(index).md")
+            let destination = destinationFolder.appendingPathComponent(source.lastPathComponent)
+            try writeMarkdownDocument(content: "\(index)", assets: nil, to: source)
+            sources.append(source)
+            destinations.append(destination)
+            documents.append(try registry.acquire(source))
+        }
+
+        documents[0].contentUndoManager.groupsByEvent = false
+        documents[0].applyUndoableContent("edited zero", actionName: "Edit")
+        registry.markDirty(sources[0])
+
+        for source in sources {
+            let preparation = try XCTUnwrap(
+                registry.beginMovePreparation(source))
+            // Mirrors DocHost teardown after the synchronous reservation. The
+            // release must be harmless and must not enter the capped LRU.
+            registry.release(source)
+            try await registry.persistMovePreparation(preparation)
+            preparations.append(preparation)
+        }
+        XCTAssertEqual(preparations.count, count)
+        registry.clearSessionCache()
+        for (source, destination) in zip(sources, destinations) {
+            try FileManager.default.moveItem(at: source, to: destination)
+            registry.relocatePreparedDocument(from: source, to: destination)
+        }
+
+        for index in 0..<count {
+            let restored = try registry.acquire(destinations[index])
+            XCTAssertTrue(restored === documents[index],
+                          "prepared model \(index) must survive batches larger than the LRU")
+            if index == 0 {
+                XCTAssertTrue(restored.contentUndoManager.canUndo)
+                restored.contentUndoManager.undo()
+                XCTAssertEqual(restored.content, "0")
+            }
+            registry.release(destinations[index])
+        }
+    }
+}
+
+private func makeNestedAssets(_ payload: String) -> FileWrapper {
+    let image = FileWrapper(
+        regularFileWithContents: Data(payload.utf8))
+    let nested = FileWrapper(
+        directoryWithFileWrappers: ["image.bin": image])
+    return FileWrapper(
+        directoryWithFileWrappers: ["nested": nested])
+}
+
+private func nestedAssetPayload(_ assets: FileWrapper?) -> String? {
+    guard let data = assets?
+        .fileWrappers?["nested"]?
+        .fileWrappers?["image.bin"]?
+        .regularFileContents else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
+private final class DocumentMoveWriterProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private var wroteOnMainThread = false
+
+    func write(_ snapshot: MarkdownDocument.Snapshot, to url: URL) throws {
+        lock.lock()
+        calls += 1
+        wroteOnMainThread = wroteOnMainThread || Thread.isMainThread
+        lock.unlock()
+        try writeMarkdownDocument(
+            content: snapshot.content,
+            assets: snapshot.assetsFileWrapper,
+            to: url)
+    }
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    var didWriteOnMainThread: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return wroteOnMainThread
+    }
 }

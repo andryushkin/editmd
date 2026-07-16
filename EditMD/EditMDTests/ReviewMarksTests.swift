@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import EditMD
 
@@ -687,5 +688,399 @@ final class ReviewMarksTests: XCTestCase {
     private func cleanup(_ file: URL) {
         try? ReviewSidecar.delete(for: file)
         try? FileManager.default.removeItem(at: file)
+    }
+}
+
+@Suite("ReviewModel path coordination")
+@MainActor
+struct ReviewModelPathMutationTests {
+
+    @Test("path barrier drains saves for a file that is no longer active")
+    func barrierDrainsGlobalPipeline() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("first.md")
+        let second = root.appendingPathComponent("second.md")
+        try "first text".write(to: first, atomically: true, encoding: .utf8)
+        try "second text".write(to: second, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(first, text: "first text")
+        model.addMark(anchor: .init(quote: "first", prefix: "", start: 0),
+                      type: .comment, note: "belongs to first")
+        model.setActiveFile(second, text: "second text")
+
+        let token = await model.beginPathMutation()
+        model.cancelPathMutation(token)
+
+        let disk = try #require(try ReviewSidecar.load(for: first))
+        #expect(disk.marks.map(\.note) == ["belongs to first"])
+    }
+
+    @Test("deferred save follows an exact file move")
+    func deferredPersistFollowsFileMove() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFolder = root.appendingPathComponent("source", isDirectory: true)
+        let destinationFolder = root.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceFolder,
+                                                withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationFolder,
+                                                withIntermediateDirectories: true)
+        let oldFile = sourceFolder.appendingPathComponent("note.md")
+        let newFile = destinationFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(oldFile, text: "hello")
+        await model.flushPipeline()
+        let id = model.addMark(anchor: .init(quote: "hello", prefix: "", start: 0),
+                               type: .comment, note: "move me")
+        await model.flushPipeline()
+
+        let token = await model.beginPathMutation()
+        model.reply(to: id, text: "written behind the barrier")
+        try FileManager.default.moveItem(at: oldFile, to: newFile)
+        try FileManager.default.moveItem(at: ReviewSidecar.url(for: oldFile),
+                                         to: ReviewSidecar.url(for: newFile))
+        model.completePathMutation(
+            token,
+            relocatingFiles: [.init(from: oldFile, to: newFile)]
+        )
+        await model.flushPipeline()
+
+        #expect(model.fileURL == newFile.standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: ReviewSidecar.url(for: oldFile).path))
+        let disk = try #require(try ReviewSidecar.load(for: newFile))
+        #expect(disk[id]?.thread?.count == 1)
+        #expect(disk[id]?.thread?.first?.text == "written behind the barrier")
+    }
+
+    @Test("deferred save follows a root rename without recreating the old root")
+    func deferredPersistFollowsFolderRename() async throws {
+        let parent = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let oldRoot = parent.appendingPathComponent("Old Root", isDirectory: true)
+        let newRoot = parent.appendingPathComponent("New Root", isDirectory: true)
+        let oldFolder = oldRoot.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldFolder,
+                                                withIntermediateDirectories: true)
+        let oldFile = oldFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(oldFile, text: "hello")
+        await model.flushPipeline()
+        let id = model.addMark(anchor: .init(quote: "hello", prefix: "", start: 0),
+                               type: .comment, note: "rename me")
+        await model.flushPipeline()
+
+        let token = await model.beginPathMutation()
+        model.setStatus(id, .resolved)
+        try FileManager.default.moveItem(at: oldRoot, to: newRoot)
+        model.completePathMutation(token, relocatingFolderFrom: oldRoot, to: newRoot)
+        await model.flushPipeline()
+
+        let newFile = newRoot.appendingPathComponent("docs/note.md")
+        #expect(model.fileURL == newFile.standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: oldRoot.path))
+        let disk = try #require(try ReviewSidecar.load(for: newFile))
+        #expect(disk[id]?.statusOrOpen == "resolved")
+    }
+
+    @Test("inactive control mark follows an exact file move")
+    func inactiveControlMarkFollowsExactMove() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceFolder = root.appendingPathComponent("source", isDirectory: true)
+        let destinationFolder = root.appendingPathComponent(
+            "destination", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destinationFolder, withIntermediateDirectories: true)
+        let oldFile = sourceFolder.appendingPathComponent("note.md")
+        let newFile = destinationFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        let token = await model.beginPathMutation()
+        let mark = ReviewMark(
+            type: .comment, quote: "hello", prefix: "", start: 0,
+            note: "control exact")
+        let ticket = model.enqueueControlMarkWrite(mark, for: oldFile)
+
+        try FileManager.default.moveItem(at: oldFile, to: newFile)
+        model.completePathMutation(
+            token,
+            relocatingFiles: [.init(from: oldFile, to: newFile)])
+
+        let outcome = try #require(await waitForTicket(ticket))
+        let written = try outcome.get()
+        #expect(written.url == newFile.standardizedFileURL)
+        #expect(written.markID == mark.id)
+        #expect(!FileManager.default.fileExists(
+            atPath: ReviewSidecar.url(for: oldFile).path))
+        let disk = try #require(try ReviewSidecar.load(for: newFile))
+        #expect(disk[mark.id]?.note == "control exact")
+        #expect(written.rev == disk.rev)
+    }
+
+    @Test("inactive control mark follows a root rename")
+    func inactiveControlMarkFollowsRootRename() async throws {
+        let parent = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let oldRoot = parent.appendingPathComponent("Old", isDirectory: true)
+        let newRoot = parent.appendingPathComponent("New", isDirectory: true)
+        let oldFolder = oldRoot.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: oldFolder, withIntermediateDirectories: true)
+        let oldFile = oldFolder.appendingPathComponent("note.md")
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        let token = await model.beginPathMutation()
+        let mark = ReviewMark(
+            type: .comment, quote: "hello", prefix: "", start: 0,
+            note: "control root")
+        let ticket = model.enqueueControlMarkWrite(mark, for: oldFile)
+        let readTicket = model.enqueueControlMarksRead(for: oldFile)
+
+        try FileManager.default.moveItem(at: oldRoot, to: newRoot)
+        model.completePathMutation(
+            token, relocatingFolderFrom: oldRoot, to: newRoot)
+
+        let outcome = try #require(await waitForTicket(ticket))
+        let written = try outcome.get()
+        let readOutcome = try #require(await waitForTicket(readTicket))
+        let read = try readOutcome.get()
+        let newFile = newRoot.appendingPathComponent("docs/note.md")
+        #expect(written.url == newFile.standardizedFileURL)
+        #expect(read.url == newFile.standardizedFileURL)
+        #expect(read.doc[mark.id]?.note == "control root")
+        #expect(!FileManager.default.fileExists(atPath: oldRoot.path))
+        let disk = try #require(try ReviewSidecar.load(for: newFile))
+        #expect(disk[mark.id]?.note == "control root")
+        #expect(written.rev == disk.rev)
+    }
+
+    @Test("combined root outcome relocates source actions and drops expected-root actions")
+    func combinedRootOutcomeRelocatesAndDrops() async throws {
+        let parent = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let oldRoot = parent.appendingPathComponent("Old", isDirectory: true)
+        let survivorRoot = parent.appendingPathComponent("Recovered", isDirectory: true)
+        let expectedRoot = parent.appendingPathComponent("Expected", isDirectory: true)
+        let oldFile = oldRoot.appendingPathComponent("docs/note.md")
+        let expectedFile = expectedRoot.appendingPathComponent("docs/note.md")
+        try FileManager.default.createDirectory(
+            at: oldFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "hello".write(to: oldFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        let token = await model.beginPathMutation()
+        let mark = ReviewMark(
+            type: .comment, quote: "hello", prefix: "", start: 0,
+            note: "survives rollback")
+        let sourceTicket = model.enqueueControlMarkWrite(mark, for: oldFile)
+        let expectedTicket = model.enqueueControlMarksRead(for: expectedFile)
+
+        try FileManager.default.moveItem(at: oldRoot, to: survivorRoot)
+        model.completePathMutation(
+            token,
+            relocatingFolderFrom: oldRoot,
+            to: survivorRoot,
+            droppingFoldersAt: [expectedRoot])
+
+        let sourceOutcome = try #require(await waitForTicket(sourceTicket))
+        let written = try sourceOutcome.get()
+        let survivorFile = survivorRoot.appendingPathComponent("docs/note.md")
+        #expect(written.url == survivorFile.standardizedFileURL)
+        let expectedOutcome = try #require(await waitForTicket(expectedTicket))
+        #expect(expectedOutcome == .failure(.pathUnavailable(
+            expectedFile.standardizedFileURL)))
+        #expect(!FileManager.default.fileExists(atPath: expectedRoot.path))
+        let disk = try #require(try ReviewSidecar.load(for: survivorFile))
+        #expect(disk[mark.id]?.note == "survives rollback")
+    }
+
+    @Test("file rollback keeps source actions and drops future-destination actions")
+    func exactRollbackKeepsSourceAndDropsDestination() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.md")
+        let destination = root.appendingPathComponent("destination.md")
+        try "hello".write(to: source, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        let token = await model.beginPathMutation()
+        let mark = ReviewMark(
+            type: .comment, quote: "hello", prefix: "", start: 0,
+            note: "stays at source")
+        let sourceTicket = model.enqueueControlMarkWrite(mark, for: source)
+        let destinationTicket = model.enqueueControlMarksRead(for: destination)
+
+        model.completePathMutation(
+            token,
+            relocatingFiles: [],
+            droppingFiles: [destination])
+
+        let sourceOutcome = try #require(await waitForTicket(sourceTicket))
+        let written = try sourceOutcome.get()
+        #expect(written.url == source.standardizedFileURL)
+        let destinationOutcome = try #require(
+            await waitForTicket(destinationTicket))
+        #expect(destinationOutcome == .failure(.pathUnavailable(
+            destination.standardizedFileURL)))
+        let disk = try #require(try ReviewSidecar.load(for: source))
+        #expect(disk[mark.id]?.note == "stays at source")
+        #expect(!FileManager.default.fileExists(
+            atPath: ReviewSidecar.url(for: destination).path))
+    }
+
+    @Test("path mutations acquire the shared barrier in FIFO order")
+    func pathMutationsAreSerializedInFIFOOrder() async {
+        let model = ReviewModel()
+        let first = await model.beginPathMutation()
+        let (started, signal) = AsyncStream.makeStream(of: Int.self)
+        var iterator = started.makeAsyncIterator()
+        var acquisitionOrder: [Int] = []
+
+        let second = Task { @MainActor in
+            signal.yield(2)
+            let token = await model.beginPathMutation()
+            acquisitionOrder.append(2)
+            model.cancelPathMutation(token)
+        }
+        let secondStart = await iterator.next()
+        #expect(secondStart == 2)
+
+        let third = Task { @MainActor in
+            signal.yield(3)
+            let token = await model.beginPathMutation()
+            acquisitionOrder.append(3)
+            model.cancelPathMutation(token)
+        }
+        let thirdStart = await iterator.next()
+        #expect(thirdStart == 3)
+
+        model.cancelPathMutation(first)
+        await second.value
+        await third.value
+        signal.finish()
+
+        #expect(acquisitionOrder == [2, 3])
+    }
+
+    @Test("unresolved path drops deferred sidecar work")
+    func unresolvedPathDoesNotRecreateSidecar() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("note.md")
+        try "hello".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(file, text: "hello")
+        await model.flushPipeline()
+        let id = model.addMark(
+            anchor: .init(quote: "hello", prefix: "", start: 0),
+            type: .comment,
+            note: "before failure")
+        await model.flushPipeline()
+
+        let token = await model.beginPathMutation()
+        model.reply(to: id, text: "must be discarded")
+        try ReviewSidecar.delete(for: file)
+        try FileManager.default.removeItem(at: file)
+        model.completePathMutation(
+            token,
+            relocatingFiles: [],
+            droppingFiles: [file])
+        await model.flushPipeline()
+
+        #expect(model.fileURL == nil)
+        #expect(model.doc.marks.isEmpty)
+        #expect(!FileManager.default.fileExists(
+            atPath: ReviewSidecar.url(for: file).path))
+    }
+
+    @Test("ambiguous root drop rejects control marks and does not recreate either root")
+    func ambiguousRootDropRejectsTicketsWithoutRecreatingRoots() async throws {
+        let parent = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let oldRoot = parent.appendingPathComponent("Old", isDirectory: true)
+        let expectedRoot = parent.appendingPathComponent("Expected", isDirectory: true)
+        let oldFile = oldRoot.appendingPathComponent("docs/note.md")
+        let expectedFile = expectedRoot.appendingPathComponent("docs/note.md")
+        try FileManager.default.createDirectory(
+            at: oldFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: expectedFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "old".write(to: oldFile, atomically: true, encoding: .utf8)
+        try "expected".write(to: expectedFile, atomically: true, encoding: .utf8)
+
+        let model = ReviewModel()
+        model.setActiveFile(oldFile, text: "old")
+        await model.flushPipeline()
+        let activeID = model.addMark(
+            anchor: .init(quote: "old", prefix: "", start: 0),
+            type: .comment,
+            note: "before ambiguous rename")
+        await model.flushPipeline()
+
+        let token = await model.beginPathMutation()
+        model.reply(to: activeID, text: "must be discarded")
+        let oldMark = ReviewMark(
+            type: .comment, quote: "old", prefix: "", start: 0,
+            note: "old control")
+        let expectedMark = ReviewMark(
+            type: .comment, quote: "expected", prefix: "", start: 0,
+            note: "expected control")
+        let oldTicket = model.enqueueControlMarkWrite(oldMark, for: oldFile)
+        let expectedTicket = model.enqueueControlMarkWrite(
+            expectedMark, for: expectedFile)
+        let oldReadTicket = model.enqueueControlMarksRead(for: oldFile)
+        let expectedReadTicket = model.enqueueControlMarksRead(for: expectedFile)
+
+        try FileManager.default.removeItem(at: oldRoot)
+        try FileManager.default.removeItem(at: expectedRoot)
+        model.completePathMutation(
+            token,
+            droppingFoldersAt: [oldRoot, expectedRoot])
+
+        let oldOutcome = try #require(await waitForTicket(oldTicket))
+        let expectedOutcome = try #require(await waitForTicket(expectedTicket))
+        let oldReadOutcome = try #require(await waitForTicket(oldReadTicket))
+        let expectedReadOutcome = try #require(await waitForTicket(expectedReadTicket))
+        #expect(oldOutcome == .failure(.pathUnavailable(
+            oldFile.standardizedFileURL)))
+        #expect(expectedOutcome == .failure(.pathUnavailable(
+            expectedFile.standardizedFileURL)))
+        #expect(oldReadOutcome == .failure(.pathUnavailable(
+            oldFile.standardizedFileURL)))
+        #expect(expectedReadOutcome == .failure(.pathUnavailable(
+            expectedFile.standardizedFileURL)))
+        await model.flushPipeline()
+
+        #expect(model.fileURL == nil)
+        #expect(model.doc.marks.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: oldRoot.path))
+        #expect(!FileManager.default.fileExists(atPath: expectedRoot.path))
+    }
+
+    private func waitForTicket<Success: Sendable>(
+        _ ticket: ReviewControlTicket<Success>
+    ) async -> ReviewControlTicket<Success>.Outcome? {
+        await Task.detached {
+            ticket.wait(timeout: .now() + 2)
+        }.value
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-review-path-\(UUID().uuidString)",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

@@ -118,6 +118,114 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
     }
 }
 
+/// Pure queue behind `AppState`'s filesystem-mutation routing gate. Keeping the path
+/// bookkeeping separate makes the suspension/replay contract deterministic
+/// and testable without opening real app windows.
+struct PathMutationRouteQueue {
+    enum Destination: Equatable, Sendable {
+        case main
+        case separate
+    }
+
+    struct Route: Equatable, Sendable {
+        var url: URL
+        let destination: Destination
+    }
+
+    private var roots: [UUID: URL] = [:]
+    private var deferred: [Route] = []
+
+    mutating func begin(at root: URL) -> UUID {
+        let id = UUID()
+        roots[id] = root.standardizedFileURL
+        return id
+    }
+
+    mutating func enqueueIfBlocked(
+        _ url: URL,
+        destination: Destination,
+        ignoring ignoredMutationIDs: Set<UUID> = []
+    ) -> Bool {
+        let standardized = url.standardizedFileURL
+        guard isBlocked(standardized, ignoring: ignoredMutationIDs) else {
+            return false
+        }
+        deferred.append(Route(url: standardized, destination: destination))
+        return true
+    }
+
+    func isBlocked(
+        _ url: URL,
+        ignoring ignoredMutationIDs: Set<UUID> = []
+    ) -> Bool {
+        let standardized = url.standardizedFileURL
+        return roots.contains(where: { id, root in
+            !ignoredMutationIDs.contains(id)
+                && Self.isPath(standardized, inside: root)
+        })
+    }
+
+    func roots(for ids: Set<UUID>) -> [URL] {
+        ids.compactMap { roots[$0] }
+    }
+
+    mutating func relocate(from oldRoot: URL, to newRoot: URL) {
+        deferred = deferred.map { route in
+            var relocated = route
+            relocated.url = WorkspaceModel.relocatedURL(
+                route.url, from: oldRoot, to: newRoot)
+            return relocated
+        }
+        roots = roots.mapValues {
+            WorkspaceModel.relocatedURL($0, from: oldRoot, to: newRoot)
+        }
+    }
+
+    mutating func finish(_ id: UUID, discardingRoutes: Bool = false) -> [Route] {
+        finish(
+            [id],
+            discardingRouteIDs: discardingRoutes ? [id] : [])
+    }
+
+    /// Releases one transaction's roots atomically. Deferred opens retain
+    /// their original global order; a later route never jumps ahead of an
+    /// earlier route that is still covered by another mutation.
+    mutating func finish(
+        _ ids: Set<UUID>,
+        discardingRouteIDs: Set<UUID> = []
+    ) -> [Route] {
+        var discardedRoots: [URL] = []
+        for id in ids {
+            guard let root = roots.removeValue(forKey: id) else { continue }
+            if discardingRouteIDs.contains(id) {
+                discardedRoots.append(root)
+            }
+        }
+        if !discardedRoots.isEmpty {
+            deferred.removeAll { route in
+                discardedRoots.contains(where: {
+                    Self.isPath(route.url, inside: $0)
+                })
+            }
+        }
+
+        let readyCount = deferred.prefix { route in
+            !roots.values.contains(where: {
+                Self.isPath(route.url, inside: $0)
+            })
+        }.count
+        let ready = Array(deferred.prefix(readyCount))
+        deferred.removeFirst(readyCount)
+        return ready
+    }
+
+    static func isPath(_ url: URL, inside root: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
+    }
+}
+
 /// App-wide window routing state (Phase 2 of the move off DocumentGroup).
 ///
 /// The MAIN workspace window is a single `Window` scene that shows whatever
@@ -155,6 +263,7 @@ final class AppState: ObservableObject {
 
     private var openWindow: OpenWindowAction?
     private var pendingSeparateURLs: [URL] = []
+    private var pathMutationRoutes = PathMutationRouteQueue()
     private weak var mainWindow: NSWindow?
     private let defaults: UserDefaults
 
@@ -197,7 +306,9 @@ final class AppState: ObservableObject {
         openWindow = action
         let pending = pendingSeparateURLs
         pendingSeparateURLs.removeAll()
-        for url in pending { action(value: url) }
+        // Re-enter the ordinary route so a path-mutation gate installed while
+        // the scene was unavailable can defer and relocate this URL too.
+        for url in pending { openInSeparateWindow(url) }
     }
 
     func bindMainWindow(_ window: NSWindow) {
@@ -246,8 +357,20 @@ final class AppState: ObservableObject {
     /// Directories open the folder info card; files open the editor.
     /// Pass `nil` only to return to welcome — prefer `openUntitled()` for New.
     func openInMainWindow(_ url: URL?) {
+        openInMainWindow(url, ignoringPathMutationIDs: [])
+    }
+
+    private func openInMainWindow(
+        _ url: URL?,
+        ignoringPathMutationIDs mutationIDs: Set<UUID>
+    ) {
         let std = url?.standardizedFileURL
         if let std {
+            guard !pathMutationRoutes.enqueueIfBlocked(
+                std, destination: .main, ignoring: mutationIDs
+            ) else {
+                return
+            }
             isUntitled = false
             currentURL = std
             if !Self.isFolder(std) {
@@ -268,8 +391,20 @@ final class AppState: ObservableObject {
     /// Opens `url` in its own sidebar-less window. Buffered if no scene has
     /// handed us the action yet. Folders are rejected (no lite folder UI).
     func openInSeparateWindow(_ url: URL) {
+        openInSeparateWindow(url, ignoringPathMutationIDs: [])
+    }
+
+    private func openInSeparateWindow(
+        _ url: URL,
+        ignoringPathMutationIDs mutationIDs: Set<UUID>
+    ) {
         let std = url.standardizedFileURL
         guard !Self.isFolder(std) else { return }
+        guard !pathMutationRoutes.enqueueIfBlocked(
+            std, destination: .separate, ignoring: mutationIDs
+        ) else {
+            return
+        }
         if let openWindow {
             openWindow(value: std)
         } else {
@@ -287,11 +422,78 @@ final class AppState: ObservableObject {
         pendingSeparateURLs = pendingSeparateURLs.map {
             WorkspaceModel.relocatedURL($0, from: oldRoot, to: newRoot)
         }
+        pathMutationRoutes.relocate(from: oldRoot, to: newRoot)
         if let pendingControlJump {
             self.pendingControlJump = (
                 WorkspaceModel.relocatedURL(
                     pendingControlJump.url, from: oldRoot, to: newRoot),
                 pendingControlJump.offset)
+        }
+    }
+
+    /// Defers every route into `url` while detached filesystem work is
+    /// suspended. This closes the reentrancy window where Finder/control
+    /// opens could create a URL-bound registry entry after preflight but
+    /// before a file or folder reaches its destination.
+    @discardableResult
+    func beginPathMutation(at url: URL) -> UUID {
+        pathMutationRoutes.begin(at: url)
+    }
+
+    func isPathMutationInProgress(at url: URL) -> Bool {
+        pathMutationRoutes.isBlocked(url)
+    }
+
+    /// Releases routes buffered by `beginPathMutation`. Call the matching
+    /// `relocateFile`/`relocateFolder` first on success so queued URLs follow
+    /// the destination; on failure they replay at their original paths.
+    func finishPathMutation(_ id: UUID) {
+        replay(pathMutationRoutes.finish(id))
+    }
+
+    /// Drops opens aimed at a path whose rollback left no unambiguous file.
+    /// Replaying such a route would either open a duplicate source or create a
+    /// new document at a path that no longer exists.
+    func discardPathMutation(_ id: UUID) {
+        finishPathMutations([id], discardingRouteIDs: [id])
+    }
+
+    /// Releases every source/destination gate of one filesystem transaction
+    /// in one step so deferred window routes replay in user-request order.
+    func finishPathMutations(
+        _ ids: Set<UUID>,
+        discardingRouteIDs: Set<UUID> = []
+    ) {
+        let droppedRoots = pathMutationRoutes.roots(for: discardingRouteIDs)
+        discardPathState(inside: droppedRoots)
+        replay(pathMutationRoutes.finish(
+            ids,
+            discardingRouteIDs: discardingRouteIDs))
+    }
+
+    private func discardPathState(inside roots: [URL]) {
+        guard !roots.isEmpty else { return }
+        let isDropped: (URL) -> Bool = { url in
+            roots.contains { PathMutationRouteQueue.isPath(url, inside: $0) }
+        }
+        pendingSeparateURLs.removeAll(where: isDropped)
+        if let pendingControlJump, isDropped(pendingControlJump.url) {
+            self.pendingControlJump = nil
+        }
+        if let currentURL, isDropped(currentURL) {
+            openInMainWindow(nil)
+        }
+        DocumentHistory.shared.discardPaths(inside: roots)
+    }
+
+    private func replay(_ routes: [PathMutationRouteQueue.Route]) {
+        for route in routes {
+            switch route.destination {
+            case .main:
+                openInMainWindow(route.url)
+            case .separate:
+                openInSeparateWindow(route.url)
+            }
         }
     }
 
@@ -327,17 +529,33 @@ final class AppState: ObservableObject {
 
     /// Restores the same main/lite presentation topology after a move (or at
     /// the old URL after rollback), reopening the previously focused kind last.
-    func restoreFilePresentation(_ state: FilePresentationState, at url: URL) {
+    func restoreFilePresentation(
+        _ state: FilePresentationState,
+        at url: URL,
+        ignoringPathMutationIDs mutationIDs: Set<UUID> = []
+    ) {
         switch state.focus {
         case .separate:
-            if state.wasInMain { openInMainWindow(url) }
-            if state.hadSeparateWindow { openInSeparateWindow(url) }
+            if state.wasInMain {
+                openInMainWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
+            if state.hadSeparateWindow {
+                openInSeparateWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
         case .main:
-            if state.hadSeparateWindow { openInSeparateWindow(url) }
-            if state.wasInMain { openInMainWindow(url) }
+            if state.hadSeparateWindow {
+                openInSeparateWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
+            if state.wasInMain {
+                openInMainWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
         case .neither:
-            if state.wasInMain { openInMainWindow(url) }
-            if state.hadSeparateWindow { openInSeparateWindow(url) }
+            if state.wasInMain {
+                openInMainWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
+            if state.hadSeparateWindow {
+                openInSeparateWindow(url, ignoringPathMutationIDs: mutationIDs)
+            }
         }
     }
 
@@ -349,6 +567,7 @@ final class AppState: ObservableObject {
         pendingSeparateURLs = pendingSeparateURLs.map {
             $0.standardizedFileURL == old ? new : $0
         }
+        pathMutationRoutes.relocate(from: old, to: new)
         if let pendingControlJump, pendingControlJump.url.standardizedFileURL == old {
             self.pendingControlJump = (new, pendingControlJump.offset)
         }
@@ -378,6 +597,7 @@ final class AppState: ObservableObject {
         // Same key as ContentView's `@AppStorage("editorMode")`.
         defaults.set(mode.rawValue, forKey: "editorMode")
     }
+
 }
 
 enum WindowID {

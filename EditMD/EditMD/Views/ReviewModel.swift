@@ -5,6 +5,75 @@ import os
 
 let reviewLog = Logger(subsystem: "com.editmd.app", category: "review")
 
+struct ReviewControlMarkWriteResult: Equatable, Sendable {
+    let url: URL
+    let markID: String
+    let rev: Int
+}
+
+enum ReviewControlOperationError: LocalizedError, Equatable, Sendable {
+    case pathUnavailable(URL)
+    case writeFailed(String)
+    case modelUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .pathUnavailable(let url):
+            return "path became unavailable during file operation: \(url.path)"
+        case .writeFailed(let message):
+            return "sidecar write failed: \(message)"
+        case .modelUnavailable:
+            return "review pipeline became unavailable"
+        }
+    }
+}
+
+/// Immutable disk snapshot returned to the socket thread. `ReviewDocument` is
+/// a value tree of Codable scalars/collections and is never mutated after the
+/// ticket resolves, which makes this cross-thread handoff safe.
+struct ReviewControlMarksReadResult: Equatable, @unchecked Sendable {
+    let url: URL
+    let doc: ReviewDocument
+}
+
+/// One control-channel sidecar operation. The request is inserted into ReviewModel's
+/// FIFO on MainActor before the socket follow-up receives this ticket. Waiting
+/// is thread-safe and may only block a socket/test worker, never MainActor.
+///
+/// Safety invariant for `@unchecked Sendable`: mutable completion state is
+/// accessed exclusively through `OSAllocatedUnfairLock`; `DispatchGroup`
+/// provides a thread-safe one-shot completion event.
+final class ReviewControlTicket<Success: Sendable>: @unchecked Sendable {
+    typealias Outcome = Result<Success, ReviewControlOperationError>
+
+    private let completion = DispatchGroup()
+    private let state: OSAllocatedUnfairLock<Outcome?>
+
+    fileprivate init() {
+        state = OSAllocatedUnfairLock(initialState: nil)
+        completion.enter()
+    }
+
+    fileprivate func resolve(_ outcome: Outcome) {
+        let didResolve = state.withLock { state in
+            guard state == nil else { return false }
+            state = outcome
+            return true
+        }
+        if didResolve { completion.leave() }
+    }
+
+    /// Returns nil on timeout. The queued operation is not cancelled and may still
+    /// finish later, matching the control channel's existing bounded-wait rule.
+    nonisolated func wait(timeout: DispatchTime) -> Outcome? {
+        guard completion.wait(timeout: timeout) == .success else { return nil }
+        return state.withLock { $0 }
+    }
+}
+
+typealias ReviewControlMarkWriteTicket = ReviewControlTicket<ReviewControlMarkWriteResult>
+typealias ReviewControlMarksReadTicket = ReviewControlTicket<ReviewControlMarksReadResult>
+
 /// Drives the Review sidebar (phase 2, v37): loads the active file's
 /// smotr-compatible sidecar, exposes its marks, and persists mutations through
 /// the optimistic rev-guard. Marks belong to the main-window "active editor",
@@ -26,6 +95,23 @@ final class ReviewModel: ObservableObject {
             case .all: return "Все"
             case .closed: return "Закрытые"
             }
+        }
+    }
+
+    /// Opaque permit that keeps sidecar loads/saves parked while a caller
+    /// mutates paths on disk. Callers must complete or cancel every permit.
+    struct PathMutationToken: Hashable, Sendable {
+        fileprivate let id: UInt64
+    }
+
+    /// One exact file relocation performed by a batch move.
+    struct FileRelocation: Equatable, Sendable {
+        let source: URL
+        let destination: URL
+
+        init(from source: URL, to destination: URL) {
+            self.source = source.standardizedFileURL
+            self.destination = destination.standardizedFileURL
         }
     }
 
@@ -65,6 +151,27 @@ final class ReviewModel: ObservableObject {
     /// the stale-base races of fire-and-forget saves — two rapid mutations
     /// used to overwrite each other and resurrect deleted marks.
     private var pipelineTask: Task<Void, Never>?
+    private var pipelineGeneration: UInt64 = 0
+
+    /// Path mutation is a two-phase barrier: install the barrier first, then
+    /// drain every already-enqueued sidecar step. New reloads/persists are
+    /// retained in FIFO order until the caller supplies the final path map.
+    /// This closes the actor-reentrancy gap between `await`ing a flush and the
+    /// actual disk rename/move.
+    private var nextPathMutationID: UInt64 = 0
+    private var pathMutationGateHeld = false
+    private var activePathMutationIDs: Set<UInt64> = []
+    private var deferredPipelineActions: [DeferredPipelineAction] = []
+    private var pathMutationAcquisitionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pathMutationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private enum DeferredPipelineAction {
+        case reload(url: URL, token: Int, expected: ReviewDocument)
+        case persist(url: URL, doc: ReviewDocument, baseRev: Int)
+        case controlMark(url: URL, mark: ReviewMark,
+                         ticket: ReviewControlMarkWriteTicket)
+        case controlRead(url: URL, ticket: ReviewControlMarksReadTicket)
+    }
 
     // MARK: Active file
 
@@ -103,23 +210,129 @@ final class ReviewModel: ObservableObject {
         // Snapshot for the adoption guard: a mutation made while the load was
         // in flight must not be wiped by the (older) disk state.
         let expected = doc
-        enqueue { [weak self] in
-            guard let self else { return }
-            let loaded = await Self.loadOffMain(url)
-            guard token == self.loadToken, self.fileURL == url else { return }
-            if self.doc == expected {
-                self.doc = loaded
-            }
-            // Disk rev is the truth either way; a divergent local doc
-            // reconciles through the next save's rev-guard merge.
-            self.baseRev = loaded.rev
-        }
+        submit(.reload(url: url, token: token, expected: expected))
     }
 
     /// Awaits every sidecar disk step enqueued so far (saves and reloads).
     /// Control channel uses it to reply only after the write is durable.
     func flushPipeline() async {
+        while true {
+            if pathMutationGateHeld {
+                await waitForPathMutations()
+                continue
+            }
+            let generation = pipelineGeneration
+            await pipelineTask?.value
+            guard !pathMutationGateHeld,
+                  generation == pipelineGeneration else { continue }
+            return
+        }
+    }
+
+    /// Installs a barrier before suspending, then drains the global FIFO. The
+    /// returned permit keeps later sidecar work parked until the disk mutation
+    /// is completed or cancelled.
+    func beginPathMutation() async -> PathMutationToken {
+        await acquirePathMutationGate()
+        nextPathMutationID &+= 1
+        let token = PathMutationToken(id: nextPathMutationID)
+        activePathMutationIDs.insert(token.id)
         await pipelineTask?.value
+        return token
+    }
+
+    /// Completes a batch of exact file moves and resumes deferred sidecar work
+    /// against the relocated paths.
+    func completePathMutation(
+        _ token: PathMutationToken,
+        relocatingFiles relocations: [FileRelocation],
+        droppingFiles droppedFiles: [URL] = []
+    ) {
+        guard activePathMutationIDs.contains(token.id) else { return }
+        let pathMap = Dictionary(
+            relocations.map { ($0.source.standardizedFileURL, $0.destination.standardizedFileURL) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let dropped = Set(droppedFiles.map(\.standardizedFileURL))
+        relocatePaths { url in
+            let standardized = url.standardizedFileURL
+            guard !dropped.contains(standardized) else { return nil }
+            return pathMap[standardized] ?? standardized
+        }
+        releasePathMutation(token)
+    }
+
+    /// Completes a folder/root rename, preserving the relative path of the
+    /// active review file and any sidecar work deferred behind the barrier.
+    /// `droppedRoots` rejects concurrent actions aimed at an ambiguous sibling
+    /// outcome in the same filesystem transaction.
+    func completePathMutation(
+        _ token: PathMutationToken,
+        relocatingFolderFrom oldRoot: URL,
+        to newRoot: URL,
+        droppingFoldersAt droppedRoots: [URL] = []
+    ) {
+        guard activePathMutationIDs.contains(token.id) else { return }
+        let old = oldRoot.standardizedFileURL
+        let new = newRoot.standardizedFileURL
+        let dropped = droppedRoots.map(\.standardizedFileURL)
+        relocatePaths { url in
+            guard !dropped.contains(where: { Self.isURL(url, inside: $0) }) else {
+                return nil
+            }
+            return Self.relocatedURL(url, from: old, to: new) ?? url
+        }
+        releasePathMutation(token)
+    }
+
+    /// Releases a barrier after a failed/no-op disk mutation. Deferred work
+    /// keeps its original paths.
+    func cancelPathMutation(_ token: PathMutationToken) {
+        guard activePathMutationIDs.contains(token.id) else { return }
+        releasePathMutation(token)
+    }
+
+    /// Completes an ambiguous folder mutation for which neither old nor
+    /// expected-new subtree is safe. Active state is cleared, ordinary deferred
+    /// saves are discarded, and durable control tickets fail explicitly.
+    func completePathMutation(
+        _ token: PathMutationToken,
+        droppingFoldersAt rawRoots: [URL]
+    ) {
+        guard activePathMutationIDs.contains(token.id) else { return }
+        let roots = rawRoots.map(\.standardizedFileURL)
+        relocatePaths { url in
+            roots.contains(where: { Self.isURL(url, inside: $0) }) ? nil : url
+        }
+        releasePathMutation(token)
+    }
+
+    /// Enqueues a control-channel mark in the same global FIFO as UI persists
+    /// and reloads. The returned ticket is safe to wait from the socket thread.
+    /// Path mutations can relocate or reject this action before any disk write.
+    func enqueueControlMarkWrite(
+        _ mark: ReviewMark,
+        for rawURL: URL
+    ) -> ReviewControlMarkWriteTicket {
+        let ticket = ReviewControlMarkWriteTicket()
+        submit(.controlMark(
+            url: rawURL.standardizedFileURL,
+            mark: mark,
+            ticket: ticket))
+        return ticket
+    }
+
+    /// Enqueues a disk-truth read behind the same path barrier as saves. The
+    /// ticket reports the transformed URL, or an explicit unavailable-path
+    /// failure when a transaction drops that subtree.
+    func enqueueControlMarksRead(
+        for rawURL: URL
+    ) -> ReviewControlMarksReadTicket {
+        let ticket = ReviewControlMarksReadTicket()
+        submit(.controlRead(
+            url: rawURL.standardizedFileURL,
+            ticket: ticket))
+        return ticket
     }
 
     // MARK: Anchor cache
@@ -180,10 +393,225 @@ final class ReviewModel: ObservableObject {
     /// their disk IO via the off-main helpers).
     private func enqueue(_ step: @escaping @MainActor () async -> Void) {
         let previous = pipelineTask
+        pipelineGeneration &+= 1
         pipelineTask = Task {
             await previous?.value
             await step()
         }
+    }
+
+    private func submit(_ action: DeferredPipelineAction) {
+        guard !pathMutationGateHeld else {
+            deferredPipelineActions.append(action)
+            return
+        }
+        enqueue(action)
+    }
+
+    private func enqueue(_ action: DeferredPipelineAction) {
+        switch action {
+        case let .reload(url, token, expected):
+            enqueue { [weak self] in
+                guard let self else { return }
+                let loaded = await Self.loadOffMain(url)
+                guard token == self.loadToken, self.fileURL == url else { return }
+                if self.doc == expected {
+                    self.doc = loaded
+                }
+                // Disk rev is the truth either way; a divergent local doc
+                // reconciles through the next save's rev-guard merge.
+                self.baseRev = loaded.rev
+            }
+        case let .persist(url, enqueuedDoc, enqueuedBase):
+            enqueue { [weak self] in
+                guard let self else { return }
+                let snapshot: ReviewDocument
+                let base: Int
+                if self.fileURL == url {
+                    // Same file still active → snapshot NOW: the previous chained
+                    // step has adopted, so the base is fresh — no stale-base merge,
+                    // deletions hold, later mutations aren't overwritten.
+                    snapshot = self.doc
+                    base = self.baseRev
+                } else {
+                    // User switched away — save what the mutation produced; the
+                    // rev-guard merge reconciles any drift.
+                    snapshot = enqueuedDoc
+                    base = enqueuedBase
+                }
+                do {
+                    let written = try await Self.saveOffMain(snapshot, for: url, baseRev: base)
+                    guard self.fileURL == url else { return }
+                    // Don't clobber a mutation made while the write was in
+                    // flight — the chained follow-up persist reconciles it.
+                    if self.doc == snapshot {
+                        self.doc = written
+                    }
+                    self.baseRev = written.rev
+                } catch {
+                    reviewLog.error("sidecar save failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        case let .controlMark(url, mark, ticket):
+            enqueue { [weak self] in
+                guard let self else {
+                    ticket.resolve(.failure(.modelUnavailable))
+                    return
+                }
+
+                let wasActive = self.fileURL == url
+                var snapshot: ReviewDocument
+                let base: Int
+                if wasActive {
+                    snapshot = self.doc
+                    snapshot.upsert(mark)
+                    self.doc = snapshot
+                    base = self.baseRev
+                } else {
+                    snapshot = await Self.loadOffMain(url)
+                    base = snapshot.rev
+                    snapshot.upsert(mark)
+                }
+
+                do {
+                    let written = try await Self.saveOffMain(
+                        snapshot, for: url, baseRev: base)
+                    if wasActive, self.fileURL == url {
+                        // A later UI mutation may already include this mark;
+                        // never replace that newer document with our snapshot.
+                        if self.doc == snapshot {
+                            self.doc = written
+                        }
+                        self.baseRev = written.rev
+                    }
+                    ticket.resolve(.success(.init(
+                        url: url,
+                        markID: mark.id,
+                        rev: written.rev)))
+                } catch {
+                    ticket.resolve(.failure(.writeFailed(
+                        String(describing: error))))
+                }
+            }
+        case let .controlRead(url, ticket):
+            enqueue {
+                let doc = await Self.loadOffMain(url)
+                ticket.resolve(.success(.init(url: url, doc: doc)))
+            }
+        }
+    }
+
+    private func relocatePaths(_ transform: (URL) -> URL?) {
+        if let fileURL {
+            if let relocated = transform(fileURL) {
+                self.fileURL = relocated.standardizedFileURL
+            } else {
+                loadToken += 1
+                self.fileURL = nil
+                currentText = ""
+                doc = ReviewDocument()
+                baseRev = 0
+            }
+        }
+        deferredPipelineActions = deferredPipelineActions.compactMap { action in
+            switch action {
+            case let .reload(url, token, expected):
+                guard let relocated = transform(url) else { return nil }
+                return .reload(url: relocated.standardizedFileURL,
+                               token: token,
+                               expected: expected)
+            case let .persist(url, doc, baseRev):
+                guard let relocated = transform(url) else { return nil }
+                return .persist(url: relocated.standardizedFileURL,
+                                doc: doc, baseRev: baseRev)
+            case let .controlMark(url, mark, ticket):
+                guard let relocated = transform(url) else {
+                    ticket.resolve(.failure(.pathUnavailable(
+                        url.standardizedFileURL)))
+                    return nil
+                }
+                return .controlMark(
+                    url: relocated.standardizedFileURL,
+                    mark: mark,
+                    ticket: ticket)
+            case let .controlRead(url, ticket):
+                guard let relocated = transform(url) else {
+                    ticket.resolve(.failure(.pathUnavailable(
+                        url.standardizedFileURL)))
+                    return nil
+                }
+                return .controlRead(
+                    url: relocated.standardizedFileURL,
+                    ticket: ticket)
+            }
+        }
+    }
+
+    private func releasePathMutation(_ token: PathMutationToken) {
+        activePathMutationIDs.remove(token.id)
+        guard activePathMutationIDs.isEmpty else { return }
+
+        if !pathMutationAcquisitionWaiters.isEmpty {
+            let next = pathMutationAcquisitionWaiters.removeFirst()
+            next.resume()
+            return
+        }
+
+        pathMutationGateHeld = false
+
+        let actions = deferredPipelineActions
+        deferredPipelineActions.removeAll(keepingCapacity: true)
+        for action in actions {
+            enqueue(action)
+        }
+
+        let waiters = pathMutationWaiters
+        pathMutationWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForPathMutations() async {
+        guard pathMutationGateHeld else { return }
+        await withCheckedContinuation { continuation in
+            if !pathMutationGateHeld {
+                continuation.resume()
+            } else {
+                pathMutationWaiters.append(continuation)
+            }
+        }
+    }
+
+    private func acquirePathMutationGate() async {
+        guard pathMutationGateHeld else {
+            pathMutationGateHeld = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            pathMutationAcquisitionWaiters.append(continuation)
+        }
+    }
+
+    nonisolated private static func relocatedURL(
+        _ rawURL: URL,
+        from rawOldRoot: URL,
+        to rawNewRoot: URL
+    ) -> URL? {
+        let url = rawURL.standardizedFileURL
+        let oldRoot = rawOldRoot.standardizedFileURL
+        let newRoot = rawNewRoot.standardizedFileURL
+        let path = url.path
+        let rootPath = oldRoot.path
+        guard path == rootPath || path.hasPrefix(rootPath + "/") else { return nil }
+        let suffix = String(path.dropFirst(rootPath.count))
+        return URL(fileURLWithPath: newRoot.path + suffix).standardizedFileURL
+    }
+
+    nonisolated private static func isURL(_ rawURL: URL, inside rawRoot: URL) -> Bool {
+        let url = rawURL.standardizedFileURL
+        let root = rawRoot.standardizedFileURL
+        return url.path == root.path || url.path.hasPrefix(root.path + "/")
     }
 
     nonisolated private static func loadOffMain(_ url: URL) async -> ReviewDocument {
@@ -352,35 +780,7 @@ final class ReviewModel: ObservableObject {
         // re-reads state at execution time (see below).
         let enqueuedDoc = doc
         let enqueuedBase = baseRev
-        enqueue { [weak self] in
-            guard let self else { return }
-            let snapshot: ReviewDocument
-            let base: Int
-            if self.fileURL == url {
-                // Same file still active → snapshot NOW: the previous chained
-                // step has adopted, so the base is fresh — no stale-base merge,
-                // deletions hold, later mutations aren't overwritten.
-                snapshot = self.doc
-                base = self.baseRev
-            } else {
-                // User switched away — save what the mutation produced; the
-                // rev-guard merge reconciles any drift.
-                snapshot = enqueuedDoc
-                base = enqueuedBase
-            }
-            do {
-                let written = try await Self.saveOffMain(snapshot, for: url, baseRev: base)
-                guard self.fileURL == url else { return }
-                // Don't clobber a mutation made while the write was in
-                // flight — the chained follow-up persist reconciles it.
-                if self.doc == snapshot {
-                    self.doc = written
-                }
-                self.baseRev = written.rev
-            } catch {
-                reviewLog.error("sidecar save failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        submit(.persist(url: url, doc: enqueuedDoc, baseRev: enqueuedBase))
     }
 
     // MARK: Queue ➤ (step E)

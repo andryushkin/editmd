@@ -142,72 +142,95 @@ final class FolderInfoTests: XCTestCase {
     }
 }
 
+@Suite("Folder creation")
 @MainActor
-final class FolderCreateWorkspaceTests: XCTestCase {
+struct FolderCreateWorkspaceTests {
 
-    private var dir: URL!
-    private var suiteName: String!
-    private var defaults: UserDefaults!
+    @Test("Creates a markdown file and subfolder")
+    func createMarkdownFileAndSubfolder() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.directory)
 
-    override func setUpWithError() throws {
-        dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("editmd-create-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        suiteName = "create-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
-    }
+        let file = try model.createMarkdownFile(
+            named: "Hello", in: fixture.directory)
+        #expect(file.lastPathComponent == "Hello.md")
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(model.primeFolderListing(fixture.directory).map(\.lastPathComponent)
+            == ["Hello.md"])
 
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: dir)
-        defaults.removePersistentDomain(forName: suiteName)
-    }
-
-    func testCreateMarkdownFileAndSubfolder() throws {
-        let model = WorkspaceModel(defaults: defaults)
-        model.addWorkspace(dir)
-
-        let file = try model.createMarkdownFile(named: "Hello", in: dir)
-        XCTAssertEqual(file.lastPathComponent, "Hello.md")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
-        XCTAssertEqual(model.primeFolderListing(dir).map(\.lastPathComponent), ["Hello.md"])
-
-        let sub = try model.createSubfolder(named: "Nested", in: dir)
+        let sub = try model.createSubfolder(
+            named: "Nested", in: fixture.directory)
         // Parent is a workspace root → expandWorkspace (collapsed flag), not
         // expandedFolders (that's for nested subfolders only).
-        XCTAssertFalse(model.workspaces[0].collapsed)
-        XCTAssertEqual(model.subfolders(in: dir).map(\.lastPathComponent), ["Nested"])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sub.path))
+        #expect(!model.workspaces[0].collapsed)
+        #expect(model.subfolders(in: fixture.directory).map(\.lastPathComponent)
+            == ["Nested"])
+        #expect(FileManager.default.fileExists(atPath: sub.path))
     }
 
-    func testCreateDuplicateThrows() throws {
-        let model = WorkspaceModel(defaults: defaults)
-        _ = try model.createMarkdownFile(named: "A.md", in: dir)
-        XCTAssertThrowsError(try model.createMarkdownFile(named: "A", in: dir)) { err in
-            XCTAssertEqual(err as? FolderCreateError, .alreadyExists("A.md"))
+    @Test("Duplicate markdown name fails")
+    func createDuplicateThrows() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        _ = try model.createMarkdownFile(named: "A.md", in: fixture.directory)
+
+        #expect(throws: FolderCreateError.alreadyExists("A.md")) {
+            try model.createMarkdownFile(named: "A", in: fixture.directory)
         }
     }
 
-    func testCreateWorkspaceFolderCreatesAndAdoptsRoot() throws {
-        let model = WorkspaceModel(defaults: defaults)
+    @Test("Creates and adopts a new workspace folder")
+    func createWorkspaceFolderCreatesAndAdoptsRoot() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
 
-        let folder = try model.createWorkspaceFolder(named: "New Notes", in: dir)
+        let folder = try model.createWorkspaceFolder(
+            named: "New Notes", in: fixture.directory)
 
-        XCTAssertEqual(folder, dir.appendingPathComponent("New Notes").standardizedFileURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
-        XCTAssertEqual(model.workspaces.map(\.folderPath), [folder.path])
+        #expect(folder == fixture.directory
+            .appendingPathComponent("New Notes").standardizedFileURL)
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+        #expect(model.workspaces.map(\.folderPath) == [folder.path])
     }
 
-    func testCreateWorkspaceFolderRejectsExistingFolder() throws {
-        let model = WorkspaceModel(defaults: defaults)
+    @Test("Existing workspace folder is rejected")
+    func createWorkspaceFolderRejectsExistingFolder() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
         try FileManager.default.createDirectory(
-            at: dir.appendingPathComponent("Existing"), withIntermediateDirectories: false)
+            at: fixture.directory.appendingPathComponent("Existing"),
+            withIntermediateDirectories: false)
 
-        XCTAssertThrowsError(
-            try model.createWorkspaceFolder(named: "Existing", in: dir)
-        ) { error in
-            XCTAssertEqual(error as? FolderCreateError, .alreadyExists("Existing"))
+        #expect(throws: FolderCreateError.alreadyExists("Existing")) {
+            try model.createWorkspaceFolder(
+                named: "Existing", in: fixture.directory)
         }
-        XCTAssertTrue(model.workspaces.isEmpty)
+        #expect(model.workspaces.isEmpty)
+    }
+
+    private struct Fixture {
+        let directory: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        init() throws {
+            directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("editmd-create-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            suiteName = "create-\(UUID().uuidString)"
+            defaults = try #require(UserDefaults(suiteName: suiteName))
+        }
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: directory)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
     }
 }
 
@@ -401,7 +424,9 @@ struct FileMoveTests {
         document.content = "edited"
         registry.markDirty(source)
 
-        #expect(try registry.prepareForMove(source))
+        let preparation = try #require(
+            try registry.beginMovePreparation(source))
+        try await registry.persistMovePreparation(preparation)
         #expect(!registry.isOpen(source))
         #expect(try String(contentsOf: source, encoding: .utf8) == "edited")
 
@@ -511,8 +536,12 @@ struct FileMoveTests {
         registry.markDirty(first)
         registry.markDirty(second)
 
-        #expect(try registry.prepareForMove(first))
-        #expect(try registry.prepareForMove(second))
+        let firstPreparation = try #require(
+            try registry.beginMovePreparation(first))
+        let secondPreparation = try #require(
+            try registry.beginMovePreparation(second))
+        try await registry.persistMovePreparation(firstPreparation)
+        try await registry.persistMovePreparation(secondPreparation)
         let moves = try await model.moveFilesOnDisk([first, second], to: fixture.second)
         for move in moves {
             registry.relocatePreparedDocument(from: move.source, to: move.destination)
@@ -686,6 +715,257 @@ struct SidebarFileSelectionTests {
         }
     }
 
+}
+
+@Suite("Path-mutation routing")
+@MainActor
+struct PathMutationRouteQueueTests {
+
+    @Test("Routes under a renamed root wait and follow its destination")
+    func deferredRouteRelocatesBeforeReplay() throws {
+        var queue = PathMutationRouteQueue()
+        let oldRoot = URL(fileURLWithPath: "/tmp/Notes", isDirectory: true)
+        let newRoot = URL(fileURLWithPath: "/tmp/Archive", isDirectory: true)
+        let note = oldRoot.appendingPathComponent("Child/note.md")
+        let id = queue.begin(at: oldRoot)
+
+        let blocked = queue.enqueueIfBlocked(note, destination: .main)
+        let unrelatedWasBlocked = queue.enqueueIfBlocked(
+            URL(fileURLWithPath: "/tmp/Other/note.md"), destination: .main)
+        #expect(blocked)
+        #expect(!unrelatedWasBlocked)
+
+        queue.relocate(from: oldRoot, to: newRoot)
+        let routes = queue.finish(id)
+        let route = try #require(routes.first)
+        #expect(route.url == newRoot.appendingPathComponent("Child/note.md"))
+        #expect(route.destination == .main)
+    }
+
+    @Test("Failed rename replays the original path")
+    func failedMutationKeepsOriginalRoute() throws {
+        var queue = PathMutationRouteQueue()
+        let root = URL(fileURLWithPath: "/tmp/Notes", isDirectory: true)
+        let note = root.appendingPathComponent("note.md")
+        let id = queue.begin(at: root)
+        #expect(queue.isBlocked(note))
+        let blocked = queue.enqueueIfBlocked(note, destination: .separate)
+        #expect(blocked)
+
+        let routes = queue.finish(id)
+        #expect(!queue.isBlocked(note))
+        let route = try #require(routes.first)
+        #expect(route == .init(url: note, destination: .separate))
+    }
+
+    @Test("Overlapping mutations release a route only after both finish")
+    func overlappingMutationsRemainBlocked() throws {
+        var queue = PathMutationRouteQueue()
+        let parent = URL(fileURLWithPath: "/tmp/Parent", isDirectory: true)
+        let child = parent.appendingPathComponent("Child", isDirectory: true)
+        let renamed = URL(fileURLWithPath: "/tmp/Renamed", isDirectory: true)
+        let parentID = queue.begin(at: parent)
+        let childID = queue.begin(at: child)
+        let blocked = queue.enqueueIfBlocked(
+            child.appendingPathComponent("note.md"), destination: .main)
+        #expect(blocked)
+
+        queue.relocate(from: parent, to: renamed)
+        let parentRoutes = queue.finish(parentID)
+        #expect(parentRoutes.isEmpty)
+        let childRoutes = queue.finish(childID)
+        let route = try #require(childRoutes.first)
+        #expect(route.url == renamed.appendingPathComponent("Child/note.md"))
+    }
+
+    @Test("An unresolved path drops its deferred routes across overlapping gates")
+    func unresolvedMutationDiscardsRoutes() {
+        var queue = PathMutationRouteQueue()
+        let parent = URL(fileURLWithPath: "/tmp/Parent", isDirectory: true)
+        let note = parent.appendingPathComponent("note.md")
+        let parentID = queue.begin(at: parent)
+        let fileID = queue.begin(at: note)
+        let blocked = queue.enqueueIfBlocked(note, destination: .separate)
+        #expect(blocked)
+
+        let fileRoutes = queue.finish(fileID, discardingRoutes: true)
+        #expect(fileRoutes.isEmpty)
+        let parentRoutes = queue.finish(parentID)
+        #expect(parentRoutes.isEmpty)
+    }
+
+    @Test("Presentation restore bypasses only its own mutation gate")
+    func restoreHonorsOtherMutationGates() throws {
+        var queue = PathMutationRouteQueue()
+        let parent = URL(fileURLWithPath: "/tmp/Parent", isDirectory: true)
+        let note = parent.appendingPathComponent("note.md")
+        let parentID = queue.begin(at: parent)
+        let fileID = queue.begin(at: note)
+
+        let blockedByParent = queue.enqueueIfBlocked(
+            note, destination: .main, ignoring: [fileID])
+        #expect(blockedByParent)
+        let fileRoutes = queue.finish(fileID)
+        #expect(fileRoutes.isEmpty)
+        let parentRoutes = queue.finish(parentID)
+        let route = try #require(parentRoutes.first)
+        #expect(route == .init(url: note, destination: .main))
+
+        var isolatedQueue = PathMutationRouteQueue()
+        let isolatedID = isolatedQueue.begin(at: note)
+        let blockedByOwnGate = isolatedQueue.enqueueIfBlocked(
+            note, destination: .main, ignoring: [isolatedID])
+        #expect(!blockedByOwnGate)
+    }
+
+    @Test("Batch release preserves deferred open FIFO")
+    func atomicBatchFinishPreservesRouteOrder() {
+        var queue = PathMutationRouteQueue()
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+        let firstID = queue.begin(at: first)
+        let secondID = queue.begin(at: second)
+        _ = queue.enqueueIfBlocked(second, destination: .main)
+        _ = queue.enqueueIfBlocked(first, destination: .main)
+
+        let routes = queue.finish([firstID, secondID])
+
+        #expect(routes.map(\.url) == [second, first])
+    }
+
+    @Test("Destination is gated before source relocation")
+    func destinationGateClosesEarlyOpenWindow() {
+        var queue = PathMutationRouteQueue()
+        let source = URL(fileURLWithPath: "/tmp/source.md")
+        let destination = URL(fileURLWithPath: "/tmp/destination.md")
+        let sourceID = queue.begin(at: source)
+        let destinationID = queue.begin(at: destination)
+
+        let blocked = queue.enqueueIfBlocked(
+            destination, destination: .separate)
+        #expect(blocked)
+        queue.relocate(from: source, to: destination)
+        let routes = queue.finish([sourceID, destinationID])
+
+        #expect(routes == [.init(
+            url: destination, destination: .separate)])
+    }
+
+    @Test("An earlier blocked route holds later ready routes")
+    func unfinishedMutationKeepsGlobalFIFO() {
+        var queue = PathMutationRouteQueue()
+        let first = URL(fileURLWithPath: "/tmp/first.md")
+        let second = URL(fileURLWithPath: "/tmp/second.md")
+        let firstID = queue.begin(at: first)
+        let secondID = queue.begin(at: second)
+        _ = queue.enqueueIfBlocked(second, destination: .main)
+        _ = queue.enqueueIfBlocked(first, destination: .main)
+
+        let firstRelease = queue.finish(firstID)
+        #expect(firstRelease.isEmpty)
+        let secondRelease = queue.finish(secondID)
+        #expect(secondRelease.map(\.url) == [second, first])
+    }
+
+    @Test("Unresolved mutation clears current route and pending control jump")
+    func unresolvedMutationClearsAppPathState() throws {
+        let suiteName = "path-drop-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let appState = AppState(defaults: defaults)
+        let root = URL(fileURLWithPath: "/tmp/Unsafe", isDirectory: true)
+        let file = root.appendingPathComponent("note.md")
+
+        appState.openInMainWindow(file)
+        appState.requestControlJump(url: file, offset: 17)
+        let token = appState.beginPathMutation(at: root)
+
+        appState.finishPathMutations(
+            [token], discardingRouteIDs: [token])
+
+        #expect(appState.currentURL == nil)
+        #expect(appState.consumeControlJump(for: file) == nil)
+    }
+}
+
+@Suite("File-move recovery routing")
+struct FileMoveRecoveryResolutionTests {
+
+    @Test("Ordinary failure restores every source")
+    func ordinaryFailureUsesSourcePaths() {
+        let first = URL(fileURLWithPath: "/tmp/First/a.md")
+        let second = URL(fileURLWithPath: "/tmp/First/b.md")
+
+        let resolutions = fileMoveRecoveryResolutions(
+            for: [first, second],
+            after: FileMoveError.destinationNotFolder)
+
+        #expect(resolutions[first] == .source)
+        #expect(resolutions[second] == .source)
+    }
+
+    @Test("Rollback recovery follows only a unique coherent survivor")
+    func rollbackFailureClassifiesEachSource() {
+        let sourceRoot = URL(fileURLWithPath: "/tmp/Source", isDirectory: true)
+        let destinationRoot = URL(
+            fileURLWithPath: "/tmp/Destination", isDirectory: true)
+        let sourceOnly = sourceRoot.appendingPathComponent("source.md")
+        let destinationOnly = sourceRoot.appendingPathComponent("destination.md")
+        let duplicated = sourceRoot.appendingPathComponent("duplicated.md")
+        let missing = sourceRoot.appendingPathComponent("missing.md")
+        let splitSidecar = sourceRoot.appendingPathComponent("split.md")
+        let untouched = sourceRoot.appendingPathComponent("untouched.md")
+        let files = [
+            sourceOnly, destinationOnly, duplicated, missing, splitSidecar, untouched
+        ]
+
+        func state(
+            _ source: URL,
+            fileAtSource: Bool,
+            fileAtDestination: Bool,
+            reviewAtSource: Bool,
+            reviewAtDestination: Bool
+        ) -> FileMoveRollbackState {
+            FileMoveRollbackState(
+                move: .init(
+                    source: source,
+                    destination: destinationRoot
+                        .appendingPathComponent(source.lastPathComponent)),
+                expectedReviewSidecar: true,
+                fileAtSource: fileAtSource,
+                fileAtDestination: fileAtDestination,
+                reviewSidecarAtSource: reviewAtSource,
+                reviewSidecarAtDestination: reviewAtDestination)
+        }
+
+        let resolutions = fileMoveRecoveryResolutions(
+            for: files,
+            after: FileMoveError.rollbackFailed([
+                state(sourceOnly,
+                      fileAtSource: true, fileAtDestination: false,
+                      reviewAtSource: true, reviewAtDestination: false),
+                state(destinationOnly,
+                      fileAtSource: false, fileAtDestination: true,
+                      reviewAtSource: false, reviewAtDestination: true),
+                state(duplicated,
+                      fileAtSource: true, fileAtDestination: true,
+                      reviewAtSource: true, reviewAtDestination: true),
+                state(missing,
+                      fileAtSource: false, fileAtDestination: false,
+                      reviewAtSource: false, reviewAtDestination: false),
+                state(splitSidecar,
+                      fileAtSource: true, fileAtDestination: false,
+                      reviewAtSource: false, reviewAtDestination: true)
+            ]))
+
+        #expect(resolutions[sourceOnly] == .source)
+        #expect(resolutions[destinationOnly] == .destination(
+            destinationRoot.appendingPathComponent("destination.md")))
+        #expect(resolutions[duplicated] == .unresolved)
+        #expect(resolutions[missing] == .unresolved)
+        #expect(resolutions[splitSidecar] == .unresolved)
+        #expect(resolutions[untouched] == .source)
+    }
 }
 
 @Suite("Long-running operation center")

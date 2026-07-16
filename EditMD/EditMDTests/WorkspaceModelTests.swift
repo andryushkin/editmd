@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 @testable import EditMD
 
 /// Phase 3: folder scan filtering, hide/unhide, per-path persistence, pinning,
@@ -308,5 +309,243 @@ final class WorkspaceModelTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Timed out waiting for tag index refresh")
+    }
+}
+
+@Suite("Workspace move transaction regressions")
+@MainActor
+struct WorkspaceMoveTransactionRegressionTests {
+
+    @Test("An orphan destination review sidecar is always a collision")
+    func orphanDestinationSidecarIsRejected() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.source.appendingPathComponent("note.md")
+        let destination = fixture.destination.appendingPathComponent("note.md")
+        let orphanSidecar = ReviewSidecar.url(for: destination)
+        try "source".write(to: source, atomically: true, encoding: .utf8)
+        try "unrelated review".write(
+            to: orphanSidecar, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.source)
+        model.addWorkspace(fixture.destination)
+
+        do {
+            _ = try await model.moveFileOnDisk(source, to: fixture.destination)
+            Issue.record("Expected the orphan sidecar collision")
+        } catch {
+            #expect(error as? FileMoveError == .alreadyExists(
+                orphanSidecar.lastPathComponent))
+        }
+
+        #expect(try String(contentsOf: source, encoding: .utf8) == "source")
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        #expect(try String(contentsOf: orphanSidecar, encoding: .utf8)
+                == "unrelated review")
+    }
+
+    @Test("Renaming a parent root relocates nested adopted roots and hidden keys")
+    func parentRenameRelocatesNestedWorkspaceState() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let child = fixture.source.appendingPathComponent("Child", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: child, withIntermediateDirectories: false)
+
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.source)
+        model.addWorkspace(child)
+        model.setDisplayName("Nested notes", for: try #require(model.workspaces.last))
+        model.hiddenFiles[fixture.source.path] = ["root.md"]
+        model.hiddenFiles[child.path] = ["nested.md"]
+
+        let root = try #require(model.workspaces.first)
+        let renamed = try await model.renameFolderOnDisk(
+            root, to: "Archive", openDocumentURLs: [])
+        let renamedChild = renamed.appendingPathComponent("Child", isDirectory: true)
+
+        #expect(model.workspaces.map(\.folderPath) == [
+            renamed.path, renamedChild.path
+        ])
+        #expect(model.workspaces.last?.displayName == "Nested notes")
+        #expect(model.hiddenFiles[renamed.path] == ["root.md"])
+        #expect(model.hiddenFiles[renamedChild.path] == ["nested.md"])
+        #expect(model.hiddenFiles[fixture.source.path] == nil)
+        #expect(model.hiddenFiles[child.path] == nil)
+    }
+
+    @Test("A missing source never adopts an unrelated destination folder")
+    func missingSourceDoesNotMigrateToUnrelatedDestination() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.source)
+        let root = try #require(model.workspaces.first)
+
+        try FileManager.default.removeItem(at: fixture.source)
+        let unrelated = fixture.parent.appendingPathComponent(
+            "Archive", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: unrelated, withIntermediateDirectories: false)
+        let marker = unrelated.appendingPathComponent("unrelated.txt")
+        try "keep".write(to: marker, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await model.renameFolderOnDisk(
+                root, to: "Archive", openDocumentURLs: [])
+            Issue.record("Expected the missing source to abort before rename")
+        } catch {
+            #expect(error as? FolderRenameError == .folderNoLongerExists)
+        }
+
+        #expect(model.workspaces.first?.folderPath == fixture.source.path)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
+    }
+
+    @Test("Case-only folder rename changes the spelling on disk")
+    func caseOnlyFolderRename() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.source)
+        let root = try #require(model.workspaces.first)
+
+        let renamed = try await model.renameFolderOnDisk(
+            root, to: "notes", openDocumentURLs: [])
+        let siblingNames = try FileManager.default.contentsOfDirectory(
+            at: fixture.parent,
+            includingPropertiesForKeys: nil).map(\.lastPathComponent)
+
+        #expect(renamed.lastPathComponent == "notes")
+        #expect(siblingNames.contains("notes"))
+        #expect(!siblingNames.contains("Notes"))
+        #expect(model.workspaces.first?.folderPath == renamed.path)
+    }
+
+    @Test("Failed case-only recovery reports the temporary survivor")
+    func caseOnlyRollbackReportsTemporarySurvivor() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let destination = fixture.parent.appendingPathComponent(
+            "notes", isDirectory: true)
+        let mover = FailingMovePrimitive(failingInvocations: [2, 3])
+
+        do {
+            try WorkspaceModel.moveFolderThroughTemporary(
+                from: fixture.source,
+                to: destination,
+                moveItem: { source, destination in
+                    try mover.move(from: source, to: destination)
+                })
+            Issue.record("Expected the final move and rollback to fail")
+        } catch let FolderRenameError.diskFailure(survivor) {
+            let survivor = try #require(survivor)
+            #expect(survivor.lastPathComponent.hasPrefix(".editmd-rename-"))
+            #expect(FileManager.default.fileExists(atPath: survivor.path))
+            #expect(!FileManager.default.fileExists(atPath: fixture.source.path))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("Failed batch rollback reports and reconciles the surviving destination")
+    func failedRollbackReconcilesSurvivingDestination() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let first = fixture.source.appendingPathComponent("first.md")
+        let second = fixture.source.appendingPathComponent("second.md")
+        let movedFirst = fixture.destination.appendingPathComponent("first.md")
+        try "first".write(to: first, atomically: true, encoding: .utf8)
+        try "second".write(to: second, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.source)
+        model.addWorkspace(fixture.destination)
+        model.hide(first)
+        model.noteActive(first)
+        let mover = FailingMovePrimitive(failingInvocations: [2, 3])
+
+        do {
+            _ = try await model.moveFilesOnDisk(
+                [first, second],
+                to: fixture.destination,
+                moveItem: { source, destination in
+                    try mover.move(from: source, to: destination)
+                })
+            Issue.record("Expected a rollback failure")
+        } catch let FileMoveError.rollbackFailed(states) {
+            let state = try #require(states.first)
+            #expect(states.count == 1)
+            #expect(state.move == FileMoveResult(
+                source: first, destination: movedFirst))
+            #expect(!state.fileAtSource)
+            #expect(state.fileAtDestination)
+            #expect(state.fileRemainsAtDestination)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: first.path))
+        #expect(FileManager.default.fileExists(atPath: movedFirst.path))
+        #expect(FileManager.default.fileExists(atPath: second.path))
+        #expect(model.hiddenFiles[fixture.source.path] == nil)
+        #expect(model.hiddenFiles[fixture.destination.path] == ["first.md"])
+        #expect(model.lastActivePath == movedFirst.path)
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "editmd-workspace-transaction-\(UUID().uuidString)",
+                isDirectory: true)
+        let source = parent.appendingPathComponent("Notes", isDirectory: true)
+        let destination = parent.appendingPathComponent(
+            "Destination", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destination, withIntermediateDirectories: true)
+        let suiteName = "workspace-transaction-\(UUID().uuidString)"
+        return Fixture(
+            parent: parent,
+            source: source,
+            destination: destination,
+            suiteName: suiteName,
+            defaults: try #require(UserDefaults(suiteName: suiteName)))
+    }
+
+    private struct Fixture {
+        let parent: URL
+        let source: URL
+        let destination: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: parent)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+}
+
+private final class FailingMovePrimitive: @unchecked Sendable {
+    private enum InjectedFailure: Error { case move }
+
+    private let lock = NSLock()
+    private let failingInvocations: Set<Int>
+    private var invocation = 0
+
+    init(failingInvocations: Set<Int>) {
+        self.failingInvocations = failingInvocations
+    }
+
+    func move(from source: URL, to destination: URL) throws {
+        lock.lock()
+        invocation += 1
+        let shouldFail = failingInvocations.contains(invocation)
+        lock.unlock()
+        if shouldFail { throw InjectedFailure.move }
+        try FileManager.default.moveItem(at: source, to: destination)
     }
 }

@@ -52,6 +52,34 @@ final class DocumentHistory: ObservableObject {
         urls = urls.map { $0.standardizedFileURL == old ? new : $0 }
     }
 
+    /// Removes Back/Forward targets whose filesystem outcome is ambiguous.
+    /// Keeping them would let a later navigation recreate a path that the move
+    /// transaction deliberately dropped from AppState/Review/registry state.
+    func discardPaths(inside rawRoots: [URL]) {
+        let roots = rawRoots.map(\.standardizedFileURL)
+        guard !roots.isEmpty else { return }
+        let oldIndex = index
+        var kept: [URL] = []
+        var keptIndex = -1
+        for (position, url) in urls.enumerated() {
+            let shouldDrop = roots.contains { root in
+                let path = url.standardizedFileURL.path
+                return path == root.path || path.hasPrefix(root.path + "/")
+            }
+            guard !shouldDrop else { continue }
+            kept.append(url)
+            if position <= oldIndex { keptIndex = kept.count - 1 }
+        }
+        urls = kept
+        if kept.isEmpty {
+            index = -1
+        } else if keptIndex >= 0 {
+            index = keptIndex
+        } else {
+            index = 0
+        }
+    }
+
     @objc private func windowDidBecomeKey(_ notification: Notification) {
         guard let url = (notification.object as? NSWindow)?.representedURL else { return }
         record(url.standardizedFileURL)

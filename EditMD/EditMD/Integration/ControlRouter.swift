@@ -184,7 +184,10 @@ enum ControlRouter {
             throw ControlError("open requires args.path")
         }
         let url = try resolvePath(path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let deferredForPathMutation = !exists
+            && AppState.shared.isPathMutationInProgress(at: url)
+        guard exists || deferredForPathMutation else {
             throw ControlError("file not found: \(url.path)")
         }
         AppState.shared.openInMainWindow(url)
@@ -195,6 +198,11 @@ enum ControlRouter {
         var data: [String: JSONValue] = ["path": .string(url.path)]
         if let line { data["line"] = .int(line) }
         if let heading { data["heading"] = .string(heading) }
+        if deferredForPathMutation { data["deferred"] = .bool(true) }
+
+        // The route is already parked in AppState's path gate. There is no
+        // stable file to inspect for a jump until that transaction resolves.
+        guard !deferredForPathMutation else { return .data(.object(data)) }
 
         let wantsJump = (line ?? 0) > 0 || !(heading ?? "").isEmpty
         guard wantsJump else { return .data(.object(data)) }
@@ -298,23 +306,26 @@ enum ControlRouter {
         let url = try fileURL(for: request)
         let openOnly = request.argBool("open") ?? true
         let requestID = request.id
-        // Right after a file switch the model's doc is an empty placeholder
-        // until the async reload lands — reading it here returned count: 0 for
-        // a sidecar with marks. Wait out the pipeline for the active file,
-        // then read disk truth; for other files disk is the only truth anyway.
-        let isActive = url.standardizedFileURL == ReviewModel.shared.fileURL
+        // Enqueue during the synchronous MainActor phase. The same FIFO/path
+        // barrier as writes either transforms the URL or rejects an ambiguous
+        // transaction outcome before the socket thread reads disk truth.
+        let ticket = ReviewModel.shared.enqueueControlMarksRead(for: url)
         return .deferred {
-            if isActive {
-                let sem = DispatchSemaphore(value: 0)
-                Task { @MainActor in
-                    await ReviewModel.shared.flushPipeline()
-                    sem.signal()
-                }
-                _ = sem.wait(timeout: .now() + 15)
+            guard let outcome = ticket.wait(timeout: .now() + 15) else {
+                return .failure(id: requestID,
+                                error: "marks.list: sidecar read timed out")
             }
-            let doc = ReviewSidecar.loadOrEmpty(for: url)
-            return .success(id: requestID,
-                            data: marksPayload(doc: doc, url: url, openOnly: openOnly))
+            switch outcome {
+            case .success(let read):
+                return .success(
+                    id: requestID,
+                    data: marksPayload(
+                        doc: read.doc, url: read.url, openOnly: openOnly))
+            case .failure(let error):
+                return .failure(
+                    id: requestID,
+                    error: "marks.list: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -378,58 +389,29 @@ enum ControlRouter {
         }
 
         let requestID = request.id
-        let path = url.path
         let typeValue = type.rawValue
-
-        // Always write via ReviewModel when it's the active file (rev-guard +
-        // UI). The follow-up blocks the socket thread on the model's pipeline
-        // so the reply means "on disk".
-        if ReviewModel.shared.fileURL == url.standardizedFileURL {
-            let anchor = ReviewModel.CapturedAnchor(quote: quote, prefix: prefix, start: start)
-            let id = ReviewModel.shared.addMark(anchor: anchor, type: type, note: note)
-            return {
-                let sem = DispatchSemaphore(value: 0)
-                let revBox = OSAllocatedUnfairLock(initialState: 0)
-                Task { @MainActor in
-                    await ReviewModel.shared.flushPipeline()
-                    let rev = ReviewModel.shared.lastKnownRev
-                    revBox.withLock { $0 = rev }
-                    sem.signal()
-                }
-                // Bounded: a hung disk must not pin this client thread forever
-                // (the mark is still queued in the model's pipeline).
-                if sem.wait(timeout: .now() + 15) == .timedOut {
-                    return .failure(id: requestID,
-                                    error: "marks.add: sidecar write timed out")
-                }
-                return .success(id: requestID, data: .object([
-                    "path": .string(path),
-                    "id": .string(id),
-                    "type": .string(typeValue),
-                    "quote": .string(quote),
-                    "rev": .int(revBox.withLock { $0 }),
-                ]))
-            }
-        }
-
-        // File not active in ReviewModel — write the sidecar directly, off main.
         let mark = ReviewMark(type: type, quote: quote, prefix: prefix, start: start, note: note)
+        // Enqueue synchronously on MainActor before returning the socket
+        // follow-up. Active and inactive files share the same FIFO, so a path
+        // mutation can drain, relocate, or explicitly reject this exact write.
+        let ticket = ReviewModel.shared.enqueueControlMarkWrite(mark, for: url)
         return {
-            do {
-                var doc = ReviewSidecar.loadOrEmpty(for: url)
-                let baseRev = doc.rev
-                doc.upsert(mark)
-                let written = try ReviewSidecar.save(doc, for: url, baseRev: baseRev)
+            guard let outcome = ticket.wait(timeout: .now() + 15) else {
+                return .failure(id: requestID,
+                                error: "marks.add: sidecar write timed out")
+            }
+            switch outcome {
+            case .success(let written):
                 return .success(id: requestID, data: .object([
-                    "path": .string(path),
-                    "id": .string(mark.id),
+                    "path": .string(written.url.path),
+                    "id": .string(written.markID),
                     "type": .string(typeValue),
                     "quote": .string(quote),
                     "rev": .int(written.rev),
                 ]))
-            } catch {
+            case .failure(let error):
                 return .failure(id: requestID,
-                                error: "marks.add write failed: \(error)")
+                                error: "marks.add: \(error.localizedDescription)")
             }
         }
     }
@@ -470,7 +452,8 @@ enum ControlRouter {
     private static func fileURL(for request: ControlRequest) throws -> URL {
         if let path = request.argString("path"), !path.isEmpty {
             let url = try resolvePath(path)
-            guard FileManager.default.fileExists(atPath: url.path) else {
+            guard FileManager.default.fileExists(atPath: url.path)
+                    || AppState.shared.isPathMutationInProgress(at: url) else {
                 throw ControlError("file not found: \(url.path)")
             }
             return url
