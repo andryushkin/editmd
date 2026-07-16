@@ -96,6 +96,18 @@ final class WorkspaceSearchModel: ObservableObject {
             return
         }
 
+        // Refresh shared git cache only when `is:modified` is present and stale.
+        // Reuses Git sidebar snapshot when available — no Process per keystroke.
+        if query.isModified {
+            await WorkspaceSearchGitBridge.shared.ensureFresh(
+                roots: roots,
+                openURLs: DocumentRegistry.shared.openURLs
+            )
+            let bridge = WorkspaceSearchGitBridge.shared
+            modifiedPaths = bridge.modifiedPaths
+            gitAvailable = bridge.gitAvailable
+        }
+
         isSearching = true
         let roots = self.roots
         let tags = self.tagIndex

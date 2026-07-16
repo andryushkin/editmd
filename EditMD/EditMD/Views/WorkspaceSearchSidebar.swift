@@ -21,9 +21,17 @@ struct WorkspaceSearchSidebar: View {
         .onAppear { refreshContextAndMaybeSearch() }
         .onChange(of: workspace.contentEpoch) { _ in refreshContextAndMaybeSearch() }
         .onChange(of: workspace.workspaces) { _ in refreshContextAndMaybeSearch() }
+        .onChange(of: workspace.tagIndex.count) { _ in refreshContextAndMaybeSearch() }
         .onChange(of: model.sortByDate) { _ in
             if !model.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 model.runSearchNow()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { _ in
+            WorkspaceSearchGitBridge.shared.invalidate()
+            let q = parseSearchQuery(model.queryText)
+            if q.isModified {
+                refreshContextAndMaybeSearch()
             }
         }
     }
@@ -280,25 +288,17 @@ struct WorkspaceSearchSidebar: View {
 
     private func refreshContextAndMaybeSearch() {
         workspace.ensureTagIndex()
-        // Stage 3: tags from workspace; git modified set filled in stage 4.
+        let roots = workspace.workspaces.map(\.url)
+        let bridge = WorkspaceSearchGitBridge.shared
         model.updateContext(
-            roots: workspace.workspaces.map(\.url),
+            roots: roots,
             tagIndex: workspace.tagIndex,
-            modifiedPaths: modelModifiedPathsPlaceholder,
-            gitAvailable: modelGitAvailablePlaceholder
+            modifiedPaths: bridge.modifiedPaths,
+            gitAvailable: bridge.gitAvailable
         )
         if !model.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             model.runSearchNow()
         }
-    }
-
-    /// Overridden by stage-4 wiring via static hooks (kept simple for one model).
-    private var modelModifiedPathsPlaceholder: Set<String> {
-        WorkspaceSearchGitBridge.modifiedPaths
-    }
-
-    private var modelGitAvailablePlaceholder: Bool {
-        WorkspaceSearchGitBridge.gitAvailable
     }
 
     private func openFile(_ url: URL, offset: Int?) {
@@ -312,19 +312,46 @@ struct WorkspaceSearchSidebar: View {
     }
 }
 
-// MARK: - Git bridge (stage 4 fills this; stage 3 leaves empty)
+// MARK: - Shared git cache for search (`is:modified`)
 
-/// Shared git-modified path set for `is:modified`. Updated by search UI when
-/// a snapshot is available; never spawns Process from the search hot path alone
-/// without going through the cached bridge API.
+/// Cache of workspace-scoped dirty paths. Filled by the Git sidebar on its
+/// normal refresh and by Search only when stale — never a new Process on every
+/// keystroke.
 @MainActor
-enum WorkspaceSearchGitBridge {
-    static var modifiedPaths: Set<String> = []
-    static var gitAvailable: Bool = false
-    /// Generation so callers can detect staleness.
-    static var revision: Int = 0
+final class WorkspaceSearchGitBridge {
+    static let shared = WorkspaceSearchGitBridge()
 
-    static func apply(snapshot: GitWorkspaceSnapshot) {
+    private(set) var modifiedPaths: Set<String> = []
+    private(set) var gitAvailable: Bool = false
+    private(set) var revision: Int = 0
+
+    private var rootsKey: String = ""
+    private var isFresh = false
+    private var loadTask: Task<Void, Never>?
+
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: .gitRepositoryDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.invalidate()
+            }
+        }
+    }
+
+    func invalidate() {
+        isFresh = false
+    }
+
+    func needsRefresh(roots: [URL]) -> Bool {
+        let key = Self.key(for: roots)
+        return !isFresh || key != rootsKey
+    }
+
+    /// Install a snapshot produced elsewhere (Git sidebar). Avoids a second Process.
+    func apply(snapshot: GitWorkspaceSnapshot, roots: [URL]) {
         var paths = Set<String>()
         for section in snapshot.sections {
             for f in section.files {
@@ -336,12 +363,49 @@ enum WorkspaceSearchGitBridge {
         }
         modifiedPaths = paths
         gitAvailable = snapshot.hasAnyRepo
+        rootsKey = Self.key(for: roots)
+        isFresh = true
         revision += 1
     }
 
-    static func clear() {
+    /// Load via `GitWorkspaceStatus.snapshotAsync` only if cache is stale.
+    func ensureFresh(roots: [URL], openURLs: [URL]) async {
+        let key = Self.key(for: roots)
+        if isFresh, key == rootsKey { return }
+        if roots.isEmpty {
+            modifiedPaths = []
+            gitAvailable = false
+            rootsKey = key
+            isFresh = true
+            revision += 1
+            return
+        }
+        // Coalesce concurrent callers.
+        if let existing = loadTask {
+            await existing.value
+            if isFresh, rootsKey == key { return }
+        }
+        let task = Task { @MainActor in
+            let snap = await GitWorkspaceStatus.snapshotAsync(
+                workspaceRoots: roots,
+                openURLs: openURLs
+            )
+            self.apply(snapshot: snap, roots: roots)
+        }
+        loadTask = task
+        await task.value
+        loadTask = nil
+    }
+
+    func clear() {
         modifiedPaths = []
         gitAvailable = false
+        rootsKey = ""
+        isFresh = false
         revision += 1
+    }
+
+    private static func key(for roots: [URL]) -> String {
+        roots.map { $0.standardizedFileURL.path }.sorted().joined(separator: "\u{1F}")
     }
 }

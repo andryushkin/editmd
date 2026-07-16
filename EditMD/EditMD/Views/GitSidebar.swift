@@ -464,6 +464,8 @@ struct GitSidebar: View {
                 return
             }
             snapshot = built
+            // Share with workspace Search `is:modified` so it need not re-run git.
+            WorkspaceSearchGitBridge.shared.apply(snapshot: built, roots: roots)
             isRefreshing = false
         }
     }

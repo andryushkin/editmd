@@ -277,4 +277,43 @@ final class SearchMatchTests: XCTestCase {
         XCTAssertEqual(parseSearchQuery(model.queryText).tokens, ["bar"])
         XCTAssertFalse(model.isSearching)
     }
+
+    // MARK: - Git bridge
+
+    @MainActor
+    func testGitBridgeApplyFromSnapshot() {
+        let bridge = WorkspaceSearchGitBridge.shared
+        bridge.clear()
+        let root = URL(fileURLWithPath: "/vault")
+        let dirty = URL(fileURLWithPath: "/vault/a.md")
+        let snap = GitWorkspaceSnapshot(
+            sections: [
+                GitRepoSection(
+                    root: root,
+                    branch: "main",
+                    ahead: 0,
+                    behind: 0,
+                    files: [
+                        GitChangedFile(
+                            url: dirty,
+                            displayPath: "a.md",
+                            pathStatus: .modified,
+                            sessionDirtyLines: 0,
+                            bufferDirty: false
+                        )
+                    ]
+                )
+            ],
+            openDirty: [],
+            hasAnyRepo: true,
+            hasWorkspaces: true
+        )
+        bridge.apply(snapshot: snap, roots: [root])
+        XCTAssertTrue(bridge.gitAvailable)
+        XCTAssertTrue(bridge.modifiedPaths.contains(dirty.path))
+        XCTAssertFalse(bridge.needsRefresh(roots: [root]))
+        bridge.invalidate()
+        XCTAssertTrue(bridge.needsRefresh(roots: [root]))
+        bridge.clear()
+    }
 }
