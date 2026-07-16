@@ -198,7 +198,7 @@ func frontmatterPropertiesHTML(_ props: [FMProperty],
         } else {
             valueHTML = htmlEscapeBreakingUnderscores(property.value)
         }
-        rows += "<div class=\"fm-row\">\(frontmatterIconHTML(for: property))"
+        rows += "<div class=\"fm-row\">"
             + "<div class=\"fm-key\">\(htmlEscape(property.key))</div>"
             + "<div class=\"fm-val\">\(valueHTML)</div></div>\n"
     }
@@ -283,28 +283,6 @@ private func builtInPluginConfigurationHTML(_ snapshot: BuiltInPluginSnapshot) -
         </section>
         """
     }.joined(separator: "\n")
-}
-
-/// Small inline SVGs keep the Preview independent of system font glyphs while
-/// giving familiar frontmatter fields the same visual scanability as Obsidian.
-private func frontmatterIconHTML(for property: FMProperty) -> String {
-    let key = property.key.lowercased()
-    let svg: String
-    if key == "tags" || key == "tag" || key == "aliases" {
-        svg = #"<svg viewBox="0 0 24 24"><path d="M20 13.5 13.5 20a2.1 2.1 0 0 1-3 0L3 12.5V4h8.5L20 10.5a2.1 2.1 0 0 1 0 3Z"/><circle cx="7.5" cy="8.5" r="1"/></svg>"#
-    } else if key.contains("date") || key == "created" || key == "updated" {
-        svg = #"<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4m8-4v4"/></svg>"#
-    } else if key == "pdf" || key.contains("file") || key == "doi" || key == "pmid" {
-        svg = #"<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h5M9 13h6m-6 4h6"/></svg>"#
-    } else if key.contains("graph") || key.contains("node") {
-        svg = #"<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="m7.7 7.1 2.8 9M16.2 8.4l-2.8 8M8 6.3l8 .5"/></svg>"#
-    } else if key.contains("year") || key.contains("level") || key.contains("count")
-                || key.hasSuffix("_n") || (!property.value.isEmpty && property.value.allSatisfy({ $0.isNumber })) {
-        svg = #"<svg viewBox="0 0 24 24"><path d="M9 3 7 21M17 3l-2 18M4 9h16M3 15h16"/></svg>"#
-    } else {
-        svg = #"<svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h14"/></svg>"#
-    }
-    return "<span class=\"fm-icon\" aria-hidden=\"true\">\(svg)</span>"
 }
 
 private struct HTMLBodyVisitor: MarkupWalker {
@@ -1217,14 +1195,13 @@ func previewHTMLPageRender(markdown: String,
     .fm-list { margin: 0; }
     .fm-row {
         display: grid;
-        grid-template-columns: 20px minmax(0, 120px) minmax(0, 1fr);
-        column-gap: 0;
+        grid-template-columns: minmax(0, 120px) minmax(0, 1fr);
+        column-gap: 0.75em;
         align-items: start;
         margin: 0 0 0.82em;
     }
     .fm-row:last-child { margin-bottom: 0; }
     .fm-key {
-        grid-column: 2;
         margin: 0;
         min-width: 0;
         color: rgba(128,128,128,0.96);
@@ -1233,27 +1210,7 @@ func previewHTMLPageRender(markdown: String,
         line-height: 1.5;
         overflow-wrap: anywhere;
     }
-    .fm-icon {
-        grid-column: 1;
-        display: flex;
-        width: 20px;
-        height: 1.5em;
-        color: rgba(128,128,128,0.82);
-        align-items: center;
-        padding: 0;
-    }
-    .fm-icon svg {
-        display: block;
-        width: 18px;
-        height: 18px;
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-    }
     .fm-val {
-        grid-column: 3;
         margin: 0;
         min-width: 0;
         overflow-wrap: anywhere;
@@ -1391,9 +1348,8 @@ func previewHTMLPageRender(markdown: String,
         .fm-plugin-error-badge, .fm-plugin-error { color: #ff8178; }
     }
     @media (max-width: 620px) {
-        .fm-row { grid-template-columns: 20px 1fr; row-gap: 0.22em; margin-bottom: 0.95em; }
+        .fm-row { grid-template-columns: 1fr; row-gap: 0.22em; margin-bottom: 0.95em; }
         .fm-key { font-size: 0.88em; }
-        .fm-val { grid-column: 2; }
         .fm-plugin-state { grid-template-columns: 28px 65px minmax(0, 1fr); align-items: end; }
         .fm-plugin-icon-field { grid-column: 2 / -1; }
         .fm-plugin-strike { grid-column: 2 / -1; }
