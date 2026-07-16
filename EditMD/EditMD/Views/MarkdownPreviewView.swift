@@ -769,9 +769,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
 
         /// A wiki-link was clicked in the page: resolve its target and open the
-        /// file (relative to this document's folder).
-        func openWikiLink(target: String) {
-            navigateToWikiLink(target: target, from: fileURL)
+        /// file (relative to this document's folder), optionally jumping to a heading.
+        func openWikiLink(target: String, heading: String? = nil) {
+            navigateToWikiLink(target: target, heading: heading, from: fileURL)
         }
 
         /// A schemeless `[text](path)` link was clicked: resolve vault-absolute
@@ -1211,7 +1211,8 @@ private final class WikiLinkClickHandler: NSObject, WKScriptMessageHandler {
                                didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any],
               let target = body["target"] as? String, !target.isEmpty else { return }
-        coordinator?.openWikiLink(target: target)
+        let heading = body["heading"] as? String
+        coordinator?.openWikiLink(target: target, heading: heading)
     }
 }
 

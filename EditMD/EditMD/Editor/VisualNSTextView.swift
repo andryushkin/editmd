@@ -211,10 +211,14 @@ final class VisualNSTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    weak var wikiCompletion: WikiCompletionController?
+
     override func keyDown(with event: NSEvent) {
+        if wikiCompletion?.handleKey(event: event) == true { return }
         if event.keyCode == 120, beginEditingFocusedTableCell() { // F2
             return
         }
+        // Return/Enter while completion is closed may still start table cell edit.
         if (event.keyCode == 36 || event.keyCode == 76), beginEditingFocusedTableCell() {
             return
         }

@@ -108,9 +108,10 @@ actor WikiLinkResolver {
 /// Opens the file a wiki-link `target` points at, in the main window.
 /// Resolution runs off the main actor; when several files share the basename,
 /// one in the current file's own folder wins (Obsidian's shortest-path bias);
-/// an unresolved link beeps. Heading/block scrolling is not wired yet.
+/// an unresolved link beeps. When `heading` is set, scrolls to that heading
+/// via `requestControlJump` after the file is mounted (or immediately if already open).
 @MainActor
-func navigateToWikiLink(target: String, from currentURL: URL?) {
+func navigateToWikiLink(target: String, heading: String? = nil, from currentURL: URL?) {
     // Index the stable workspace roots; if none are adopted, fall back to the
     // current file's own folder so loose files can still link to siblings.
     var roots = WorkspaceModel.shared.workspaces.map { $0.url }
@@ -118,6 +119,7 @@ func navigateToWikiLink(target: String, from currentURL: URL?) {
         roots = [dir]
     }
     let currentDir = currentURL?.deletingLastPathComponent().standardizedFileURL
+    let headingQuery = heading?.trimmingCharacters(in: .whitespacesAndNewlines)
     Task {
         await WikiLinkResolver.shared.setRoots(roots)
         var matches = await WikiLinkResolver.shared.resolve(target)
@@ -131,6 +133,20 @@ func navigateToWikiLink(target: String, from currentURL: URL?) {
         let chosen = matches.first {
             $0.deletingLastPathComponent().standardizedFileURL == currentDir
         } ?? matches[0]
+
+        var jumpOffset: Int?
+        if let headingQuery, !headingQuery.isEmpty {
+            // Prefer open buffer (live edits) then disk.
+            let text = DocumentRegistry.shared.contentIfOpen(chosen)
+                ?? (try? String(contentsOf: chosen, encoding: .utf8))
+            if let text {
+                jumpOffset = findHeadingOffset(matching: headingQuery, in: text)
+            }
+        }
+
+        if let jumpOffset {
+            AppState.shared.requestControlJump(url: chosen, offset: jumpOffset)
+        }
         AppState.shared.openInMainWindow(chosen)
     }
 }

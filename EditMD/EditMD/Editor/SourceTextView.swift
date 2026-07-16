@@ -129,6 +129,8 @@ struct SourceTextView: NSViewRepresentable {
 
         let coordinator = context.coordinator
         coordinator.textView = textView
+        textView.wikiCompletion = coordinator.wikiCompletion
+        coordinator.wikiCompletion.attach(to: textView)
         // Capture the cross-mode offset BEFORE any text/delegate wiring:
         // setting the string resets the selection, and the selection-change
         // callback would clobber the stored value with 0.
@@ -140,7 +142,9 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.publishActions()
         coordinator.highlightSource()
         coordinator.scheduleLint(delaySeconds: 0)
+        coordinator.scheduleUnresolvedWiki(delaySeconds: 0)
         coordinator.refreshGutter()
+        coordinator.wikiCompletion.update(fileURL: fileURL)
         // Scroll/bounds → redraw line numbers.
         NotificationCenter.default.addObserver(
             coordinator,
@@ -311,6 +315,13 @@ struct SourceTextView: NSViewRepresentable {
         /// spans cache, NEVER on selection change (no O(text) per caret move).
         var cachedHighlightMarks: [HighlightMarkMatch] = []
         var lastPublishedFormats = ActiveInlineFormats()
+        /// Wiki `[[` autocomplete (plan 03).
+        lazy var wikiCompletion = WikiCompletionController(
+            apply: { [weak self] tv, range, replacement in
+                self?.applyWikiCompletion(tv, range: range, replacement: replacement)
+            })
+        private var unresolvedWikiRanges: [NSRange] = []
+        private var unresolvedWikiTask: Task<Void, Never>?
 
         init(parent: SourceTextView) {
             self.parent = parent
@@ -345,6 +356,8 @@ struct SourceTextView: NSViewRepresentable {
             updateStats()
             highlightSource()
             scheduleLint()
+            scheduleUnresolvedWiki()
+            wikiCompletion.update(fileURL: parent.fileURL)
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke repaint here.
             refreshGutter()
@@ -475,6 +488,58 @@ struct SourceTextView: NSViewRepresentable {
                                                  markdownRange: textView.selectedRange(),
                                                  markdown: parent.document.content)
             publishActiveFormats()
+            wikiCompletion.update(fileURL: parent.fileURL)
+        }
+
+        func applyWikiCompletion(_ textView: NSTextView, range: NSRange, replacement: String) {
+            guard textView.shouldChangeText(in: range, replacementString: replacement)
+            else { return }
+            textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            textView.didChangeText()
+            let end = range.location + (replacement as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
+        }
+
+        /// Debounced resolve of wiki targets → temporary underlines for missing.
+        func scheduleUnresolvedWiki(delaySeconds: TimeInterval = 0.35) {
+            unresolvedWikiTask?.cancel()
+            let text = textView?.string ?? parent.document.content
+            let spans = cachedSpans
+            unresolvedWikiTask = Task { @MainActor in
+                if delaySeconds > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+                guard !Task.isCancelled else { return }
+                var targets: [(range: NSRange, target: String)] = []
+                for span in spans {
+                    if case .wikiLink(let payload) = span.kind {
+                        targets.append((span.range, payload.target))
+                    }
+                }
+                guard !targets.isEmpty else {
+                    self.unresolvedWikiRanges = []
+                    self.reapplyTemporaryUnderlines()
+                    return
+                }
+                var roots = WorkspaceModel.shared.workspaces.map(\.url)
+                if roots.isEmpty, let dir = self.parent.fileURL?.deletingLastPathComponent() {
+                    roots = [dir]
+                }
+                await WikiLinkResolver.shared.setRoots(roots)
+                var missing: [NSRange] = []
+                for item in targets {
+                    let hits = await WikiLinkResolver.shared.resolve(item.target)
+                    if hits.isEmpty { missing.append(item.range) }
+                }
+                guard !Task.isCancelled else { return }
+                self.unresolvedWikiRanges = missing
+                self.reapplyTemporaryUnderlines()
+            }
+        }
+
+        /// Lint + unresolved-wiki temporary underlines share one clear/reapply.
+        private func reapplyTemporaryUnderlines() {
+            applyLintUnderlines(lintDiagnostics)
         }
 
         /// Active formats from `cachedSpans` only — never re-runs collectSpans.
@@ -721,6 +786,21 @@ struct SourceTextView: NSViewRepresentable {
                     forCharacterRange: r)
                 lm.addTemporaryAttribute(.underlineColor, value: color, forCharacterRange: r)
                 lm.addTemporaryAttribute(.toolTip, value: d.message, forCharacterRange: r)
+            }
+            // Unresolved wiki-links (plan 03): muted dotted underline, no layout change.
+            let wikiColor = NSColor.tertiaryLabelColor
+            for range in unresolvedWikiRanges {
+                guard range.location < len else { continue }
+                let r = NSRange(location: range.location,
+                                length: min(range.length, len - range.location))
+                guard r.length > 0 else { continue }
+                lm.addTemporaryAttribute(
+                    .underlineStyle,
+                    value: NSUnderlineStyle([.single, .patternDot]).rawValue,
+                    forCharacterRange: r)
+                lm.addTemporaryAttribute(.underlineColor, value: wikiColor, forCharacterRange: r)
+                lm.addTemporaryAttribute(.toolTip, value: "Неразрешённая ссылка",
+                                         forCharacterRange: r)
             }
         }
 
@@ -1347,10 +1427,16 @@ fileprivate final class SourceNSTextView: NSTextView {
     /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
     /// AppKit would pin it to the pane edge, far from a centred column).
     var gutterState = GutterState()
+    weak var wikiCompletion: WikiCompletionController?
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawGutterNumbers(in: rect, state: gutterState)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if wikiCompletion?.handleKey(event: event) == true { return }
+        super.keyDown(with: event)
     }
 
     var lintDiagnostics: [LintDiagnostic] = []

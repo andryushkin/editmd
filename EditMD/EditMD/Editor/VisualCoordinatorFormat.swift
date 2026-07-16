@@ -651,9 +651,11 @@ extension VisualMarkdownView.Coordinator {
     }
 
     /// Cmd+click on a wiki-link: resolve its target against the workspace
-    /// and open the file (relative to this document's folder).
+    /// and open the file (relative to this document's folder), jumping to
+    /// the heading when present.
     func openWikiLink(_ payload: MDWikiLinkPayload) {
-        navigateToWikiLink(target: payload.target, from: parent.fileURL)
+        navigateToWikiLink(target: payload.target, heading: payload.heading,
+                           from: parent.fileURL)
     }
 
     /// Cmd+click on a regular `[text](destination)` link: scheme URLs go to

@@ -267,9 +267,12 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         let coordinator = context.coordinator
         coordinator.textView = textView
+        textView.wikiCompletion = coordinator.wikiCompletion
+        coordinator.wikiCompletion.attach(to: textView)
         coordinator.loadDocument()
         coordinator.publishActions()
         coordinator.refreshGutter()
+        coordinator.wikiCompletion.update(fileURL: fileURL)
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             coordinator,
@@ -387,8 +390,37 @@ struct VisualMarkdownView: NSViewRepresentable {
                                elements: settings.elements)
         }
 
+        /// Wiki `[[` autocomplete (plan 03). Disabled inside code/table/raw.
+        lazy var wikiCompletion = WikiCompletionController(
+            apply: { [weak self] tv, range, replacement in
+                self?.applyWikiCompletion(tv, range: range, replacement: replacement)
+            },
+            allowsCompletion: { [weak self] tv in
+                self?.visualAllowsWikiCompletion(tv) ?? false
+            })
+
         init(parent: VisualMarkdownView) {
             self.parent = parent
+        }
+
+        func visualAllowsWikiCompletion(_ tv: NSTextView) -> Bool {
+            guard let storage = tv.textStorage else { return true }
+            let loc = min(tv.selectedRange().location, max(0, storage.length - 1))
+            guard storage.length > 0 else { return true }
+            let kind = (storage.attribute(.mdBlock, at: loc, effectiveRange: nil) as? MDBlock)?.kind
+                ?? .paragraph
+            return visualContextAllowsStructuredPaste(kind)
+        }
+
+        func applyWikiCompletion(_ textView: NSTextView, range: NSRange, replacement: String) {
+            guard textView.shouldChangeText(in: range, replacementString: replacement)
+            else { return }
+            isMutating = true
+            textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            isMutating = false
+            textView.didChangeText()
+            let end = range.location + (replacement as NSString).length
+            textView.setSelectedRange(NSRange(location: end, length: 0))
         }
 
         deinit {
@@ -634,6 +666,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke quote search here.
             refreshGutter()
+            wikiCompletion.update(fileURL: parent.fileURL)
             restoreMinorViewportDrift()
         }
 
@@ -704,6 +737,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
             storeCursor()
             publishActiveFormats()
+            wikiCompletion.update(fileURL: parent.fileURL)
         }
 
         private var lastPublishedFormats = ActiveInlineFormats()

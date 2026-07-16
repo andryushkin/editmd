@@ -83,6 +83,7 @@
 		8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */; };
 		8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11113E961095021DD99965B /* ReviewMarksTests.swift */; };
 		9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */; };
+		93AE968FA5677C1963ADBE69 /* WikiCompletionUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90DE6F43F9765940A444EF4 /* WikiCompletionUI.swift */; };
 		95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */; };
 		97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826B3718B5967A1074331A2A /* WikiCompletionTests.swift */; };
 		99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */; };
@@ -233,6 +234,7 @@
 		A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebarTests.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
+		A90DE6F43F9765940A444EF4 /* WikiCompletionUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiCompletionUI.swift; sourceTree = "<group>"; };
 		AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistory.swift; sourceTree = "<group>"; };
 		AB851CD26B911D4370D78D4C /* EditorToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbar.swift; sourceTree = "<group>"; };
 		AC8AD07144B2A6466FF2484C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -380,6 +382,7 @@
 				B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */,
 				4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */,
 				947ED99781268CA58CDB8346 /* WikiCompletion.swift */,
+				A90DE6F43F9765940A444EF4 /* WikiCompletionUI.swift */,
 				A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */,
 			);
 			path = Editor;
@@ -788,6 +791,7 @@
 				88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */,
 				DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */,
 				A1E0387908EC017E0C7505F1 /* WikiCompletion.swift in Sources */,
+				93AE968FA5677C1963ADBE69 /* WikiCompletionUI.swift in Sources */,
 				C106C0911196133FE31E1962 /* WikiLink.swift in Sources */,
 				103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */,
 				07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */,
