@@ -1033,6 +1033,15 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
 - Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.
 
+## Workspace search (план 07)
+
+- Левый сайдбар: вкладка Search (`magnifyingglass`) — workspace full-text. Нижний Filter скрыт (своё поле запроса).
+- `Editor/SearchQuery.swift` — парсер `токены`, `"фраза"`, `path:` / `type:` / `tag:` / `is:modified` / `after:` / `before:`; неизвестный `key:` → token.
+- `Editor/SearchMatch.swift` — чистые meta/content matchers, лимит 200 файлов / 4 МБ skip, LRU content cache ~64 МБ, sort по matchCount или mtime.
+- `Views/WorkspaceSearchModel.swift` — debounce 300 мс, off-main scan, cancellation. Диск only (буферы не мержатся).
+- `is:modified` — `WorkspaceSearchGitBridge` переиспользует snapshot Git-вкладки; Process только при stale. `tag:` — `WorkspaceModel.tagIndex`.
+- Переход: `AppState.requestControlJump` + `onOpen` (как vault-lint / wiki heading).
+
 ## Vault-lint (план 06)
 
 - `Editor/VaultLint.swift` — чистая функция `vaultLintFindings` по `LinkIndexSnapshot`: dead/ambiguous/self wiki, dead relative (в т.ч. за пределы roots), dead image, orphan (без README/index home), dead heading (если в индексе есть titles).

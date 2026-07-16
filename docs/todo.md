@@ -47,7 +47,7 @@ Documents-поверхность (правый inspector документа: С�
 | 04 | Properties-панель: frontmatter-форма и YAML | [plans/04-properties-panel.md](plans/04-properties-panel.md) | 01 | сделано |
 | 05 | История файла: git + локальные ревизии + restore | [plans/05-file-history.md](plans/05-file-history.md) | 01 | сделано |
 | 06 | Vault-lint: мёртвые ссылки, сироты | [plans/06-vault-lint.md](plans/06-vault-lint.md) | 02 | сделано |
-| 07 | Поиск по workspace с фильтрами | [plans/07-workspace-search.md](plans/07-workspace-search.md) | — | не начат |
+| 07 | Поиск по workspace с фильтрами | [plans/07-workspace-search.md](plans/07-workspace-search.md) | — | сделано |
 | 08 | Мелочи и доводка сайдбаров | [plans/08-small-features.md](plans/08-small-features.md) | частично 01 | не начат |
 
 Рекомендуемый порядок: 01 → 02 → (03, 04, 06 в любом порядке) → 05 → 07 → 08.
