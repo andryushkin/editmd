@@ -203,10 +203,15 @@ final class DocumentRegistry {
 
     typealias MoveWriter = @Sendable (MarkdownDocument.Snapshot, URL) throws -> Void
 
+    /// Local history snapshots (plan 05). Injectable for tests.
+    private let revisionStore: FileRevisionStore
+
     /// Internal (not private) so tests can spin up an isolated registry instead
     /// of mutating the shared singleton.
-    init(moveWriter: @escaping MoveWriter = DocumentRegistry.writeSnapshot) {
+    init(moveWriter: @escaping MoveWriter = DocumentRegistry.writeSnapshot,
+         revisionStore: FileRevisionStore = .shared) {
         self.moveWriter = moveWriter
+        self.revisionStore = revisionStore
         // Belt-and-suspenders: FS events can miss on some volumes; re-check
         // every open file when the user returns to EditMD.
         NotificationCenter.default.addObserver(
@@ -429,7 +434,13 @@ final class DocumentRegistry {
         guard entry.refcount <= 0 else { return }
         entry.autosaveTask?.cancel()
         entry.document.commitContentEdit()
-        if entry.isDirty { try? flush(entry) }
+        if entry.isDirty {
+            try? flush(entry)
+        } else {
+            // Closing a clean document: force a last local revision so history
+            // captures the final on-disk state even if debounce suppressed saves.
+            noteLocalRevision(url: key, content: entry.document.content, force: true)
+        }
         stopWatching(entry)
         entries.removeValue(forKey: key)
         parkInSessionCache(
@@ -1031,6 +1042,13 @@ final class DocumentRegistry {
         GitCommitWatcher.shared.check(url: entry.url)
         // Link index: incremental rescan of this file only (plan 02).
         LinkIndex.shared.noteDocumentPersisted(url: entry.url, content: content)
+        // Local revision history (plan 05) — background, debounced in store.
+        noteLocalRevision(url: entry.url, content: content, force: false)
+    }
+
+    /// Snapshot saved markdown for the History tab. Off-main via the store.
+    private func noteLocalRevision(url: URL, content: String, force: Bool) {
+        revisionStore.notePersistedAsync(url: url, content: content, force: force)
     }
 
     private func clearPendingConflict(_ entry: Entry) {

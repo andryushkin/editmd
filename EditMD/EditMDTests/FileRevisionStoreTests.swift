@@ -143,4 +143,50 @@ final class FileRevisionStoreTests: XCTestCase {
         XCTAssertNotEqual(fileRevisionPathKey(for: u),
                           fileRevisionPathKey(for: URL(fileURLWithPath: "/tmp/vault/other.md")))
     }
+
+    // MARK: - DocumentRegistry flush integration
+
+    @MainActor
+    func testTwoFlushesSameTextOneRevision() async throws {
+        let revRoot = tmp.appendingPathComponent("reg-store", isDirectory: true)
+        try FileManager.default.createDirectory(at: revRoot, withIntermediateDirectories: true)
+        let revStore = FileRevisionStore(rootURL: revRoot)
+        let registry = DocumentRegistry(revisionStore: revStore)
+        let url = tmp.appendingPathComponent("flushed.md")
+        try "hello".write(to: url, atomically: true, encoding: .utf8)
+
+        let doc = try registry.acquire(url)
+        doc.content = "edited"
+        registry.markDirty(url)
+        try registry.saveNow(url)
+        // Wait for async notePersistedAsync.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(revStore.revisions(for: url).count, 1)
+
+        // Second save, same bytes — within debounce or content dedup → still one.
+        try registry.saveNow(url)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(revStore.revisions(for: url).count, 1)
+
+        registry.release(url)
+    }
+
+    @MainActor
+    func testFlushDifferentContentCreatesSecondAfterForce() async throws {
+        let revRoot = tmp.appendingPathComponent("reg-store-2", isDirectory: true)
+        try FileManager.default.createDirectory(at: revRoot, withIntermediateDirectories: true)
+        let revStore = FileRevisionStore(rootURL: revRoot)
+        let registry = DocumentRegistry(revisionStore: revStore)
+        let url = tmp.appendingPathComponent("flushed2.md")
+        try "a".write(to: url, atomically: true, encoding: .utf8)
+
+        let doc = try registry.acquire(url)
+        doc.content = "one"
+        try registry.saveNow(url)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        // Force second snapshot (simulates close / explicit bypass of debounce).
+        _ = revStore.record(url: url, content: "two", force: true)
+        XCTAssertEqual(revStore.revisions(for: url).count, 2)
+        registry.release(url)
+    }
 }
