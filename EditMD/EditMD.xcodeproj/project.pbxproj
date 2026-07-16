@@ -84,12 +84,14 @@
 		8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11113E961095021DD99965B /* ReviewMarksTests.swift */; };
 		9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */; };
 		95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */; };
+		97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826B3718B5967A1074331A2A /* WikiCompletionTests.swift */; };
 		99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */; };
 		9A30207A6B49C5012AC2FAFA /* PDFViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855030C27B3542DC0CF21A0F /* PDFViewerView.swift */; };
 		9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 749088093E0AF04AA2B75E48 /* TextDiffTests.swift */; };
 		9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */; };
 		9DE7A630C9EC839C33AD8147 /* TextDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07A13AEA492FEA0C2B1942F /* TextDiff.swift */; };
 		9E73EAAA73509F0687D41207 /* LinkScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45090939E587BA5C57087E3 /* LinkScanTests.swift */; };
+		A1E0387908EC017E0C7505F1 /* WikiCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947ED99781268CA58CDB8346 /* WikiCompletion.swift */; };
 		A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */; };
 		A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */; };
 		AA1618A105AF5DD84C831328 /* SidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */; };
@@ -205,6 +207,7 @@
 		7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkResolverTests.swift; sourceTree = "<group>"; };
 		801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		801C9AFE83EDECE7C97BC89A /* BuiltInPluginsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPluginsTests.swift; sourceTree = "<group>"; };
+		826B3718B5967A1074331A2A /* WikiCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiCompletionTests.swift; sourceTree = "<group>"; };
 		82D8BF400E9D538C51E10B8F /* EditMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EditMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Frontmatter.swift; sourceTree = "<group>"; };
 		84C5B36355BBCE350A32F650 /* ReviewSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewSidebar.swift; sourceTree = "<group>"; };
@@ -216,6 +219,7 @@
 		92161BAEF22CB4D7970B98F1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTrackerTests.swift; sourceTree = "<group>"; };
 		92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEUI.swift; sourceTree = "<group>"; };
+		947ED99781268CA58CDB8346 /* WikiCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiCompletion.swift; sourceTree = "<group>"; };
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9917191640BDEC49A4A21EBD /* ControlProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlProtocol.swift; sourceTree = "<group>"; };
 		9A0FFE1D25D7589E46587CBD /* CodeSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighter.swift; sourceTree = "<group>"; };
@@ -375,6 +379,7 @@
 				382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */,
 				B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */,
 				4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */,
+				947ED99781268CA58CDB8346 /* WikiCompletion.swift */,
 				A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */,
 			);
 			path = Editor;
@@ -518,6 +523,7 @@
 				0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */,
 				749088093E0AF04AA2B75E48 /* TextDiffTests.swift */,
 				DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */,
+				826B3718B5967A1074331A2A /* WikiCompletionTests.swift */,
 				7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */,
 				3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */,
 				3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */,
@@ -691,6 +697,7 @@
 				CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */,
 				9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */,
 				173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */,
+				97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */,
 				D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */,
 				29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */,
 				9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */,
@@ -780,6 +787,7 @@
 				083C1DB0AA424C13903004D3 /* VisualNSTextView.swift in Sources */,
 				88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */,
 				DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */,
+				A1E0387908EC017E0C7505F1 /* WikiCompletion.swift in Sources */,
 				C106C0911196133FE31E1962 /* WikiLink.swift in Sources */,
 				103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */,
 				07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */,
