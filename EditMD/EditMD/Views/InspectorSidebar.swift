@@ -7,8 +7,11 @@ import AppKit
 struct InspectorSidebar: View {
     let fileURL: URL?
     let outlineContent: String
+    /// Live git snapshot for the focused file (from ContentView; no new Process).
+    let gitSnapshot: GitFileSnapshot
     let onJump: (Int) -> Void
 
+    @ObservedObject private var workspace = WorkspaceModel.shared
     @AppStorage("inspectorTab") private var tab = "outline"
     /// Bottom filter field — filters Outline headings (and future lists).
     @State private var filterText = ""
@@ -23,7 +26,12 @@ struct InspectorSidebar: View {
             Group {
                 switch tab {
                 case "info":
-                    infoStub
+                    FileInfoPanel(
+                        fileURL: fileURL,
+                        content: outlineContent,
+                        gitSnapshot: gitSnapshot,
+                        workspace: workspace
+                    )
                 default:
                     // "outline" and any unknown key fall back to Outline.
                     OutlineSidebar(content: outlineContent, filter: filterText, onJump: onJump)
@@ -32,7 +40,10 @@ struct InspectorSidebar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Filter only (no + / eye — those are workspace-scope).
-            bottomBar
+            // Hide on Info: nothing list-filterable yet.
+            if tab != "info" {
+                bottomBar
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -108,29 +119,205 @@ struct InspectorSidebar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
     }
+}
 
-    // MARK: - Info stub (full panel arrives in stage 3)
+// MARK: - Info panel
 
-    private var infoStub: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Info")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-            if let url = fileURL {
-                Text(url.path)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .lineLimit(8)
-            } else {
-                Text("Нет открытого файла")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+/// Document facts: path/size/mtime (disk, cached), buffer stats (debounced),
+/// git status (reused snapshot), links placeholder for plan 02.
+private struct FileInfoPanel: View {
+    let fileURL: URL?
+    let content: String
+    let gitSnapshot: GitFileSnapshot
+    @ObservedObject var workspace: WorkspaceModel
+
+    @State private var stats: FileInfoStats = computeFileInfoStats(text: "")
+    @State private var diskInfo: FileDiskInfo = .empty
+    @State private var statsTask: Task<Void, Never>?
+    /// Cache key: path + mtime so external saves refresh size/date.
+    @State private var diskCacheKey: String = ""
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                fileSection
+                documentSection
+                gitSection
+                linksSection
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 12)
+            .padding(.top, SidebarChrome.firstContentTop)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, SidebarChrome.firstContentTop)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            scheduleStatsRefresh(delayMs: 0)
+            refreshDiskInfo()
+        }
+        .onChange(of: content) { _ in
+            scheduleStatsRefresh(delayMs: 250)
+            // Autosave may have updated mtime/size — re-probe off-main.
+            refreshDiskInfo()
+        }
+        .onChange(of: fileURL) { _ in
+            diskInfo = .empty
+            diskCacheKey = ""
+            refreshDiskInfo()
+            scheduleStatsRefresh(delayMs: 0)
+        }
+    }
+
+    // MARK: Sections
+
+    @ViewBuilder private var fileSection: some View {
+        sectionHeader("ФАЙЛ")
+        if let url = fileURL {
+            infoRow(label: "Имя", value: url.lastPathComponent)
+            infoRow(label: "Путь", value: displayPath(for: url))
+            Button {
+                copyPath(url)
+            } label: {
+                Label("Скопировать путь", systemImage: "doc.on.doc")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .editMDHelp(url.path)
+
+            if let size = diskInfo.byteSize {
+                infoRow(label: "Размер", value: formatByteSize(size))
+            } else {
+                infoRow(label: "Размер", value: "—")
+            }
+            if let mtime = diskInfo.modificationDate {
+                infoRow(label: "Изменён", value: Self.dateFormatter.string(from: mtime))
+            } else {
+                infoRow(label: "Изменён", value: "—")
+            }
+        } else {
+            Text("Нет открытого файла")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    @ViewBuilder private var documentSection: some View {
+        sectionHeader("ДОКУМЕНТ")
+        infoRow(label: "Слова", value: "\(stats.words)")
+        infoRow(label: "Символы", value: "\(stats.chars)")
+        infoRow(label: "Строки", value: "\(stats.lines)")
+        infoRow(label: "Заголовки", value: "\(stats.headings)")
+        infoRow(label: "Концы строк", value: lineEndingCaption(stats.lineEndings))
+        infoRow(label: "Newline в конце",
+                value: stats.hasTrailingNewline ? "да" : "нет")
+    }
+
+    @ViewBuilder private var gitSection: some View {
+        sectionHeader("GIT")
+        if gitSnapshot.inRepo {
+            let status = gitSnapshot.statusCaption.isEmpty
+                ? "clean" : gitSnapshot.statusCaption
+            infoRow(label: "Статус", value: status)
+            if let branch = gitSnapshot.branch {
+                infoRow(label: "Ветка", value: branch)
+            }
+        } else {
+            infoRow(label: "Статус", value: "не в репозитории")
+        }
+    }
+
+    @ViewBuilder private var linksSection: some View {
+        sectionHeader("СВЯЗИ")
+        // Placeholder for plan 02 (link index + backlinks).
+        Text("Ссылки: —  ·  Backlinks: —")
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+    }
+
+    // MARK: - Chrome helpers
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .bold))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 4)
+    }
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 88, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .lineLimit(4)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Path / disk / stats
+
+    private func displayPath(for url: URL) -> String {
+        let std = url.standardizedFileURL
+        if let ws = workspace.workspaceOwning(std),
+           let rel = workspace.relativePath(of: std, in: ws) {
+            return rel
+        }
+        return (std.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func copyPath(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.path, forType: .string)
+    }
+
+    private func scheduleStatsRefresh(delayMs: UInt64) {
+        statsTask?.cancel()
+        let text = content
+        statsTask = Task {
+            if delayMs > 0 {
+                try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            // Outline parse can be non-trivial on large docs — off main.
+            let next = await Task.detached(priority: .userInitiated) {
+                computeFileInfoStats(text: text)
+            }.value
+            guard !Task.isCancelled else { return }
+            stats = next
+        }
+    }
+
+    private func refreshDiskInfo() {
+        guard let url = fileURL else {
+            diskInfo = .empty
+            diskCacheKey = ""
+            return
+        }
+        let path = url.standardizedFileURL.path
+        Task {
+            let loaded = await Task.detached(priority: .utility) {
+                loadFileDiskInfo(for: url)
+            }.value
+            guard !Task.isCancelled else { return }
+            // Drop stale results if the user switched files mid-load.
+            guard fileURL?.standardizedFileURL.path == path else { return }
+            let key = "\(path)|\(loaded.modificationDate?.timeIntervalSince1970 ?? 0)|\(loaded.byteSize ?? -1)"
+            if key == diskCacheKey { return }
+            diskCacheKey = key
+            diskInfo = loaded
+        }
     }
 }

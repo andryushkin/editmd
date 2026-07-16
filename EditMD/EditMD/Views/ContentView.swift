@@ -137,6 +137,7 @@ struct ContentView: View {
                         InspectorSidebar(
                             fileURL: fileURL,
                             outlineContent: document.content,
+                            gitSnapshot: gitSnapshot,
                             onJump: { offset in
                                 positionStore.requestJump(toMarkdownOffset: offset)
                             }
