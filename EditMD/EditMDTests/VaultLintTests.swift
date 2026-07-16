@@ -276,4 +276,27 @@ final class VaultLintTests: XCTestCase {
             findings.filter { $0.rule == .orphanFile }, for: noteA)
         XCTAssertTrue(orphanOnly.isEmpty)
     }
+
+    @MainActor
+    func testVaultLintModelPublishesFromSeededIndex() async throws {
+        let index = LinkIndex()
+        index.seedForTesting(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Missing", offset: 3)],
+            ],
+            roots: [root],
+            key: "vault-model"
+        )
+        let model = VaultLintModel.shared
+        model.bind(to: index)
+        model.runNow()
+        let deadline = Date().addingTimeInterval(2)
+        while model.findings.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertFalse(model.findings.isEmpty)
+        XCTAssertFalse(model.findings(for: noteA).isEmpty)
+        // Restore shared binding so the app singleton stays on LinkIndex.shared.
+        model.bind(to: LinkIndex.shared)
+    }
 }

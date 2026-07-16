@@ -509,6 +509,7 @@ private struct FileInfoPanel: View {
     let content: String
     let gitSnapshot: GitFileSnapshot
     @ObservedObject var linkIndex: LinkIndex
+    @ObservedObject private var vaultLint = VaultLintModel.shared
 
     @State private var stats: FileInfoStats = computeFileInfoStats(text: "")
     @State private var diskInfo: FileDiskInfo = .empty
@@ -531,6 +532,7 @@ private struct FileInfoPanel: View {
                 documentSection
                 gitSection
                 linksSection
+                vaultLintSection
             }
             .padding(.horizontal, 12)
             .padding(.top, SidebarChrome.firstContentTop)
@@ -623,6 +625,34 @@ private struct FileInfoPanel: View {
         Text("Ссылки: \(liveOutgoingCount)  ·  Backlinks: \(backLabel)")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private var vaultLintSection: some View {
+        sectionHeader("WORKSPACE")
+        let n = vaultLint.issueCount
+        if n == 0, !vaultLint.isRunning {
+            Text("Проблем в workspace: 0")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        } else {
+            Button {
+                VaultLintReportPresenter.present()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(vaultLint.isRunning
+                         ? "Проверка…"
+                         : "Проблем в workspace: \(n)")
+                        .font(.system(size: 11))
+                    if n > 0 {
+                        Text("Показать")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Chrome helpers

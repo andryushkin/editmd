@@ -82,7 +82,13 @@ final class VaultLintModel: ObservableObject {
                 self.isRunning = false
                 self.lastRun = Date()
                 self.revision += 1
+                NotificationCenter.default.post(name: .vaultLintDidUpdate, object: nil)
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// Vault-lint findings refreshed (Source should re-run lint merge).
+    static let vaultLintDidUpdate = Notification.Name("editMD.vaultLintDidUpdate")
 }

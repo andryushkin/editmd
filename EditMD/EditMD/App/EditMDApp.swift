@@ -276,6 +276,11 @@ struct EditMDApp: App {
                 .disabled(!history.canGoForward)
 
                 Divider()
+
+                Button("Проверить ссылки workspace") {
+                    VaultLintReportPresenter.present()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift, .control])
             }
 
             CommandGroup(after: .help) {

@@ -225,6 +225,13 @@ struct SourceTextView: NSViewRepresentable {
             name: .reviewMarksDidChange,
             object: nil
         )
+        // Vault-lint findings refresh after index save (plan 06).
+        NotificationCenter.default.addObserver(
+            coordinator,
+            selector: #selector(Coordinator.vaultLintDidUpdate),
+            name: .vaultLintDidUpdate,
+            object: nil
+        )
         coordinator.applyReviewHighlights()
         coordinator.scheduleVisibleOffsetPublish()
 
@@ -709,6 +716,11 @@ struct SourceTextView: NSViewRepresentable {
         private var lintTask: Task<Void, Never>?
         private var lintDiagnostics: [LintDiagnostic] = []
 
+        @objc func vaultLintDidUpdate() {
+            // Fast re-merge: vault findings already computed; no need for full debounce.
+            scheduleLint(delaySeconds: 0)
+        }
+
         func scheduleLint(delaySeconds: Double = 0.3) {
             lintTask?.cancel()
             lintTask = Task { [weak self] in
@@ -733,7 +745,14 @@ struct SourceTextView: NSViewRepresentable {
                 }
                 return
             }
-            let diags = lint(textView.string)
+            // Per-file vault findings lag until LinkIndex + VaultLintModel
+            // refresh after save — intentional (plan 06).
+            var diags = lint(textView.string)
+            if let url = parent.fileURL {
+                let vault = VaultLintModel.shared.findings(for: url)
+                diags += vaultFindingsAsLintDiagnostics(vault, for: url)
+                diags.sort { $0.range.location < $1.range.location }
+            }
             lintDiagnostics = diags
             textView.lintDiagnostics = diags
             applyLintUnderlines(diags)
