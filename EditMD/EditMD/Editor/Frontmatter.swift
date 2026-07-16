@@ -242,6 +242,45 @@ private func classifyScalar(_ s: String) -> YAMLTokenKind {
     return isYAMLNumber(s) ? .number : .plain
 }
 
+// MARK: - Property field icon (Preview SVG / Properties SF Symbol)
+
+/// Shared heuristic for the decorative glyph next to a frontmatter key.
+/// Used by Preview (`frontmatterIconHTML`) and the Properties inspector.
+enum FrontmatterFieldIconKind: Equatable, Sendable {
+    case tags
+    case date
+    case file
+    case graph
+    case number
+    case text
+}
+
+func frontmatterFieldIconKind(key: String, value: String = "") -> FrontmatterFieldIconKind {
+    let k = key.lowercased()
+    if k == "tags" || k == "tag" || k == "aliases" { return .tags }
+    if k.contains("date") || k == "created" || k == "updated" { return .date }
+    if k == "pdf" || k.contains("file") || k == "doi" || k == "pmid" { return .file }
+    if k.contains("graph") || k.contains("node") { return .graph }
+    if k.contains("year") || k.contains("level") || k.contains("count")
+        || k.hasSuffix("_n")
+        || (!value.isEmpty && value.allSatisfy(\.isNumber)) {
+        return .number
+    }
+    return .text
+}
+
+/// SF Symbol for the Properties inspector (native AppKit/SwiftUI).
+func frontmatterFieldSystemImage(key: String, value: String = "") -> String {
+    switch frontmatterFieldIconKind(key: key, value: value) {
+    case .tags: return "tag"
+    case .date: return "calendar"
+    case .file: return "doc"
+    case .graph: return "circle.grid.cross"
+    case .number: return "number"
+    case .text: return "text.alignleft"
+    }
+}
+
 // MARK: - Small helpers
 
 func leadingWhitespaceCount(_ s: String) -> Int {

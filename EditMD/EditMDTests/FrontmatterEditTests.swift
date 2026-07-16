@@ -323,4 +323,15 @@ final class FrontmatterEditTests: XCTestCase {
         let slice = (doc as NSString).substring(from: offset!)
         XCTAssertTrue(slice.hasPrefix("title: A"))
     }
+
+    func testFieldIconKindsMatchPreviewHeuristics() {
+        XCTAssertEqual(frontmatterFieldIconKind(key: "tags"), .tags)
+        XCTAssertEqual(frontmatterFieldIconKind(key: "aliases"), .tags)
+        XCTAssertEqual(frontmatterFieldIconKind(key: "created"), .date)
+        XCTAssertEqual(frontmatterFieldIconKind(key: "pdf"), .file)
+        XCTAssertEqual(frontmatterFieldIconKind(key: "count", value: "3"), .number)
+        XCTAssertEqual(frontmatterFieldIconKind(key: "title"), .text)
+        XCTAssertEqual(frontmatterFieldSystemImage(key: "tags"), "tag")
+        XCTAssertEqual(frontmatterFieldSystemImage(key: "title"), "text.alignleft")
+    }
 }

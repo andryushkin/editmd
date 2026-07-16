@@ -72,6 +72,12 @@ struct PropertiesPanel: View {
     private func propertyRow(_ field: PropertyField) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
+                // Same key→glyph heuristic as Preview frontmatter rows.
+                Image(systemName: frontmatterFieldSystemImage(
+                    key: field.key, value: field.displayValue))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, alignment: .center)
                 Text(field.key)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -102,6 +108,8 @@ struct PropertiesPanel: View {
                 }
             }
             editor(for: field)
+                // Indent value under the key text, past the icon column.
+                .padding(.leading, 20)
         }
         .padding(.vertical, 4)
     }
