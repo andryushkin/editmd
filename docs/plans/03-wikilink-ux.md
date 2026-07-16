@@ -1,8 +1,15 @@
 # План 03 — Wiki-link UX: автодополнение и переход к заголовку
 
-Статус: не начат
+Статус: сделано
 Зависимости: 02 (ссылочный индекс — источник кандидатов)
 Закрывает хвост из CLAUDE.md: «wiki-link autocomplete/heading scroll».
+
+Выполнено (2026-07-16):
+- [x] Этап 1 — `WikiCompletion` engine + tests
+- [x] Этап 2 — popup в Source
+- [x] Этап 3 — popup в Visual (guard code/table/raw)
+- [x] Этап 4 — переход к заголовку + Preview heading
+- [x] Этап 5 — маркер неразрешённых в Source
 
 ## Цель
 

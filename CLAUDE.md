@@ -104,4 +104,4 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 
 ## Известные хвосты
 
-Remote images в Visual, drag-and-drop изображений, поиск внутри Preview, wiki-link autocomplete/heading scroll и перенос широких ячеек Visual-grid.
+Remote images в Visual, drag-and-drop изображений, поиск внутри Preview и перенос широких ячеек Visual-grid.
