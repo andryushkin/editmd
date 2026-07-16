@@ -744,6 +744,26 @@ struct SidebarFileSelectionTests {
         ) == [URL(fileURLWithPath: "/tmp/third.md")])
     }
 
+    @Test("Move menu title counts the selection without the sidebar order")
+    func moveMenuTitleFromSelectionOnly() {
+        let first = URL(fileURLWithPath: "/tmp/a/first.md")
+        let second = URL(fileURLWithPath: "/tmp/b/second.md")
+        let outsider = URL(fileURLWithPath: "/tmp/third.md")
+
+        // Anchor not selected → single-file wording.
+        #expect(sidebarMoveMenuTitle(anchor: outsider,
+                                     selectedFiles: [first, second])
+                == "Переместить…")
+        // Anchor inside a multi-selection → count = whole selection
+        // (same count sidebarMoveFiles would return, without walking the tree).
+        #expect(sidebarMoveMenuTitle(anchor: first,
+                                     selectedFiles: [first, second])
+                == "Переместить 2 файла…")
+        // Single-file selection keeps the plain wording.
+        #expect(sidebarMoveMenuTitle(anchor: first, selectedFiles: [first])
+                == "Переместить…")
+    }
+
     @Test("Drag payload round-trips the complete group")
     func dragPayloadRoundTrips() throws {
         let files = [

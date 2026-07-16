@@ -117,6 +117,18 @@ func sidebarMoveFiles(
     return visible + remainder
 }
 
+/// Title for the per-row «Переместить…» context item. The count comes from the
+/// selection alone: `sidebarMoveFiles` returns the whole selection when the
+/// anchor is selected and `[anchor]` otherwise, so the visible order is not
+/// needed. SwiftUI builds `.contextMenu` content eagerly for EVERY row —
+/// walking `sidebarVisibleFileOrder` here made sidebar render O(rows²).
+func sidebarMoveMenuTitle(anchor: URL, selectedFiles: Set<URL>) -> String {
+    let count = selectedFiles.contains(anchor.standardizedFileURL)
+        ? max(selectedFiles.count, 1)
+        : 1
+    return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+}
+
 @MainActor
 func sidebarVisibleFileOrder(
     workspace: WorkspaceModel,
@@ -693,8 +705,7 @@ struct WorkspaceSidebar: View {
     }
 
     private func moveMenuTitle(for url: URL) -> String {
-        let count = moveFiles(anchoredAt: url).count
-        return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+        sidebarMoveMenuTitle(anchor: url, selectedFiles: selectedFiles)
     }
 
     private func promptToMoveSelection(anchoredAt url: URL) {
@@ -921,8 +932,7 @@ private struct SubfolderNode: View {
     }
 
     private func moveMenuTitle(for file: URL) -> String {
-        let count = moveFiles(anchoredAt: file).count
-        return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+        sidebarMoveMenuTitle(anchor: file, selectedFiles: selectedFiles)
     }
 
     private func promptToMoveSelection(anchoredAt file: URL) {

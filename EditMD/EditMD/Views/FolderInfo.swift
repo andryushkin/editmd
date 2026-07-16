@@ -1021,6 +1021,9 @@ struct FolderInfoCard: View {
     @State private var treeStats: FolderTreeStats?
     @State private var statsLoading = true
     @State private var statsTask: Task<Void, Never>?
+    /// README/index of the folder — refreshed with the stats scan; the body
+    /// must not list the directory synchronously (1600-file folders).
+    @State private var homeDoc: URL?
 
     /// Preview H1 pixel size: body `fontSize` × `elements.h1.sizeScale`
     /// (same formula as CSS `h1 { font-size: Nem }` in `previewHTMLPage`).
@@ -1036,11 +1039,6 @@ struct FolderInfoCard: View {
             return .custom(family, size: previewH1Size).weight(weight)
         }
         return .system(size: previewH1Size, weight: weight)
-    }
-
-    private var homeDoc: URL? {
-        _ = workspace.contentEpoch
-        return homeDocument(in: folderURL)
     }
 
     private var displayPath: String {
@@ -1101,6 +1099,20 @@ struct FolderInfoCard: View {
         if let cached = FolderStatsCache.lookup(path: path, epoch: epoch) {
             treeStats = cached
             statsLoading = false
+            // Stats came from cache, but README/index still needs a (cheap)
+            // async probe — never a synchronous listing on the main actor.
+            statsTask?.cancel()
+            let root = folderURL.standardizedFileURL
+            statsTask = Task {
+                let home = await Task.detached(priority: .utility) {
+                    homeDocument(in: root)
+                }.value
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard path == folderURL.standardizedFileURL.path else { return }
+                    homeDoc = home
+                }
+            }
             return
         }
         statsLoading = true
@@ -1108,8 +1120,8 @@ struct FolderInfoCard: View {
         statsTask?.cancel()
         let root = folderURL.standardizedFileURL
         statsTask = Task {
-            let stats = await Task.detached(priority: .utility) {
-                scanFolderTreeStats(at: root)
+            let (stats, home) = await Task.detached(priority: .utility) {
+                (scanFolderTreeStats(at: root), homeDocument(in: root))
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -1118,6 +1130,7 @@ struct FolderInfoCard: View {
                       epoch == workspace.contentEpoch else { return }
                 FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
                 treeStats = stats
+                homeDoc = home
                 statsLoading = false
             }
         }
