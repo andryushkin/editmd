@@ -361,8 +361,7 @@ private struct MediaViewerHost<Viewer: View>: View {
                     workspace: workspace,
                     activeURL: fileURL,
                     onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) },
-                    onJump: { _ in }
+                    onOpenFolder: { AppState.shared.openInMainWindow($0) }
                 )
                 .frame(width: sidebarWidth)
                 paneDivider { x in

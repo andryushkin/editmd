@@ -27,6 +27,7 @@ struct ContentView: View {
     /// Right document-scope inspector (Outline / Info / …).
     @AppStorage("inspectorVisible") private var inspectorVisible = false
     @AppStorage("inspectorWidth") private var inspectorWidth = 220.0
+    @AppStorage("inspectorTab") private var inspectorTab = "outline"
     /// Dedicated Source + Preview mode: edit pane's share of the split.
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
@@ -111,8 +112,7 @@ struct ContentView: View {
                             workspace: workspace,
                             activeURL: fileURL,
                             onOpen: openFromSidebar,
-                            onOpenFolder: { AppState.shared.openInMainWindow($0) },
-                            onJump: { offset in positionStore.requestJump(toMarkdownOffset: offset) }
+                            onOpenFolder: { AppState.shared.openInMainWindow($0) }
                         )
                         .frame(width: sidebarWidth)
                         paneDivider(space: .named("mainPanes")) { x in
@@ -527,13 +527,13 @@ struct ContentView: View {
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }
 
-    /// The Preview/Split review button reuses the sidebar's existing compose form.
+    /// The Preview/Split review button reuses the inspector's existing compose form.
     /// The model keeps the request until the Review tab appears, avoiding a
     /// race when this action also opens a previously hidden sidebar.
     private func requestReviewMark() {
         guard allowsSidebar, mode == .preview || mode == .split else { return }
-        sidebarVisible = true
-        sidebarTab = "review"
+        inspectorVisible = true
+        inspectorTab = "review"
         ReviewModel.shared.requestCompose()
     }
 

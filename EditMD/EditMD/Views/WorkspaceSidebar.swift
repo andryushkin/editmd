@@ -183,14 +183,29 @@ func sidebarVisibleFileOrder(
     }
 }
 
-/// Maps a persisted left-sidebar tab key to a still-valid one.
-/// Outline moved to the right inspector (plan 01); `"outline"` → `"files"`.
+struct SidebarTabMigration: Equatable {
+    let workspaceTab: String
+    let inspectorTab: String
+}
+
+/// Maps retired document-scope tabs from the left navigator to the inspector.
+func migrateSidebarTabs(workspaceTab: String, inspectorTab: String) -> SidebarTabMigration {
+    switch workspaceTab {
+    case "outline":
+        SidebarTabMigration(workspaceTab: "files", inspectorTab: inspectorTab)
+    case "review":
+        SidebarTabMigration(workspaceTab: "files", inspectorTab: "review")
+    default:
+        SidebarTabMigration(workspaceTab: workspaceTab, inspectorTab: inspectorTab)
+    }
+}
+
 func migrateWorkspaceSidebarTab(_ tab: String) -> String {
-    tab == "outline" ? "files" : tab
+    migrateSidebarTabs(workspaceTab: tab, inspectorTab: "outline").workspaceTab
 }
 
 /// The left sidebar: Xcode-style icon toolbar switches Files / Search / Git /
-/// Review / Tags (workspace-scope). Outline moved to the right inspector.
+/// Tags (workspace-scope). Outline and Review moved to the right inspector.
 struct WorkspaceSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
     let activeURL: URL?
@@ -200,13 +215,11 @@ struct WorkspaceSidebar: View {
     /// Left-click a workspace root or subfolder: open the folder info card
     /// in the main window (and the click also toggles expand — see handlers).
     let onOpenFolder: (URL) -> Void
-    let onJump: (Int) -> Void
-
-    @ObservedObject private var review = ReviewModel.shared
     @ObservedObject private var searchModel = WorkspaceSearchModel.shared
     @AppStorage("sidebarTab") private var tab = "files"
+    @AppStorage("inspectorTab") private var inspectorTab = "outline"
     @AppStorage("sidebarShowHidden") private var showHidden = false
-    /// Bottom filter field — filters Files tree / Git paths / Review / Tags.
+    /// Bottom filter field — filters Files tree / Git paths / Tags.
     /// Hidden on the Search tab (it has its own query field).
     @State private var filterText = ""
     @State private var selectedFiles = Set<URL>()
@@ -233,8 +246,6 @@ struct WorkspaceSidebar: View {
                         filter: filterText,
                         onOpen: onOpen
                     )
-                case "review":
-                    ReviewSidebar(review: review, filter: filterText, onJump: onJump)
                 case "tags":
                     TagsSidebar(workspace: workspace, filter: filterText, onOpen: onOpen)
                 default:
@@ -262,12 +273,11 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// Outline left the left sidebar (plan 01). Persisted `sidebarTab == "outline"`
-    /// would otherwise land in `default` (Files) with a stale AppStorage value —
-    /// reset explicitly so storage matches the visible tab.
+    /// Outline (plan 01) and Review (plan 08) left the workspace navigator.
     private func applySidebarTabMigration() {
-        let migrated = migrateWorkspaceSidebarTab(tab)
-        if migrated != tab { tab = migrated }
+        let migrated = migrateSidebarTabs(workspaceTab: tab, inspectorTab: inspectorTab)
+        if migrated.inspectorTab != inspectorTab { inspectorTab = migrated.inspectorTab }
+        if migrated.workspaceTab != tab { tab = migrated.workspaceTab }
     }
 
     private var filterQuery: String {
@@ -298,11 +308,6 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "git",
                          systemImage: "arrow.triangle.branch",
                          help: "Git")
-            navDivider
-            navTabButton(id: "review",
-                         systemImage: "text.bubble",
-                         help: "Review — метки (удобнее в Preview)",
-                         badge: review.openCount)
             navDivider
             navTabButton(id: "tags",
                          systemImage: "tag",
@@ -359,7 +364,7 @@ struct WorkspaceSidebar: View {
     private var bottomBar: some View {
         HStack(spacing: 6) {
             // "+" is Files-only (folder creation/adoption). Filter stays global —
-            // it also filters Git / Review / Tags.
+            // it also filters Git / Tags.
             if tab == "files" {
                 Menu {
                     Button("New Folder…") { workspace.promptCreateFolder() }

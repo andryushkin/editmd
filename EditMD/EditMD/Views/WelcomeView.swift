@@ -20,8 +20,7 @@ struct WelcomeHost: View {
                     workspace: workspace,
                     activeURL: nil,
                     onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) },
-                    onJump: { _ in }
+                    onOpenFolder: { AppState.shared.openInMainWindow($0) }
                 )
                 .frame(width: sidebarWidth)
                 paneDivider { x in

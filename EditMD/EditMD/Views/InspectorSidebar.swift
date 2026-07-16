@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Right inspector panel for document-scope UI (Outline, Info, Links,
+/// Right inspector panel for document-scope UI (Outline, Review, Info, Links,
 /// Backlinks, Properties, History). Mirrors the left `WorkspaceSidebar`
 /// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
 struct InspectorSidebar: View {
@@ -22,6 +22,7 @@ struct InspectorSidebar: View {
     var onHistoryRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @ObservedObject private var linkIndex = LinkIndex.shared
+    @ObservedObject private var review = ReviewModel.shared
     @AppStorage("inspectorTab") private var tab = "outline"
     /// Bottom filter field — filters Outline / Links / Backlinks lists.
     @State private var filterText = ""
@@ -57,6 +58,8 @@ struct InspectorSidebar: View {
                         document: document,
                         onRestore: onHistoryRestore
                     )
+                case "review":
+                    ReviewSidebar(review: review, filter: filterText, onJump: onJump)
                 case "links":
                     OutgoingLinksPanel(
                         fileURL: fileURL,
@@ -99,6 +102,11 @@ struct InspectorSidebar: View {
                          systemImage: "list.bullet.indent",
                          help: "Outline")
             navDivider
+            navTabButton(id: "review",
+                         systemImage: "text.bubble",
+                         help: "Review — метки документа",
+                         badge: review.openCount)
+            navDivider
             navTabButton(id: "properties",
                          systemImage: "list.bullet.rectangle",
                          help: "Свойства — frontmatter")
@@ -135,7 +143,12 @@ struct InspectorSidebar: View {
             .padding(.horizontal, 3)
     }
 
-    private func navTabButton(id: String, systemImage: String, help: String) -> some View {
+    private func navTabButton(
+        id: String,
+        systemImage: String,
+        help: String,
+        badge: Int = 0
+    ) -> some View {
         let selected = tab == id
         return Button {
             tab = id
@@ -149,10 +162,18 @@ struct InspectorSidebar: View {
                     Circle()
                         .fill(selected ? Color.accentColor : Color.clear)
                 )
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 && !selected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 1, y: -1)
+                    }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .editMDHelp(help)
+        .editMDHelp(badge > 0 ? "\(help) · \(badge) открытых" : help)
     }
 
     // MARK: - Bottom bar (Filter only)

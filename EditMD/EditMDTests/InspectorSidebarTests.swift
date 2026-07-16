@@ -11,9 +11,15 @@ final class InspectorSidebarTests: XCTestCase {
     }
 
     func testMigrateKeepsValidTabs() {
-        for tab in ["files", "git", "review", "tags"] {
+        for tab in ["files", "git", "tags"] {
             XCTAssertEqual(migrateWorkspaceSidebarTab(tab), tab, tab)
         }
+    }
+
+    func testMigrateRetiredReviewTabToInspector() {
+        XCTAssertEqual(
+            migrateSidebarTabs(workspaceTab: "review", inspectorTab: "history"),
+            SidebarTabMigration(workspaceTab: "files", inspectorTab: "review"))
     }
 
     func testMigrateUnknownTabUnchanged() {
