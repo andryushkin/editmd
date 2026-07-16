@@ -189,8 +189,8 @@ func migrateWorkspaceSidebarTab(_ tab: String) -> String {
     tab == "outline" ? "files" : tab
 }
 
-/// The left sidebar: Xcode-style icon toolbar switches Files / Git / Review /
-/// Tags (workspace-scope). Outline moved to the right inspector (document-scope).
+/// The left sidebar: Xcode-style icon toolbar switches Files / Search / Git /
+/// Review / Tags (workspace-scope). Outline moved to the right inspector.
 struct WorkspaceSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
     let activeURL: URL?
@@ -203,9 +203,11 @@ struct WorkspaceSidebar: View {
     let onJump: (Int) -> Void
 
     @ObservedObject private var review = ReviewModel.shared
+    @ObservedObject private var searchModel = WorkspaceSearchModel.shared
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("sidebarShowHidden") private var showHidden = false
     /// Bottom filter field — filters Files tree / Git paths / Review / Tags.
+    /// Hidden on the Search tab (it has its own query field).
     @State private var filterText = ""
     @State private var selectedFiles = Set<URL>()
     @State private var selectionAnchor: URL?
@@ -218,6 +220,12 @@ struct WorkspaceSidebar: View {
 
             Group {
                 switch tab {
+                case "search":
+                    WorkspaceSearchSidebar(
+                        workspace: workspace,
+                        model: searchModel,
+                        onOpen: onOpen
+                    )
                 case "git":
                     GitSidebar(
                         workspace: workspace,
@@ -238,8 +246,10 @@ struct WorkspaceSidebar: View {
             // active tab has little content (empty Review).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Xcode-style bottom strip: + · Filter · eye
-            bottomBar
+            // Xcode-style bottom strip: + · Filter · eye — not used on Search.
+            if tab != "search" {
+                bottomBar
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Match the window chrome (toolbar / titlebar), not the greyer
@@ -280,6 +290,10 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "files",
                          systemImage: "folder",
                          help: "Files")
+            navDivider
+            navTabButton(id: "search",
+                         systemImage: "magnifyingglass",
+                         help: "Search — поиск по workspace")
             navDivider
             navTabButton(id: "git",
                          systemImage: "arrow.triangle.branch",
