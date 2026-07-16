@@ -125,7 +125,7 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertTrue(html.contains("class=\"fm-disclosure\""), html)
         XCTAssertTrue(html.contains("<span>Свойства</span></button>"), html)
         XCTAssertTrue(html.contains("<div class=\"fm-content\">"), html)
-        XCTAssertFalse(html.contains("fm-icon"), html)
+        XCTAssertTrue(html.contains("<span class=\"fm-icon\""), html)
         XCTAssertTrue(html.contains("<div class=\"fm-key\">title</div>"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule
         // Heading text is wrapped in a click-to-edit source span (<h1><span
@@ -136,7 +136,7 @@ final class FrontmatterTests: XCTestCase {
 
     func testFrontmatterListRendersChips() {
         let html = markdownHTMLBody("---\ntags: [a, b]\n---\n")
-        XCTAssertFalse(html.contains("fm-icon"), html)
+        XCTAssertTrue(html.contains("<circle cx=\"7.5\" cy=\"8.5\" r=\"1\"/>"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-chip\">a</span>"), html)
         XCTAssertTrue(html.contains("<span class=\"fm-chip\">b</span>"), html)
     }
