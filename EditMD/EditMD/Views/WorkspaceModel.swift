@@ -1147,16 +1147,36 @@ final class WorkspaceModel: ObservableObject {
         LinkIndex.shared.invalidate(workspace: self)
     }
 
-    /// Creates an empty markdown file in `folder`. `name` is the user-facing
-    /// name (`.md` is appended when missing). Returns the new file URL.
+    /// Creates a markdown file in `folder`. `name` is the user-facing name
+    /// (`.md` is appended when missing). Daily notes use the date as their name
+    /// and return the existing file instead of creating a duplicate.
     @discardableResult
-    func createMarkdownFile(named name: String, in folder: URL) throws -> URL {
-        let fileName = try FolderNaming.markdownFileName(from: name)
+    func createMarkdownFile(
+        named name: String,
+        in folder: URL,
+        template: FileTemplate = .blank,
+        date: Date = Date(),
+        calendar: Calendar = .current
+    ) throws -> URL {
+        let dateString = fileTemplateDateString(date, calendar: calendar)
+        let requestedName = template == .daily ? "\(dateString).md" : name
+        let fileName = try FolderNaming.markdownFileName(from: requestedName)
         let dest = folder.appendingPathComponent(fileName)
+        if template == .daily, FileManager.default.fileExists(atPath: dest.path) {
+            return dest.standardizedFileURL
+        }
         guard !FileManager.default.fileExists(atPath: dest.path) else {
             throw FolderCreateError.alreadyExists(fileName)
         }
-        FileManager.default.createFile(atPath: dest.path, contents: Data(), attributes: nil)
+        let title = (fileName as NSString).deletingPathExtension
+        let content = template.rendered(title: title, date: dateString)
+        guard FileManager.default.createFile(
+            atPath: dest.path,
+            contents: Data(content.utf8),
+            attributes: nil
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         noteFilesystemChange()
         return dest.standardizedFileURL
     }

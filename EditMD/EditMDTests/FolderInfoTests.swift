@@ -182,6 +182,68 @@ struct FolderCreateWorkspaceTests {
         }
     }
 
+    @Test("Built-in templates render placeholders and valid frontmatter")
+    func templatesRenderPlaceholders() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = try #require(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 16)))
+
+        for template in FileTemplate.allCases where template != .blank && template != .daily {
+            let name = "Bob's \(template.rawValue)"
+            let url = try model.createMarkdownFile(
+                named: name,
+                in: fixture.directory,
+                template: template,
+                date: date,
+                calendar: calendar)
+            let content = try String(contentsOf: url, encoding: .utf8)
+            #expect(!content.contains("{{date}}"))
+            #expect(!content.contains("{{title}}"))
+            #expect(!content.contains("{{yamlTitle}}"))
+            #expect(content.contains("2026-07-16"))
+            #expect(content.contains("title: 'Bob''s \(template.rawValue)'"))
+            #expect(content.contains("# Bob's \(template.rawValue)"))
+            let range = try #require(frontmatterRange(in: content))
+            let body = (content as NSString).substring(with: range.body)
+            #expect(!parseFrontmatterProperties(body).isEmpty)
+        }
+    }
+
+    @Test("Daily note reopens today's file without overwriting it")
+    func dailyTemplateDeduplicates() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = try #require(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 16)))
+
+        let first = try model.createMarkdownFile(
+            named: "ignored",
+            in: fixture.directory,
+            template: .daily,
+            date: date,
+            calendar: calendar)
+        try "kept".write(to: first, atomically: true, encoding: .utf8)
+        let epoch = model.contentEpoch
+        let second = try model.createMarkdownFile(
+            named: "also ignored",
+            in: fixture.directory,
+            template: .daily,
+            date: date,
+            calendar: calendar)
+
+        #expect(first == second)
+        #expect(first.lastPathComponent == "2026-07-16.md")
+        #expect(try String(contentsOf: second, encoding: .utf8) == "kept")
+        #expect(model.contentEpoch == epoch)
+    }
+
     @Test("Creates and adopts a new workspace folder")
     func createWorkspaceFolderCreatesAndAdoptsRoot() throws {
         let fixture = try Fixture()

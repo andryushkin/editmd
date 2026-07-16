@@ -82,6 +82,7 @@
 		7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD16A03238CB74404043EB7D /* TagsSidebar.swift */; };
 		7A4E694B97739F877CBA0691 /* ReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14742851ED5AEE37BAF1419 /* ReviewModel.swift */; };
 		7A6EDE024A1422CC6B904E75 /* SearchMatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3EBC6E2CFEF584EA18A057 /* SearchMatch.swift */; };
+		7C36BA28C707B88D76A6DDBB /* FileTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83986ED9BC2FF6060A1254F2 /* FileTemplates.swift */; };
 		7E698ED39A84574149B1B31F /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2E01E52E9D350180F84BCF /* LineNumberGutter.swift */; };
 		810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */; };
 		82F97A527857A21C40BF35CD /* VaultLintReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */; };
@@ -238,6 +239,7 @@
 		801C9AFE83EDECE7C97BC89A /* BuiltInPluginsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPluginsTests.swift; sourceTree = "<group>"; };
 		826B3718B5967A1074331A2A /* WikiCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiCompletionTests.swift; sourceTree = "<group>"; };
 		82D8BF400E9D538C51E10B8F /* EditMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EditMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		83986ED9BC2FF6060A1254F2 /* FileTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTemplates.swift; sourceTree = "<group>"; };
 		84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Frontmatter.swift; sourceTree = "<group>"; };
 		84C5B36355BBCE350A32F650 /* ReviewSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewSidebar.swift; sourceTree = "<group>"; };
 		855030C27B3542DC0CF21A0F /* PDFViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFViewerView.swift; sourceTree = "<group>"; };
@@ -461,6 +463,7 @@
 				F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */,
 				8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */,
 				0D630726D779CF10CC0685FF /* FileHistorySidebar.swift */,
+				83986ED9BC2FF6060A1254F2 /* FileTemplates.swift */,
 				299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */,
 				F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */,
 				A4840BC0DD8B410D784453BC /* GitSidebar.swift */,
@@ -803,6 +806,7 @@
 				E22C07681D07DD1CC7C69EDE /* FileHistorySidebar.swift in Sources */,
 				8717A872653EE3B7B15FFACB /* FileInfoStats.swift in Sources */,
 				413348709EF1DC2FC83513E5 /* FileRevisionStore.swift in Sources */,
+				7C36BA28C707B88D76A6DDBB /* FileTemplates.swift in Sources */,
 				9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */,
 				A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */,
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,

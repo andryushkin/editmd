@@ -268,6 +268,43 @@ func promptForNewName(title: String, message: String, defaultName: String,
 }
 
 @MainActor
+func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTemplate)? {
+    let alert = NSAlert()
+    alert.messageText = "Новый markdown-файл"
+    alert.informativeText = "Файл будет создан в «\(folder.lastPathComponent)»."
+    alert.addButton(withTitle: "Создать")
+    alert.addButton(withTitle: "Отмена")
+
+    let field = NSTextField(string: "Untitled.md")
+    field.placeholderString = "Имя файла"
+    let templatePicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    for template in FileTemplate.allCases {
+        templatePicker.addItem(withTitle: template.title)
+        templatePicker.lastItem?.representedObject = template.rawValue
+    }
+
+    let nameLabel = NSTextField(labelWithString: "Имя:")
+    let templateLabel = NSTextField(labelWithString: "Шаблон:")
+    let grid = NSGridView(views: [
+        [nameLabel, field],
+        [templateLabel, templatePicker]
+    ])
+    grid.column(at: 0).xPlacement = .trailing
+    grid.column(at: 1).width = 230
+    grid.rowSpacing = 8
+    grid.frame = NSRect(x: 0, y: 0, width: 300, height: 58)
+    alert.accessoryView = grid
+    alert.window.initialFirstResponder = field
+
+    guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+    let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty,
+          let rawTemplate = templatePicker.selectedItem?.representedObject as? String,
+          let template = FileTemplate(rawValue: rawTemplate) else { return nil }
+    return (name, template)
+}
+
+@MainActor
 func presentFolderError(_ error: Error, title: String = "Не удалось создать") {
     let alert = NSAlert()
     alert.messageText = title
@@ -395,13 +432,12 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
 
 @MainActor
 func promptCreateMarkdownFile(in folder: URL, workspace: WorkspaceModel) {
-    guard let name = promptForNewName(
-        title: "Новый markdown-файл",
-        message: "Файл будет создан в «\(folder.lastPathComponent)».",
-        defaultName: "Untitled.md"
-    ) else { return }
+    guard let request = promptForNewMarkdownFile(in: folder) else { return }
     do {
-        let url = try workspace.createMarkdownFile(named: name, in: folder)
+        let url = try workspace.createMarkdownFile(
+            named: request.name,
+            in: folder,
+            template: request.template)
         AppState.shared.openCreatedFile(url)
     } catch {
         presentFolderError(error)

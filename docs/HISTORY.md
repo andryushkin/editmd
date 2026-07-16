@@ -1062,3 +1062,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Типы: string / number / bool / date / tags / aliases / list / complex. Коммит string/number — Enter или blur; bool/date — сразу; списки — чипы + add/remove item. Undo через `MarkdownDocument.applyDocumentEdit` (тот же путь, что plugin-card).
 - **Поведенческое:** frontmatter в Visual и Preview **по умолчанию свёрнут** (editing живёт в панели). Disclosure-toggle session-local как раньше; отдельный Settings-switch не добавлялся.
 - Preview plugin-card по-прежнему редактирует whitelisted поля multi-checkbox; панель — произвольные простые top-level поля (двойной UI допустим).
+
+## Мелочи и доводка сайдбаров (план 08)
+
+- **8.1 — встроенные шаблоны:** общий flow «Новый файл…» в контекстном меню и карточке папки предлагает Пустой / Заметка / Встреча / Проект / Исследование / Ежедневная заметка. Шаблоны скомпилированы в Swift, подставляют локальную дату и имя файла, а daily использует `YYYY-MM-DD.md` и открывает существующий файл без перезаписи. Нижний `+` Files остался folder-only: он не имеет однозначного каталога назначения.
