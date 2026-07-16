@@ -239,7 +239,7 @@ private struct OutgoingLinksPanel: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(visible.enumerated()), id: \.offset) { _, link in
-                        LinkRowView(link: link, style: .outgoing) {
+                        LinkRowView(link: link, style: .outgoing, onOpenURL: onOpen) {
                             activateOutgoing(link)
                         }
                     }
@@ -381,7 +381,9 @@ private struct BacklinksPanel: View {
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(visible.enumerated()), id: \.offset) { _, edge in
-                        LinkRowView(link: edge.link, style: .backlink(source: edge.source)) {
+                        LinkRowView(link: edge.link,
+                                    style: .backlink(source: edge.source),
+                                    onOpenURL: onOpen) {
                             // Open source and jump to the link offset.
                             AppState.shared.requestControlJump(
                                 url: edge.source, offset: edge.link.utf16Offset)
@@ -408,6 +410,8 @@ private enum LinkRowStyle {
 private struct LinkRowView: View {
     let link: OutgoingLink
     let style: LinkRowStyle
+    /// Open a candidate URL through the host's routing (already-open modal).
+    let onOpenURL: (URL) -> Void
     let action: () -> Void
 
     @State private var hovering = false
@@ -477,7 +481,7 @@ private struct LinkRowView: View {
                 if expanded {
                     ForEach(link.candidates, id: \.path) { cand in
                         Button {
-                            AppState.shared.openInMainWindow(cand)
+                            onOpenURL(cand)
                         } label: {
                             Text((cand.path as NSString).abbreviatingWithTildeInPath)
                                 .font(.system(size: 10))
@@ -540,6 +544,7 @@ private struct FileInfoPanel: View {
     @State private var diskCacheKey: String = ""
     @State private var expectedDiskPath: String?
     @State private var liveOutgoingCount = 0
+    @State private var canNormalizeLineEndings = false
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -620,8 +625,12 @@ private struct FileInfoPanel: View {
         infoRow(label: "Концы строк", value: lineEndingCaption(stats.lineEndings))
         infoRow(label: "Newline в конце",
                 value: stats.hasTrailingNewline ? "да" : "нет")
-        if let normalized = normalizeLineEndings(text: content) {
+        // Availability comes from the debounced refresh: normalizeLineEndings
+        // copies the whole buffer — not per render in `body`.
+        if canNormalizeLineEndings {
             Button("Нормализовать") {
+                guard let normalized = normalizeLineEndings(text: document.content)
+                else { return }
                 document.applyDocumentEdit(normalized, actionName: "Normalize Line Endings")
             }
             .buttonStyle(.plain)
@@ -746,11 +755,15 @@ private struct FileInfoPanel: View {
             }
             guard !Task.isCancelled else { return }
 
-            let nextStats = await Task.detached(priority: .userInitiated) {
-                computeFileInfoStats(text: text)
+            let (nextStats, nextCanNormalize) = await Task.detached(
+                priority: .userInitiated
+            ) {
+                (computeFileInfoStats(text: text),
+                 normalizeLineEndings(text: text) != nil)
             }.value
             guard !Task.isCancelled else { return }
             stats = nextStats
+            canNormalizeLineEndings = nextCanNormalize
 
             let linkCount = await Task.detached(priority: .userInitiated) {
                 scanOutgoingLinks(text: text).count

@@ -45,10 +45,15 @@ final class LinkIndex: ObservableObject {
         scheduleFullScan(roots: roots, key: key)
     }
 
-    /// Force a rebuild (filesystem mutation already bumped contentEpoch).
+    /// Filesystem mutation already bumped contentEpoch: mark the index stale.
+    /// Rebuild eagerly only when someone has already built (or is building)
+    /// the index — sessions that never opened a consumer stay lazy, same
+    /// epoch-key model as `ensureTagIndex`.
     func invalidate(workspace: WorkspaceModel = .shared) {
         indexKey = ""
+        let hadConsumers = hasCompletedFullScan || scanInFlight
         hasCompletedFullScan = false
+        guard hadConsumers else { return }
         ensureIndex(workspace: workspace)
     }
 
@@ -101,15 +106,16 @@ final class LinkIndex: ObservableObject {
     }
 
     /// Immutable slice for vault-lint (off-main pure function).
+    /// `homeDocuments` stays empty: it needs a directory listing per root, so
+    /// the consumer fills it off-main (see `VaultLintModel.scheduleRun`).
     func snapshot() -> LinkIndexSnapshot {
-        let homes = Set(roots.compactMap { homeDocument(in: $0)?.standardizedFileURL })
-        return LinkIndexSnapshot(
+        LinkIndexSnapshot(
             outgoing: outgoing,
             backlinks: backlinks,
             headings: headings,
             skippedOversizedCount: skippedOversizedCount,
             roots: roots,
-            homeDocuments: homes
+            homeDocuments: []
         )
     }
 
@@ -259,68 +265,27 @@ final class LinkIndex: ObservableObject {
         self.roots = roots.map(\.standardizedFileURL)
         let capturedRoots = self.roots
 
-        Task { [weak self] in
-            let scanned = await Task.detached(priority: .utility) {
-                LinkIndex.scanWorkspaceOutgoing(roots: capturedRoots)
-            }.value
-            guard let self else { return }
-            guard !Task.isCancelled else {
-                await MainActor.run {
-                    self.scanInFlight = false
-                    self.isScanning = false
-                }
-                return
-            }
+        // Scan AND resolution run detached: resolveLocalLinkDestination stats
+        // the disk per link — never on the main actor.
+        Task.detached(priority: .utility) { [weak self] in
+            let scanned = LinkIndex.scanWorkspaceOutgoing(roots: capturedRoots)
 
             // Resolve against WikiLinkResolver with current roots.
             await WikiLinkResolver.shared.setRoots(capturedRoots)
             var resolvedMap: [URL: [OutgoingLink]] = [:]
             for (source, links) in scanned.outgoing {
-                let vault = capturedRoots.first { root in
-                    let p = source.path
-                    let r = root.path
-                    return p == r || p.hasPrefix(r + "/")
-                }
-                var resolvedLinks: [OutgoingLink] = []
-                resolvedLinks.reserveCapacity(links.count)
-                for link in links {
-                    let wikiHits: [URL]
-                    if link.kind == .wiki
-                        || (link.kind == .image && !link.rawTarget.contains("/")) {
-                        wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
-                    } else if link.kind == .markdown
-                                || link.kind == .image {
-                        // Path resolve first; wiki fallback for bare names.
-                        let local = resolveLocalLinkDestination(
-                            link.rawTarget,
-                            fileDir: source.deletingLastPathComponent(),
-                            vaultRoot: vault
-                        )
-                        if local != nil {
-                            wikiHits = []
-                        } else {
-                            wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
-                        }
-                    } else {
-                        wikiHits = []
-                    }
-                    resolvedLinks.append(Self.resolveLink(
-                        link, from: source, vaultRoot: vault, wikiMatches: wikiHits
-                    ))
-                }
-                resolvedMap[source] = resolvedLinks
+                resolvedMap[source] = await LinkIndex.resolveScannedLinks(
+                    links, source: source, roots: capturedRoots, vaultFallback: nil
+                )
             }
 
-            let projected = Self.projectBacklinks(from: resolvedMap)
+            let projected = LinkIndex.projectBacklinks(from: resolvedMap)
+            guard let self else { return }
             await MainActor.run {
                 self.scanInFlight = false
                 self.isScanning = false
-                let stillWanted = self.indexKey == key
-                    || self.indexKey.isEmpty
-                    || !self.hasCompletedFullScan
-                // Accept result if key still matches workspace (caller re-keys).
-                // We compare against the key we started with; ensureIndex may
-                // have been re-entered with the same key.
+                // Accept result unless a newer ensureIndex queued a rescan
+                // (it re-reads live workspace state below).
                 if !self.scanPending {
                     self.outgoing = resolvedMap
                     self.backlinks = projected
@@ -331,7 +296,6 @@ final class LinkIndex: ObservableObject {
                     self.hasCompletedFullScan = true
                     self.fullScanCount += 1
                     self.fileScanCount += scanned.filesScanned
-                    _ = stillWanted
                 }
                 if self.scanPending {
                     self.scanPending = false
@@ -342,36 +306,32 @@ final class LinkIndex: ObservableObject {
         }
     }
 
-    private func rescanSingleFile(
-        _ url: URL,
-        content: String,
+    /// Resolve one file's scanned links (wiki index + local path rules).
+    /// Pure over inputs; hits the disk — call off the main actor.
+    nonisolated private static func resolveScannedLinks(
+        _ links: [OutgoingLink],
+        source: URL,
         roots: [URL],
-        key: String
-    ) async {
-        let scanned = scanOutgoingLinks(text: content)
-        let fileHeadings = markdownOutline(content).map(\.title)
+        vaultFallback: URL?
+    ) async -> [OutgoingLink] {
         let vault = roots.first { root in
-            let p = url.path
+            let p = source.path
             let r = root.standardizedFileURL.path
             return p == r || p.hasPrefix(r + "/")
-        } ?? nearestVaultRoot(startingAt: url.deletingLastPathComponent())
-
-        if !roots.isEmpty {
-            await WikiLinkResolver.shared.setRoots(roots)
-        } else if let dir = Optional(url.deletingLastPathComponent()) {
-            await WikiLinkResolver.shared.setRoots([dir])
-        }
-
+        } ?? vaultFallback
         var resolvedLinks: [OutgoingLink] = []
-        for link in scanned {
+        resolvedLinks.reserveCapacity(links.count)
+        for link in links {
             let wikiHits: [URL]
             if link.kind == .wiki
                 || (link.kind == .image && !link.rawTarget.contains("/")) {
                 wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
-            } else {
+            } else if link.kind == .markdown
+                        || link.kind == .image {
+                // Path resolve first; wiki fallback for bare names.
                 let local = resolveLocalLinkDestination(
                     link.rawTarget,
-                    fileDir: url.deletingLastPathComponent(),
+                    fileDir: source.deletingLastPathComponent(),
                     vaultRoot: vault
                 )
                 if local != nil {
@@ -379,11 +339,49 @@ final class LinkIndex: ObservableObject {
                 } else {
                     wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
                 }
+            } else {
+                wikiHits = []
             }
-            resolvedLinks.append(Self.resolveLink(
-                link, from: url, vaultRoot: vault, wikiMatches: wikiHits
+            resolvedLinks.append(resolveLink(
+                link, from: source, vaultRoot: vault, wikiMatches: wikiHits
             ))
         }
+        return resolvedLinks
+    }
+
+    private func rescanSingleFile(
+        _ url: URL,
+        content: String,
+        roots: [URL],
+        key: String
+    ) async {
+        // Parse + resolve run detached: swift-markdown over the whole buffer
+        // and per-link disk stats must not hitch the main actor on every flush.
+        let (resolvedLinks, fileHeadings) = await Task.detached(
+            priority: .userInitiated
+        ) { () -> ([OutgoingLink], [String]) in
+            let scanned = scanOutgoingLinks(text: content)
+            let headings = markdownOutline(content).map(\.title)
+
+            if !roots.isEmpty {
+                await WikiLinkResolver.shared.setRoots(roots)
+            } else {
+                await WikiLinkResolver.shared.setRoots([url.deletingLastPathComponent()])
+            }
+
+            let hasRootMatch = roots.contains { root in
+                let p = url.path
+                let r = root.standardizedFileURL.path
+                return p == r || p.hasPrefix(r + "/")
+            }
+            let fallback = hasRootMatch
+                ? nil
+                : nearestVaultRoot(startingAt: url.deletingLastPathComponent())
+            let resolved = await LinkIndex.resolveScannedLinks(
+                scanned, source: url, roots: roots, vaultFallback: fallback
+            )
+            return (resolved, headings)
+        }.value
 
         await MainActor.run {
             // Drop only when a newer *workspace* full-scan key won the race.

@@ -58,10 +58,9 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
     let caret = max(0, min(caret, n))
     guard caret >= 2 else { return nil }
 
-    if isCaretInsideCodeFence(text: text, caretUTF16: caret) { return nil }
-    if isCaretInsideInlineCode(text: text, caretUTF16: caret) { return nil }
-
-    // Find the last `[[` on the same line before the caret.
+    // Find the last `[[` on the same line before the caret FIRST — this is
+    // O(line) and almost always bails, while the fence check below is
+    // O(document); the function runs after every keystroke / caret move.
     var i = caret - 1
     var open = -1
     while i >= 1 {
@@ -79,6 +78,9 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
     }
     guard open >= 0 else { return nil }
 
+    if isCaretInsideCodeFence(text: text, caretUTF16: caret) { return nil }
+    if isCaretInsideInlineCode(text: text, caretUTF16: caret) { return nil }
+
     // Text between `[[` and caret.
     let innerStart = open + 2
     guard innerStart <= caret else { return nil }
@@ -87,16 +89,9 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
     // Leading whitespace aborts (plan: space at start of query ends session).
     if inner.first == " " || inner.first == "\t" { return nil }
 
-    // No `|` alias completion in v1 — if user typed pipe, still complete
-    // only the target side before the pipe (or stop after pipe for simplicity).
-    if let pipe = inner.firstIndex(of: "|") {
-        // After alias pipe — no completion.
-        let before = String(inner[..<pipe])
-        if before.contains("#") {
-            // rare [[T#H| — stop
-        }
-        return nil
-    }
+    // No `|` alias completion in v1 — after the pipe the user is typing the
+    // alias, not the target, so the session ends.
+    if inner.contains("|") { return nil }
 
     if let hash = inner.firstIndex(of: "#") {
         let fileQuery = String(inner[..<hash])

@@ -74,7 +74,20 @@ final class VaultLintModel: ObservableObject {
         isRunning = true
         let snap = index.snapshot()
         runTask = Task.detached(priority: .utility) {
-            let result = vaultLintFindings(index: snap)
+            // Home documents need a directory listing per root — do the disk
+            // work here, not in `LinkIndex.snapshot()` on the main actor.
+            let homes = Set(snap.roots.compactMap {
+                homeDocument(in: $0)?.standardizedFileURL
+            })
+            let full = LinkIndexSnapshot(
+                outgoing: snap.outgoing,
+                backlinks: snap.backlinks,
+                headings: snap.headings,
+                skippedOversizedCount: snap.skippedOversizedCount,
+                roots: snap.roots,
+                homeDocuments: homes
+            )
+            let result = vaultLintFindings(index: full)
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 self.findings = result

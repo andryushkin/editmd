@@ -198,15 +198,15 @@ struct FileHistoryPanel: View {
             }
             guard !Task.isCancelled else { return }
             let disk = url.flatMap { DocumentRegistry.shared.knownDiskContent(of: $0) }
-            let unsavedDiff = unsavedHistoryDiff(buffer: buffer, disk: disk)
-            let locals: [FileRevisionEntry] = await Task.detached(priority: .utility) {
-                guard let url else { return [] }
-                return FileRevisionStore.shared.revisions(for: url)
-            }.value
-            let repo: Bool = await Task.detached(priority: .utility) {
-                guard let url else { return false }
-                return GitCLI.repositoryRoot(containing: url) != nil
-            }.value
+            // Full diff + store/git probes stay off the main actor (CLAUDE.md).
+            let (unsavedDiff, locals, repo): (LineDiffResult?, [FileRevisionEntry], Bool) =
+                await Task.detached(priority: .utility) {
+                    let diff = unsavedHistoryDiff(buffer: buffer, disk: disk)
+                    guard let url else { return (diff, [], false) }
+                    let revisions = FileRevisionStore.shared.revisions(for: url)
+                    let inRepo = GitCLI.repositoryRoot(containing: url) != nil
+                    return (diff, revisions, inRepo)
+                }.value
             guard !Task.isCancelled else { return }
             unsaved = unsavedDiff
             localRevisions = locals
@@ -221,8 +221,10 @@ struct FileHistoryPanel: View {
 
     private func openUnsavedDiff() {
         guard let url = fileURL,
-              let disk = DocumentRegistry.shared.knownDiskContent(of: url)
+              let disk = DocumentRegistry.shared.knownDiskContent(of: url),
+              let unsaved
         else { return }
+        // `unsaved` is the already-computed buffer↔disk diff for this state.
         sheet = HistoryDiffSheetModel(
             id: "unsaved",
             title: "Несохранённые изменения",
@@ -232,7 +234,8 @@ struct FileHistoryPanel: View {
             after: document.content,
             baselineContent: document.content,
             oldLabel: "На диске",
-            canRestore: false
+            canRestore: false,
+            stats: unsaved
         )
     }
 
@@ -241,6 +244,7 @@ struct FileHistoryPanel: View {
         let current = document.content
         Task.detached(priority: .userInitiated) {
             let old = FileRevisionStore.shared.content(for: url, contentSHA: rev.contentSHA) ?? ""
+            let stats = lineDiff(before: old, after: current)
             await MainActor.run {
                 sheet = HistoryDiffSheetModel(
                     id: rev.id,
@@ -251,7 +255,8 @@ struct FileHistoryPanel: View {
                     after: current,
                     baselineContent: current,
                     oldLabel: FileHistoryPanel.dateFormatter.string(from: rev.savedAt),
-                    canRestore: true
+                    canRestore: true,
+                    stats: stats
                 )
             }
         }
@@ -262,6 +267,7 @@ struct FileHistoryPanel: View {
         let current = document.content
         Task.detached(priority: .userInitiated) {
             let old = GitCLI.fileContents(of: url, at: entry.hash) ?? ""
+            let stats = lineDiff(before: old, after: current)
             await MainActor.run {
                 sheet = HistoryDiffSheetModel(
                     id: entry.hash,
@@ -272,7 +278,8 @@ struct FileHistoryPanel: View {
                     after: current,
                     baselineContent: current,
                     oldLabel: entry.shortHash,
-                    canRestore: true
+                    canRestore: true,
+                    stats: stats
                 )
             }
         }
@@ -292,6 +299,9 @@ struct HistoryDiffSheetModel: Identifiable, Equatable {
     let baselineContent: String
     let oldLabel: String
     let canRestore: Bool
+    /// Diff computed ONCE when the sheet opens (off-main for revisions) —
+    /// SwiftUI body must not run lineDiff (CLAUDE.md).
+    let stats: LineDiffResult
 }
 
 // MARK: - Diff sheet (History)
@@ -302,11 +312,8 @@ struct HistoryRevisionDiffSheet: View {
     var onRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @State private var confirmRestore = false
-    @State private var staleWarning: String?
 
-    private var stats: LineDiffResult {
-        lineDiff(before: model.before, after: model.after)
-    }
+    private var stats: LineDiffResult { model.stats }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -342,11 +349,6 @@ struct HistoryRevisionDiffSheet: View {
                         .foregroundStyle(.secondary)
                     DiffStatsLabel(added: stats.added, removed: stats.removed,
                                    font: .system(size: 12, design: .monospaced))
-                }
-                if let staleWarning {
-                    Label(staleWarning, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.orange)
                 }
             }
             Spacer()

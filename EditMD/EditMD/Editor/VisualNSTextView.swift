@@ -1024,9 +1024,14 @@ final class VisualNSTextView: NSTextView {
                     y: rectUnion.minY + 1,
                     width: 11,
                     height: 11)
-                callout.color.set()
-                image.draw(in: iconRect, from: .zero, operation: .sourceOver,
-                           fraction: 0.95, respectFlipped: true, hints: nil)
+                // Template symbols ignore the current fill color — tint via
+                // SymbolConfiguration (same as drawBuiltInPluginIcon).
+                let config = NSImage.SymbolConfiguration(pointSize: iconRect.height,
+                                                         weight: .semibold)
+                    .applying(.init(paletteColors: [callout.color]))
+                let rendered = image.withSymbolConfiguration(config) ?? image
+                rendered.draw(in: iconRect, from: .zero, operation: .sourceOver,
+                              fraction: 1, respectFlipped: true, hints: nil)
             }
         }
 

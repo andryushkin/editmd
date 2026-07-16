@@ -439,13 +439,11 @@ final class DocumentRegistry {
         guard entry.refcount <= 0 else { return }
         entry.autosaveTask?.cancel()
         entry.document.commitContentEdit()
-        if entry.isDirty {
-            try? flush(entry)
-        } else {
-            // Closing a clean document: force a last local revision so history
-            // captures the final on-disk state even if debounce suppressed saves.
-            noteLocalRevision(url: key, content: entry.document.content, force: true)
-        }
+        if entry.isDirty { try? flush(entry) }
+        // Closing a document: force a last local revision so history captures
+        // the final on-disk state even when the flush path (or a clean close)
+        // fell inside the debounce window. Content dedup drops duplicates.
+        noteLocalRevision(url: key, content: entry.document.content, force: true)
         stopWatching(entry)
         entries.removeValue(forKey: key)
         parkInSessionCache(
