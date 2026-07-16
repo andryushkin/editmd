@@ -673,10 +673,7 @@ struct WorkspaceSidebar: View {
     /// Shared context-menu item: absolute path → pasteboard.
     @ViewBuilder
     private func copyPathMenuItem(_ url: URL) -> some View {
-        Button("Скопировать путь") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(url.path, forType: .string)
-        }
+        Button("Скопировать путь") { copyPathToPasteboard(url) }
     }
 }
 
@@ -834,10 +831,7 @@ private struct SubfolderNode: View {
             } else {
                 Button("Скрыть из списка") { workspace.hide(file) }
             }
-            Button("Скопировать путь") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(file.path, forType: .string)
-            }
+            Button("Скопировать путь") { copyPathToPasteboard(file) }
             Button("Показать в Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
             }

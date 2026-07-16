@@ -4,6 +4,8 @@ import Foundation
 enum LineEndingKind: String, Equatable, Sendable {
     case lf
     case crlf
+    /// Classic Mac bare CR only (rare).
+    case cr
     case mixed
     /// Empty text or a single line with no terminators.
     case none
@@ -80,6 +82,7 @@ func textHasTrailingNewline(_ text: String) -> Bool {
 func detectLineEndings(in text: String) -> LineEndingKind {
     var sawLF = false
     var sawCRLF = false
+    var sawCR = false
     let scalars = text.unicodeScalars
     var i = scalars.startIndex
     while i < scalars.endIndex {
@@ -91,8 +94,8 @@ func detectLineEndings(in text: String) -> LineEndingKind {
                 i = scalars.index(after: next)
                 continue
             }
-            // Bare CR: treat as a distinct ending so it mixes with LF/CRLF.
-            sawLF = true
+            // Bare CR is distinct from LF and CRLF (classic Mac).
+            sawCR = true
             i = next
             continue
         }
@@ -101,12 +104,12 @@ func detectLineEndings(in text: String) -> LineEndingKind {
         }
         i = scalars.index(after: i)
     }
-    switch (sawLF, sawCRLF) {
-    case (false, false): return .none
-    case (true, false): return .lf
-    case (false, true): return .crlf
-    case (true, true): return .mixed
-    }
+    let kinds = [sawLF, sawCRLF, sawCR].filter(\.self).count
+    if kinds == 0 { return .none }
+    if kinds > 1 { return .mixed }
+    if sawLF { return .lf }
+    if sawCRLF { return .crlf }
+    return .cr
 }
 
 // MARK: - Disk metadata (off-main)
@@ -146,6 +149,7 @@ func lineEndingCaption(_ kind: LineEndingKind) -> String {
     switch kind {
     case .lf: return "LF"
     case .crlf: return "CRLF"
+    case .cr: return "CR"
     case .mixed: return "Mixed"
     case .none: return "—"
     }

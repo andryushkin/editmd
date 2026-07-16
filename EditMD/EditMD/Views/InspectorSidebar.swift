@@ -133,9 +133,13 @@ private struct FileInfoPanel: View {
 
     @State private var stats: FileInfoStats = computeFileInfoStats(text: "")
     @State private var diskInfo: FileDiskInfo = .empty
-    @State private var statsTask: Task<Void, Never>?
-    /// Cache key: path + mtime so external saves refresh size/date.
+    @State private var refreshTask: Task<Void, Never>?
+    /// Cache key: path + mtime + size so external saves refresh attributes.
     @State private var diskCacheKey: String = ""
+    /// Path this panel currently wants disk stats for. Written on the main
+    /// actor when a refresh is scheduled; async completions compare against
+    /// this `@State` (not a captured `fileURL` copy — View is a struct).
+    @State private var expectedDiskPath: String?
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -159,19 +163,17 @@ private struct FileInfoPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            scheduleStatsRefresh(delayMs: 0)
-            refreshDiskInfo()
+            scheduleRefresh(delayMs: 0)
         }
         .onChange(of: content) { _ in
-            scheduleStatsRefresh(delayMs: 250)
-            // Autosave may have updated mtime/size — re-probe off-main.
-            refreshDiskInfo()
+            // Buffer stats + opportunistic disk re-probe share one debounce
+            // (autosave may have updated mtime/size).
+            scheduleRefresh(delayMs: 250)
         }
         .onChange(of: fileURL) { _ in
             diskInfo = .empty
             diskCacheKey = ""
-            refreshDiskInfo()
-            scheduleStatsRefresh(delayMs: 0)
+            scheduleRefresh(delayMs: 0)
         }
     }
 
@@ -279,41 +281,45 @@ private struct FileInfoPanel: View {
     }
 
     private func copyPath(_ url: URL) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.path, forType: .string)
+        copyPathToPasteboard(url)
     }
 
-    private func scheduleStatsRefresh(delayMs: UInt64) {
-        statsTask?.cancel()
+    /// Debounced refresh of buffer stats and disk attributes together.
+    /// `expectedDiskPath` is set on the main actor before any await so a
+    /// slow stat for file A cannot overwrite the panel after the user
+    /// switched to file B.
+    private func scheduleRefresh(delayMs: UInt64) {
+        refreshTask?.cancel()
         let text = content
-        statsTask = Task {
+        let url = fileURL?.standardizedFileURL
+        let path = url?.path
+        expectedDiskPath = path
+        if path == nil {
+            diskInfo = .empty
+            diskCacheKey = ""
+        }
+        refreshTask = Task {
             if delayMs > 0 {
                 try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
             }
             guard !Task.isCancelled else { return }
-            // Outline parse can be non-trivial on large docs — off main.
-            let next = await Task.detached(priority: .userInitiated) {
+
+            // Buffer stats (outline parse can be non-trivial on large docs).
+            let nextStats = await Task.detached(priority: .userInitiated) {
                 computeFileInfoStats(text: text)
             }.value
             guard !Task.isCancelled else { return }
-            stats = next
-        }
-    }
+            stats = nextStats
 
-    private func refreshDiskInfo() {
-        guard let url = fileURL else {
-            diskInfo = .empty
-            diskCacheKey = ""
-            return
-        }
-        let path = url.standardizedFileURL.path
-        Task {
+            // Disk size / mtime — same debounce; skip when path already
+            // matched a cached (url, mtime, size) key after load.
+            guard let url, let path else { return }
             let loaded = await Task.detached(priority: .utility) {
                 loadFileDiskInfo(for: url)
             }.value
             guard !Task.isCancelled else { return }
-            // Drop stale results if the user switched files mid-load.
-            guard fileURL?.standardizedFileURL.path == path else { return }
+            // `@State` is live storage — not the captured `fileURL` value.
+            guard expectedDiskPath == path else { return }
             let key = "\(path)|\(loaded.modificationDate?.timeIntervalSince1970 ?? 0)|\(loaded.byteSize ?? -1)"
             if key == diskCacheKey { return }
             diskCacheKey = key

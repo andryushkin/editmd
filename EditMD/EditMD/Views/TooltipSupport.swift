@@ -33,6 +33,14 @@ extension View {
     }
 }
 
+// MARK: - Pasteboard helpers
+
+/// Absolute path → general pasteboard (context menus, Info panel).
+func copyPathToPasteboard(_ url: URL) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(url.path, forType: .string)
+}
+
 // MARK: - Shared chrome (sidebar navigator + folder action strip)
 
 /// Metrics and well color shared by the Files/Outline pill and the folder

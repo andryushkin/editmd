@@ -89,7 +89,19 @@ final class InspectorSidebarTests: XCTestCase {
     func testLineEndingCaption() {
         XCTAssertEqual(lineEndingCaption(.lf), "LF")
         XCTAssertEqual(lineEndingCaption(.crlf), "CRLF")
+        XCTAssertEqual(lineEndingCaption(.cr), "CR")
         XCTAssertEqual(lineEndingCaption(.mixed), "Mixed")
         XCTAssertEqual(lineEndingCaption(.none), "—")
+    }
+
+    func testStatsBareCR() {
+        let s = computeFileInfoStats(text: "a\rb\r")
+        XCTAssertEqual(s.lineEndings, .cr)
+        XCTAssertTrue(s.hasTrailingNewline)
+    }
+
+    func testStatsBareCRMixedWithLF() {
+        let s = computeFileInfoStats(text: "a\rb\nc")
+        XCTAssertEqual(s.lineEndings, .mixed)
     }
 }
