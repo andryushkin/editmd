@@ -46,7 +46,7 @@ Documents-поверхность (правый inspector документа: С�
 | 03 | Wiki-link UX: автодополнение, переход к заголовку | [plans/03-wikilink-ux.md](plans/03-wikilink-ux.md) | 02 | сделано |
 | 04 | Properties-панель: frontmatter-форма и YAML | [plans/04-properties-panel.md](plans/04-properties-panel.md) | 01 | сделано |
 | 05 | История файла: git + локальные ревизии + restore | [plans/05-file-history.md](plans/05-file-history.md) | 01 | сделано |
-| 06 | Vault-lint: мёртвые ссылки, сироты | [plans/06-vault-lint.md](plans/06-vault-lint.md) | 02 | не начат |
+| 06 | Vault-lint: мёртвые ссылки, сироты | [plans/06-vault-lint.md](plans/06-vault-lint.md) | 02 | сделано |
 | 07 | Поиск по workspace с фильтрами | [plans/07-workspace-search.md](plans/07-workspace-search.md) | — | не начат |
 | 08 | Мелочи и доводка сайдбаров | [plans/08-small-features.md](plans/08-small-features.md) | частично 01 | не начат |
 

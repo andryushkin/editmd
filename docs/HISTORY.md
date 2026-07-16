@@ -1033,6 +1033,13 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
 - Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.
 
+## Vault-lint (план 06)
+
+- `Editor/VaultLint.swift` — чистая функция `vaultLintFindings` по `LinkIndexSnapshot`: dead/ambiguous/self wiki, dead relative (в т.ч. за пределы roots), dead image, orphan (без README/index home), dead heading (если в индексе есть titles).
+- `LinkIndex` хранит `headings` из outline при scan; `snapshot()` + `homeDocument` для orphan-исключений.
+- `VaultLintModel` пересчитывает off-main после обновления индекса; View → «Проверить ссылки workspace» и Info → «Проблем в workspace: N».
+- Per-file: Source lint merge + `vaultLintDidUpdate` notification. Vault-находки отстают до save/index (осознанно). Без автоправок.
+
 ## История файла (план 05)
 
 - Вкладка «История» в правом inspector: **Не сохранено** (буфер vs `knownDiskContent`), **Локальные ревизии**, **Git** (`git log --follow --max-count=50`).
