@@ -221,6 +221,26 @@ final class FrontmatterEditTests: XCTestCase {
         XCTAssertEqual(next, "---\ntitle: A\ndraft: \"false\"\n---\nbody\n")
     }
 
+    func testInsertPlainLiteralBool() {
+        let doc = "---\ntitle: A\n---\n"
+        let next = insertFrontmatterScalar(document: doc, key: "draft",
+                                           value: "false", plainLiteral: true)
+        XCTAssertEqual(next, "---\ntitle: A\ndraft: false\n---\n")
+    }
+
+    @MainActor
+    func testApplyDocumentEditFromPropertiesPath() {
+        let doc = MarkdownDocument()
+        doc.content = "---\ntitle: A\n---\nbody\n"
+        doc.contentUndoManager.groupsByEvent = false
+        let updated = replaceFrontmatterScalar(document: doc.content, key: "title",
+                                               newValue: "B")!
+        doc.applyDocumentEdit(updated, actionName: "Edit title")
+        XCTAssertEqual(doc.content, "---\ntitle: B\n---\nbody\n")
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "---\ntitle: A\n---\nbody\n")
+    }
+
     func testInsertIntoEmptyFrontmatter() {
         let doc = "---\n---\nbody"
         let next = insertFrontmatterScalar(document: doc, key: "title", value: "A")

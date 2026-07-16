@@ -48,9 +48,12 @@ func replaceFrontmatterScalar(document: String, key: String, newValue: String) -
 
 /// Inserts a scalar field at the end of frontmatter, or creates a frontmatter
 /// block when none exists. If the key already exists (any shape), returns nil.
-func insertFrontmatterScalar(document: String, key: String, value: String) -> String? {
+/// Pass `plainLiteral: true` for bare bool/number/date values.
+func insertFrontmatterScalar(document: String, key: String, value: String,
+                             plainLiteral: Bool = false) -> String? {
     guard !key.isEmpty, isValidFrontmatterKey(key) else { return nil }
-    guard let encoded = encodeYAMLScalar(value) else { return nil }
+    guard let encoded = encodeYAMLScalar(value, plainLiteral: plainLiteral)
+    else { return nil }
     if locateFrontmatterField(in: document, key: key) != nil { return nil }
     let line = "\(key): \(encoded)"
     return insertFrontmatterLines(in: document, lines: [line])

@@ -7,6 +7,8 @@ import AppKit
 struct InspectorSidebar: View {
     let fileURL: URL?
     let outlineContent: String
+    /// Live document model — Properties panel applies undoable edits here.
+    @ObservedObject var document: MarkdownDocument
     /// Live git snapshot for the focused file (from ContentView; no new Process).
     let gitSnapshot: GitFileSnapshot
     /// Whether a workspace root is adopted (Backlinks need it).
@@ -44,7 +46,7 @@ struct InspectorSidebar: View {
                     )
                 case "properties":
                     PropertiesPanel(
-                        content: outlineContent,
+                        document: document,
                         onOpenInSource: onOpenInSource
                     )
                 case "links":
