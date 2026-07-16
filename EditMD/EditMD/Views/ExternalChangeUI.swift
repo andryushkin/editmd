@@ -294,7 +294,8 @@ struct UnifiedDiffSheet: View {
 
 /// Read-only NSTextView so long lines scroll horizontally, gutters stay tight
 /// on the left, and line bodies use the same highlighting as Source mode.
-private struct DiffTextRepresentable: NSViewRepresentable {
+/// Shared by external-change, git, and History revision sheets.
+struct DiffTextRepresentable: NSViewRepresentable {
     let lines: [DiffLine]
     let before: String
     let after: String

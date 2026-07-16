@@ -147,6 +147,10 @@ struct ContentView: View {
                             onOpenInSource: { offset in
                                 setEditorMode(.source)
                                 positionStore.requestJump(toMarkdownOffset: offset)
+                            },
+                            onHistoryRestore: { oldContent, baseline in
+                                restoreFromHistory(oldContent: oldContent,
+                                                   baseline: baseline)
                             }
                         )
                         .frame(width: inspectorWidth)
@@ -543,6 +547,23 @@ struct ContentView: View {
         let name = BuiltInPluginRegistry.descriptors
             .first(where: { $0.id == pluginID })?.name ?? "Plugin"
         document.applyDocumentEdit(updated, actionName: "Add \(name)")
+    }
+
+    /// History tab restore: undoable whole-document replace. Rejects if the
+    /// buffer changed since the diff preview was opened.
+    private func restoreFromHistory(oldContent: String, baseline: String) {
+        guard canApplyHistoryRestore(previewBaseline: baseline,
+                                     currentContent: document.content) else {
+            let alert = NSAlert()
+            alert.messageText = "Документ изменился"
+            alert.informativeText =
+                "Откройте diff заново, чтобы восстановить эту ревизию."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        document.applyDocumentEdit(oldContent, actionName: "Restore Revision")
     }
 
     /// agterm-style divider: a 1px separator with a wider invisible grab

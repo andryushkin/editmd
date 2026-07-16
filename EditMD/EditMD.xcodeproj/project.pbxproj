@@ -129,6 +129,7 @@
 		DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */; };
 		DFD03AF6B2AE74B68AD778BD /* SKILL.md in Resources */ = {isa = PBXBuildFile; fileRef = 5155511FAA84E40D16B091B7 /* SKILL.md */; };
 		E0C5F0E5FA0696446CBF0AFE /* KaTeXResources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BA444A2429A2E9B1751007 /* KaTeXResources.swift */; };
+		E22C07681D07DD1CC7C69EDE /* FileHistorySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D630726D779CF10CC0685FF /* FileHistorySidebar.swift */; };
 		E2830B1049758784FCE6E3D8 /* DocumentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */; };
 		E766B8DC9A8DCFF0048B5748 /* SkillInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13117B53A0709929BE14082 /* SkillInstaller.swift */; };
 		E7C7AFCDD89E1CBC12830916 /* DocumentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D121A56408289D8F49E90D /* DocumentStore.swift */; };
@@ -166,6 +167,7 @@
 		08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathEditorPopover.swift; sourceTree = "<group>"; };
 		0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableEditingTests.swift; sourceTree = "<group>"; };
 		0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
+		0D630726D779CF10CC0685FF /* FileHistorySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistorySidebar.swift; sourceTree = "<group>"; };
 		0E24489CEA45FF0DDABBBD39 /* MathScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScan.swift; sourceTree = "<group>"; };
 		0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipSupport.swift; sourceTree = "<group>"; };
 		13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGit.swift; sourceTree = "<group>"; };
@@ -435,6 +437,7 @@
 				AB851CD26B911D4370D78D4C /* EditorToolbar.swift */,
 				F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */,
 				8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */,
+				0D630726D779CF10CC0685FF /* FileHistorySidebar.swift */,
 				299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */,
 				F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */,
 				A4840BC0DD8B410D784453BC /* GitSidebar.swift */,
@@ -764,6 +767,7 @@
 				95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */,
 				B53D01C27281EC597C43ACAE /* FileEditor.swift in Sources */,
 				670C9265FFA4B3E3A4D2A55F /* FileHistoryGit.swift in Sources */,
+				E22C07681D07DD1CC7C69EDE /* FileHistorySidebar.swift in Sources */,
 				8717A872653EE3B7B15FFACB /* FileInfoStats.swift in Sources */,
 				413348709EF1DC2FC83513E5 /* FileRevisionStore.swift in Sources */,
 				9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */,

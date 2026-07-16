@@ -338,6 +338,11 @@ final class DocumentRegistry {
         entries[url.standardizedFileURL]?.document.content
     }
 
+    /// Last disk text we synced for an open file (History «Не сохранено»).
+    func knownDiskContent(of url: URL) -> String? {
+        entries[url.standardizedFileURL]?.knownDiskContent
+    }
+
     /// Returns the shared document for `url`: live entry → session cache → disk.
     /// Balance with `release`.
     func acquire(_ url: URL) throws -> MarkdownDocument {

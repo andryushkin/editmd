@@ -2,12 +2,12 @@ import SwiftUI
 import AppKit
 
 /// Right inspector panel for document-scope UI (Outline, Info, Links,
-/// Backlinks, Properties, later History). Mirrors the left `WorkspaceSidebar`
+/// Backlinks, Properties, History). Mirrors the left `WorkspaceSidebar`
 /// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
 struct InspectorSidebar: View {
     let fileURL: URL?
     let outlineContent: String
-    /// Live document model — Properties panel applies undoable edits here.
+    /// Live document model — Properties / History apply undoable edits here.
     @ObservedObject var document: MarkdownDocument
     /// Live git snapshot for the focused file (from ContentView; no new Process).
     let gitSnapshot: GitFileSnapshot
@@ -18,6 +18,8 @@ struct InspectorSidebar: View {
     let onOpen: (URL) -> Void
     /// Switch to Source and place the caret (Properties «Открыть в Source»).
     var onOpenInSource: ((Int) -> Void)? = nil
+    /// History restore (stage 5); optional until wired.
+    var onHistoryRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @ObservedObject private var linkIndex = LinkIndex.shared
     @AppStorage("inspectorTab") private var tab = "outline"
@@ -25,7 +27,7 @@ struct InspectorSidebar: View {
     @State private var filterText = ""
 
     private var showsFilterBar: Bool {
-        tab != "info" && tab != "properties"
+        tab != "info" && tab != "properties" && tab != "history"
     }
 
     var body: some View {
@@ -48,6 +50,12 @@ struct InspectorSidebar: View {
                     PropertiesPanel(
                         document: document,
                         onOpenInSource: onOpenInSource
+                    )
+                case "history":
+                    FileHistoryPanel(
+                        fileURL: fileURL,
+                        document: document,
+                        onRestore: onHistoryRestore
                     )
                 case "links":
                     OutgoingLinksPanel(
@@ -94,6 +102,10 @@ struct InspectorSidebar: View {
             navTabButton(id: "properties",
                          systemImage: "list.bullet.rectangle",
                          help: "Свойства — frontmatter")
+            navDivider
+            navTabButton(id: "history",
+                         systemImage: "clock.arrow.circlepath",
+                         help: "История — локальные ревизии и git")
             navDivider
             navTabButton(id: "links",
                          systemImage: "link",

@@ -75,4 +75,36 @@ final class FileHistoryGitTests: XCTestCase {
         let entries = parseGitFileHistoryLog(parts.joined(separator: "\0"), maxCount: 3)
         XCTAssertEqual(entries.count, 3)
     }
+
+    // MARK: - Unsaved / restore helpers
+
+    func testUnsavedDiffNilWhenEqual() {
+        XCTAssertNil(unsavedHistoryDiff(buffer: "a", disk: "a"))
+        XCTAssertNil(unsavedHistoryDiff(buffer: "a", disk: nil))
+    }
+
+    func testUnsavedDiffCounts() {
+        let r = unsavedHistoryDiff(buffer: "a\nb\n", disk: "a\n")
+        XCTAssertNotNil(r)
+        XCTAssertGreaterThan(r!.added + r!.removed, 0)
+    }
+
+    func testRestoreStaleCheck() {
+        XCTAssertTrue(canApplyHistoryRestore(previewBaseline: "x", currentContent: "x"))
+        XCTAssertFalse(canApplyHistoryRestore(previewBaseline: "x", currentContent: "y"))
+    }
+
+    @MainActor
+    func testRestoreUndoableViaDocumentEdit() {
+        let doc = MarkdownDocument()
+        doc.content = "current"
+        doc.contentUndoManager.groupsByEvent = false
+        let baseline = doc.content
+        XCTAssertTrue(canApplyHistoryRestore(previewBaseline: baseline,
+                                             currentContent: doc.content))
+        doc.applyDocumentEdit("restored", actionName: "Restore Revision")
+        XCTAssertEqual(doc.content, "restored")
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "current")
+    }
 }
