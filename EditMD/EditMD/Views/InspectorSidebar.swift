@@ -11,7 +11,6 @@ struct InspectorSidebar: View {
     let gitSnapshot: GitFileSnapshot
     let onJump: (Int) -> Void
 
-    @ObservedObject private var workspace = WorkspaceModel.shared
     @AppStorage("inspectorTab") private var tab = "outline"
     /// Bottom filter field — filters Outline headings (and future lists).
     @State private var filterText = ""
@@ -29,8 +28,7 @@ struct InspectorSidebar: View {
                     FileInfoPanel(
                         fileURL: fileURL,
                         content: outlineContent,
-                        gitSnapshot: gitSnapshot,
-                        workspace: workspace
+                        gitSnapshot: gitSnapshot
                     )
                 default:
                     // "outline" and any unknown key fall back to Outline.
@@ -129,7 +127,6 @@ private struct FileInfoPanel: View {
     let fileURL: URL?
     let content: String
     let gitSnapshot: GitFileSnapshot
-    @ObservedObject var workspace: WorkspaceModel
 
     @State private var stats: FileInfoStats = computeFileInfoStats(text: "")
     @State private var diskInfo: FileDiskInfo = .empty
@@ -271,13 +268,15 @@ private struct FileInfoPanel: View {
 
     // MARK: - Path / disk / stats
 
+    /// Parent folder as `~/…/` (tilde + trailing slash). File name is the
+    /// separate «Имя» row — path is location, not basename.
     private func displayPath(for url: URL) -> String {
-        let std = url.standardizedFileURL
-        if let ws = workspace.workspaceOwning(std),
-           let rel = workspace.relativePath(of: std, in: ws) {
-            return rel
+        let dir = url.standardizedFileURL.deletingLastPathComponent()
+        var path = (dir.path as NSString).abbreviatingWithTildeInPath
+        if path != "/", !path.hasSuffix("/") {
+            path += "/"
         }
-        return (std.path as NSString).abbreviatingWithTildeInPath
+        return path
     }
 
     private func copyPath(_ url: URL) {
