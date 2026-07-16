@@ -529,7 +529,6 @@ struct ContentView: View {
     }
 
     private func addBuiltInPlugin(_ pluginID: String) {
-        document.commitContentEdit()
         guard let updated = BuiltInPluginRegistry.installPlugin(
             id: pluginID, in: document.content)
         else {
@@ -538,7 +537,7 @@ struct ContentView: View {
         }
         let name = BuiltInPluginRegistry.descriptors
             .first(where: { $0.id == pluginID })?.name ?? "Plugin"
-        document.applyUndoableContent(updated, actionName: "Add \(name)")
+        document.applyDocumentEdit(updated, actionName: "Add \(name)")
     }
 
     /// agterm-style divider: a 1px separator with a wider invisible grab

@@ -715,8 +715,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             guard let document,
                   let toggled = toggleTaskListItem(in: document.content, index: index)
             else { return }
-            document.commitContentEdit()
-            document.applyUndoableContent(toggled, actionName: "Toggle Task")
+            document.applyDocumentEdit(toggled, actionName: "Toggle Task")
         }
 
         /// A compiled-in plugin token was clicked. Source offsets make the
@@ -726,8 +725,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   let toggled = BuiltInPluginRegistry.cycleToken(
                       in: document.content, at: offset)
             else { return }
-            document.commitContentEdit()
-            document.applyUndoableContent(toggled, actionName: "Cycle Status")
+            document.applyDocumentEdit(toggled, actionName: "Cycle Status")
         }
 
         /// Applies a whitelisted field edit from the plugin card. The registry
@@ -743,8 +741,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                       stateIndex: stateIndex, field: field, value: value,
                       expectedSource: expectedSource)
             else { return }
-            document.commitContentEdit()
-            document.applyUndoableContent(updated, actionName: "Edit Plugin Settings")
+            document.applyDocumentEdit(updated, actionName: "Edit Plugin Settings")
         }
 
         func addBuiltInPluginConfigurationState(pluginID: String) {
@@ -752,8 +749,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                   let updated = BuiltInPluginRegistry.addConfigurationState(
                       pluginID: pluginID, in: document.content)
             else { return }
-            document.commitContentEdit()
-            document.applyUndoableContent(updated, actionName: "Add Plugin State")
+            document.applyDocumentEdit(updated, actionName: "Add Plugin State")
         }
 
         /// The focused WebKit text field remains first responder; the standard
@@ -855,8 +851,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             cachedSelection = ""
             cachedStart = -1
             cachedEnd = -1
-            document.commitContentEdit()
-            document.applyUndoableContent(next, actionName: actionName)
+            document.applyDocumentEdit(next, actionName: actionName)
         }
 
         /// Jump: prefer an exact `data-md-lo` span (Review / outline in Preview),

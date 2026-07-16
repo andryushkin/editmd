@@ -89,4 +89,23 @@ final class MarkdownDocumentTests: XCTestCase {
         doc.contentUndoManager.undo()
         XCTAssertEqual(doc.content, "hi")
     }
+
+    func testApplyDocumentEditFlushesTypingThenRegistersUndo() {
+        let doc = MarkdownDocument()
+        doc.content = "base"
+        doc.contentUndoManager.groupsByEvent = false
+
+        doc.beginContentEdit()
+        doc.content = "typed"
+        // applyDocumentEdit must commit the typing burst first so undo
+        // restores "typed" → "base" in two steps, not one jump past typing.
+        doc.applyDocumentEdit("---\ntitle: A\n---\ntyped", actionName: "Edit Properties")
+
+        XCTAssertEqual(doc.content, "---\ntitle: A\n---\ntyped")
+        XCTAssertTrue(doc.contentUndoManager.canUndo)
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "typed")
+        doc.contentUndoManager.undo()
+        XCTAssertEqual(doc.content, "base")
+    }
 }

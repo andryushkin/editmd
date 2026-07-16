@@ -262,4 +262,15 @@ final class MarkdownDocument: ReferenceFileDocument {
         }
         if needsGroup { um.endUndoGrouping() }
     }
+
+    /// Flush any coalesced typing, then apply a whole-document replacement on
+    /// the document undo stack. Shared by Preview plugin-card, Properties
+    /// panel, built-in plugin install, and other non-keystroke edits so they
+    /// never race a pending typing commit and are not treated as external
+    /// file-watcher changes.
+    @MainActor
+    func applyDocumentEdit(_ newContent: String, actionName: String) {
+        commitContentEdit()
+        applyUndoableContent(newContent, actionName: actionName)
+    }
 }
