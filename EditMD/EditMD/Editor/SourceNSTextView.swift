@@ -1,0 +1,244 @@
+import AppKit
+
+// The Source-mode NSTextView subclass: gutter drawing, special paste
+// (table/image doors), lint quick-fixes and table structure ops in the
+// context menu. Extracted from SourceTextView.swift.
+
+/// Ordered special-paste doors for Source. Closures are lazy on purpose: a
+/// Word/Excel table must be consumed before image detection even inspects its
+/// TIFF preview, and a fenced code block must inspect neither door.
+func handleSourceSpecialPaste(insideFence: Bool,
+                              tableMarkdown: () -> String?,
+                              insertTable: (String) -> Void,
+                              insertImage: () -> Bool) -> Bool {
+    guard !insideFence else { return false }
+    if let markdown = tableMarkdown() {
+        insertTable(markdown)
+        return true
+    }
+    return insertImage()
+}
+
+final class SourceNSTextView: NSTextView {
+
+    /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
+    /// AppKit would pin it to the pane edge, far from a centred column).
+    var gutterState = GutterState()
+    weak var wikiCompletion: WikiCompletionController?
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawGutterNumbers(in: rect, state: gutterState)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if wikiCompletion?.handleKey(event: event) == true { return }
+        super.keyDown(with: event)
+    }
+
+    var lintDiagnostics: [LintDiagnostic] = []
+    private var menuFixes: [LintFix] = []
+    private enum SourceTableOp { case rowAbove, rowBelow, deleteRow, colLeft, colRight, deleteColumn }
+    private var menuTableOps: [SourceTableOp] = []
+    private var menuTableContext: SourceTableContext?
+
+    // Paste as plain text — rich content from the clipboard would introduce
+    // attributes the highlighter doesn't own (isRichText is on only so our
+    // own per-element attributes render). Exceptions: clipboard images become
+    // assets + Markdown, and tables (HTML from web/Word/Excel, or TSV) become
+    // pipe-table Markdown.
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        let inFence = caretInsideFence()
+        if handleSourceSpecialPaste(
+            insideFence: inFence,
+            tableMarkdown: {
+                markdownTableFromPasteboard(
+                    html: pasteboard.string(forType: .html),
+                    plain: pasteboard.string(forType: .string))
+            },
+            insertTable: { [weak self] in self?.insertPastedTable($0) },
+            insertImage: { [weak self] in
+                guard let coordinator = self?.delegate as? SourceTextView.Coordinator
+                else { return false }
+                return coordinator.pasteImageFromPasteboard()
+            }) {
+            return
+        }
+        pasteAsPlainText(sender)
+    }
+
+    /// Fenced code blocks are literal — TSV pasted there must stay TSV.
+    /// Fence-marker parity up to the caret (``` / ~~~ at line start).
+    func caretInsideFence() -> Bool {
+        let ns = string as NSString
+        let caret = min(selectedRange().location, ns.length)
+        var inside = false
+        var location = 0
+        while location < caret {
+            var lineEnd = 0, contentEnd = 0
+            ns.getLineStart(nil, end: &lineEnd, contentsEnd: &contentEnd,
+                            for: NSRange(location: location, length: 0))
+            let line = ns.substring(with: NSRange(location: location,
+                                                  length: contentEnd - location))
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") || line.hasPrefix("~~~") { inside.toggle() }
+            if lineEnd == location { break }
+            location = lineEnd
+        }
+        return inside
+    }
+
+    /// Inserts pipe-table markdown, padding with newlines so the table starts
+    /// on its own line and the following text keeps its own.
+    private func insertPastedTable(_ markdown: String) {
+        let ns = string as NSString
+        let selection = selectedRange()
+        var text = markdown
+        let atLineStart = selection.location == 0
+            || (selection.location <= ns.length
+                && ns.character(at: selection.location - 1) == 0x0A)
+        if !atLineStart { text = "\n" + text }
+        let end = NSMaxRange(selection)
+        if end >= ns.length || ns.character(at: end) != 0x0A { text += "\n" }
+        guard shouldChangeText(in: selection, replacementString: text) else { return }
+        textStorage?.replaceCharacters(in: selection, with: text)
+        didChangeText()
+        setSelectedRange(NSRange(location: selection.location + (text as NSString).length,
+                                 length: 0))
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard let menu else { return menu }
+        let point = convert(event.locationInWindow, from: nil)
+
+        if !lintDiagnostics.isEmpty, let idx = characterIndex(at: point) {
+            let hits = lintDiagnostics.filter { NSLocationInRange(idx, $0.range) }
+            if !hits.isEmpty {
+                menuFixes = []
+                var insertAt = 0
+                for diagnostic in hits {
+                    // action == nil → the item auto-disables; serves as a header.
+                    let header = NSMenuItem(title: diagnostic.message, action: nil, keyEquivalent: "")
+                    menu.insertItem(header, at: insertAt)
+                    insertAt += 1
+                    for fix in diagnostic.fixes {
+                        let item = NSMenuItem(title: fix.title,
+                                              action: #selector(applyLintFix(_:)),
+                                              keyEquivalent: "")
+                        item.target = self
+                        item.tag = menuFixes.count
+                        item.indentationLevel = 1
+                        menuFixes.append(fix)
+                        menu.insertItem(item, at: insertAt)
+                        insertAt += 1
+                    }
+                }
+                menu.insertItem(.separator(), at: insertAt)
+            }
+        }
+
+        // Table structure ops when the click lands inside a pipe table.
+        if let idx = nearestCharacterIndex(at: point),
+           let context = sourceTableContext(in: string, at: idx) {
+            menuTableContext = context
+            menuTableOps = []
+            var insertAt = 0
+            func add(_ title: String, _ op: SourceTableOp, enabled: Bool = true) {
+                let item = NSMenuItem(title: title,
+                                      action: enabled ? #selector(applySourceTableOp(_:)) : nil,
+                                      keyEquivalent: "")
+                if enabled { item.target = self }
+                item.tag = menuTableOps.count
+                menuTableOps.append(op)
+                menu.insertItem(item, at: insertAt)
+                insertAt += 1
+            }
+            let onBody = context.bodyIndex != nil
+            add("Строка выше", .rowAbove, enabled: onBody)
+            add("Строка ниже", .rowBelow)
+            add("Удалить строку", .deleteRow, enabled: onBody)
+            menu.insertItem(.separator(), at: insertAt); insertAt += 1
+            add("Столбец слева", .colLeft)
+            add("Столбец справа", .colRight)
+            add("Удалить столбец", .deleteColumn, enabled: context.grid.columnCount > 1)
+            menu.insertItem(.separator(), at: insertAt)
+        }
+        return menu
+    }
+
+    /// Applies a table structure op by replacing the whole table with the
+    /// canonical serialization of the mutated grid (reformatting intended).
+    @objc private func applySourceTableOp(_ sender: NSMenuItem) {
+        guard let context = menuTableContext,
+              sender.tag >= 0, sender.tag < menuTableOps.count,
+              NSMaxRange(context.tableRange) <= (string as NSString).length else { return }
+        var grid = context.grid
+        let ok: Bool
+        switch menuTableOps[sender.tag] {
+        case .rowAbove:
+            guard let body = context.bodyIndex else { return }
+            grid.insertRow(at: body); ok = true
+        case .rowBelow:
+            grid.insertRow(at: context.bodyIndex.map { $0 + 1 } ?? 0); ok = true
+        case .deleteRow:
+            guard let body = context.bodyIndex else { return }
+            ok = grid.deleteRow(at: body)
+        case .colLeft:
+            grid.insertColumn(at: context.column); ok = true
+        case .colRight:
+            grid.insertColumn(at: context.column + 1); ok = true
+        case .deleteColumn:
+            ok = grid.deleteColumn(at: context.column)
+        }
+        guard ok else { NSSound.beep(); return }
+        let replacement = serializeGFMTable(grid)
+        guard shouldChangeText(in: context.tableRange, replacementString: replacement) else { return }
+        textStorage?.replaceCharacters(in: context.tableRange, with: replacement)
+        didChangeText()
+    }
+
+    /// Character index of the glyph nearest to a view point — table ops accept
+    /// clicks anywhere on the row, incl. right of the line end.
+    private func nearestCharacterIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer else { return nil }
+        let ns = string as NSString
+        guard ns.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        // Reject vertical misses (clicks above/below the text) — nearest-glyph
+        // would otherwise snap them onto the first/last line.
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        guard containerPoint.y >= lineRect.minY, containerPoint.y <= lineRect.maxY else { return nil }
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return charIndex < ns.length ? charIndex : nil
+    }
+
+    @objc private func applyLintFix(_ sender: NSMenuItem) {
+        guard sender.tag >= 0, sender.tag < menuFixes.count else { return }
+        let fix = menuFixes[sender.tag]
+        guard NSMaxRange(fix.range) <= (string as NSString).length else { return }
+        guard shouldChangeText(in: fix.range, replacementString: fix.replacement) else { return }
+        textStorage?.replaceCharacters(in: fix.range, with: fix.replacement)
+        didChangeText()
+    }
+
+    /// Character index under the view-coordinate point, or nil when the point
+    /// falls outside any glyph.
+    private func characterIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager, let textContainer else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+        guard glyphRect.contains(containerPoint) else { return nil }
+        return layoutManager.characterIndexForGlyph(at: glyphIndex)
+    }
+}

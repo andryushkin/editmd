@@ -1,0 +1,846 @@
+import Foundation
+
+// MARK: - Full page for Preview's WKWebView
+
+/// A rendered Preview page plus the one capability of its shell that outlives
+/// the load: whether the KaTeX assets are actually embedded in it.
+///
+/// The live `innerHTML` path needs that bit to decide when a document that
+/// grew its first formula requires a new shell. It MUST come from here rather
+/// than a second scan of the markdown: `markdownHTMLRender` strips YAML
+/// frontmatter before it looks for math, so `$…$` inside frontmatter would
+/// otherwise claim assets the page never received — and every later formula in
+/// the body would sit there as raw TeX, because no reload was ever triggered.
+struct PreviewPageRender {
+    let html: String
+    let hasMathAssets: Bool
+}
+
+/// Wraps the rendered body in a standalone page. Colors follow the system
+/// appearance via `color-scheme` + CSS system colors, so the WKWebView tracks
+/// the app's light/dark toggle without reloading.
+///
+/// Typography mirrors the editor (FSNotes' getPreviewStyle idea): the body
+/// uses the editor's exact font size and page padding matches the editor's
+/// `textContainerInset` (`insetH` / `insetV`), so toggling edit↔preview
+/// doesn't jump. Top gap under the action strip is controlled by Vertical
+/// margin in Settings — not a hardcoded 24px.
+func previewHTMLPage(markdown: String,
+                     fontSize: CGFloat,
+                     insetH: CGFloat = 32,
+                     insetV: CGFloat = 24,
+                     lineHeight: CGFloat = 1.6,
+                     columnWidth: CGFloat = 0,
+                     fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
+                     fontWeight: Int = 400,
+                     elements: ElementStyles = ElementStyles(),
+                     textColorHex: String? = nil,
+                     accentColorHex: String? = nil,
+                     gutter: PreviewGutterOptions = .off,
+                     syntaxHighlighting: Bool = true,
+                     imageResolver: ((String) -> String?)? = nil) -> String {
+    previewHTMLPageRender(
+        markdown: markdown, fontSize: fontSize, insetH: insetH, insetV: insetV,
+        lineHeight: lineHeight, columnWidth: columnWidth, fontFamily: fontFamily,
+        fontWeight: fontWeight, elements: elements, textColorHex: textColorHex,
+        accentColorHex: accentColorHex, gutter: gutter,
+        syntaxHighlighting: syntaxHighlighting, imageResolver: imageResolver).html
+}
+
+/// `previewHTMLPage` plus the shell's KaTeX capability bit (see `PreviewPageRender`).
+func previewHTMLPageRender(markdown: String,
+                           fontSize: CGFloat,
+                           insetH: CGFloat = 32,
+                           /// Top (and minimum bottom) page padding — Settings ▸ Vertical.
+                           insetV: CGFloat = 24,
+                           lineHeight: CGFloat = 1.6,
+                           /// A centered reading column; `0` disables it (full width,
+                           /// left-aligned to `insetH` — matches the editor's inset
+                           /// so toggling edit↔preview doesn't shift the text).
+                           columnWidth: CGFloat = 0,
+                           fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
+                           fontWeight: Int = 400,
+                           elements: ElementStyles = ElementStyles(),
+                           /// Base text / link color overrides (hex). Nil keeps the
+                           /// adaptive system colors (Canvas/CanvasText/LinkText).
+                           textColorHex: String? = nil,
+                           accentColorHex: String? = nil,
+                           gutter: PreviewGutterOptions = .off,
+                           syntaxHighlighting: Bool = true,
+                           imageResolver: ((String) -> String?)? = nil) -> PreviewPageRender {
+    let (body, hasMath) = markdownHTMLRender(markdown, imageResolver: imageResolver,
+                                             gutter: gutter,
+                                             syntaxHighlighting: syntaxHighlighting)
+    // KaTeX is ~640 KB inline (JS + CSS with data-URI fonts) — embedded only
+    // when the document actually contains math. Without the assets the page
+    // shows raw TeX (`.math` spans keep their escaped source text).
+    let mathAssets = hasMath && KaTeXResources.isAvailable
+    let mathHead = mathAssets ? "<style>\n\(KaTeXResources.css)\n</style>" : ""
+    // Preview is a document viewer, not a script host — and a markdown file is
+    // untrusted input (a vault syncs, a repo is cloned). A nonce'd script-src
+    // is what actually enforces that: the shell's own scripts carry the nonce,
+    // while raw-HTML `<script>` AND inline event handlers (`<img onerror=…>`,
+    // the vector `previewSafeRawHTML` alone cannot reach) have none and never
+    // run. Verified against WebKit: WKUserScript (the selection bridge) and
+    // evaluateJavaScript/callAsyncJavaScript are host-privileged and bypass CSP,
+    // and `el.onclick = fn` from our own script keeps working — only handlers
+    // parsed out of markup are blocked. Styles stay 'unsafe-inline': the page
+    // bakes its CSS inline and hljs tokens carry `style="--tl:…"`.
+    let scriptNonce = UUID().uuidString
+    let csp = "default-src 'none'; "
+        + "img-src data: https: http:; media-src data: https: http:; "
+        + "style-src 'unsafe-inline'; font-src data:; "
+        + "script-src 'nonce-\(scriptNonce)'"
+    // The library stays outside #preview-content so live innerHTML replacement
+    // cannot remove it. Rendering newly inserted math is handled by the shared
+    // hydrate function below rather than a one-shot page-load script.
+    let mathScripts = mathAssets ? """
+    <script nonce="\(scriptNonce)">
+    \(KaTeXResources.js)
+    </script>
+    """ : ""
+    let maxWidth = columnWidth > 0 ? "\(Int(columnWidth))px" : "none"
+    let margin = columnWidth > 0 ? "0 auto" : "0"
+    let bodyColor = textColorHex ?? "CanvasText"
+    let accentColor = accentColorHex ?? "LinkText"
+    // Bottom keeps a comfortable scroll pad when Vertical is small; top is
+    // exactly insetV so the strip→title gap matches Source/Visual.
+    let padTop = Int(insetV.rounded())
+    let padBottom = Int(max(64, insetV).rounded())
+    let padH = Int(insetH.rounded())
+    let gutterOn = gutter.isVisible
+    // Same digit size as Source/Visual ruler (`GutterTypography.fontSize`).
+    let lnFontPx = Int(GutterTypography.fontSize.rounded())
+    let lnColPx = Int(PreviewGutterMetrics.columnPx(for: gutter))
+    let dirtyColor = gutter.dirtyMarkColorHex.isEmpty ? "#1a8f3c" : gutter.dirtyMarkColorHex
+    let bodyGutterClass = gutterOn ? " class=\"\(gutter.modeClass)\"" : ""
+    // Extra left padding reserves one shared gutter plus a comfortable gap.
+    let lineNumberGapPx = Int(PreviewGutterMetrics.gapPx)
+    let padHLeft = padH + Int(PreviewGutterMetrics.railPx(for: gutter))
+
+    // Per-element rules generated from ElementStyles — appended after the base
+    // rules so they win. Heading size uses `em` (= the scale), matching how
+    // Visual multiplies its base size, so the two modes stay consistent.
+    func numstr(_ v: CGFloat) -> String { String(format: "%.4g", v) }
+    var elementCSS = ""
+    for level in 1...6 {
+        let e = elements.heading(level)
+        var decl = "font-size: \(numstr(e.sizeScale))em;"
+        if let w = e.weight { decl += " font-weight: \(w.cssValue);" }
+        if let c = e.colorHex { decl += " color: \(c);" }
+        elementCSS += "h\(level) { \(decl) }\n"
+    }
+    var boldDecl = ""
+    if let w = elements.bold.weight { boldDecl += "font-weight: \(w.cssValue);" }
+    if let c = elements.bold.colorHex { boldDecl += " color: \(c);" }
+    if !boldDecl.isEmpty { elementCSS += "strong, b { \(boldDecl) }\n" }
+    if let c = elements.inlineCode.colorHex { elementCSS += "code { color: \(c); }\n" }
+    if let c = elements.link.colorHex ?? accentColorHex { elementCSS += "a { color: \(c); }\n" }
+    if let c = elements.quote.colorHex { elementCSS += "blockquote { color: \(c); opacity: 1; }\n" }
+
+    let html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="\(csp)">
+    <style>
+    :root {
+        color-scheme: light dark;
+        --ln-dirty: \(dirtyColor);
+        --ln-col: \(lnColPx)px;
+        --ln-size: \(lnFontPx)px;
+        --ln-gap: \(lineNumberGapPx)px;
+        --accent: \(accentColor);
+    }
+    * { box-sizing: border-box; }
+    /* WebKit's native scroll anchoring races our split-view restoration after
+       innerHTML replacement and produces a visible up/down twitch. The Preview
+       owns anchoring explicitly below. */
+    html, body, #preview-content { overflow-anchor: none; }
+    body {
+        font: \(fontWeight) \(Int(fontSize))px/\(numstr(lineHeight)) \(fontFamily);
+        background: Canvas; color: \(bodyColor);
+        max-width: \(maxWidth); margin: \(margin); padding: \(padTop)px \(padH)px \(padBottom)px \(padHLeft)px;
+        word-wrap: break-word;
+        position: relative;
+    }
+    /* Integrated source-line gutter in the left padding. Fixed small mono size
+       (not 1em) so headings don't blow up the numbers. */
+    [data-ln] { position: relative; }
+    [data-ln]::before {
+        position: absolute;
+        top: 0.2em;
+        /* JS below replaces this fallback with a document-global x position.
+           Every element has a different local origin (lists, quotes, tables),
+           so a percentage/right-based gutter cannot form one visual column. */
+        left: var(--ln-left, calc(-1 * (var(--ln-col) + var(--ln-gap))));
+        width: var(--ln-col);
+        text-align: right;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: var(--ln-size);
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
+        color: rgba(128,128,128,0.7);
+        line-height: 1.2;
+        user-select: none;
+        pointer-events: none;
+        white-space: nowrap;
+    }
+    /* Headings: pin number to the first text line, not the block center. */
+    h1[data-ln]::before, h2[data-ln]::before, h3[data-ln]::before,
+    h4[data-ln]::before, h5[data-ln]::before, h6[data-ln]::before {
+        top: 0.35em;
+        font-size: var(--ln-size);
+        font-weight: 400;
+    }
+    body.gutter-numbers [data-ln]::before { content: attr(data-ln); }
+    body.gutter-bullets [data-ln].ln-dirty::before {
+        content: "●";
+        color: var(--ln-dirty);
+        font-size: calc(var(--ln-size) * 0.7);
+    }
+    body.gutter-bullets [data-ln]:not(.ln-dirty)::before { content: none; }
+    [data-ln].ln-dirty::before {
+        color: var(--ln-dirty);
+        font-weight: 700;
+    }
+    /* First block must not add extra top margin on top of body padding —
+       otherwise Settings ▸ Vertical never reaches zero under the action strip. */
+    #preview-content > :first-child { margin-top: 0; }
+    h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
+    h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
+    h4 { font-size: 1em; } h5 { font-size: 0.875em; } h6 { font-size: 0.85em; opacity: 0.7; }
+    h1, h2 { border-bottom: 1px solid rgba(128,128,128,0.3); padding-bottom: 0.3em; }
+    p { margin: 0.6em 0; }
+    a { color: LinkText; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    a.wikilink { cursor: pointer; }
+    code {
+        font: 0.9em ui-monospace, "SF Mono", Menlo, monospace;
+        background: rgba(128,128,128,0.15);
+        border-radius: 4px; padding: 0.15em 0.35em;
+    }
+    pre {
+        background: rgba(175,82,222,0.09);
+        border: 1px solid rgba(175,82,222,0.28);
+        border-radius: 8px; padding: 14px 16px;
+        /* NOT overflow-x here: that clips the gutter number, which is an
+           absolutely-positioned ::before sitting left of the block. The code
+           itself scrolls instead. */
+        overflow: visible;
+    }
+    pre code {
+        background: none; padding: 0; font-size: 0.875em;
+        display: block; overflow-x: auto;
+    }
+    blockquote {
+        margin: 0.8em 0; padding: 0.1em 1em;
+        border-left: 4px solid rgba(0,122,255,0.68);
+        border-radius: 0 7px 7px 0;
+        background: rgba(0,122,255,0.07);
+        opacity: 0.9;
+    }
+    blockquote.callout {
+        --callout-rgb: 0,122,255;
+        position: relative;
+        border-left-color: rgb(var(--callout-rgb));
+        background: rgba(var(--callout-rgb),0.09);
+        padding-left: 2.2em;
+        opacity: 1;
+    }
+    blockquote.callout-tip { --callout-rgb: 40,160,80; }
+    blockquote.callout-warning { --callout-rgb: 230,126,34; }
+    blockquote.callout-important { --callout-rgb: 175,82,222; }
+    blockquote.callout-example { --callout-rgb: 88,86,214; }
+    .callout-icon {
+        position: absolute; left: 0.72em; top: 0.72em;
+        color: rgb(var(--callout-rgb)); font-weight: 700;
+    }
+    ul, ol { padding-left: 1.7em; margin: 0.6em 0; }
+    li { margin: 0.2em 0; }
+    li > p { margin: 0.2em 0; }
+    li.task { list-style: none; margin-left: -1.35em; }
+    li.task input { margin-right: 0.4em; vertical-align: -0.1em; }
+    .multi-checkbox {
+        appearance: none; border: 0; background: transparent; color: var(--accent);
+        font: inherit; line-height: 1; padding: 0 0.18em; margin: 0 0.18em 0 0;
+        cursor: pointer; vertical-align: -0.08em;
+    }
+    .multi-checkbox:not(:disabled):hover { background: rgba(128,128,128,0.13); border-radius: 4px; }
+    .multi-checkbox:disabled { cursor: default; }
+    .multi-checkbox:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .multi-checkbox-sf { width: 1em; height: 1em; object-fit: contain; vertical-align: -0.12em; }
+    li.multi-task-strike { text-decoration: line-through; opacity: 0.68; }
+    li.multi-task-strike > .multi-checkbox { text-decoration: none; opacity: 1; }
+    hr { border: none; border-top: 2px solid rgba(128,128,128,0.3); margin: 1.6em 0; }
+    table { border-collapse: collapse; margin: 1em 0; display: block; overflow-x: auto; }
+    th, td { border: 1px solid rgba(128,128,128,0.35); padding: 6px 13px; }
+    th { font-weight: 600; }
+    tbody tr:nth-child(odd) { background: rgba(128,128,128,0.07); }
+    img { max-width: 100%; }
+    del { opacity: 0.6; }
+    mark {
+        background: rgba(255, 212, 0, 0.45);
+        color: inherit;
+        border-radius: 2px;
+        padding: 0 0.12em;
+    }
+    @media (prefers-color-scheme: dark) {
+        mark { background: rgba(255, 196, 0, 0.35); }
+        pre {
+            background: rgba(191,90,242,0.12);
+            border-color: rgba(191,90,242,0.36);
+        }
+        blockquote {
+            background: rgba(10,132,255,0.11);
+            border-left-color: rgba(10,132,255,0.78);
+        }
+        blockquote.callout { background: rgba(var(--callout-rgb),0.14); }
+    }
+    /* Review-mark wash (v37) — open smotr anchors painted over data-md-lo spans.
+       Preview is the primary review surface; Source/Visual washes are secondary. */
+    [data-md-lo].review-wash {
+        border-radius: 2px;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+    }
+    [data-md-lo].review-question { background: rgba(0, 122, 255, 0.18); }
+    [data-md-lo].review-fix { background: rgba(255, 149, 0, 0.18); }
+    [data-md-lo].review-rewrite { background: rgba(175, 82, 222, 0.18); }
+    [data-md-lo].review-cut { background: rgba(255, 59, 48, 0.16); }
+    [data-md-lo].review-keep { background: rgba(142, 142, 147, 0.18); }
+    [data-md-lo].review-comment { background: rgba(255, 204, 0, 0.22); }
+    [data-md-lo].review-suggest { background: rgba(52, 199, 89, 0.18); }
+    [data-md-lo].review-wash.review-flash {
+        outline: 2px solid rgba(0, 122, 255, 0.55);
+        outline-offset: 1px;
+    }
+    /* Math ($…$ / $$…$$): KaTeX replaces the span content when its assets are
+       embedded; before/without that the span shows the raw TeX source.
+       Display blocks are LEFT-aligned with an indent (not centered) — and
+       KaTeX's own .katex-display centering is overridden to match. */
+    .math-display {
+        display: block;
+        text-align: left;
+        padding-left: 2em;
+        /* Bigger than the 0.6em paragraph margin it collapses with, so a
+           display block gets real air instead of reading as one more line. */
+        margin: 1.1em 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+    .math-display .katex-display {
+        text-align: left;
+        /* overflow-x above makes .math-display a BFC — this margin would add
+           to the outer one instead of collapsing into it. */
+        margin: 0;
+    }
+    .math-display .katex-display > .katex {
+        text-align: left;
+    }
+    .math-error {
+        color: #cb2431;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 0.9em;
+    }
+    /* D4: copy button on code / quote (hover) */
+    .copy-host { position: relative; }
+    .copy-block-btn {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        z-index: 2;
+        opacity: 0.72;
+        pointer-events: auto;
+        border: none;
+        min-width: 32px;
+        min-height: 32px;
+        border-radius: 7px;
+        padding: 4px 8px;
+        font: 17px/1 ui-monospace, Menlo, monospace;
+        background: rgba(128,128,128,0.18);
+        color: inherit;
+        cursor: pointer;
+        transition: opacity 0.12s ease;
+    }
+    .copy-host:hover > .copy-block-btn { opacity: 1; }
+    .copy-block-btn:hover { background: rgba(128,128,128,0.32); }
+    /* Code tokens carry both palettes (--tl / --td); the page picks one, so a
+       Dark Mode switch needs no re-render. */
+    \(CodeSyntaxHighlighter.tokenCSS)
+    \(elementCSS)</style>
+    \(mathHead)
+    </head>
+    <body\(bodyGutterClass)>
+    <main id="preview-content">\(body)</main>
+    \(mathScripts)
+    <script nonce="\(scriptNonce)">
+    window.editMDPreviewRevision = 0;
+    // Align every source-line marker to one document-global column. `data-ln`
+    // lives on blocks with different local x origins (nested lists/quotes), so
+    // pure element-relative CSS produces a ragged gutter. Recompute on resize
+    // because a centered reading column moves with the viewport.
+    function alignLineNumberGutter() {
+        var bodyStyle = getComputedStyle(document.body);
+        var contentLeft = document.body.getBoundingClientRect().left
+            + parseFloat(bodyStyle.paddingLeft || '0');
+        var rootStyle = getComputedStyle(document.documentElement);
+        var columnWidth = parseFloat(rootStyle.getPropertyValue('--ln-col')) || 28;
+        var gap = parseFloat(rootStyle.getPropertyValue('--ln-gap')) || 18;
+        var desiredLeft = contentLeft - gap - columnWidth;
+        document.querySelectorAll('[data-ln]').forEach(function (el) {
+            var localLeft = desiredLeft - el.getBoundingClientRect().left;
+            el.style.setProperty('--ln-left', localLeft + 'px');
+        });
+    }
+    window.addEventListener('resize', alignLineNumberGutter);
+    window.alignLineNumberGutter = alignLineNumberGutter;
+    // Interactive task checkboxes (FSNotes' HandlerCheckbox idea): the body
+    // fragment renders them disabled; the live preview re-enables them and
+    // reports the clicked index — document order matches the order of
+    // taskListMarker spans, which the Swift side uses to edit the source.
+    function hydrateTaskCheckboxes() {
+        document.querySelectorAll('li.task > input[type=checkbox]').forEach(function (box, i) {
+            box.disabled = false;
+            // Property assignment is deliberately idempotent: hydrate can run
+            // after every fragment replacement without accumulating listeners.
+            box.onchange = function () {
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.taskToggle) { handlers.taskToggle.postMessage(i); }
+            };
+        });
+    }
+    // Built-in plugins use source offsets rather than document-order indexes:
+    // a delayed click is rejected safely if the token moved meanwhile.
+    function hydrateBuiltInPluginTokens() {
+        document.querySelectorAll('button.multi-checkbox:not(:disabled)').forEach(function (button) {
+            button.onclick = function (event) {
+                event.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                var offset = Number(button.dataset.pluginOffset);
+                if (handlers && handlers.builtInPluginToggle && Number.isFinite(offset)) {
+                    handlers.builtInPluginToggle.postMessage(offset);
+                }
+            };
+        });
+    }
+    // Wiki-link navigation: report a click; the Swift side resolves target →
+    // file and opens it. Handler may be absent (no-op) until wired.
+    function hydrateWikiLinks() {
+        document.querySelectorAll('a.wikilink').forEach(function (el) {
+            el.onclick = function (e) {
+                e.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.wikiLinkClick) {
+                    handlers.wikiLinkClick.postMessage({
+                        target: el.dataset.wikiTarget,
+                        heading: el.dataset.wikiHeading || null,
+                        blockID: el.dataset.wikiBlock || null
+                    });
+                }
+            };
+        });
+    }
+    // Local file links ([pdf](/research_pdf/x.pdf)): schemeless hrefs cannot
+    // resolve against loadHTMLString's about:blank base, so report the raw
+    // href; the Swift side resolves it Obsidian-style (vault-absolute /
+    // file-relative) and opens the target. Scheme links keep the default
+    // navigation path (decidePolicyFor → system).
+    function hydrateLocalLinks() {
+        document.querySelectorAll('a[href]').forEach(function (el) {
+            if (el.classList.contains('wikilink')) return;
+            var href = el.getAttribute('href');
+            if (!href || href.charAt(0) === '#' || /^[a-zA-Z][a-zA-Z0-9+.\\-]*:/.test(href)) return;
+            el.onclick = function (e) {
+                e.preventDefault();
+                var handlers = window.webkit && window.webkit.messageHandlers;
+                if (handlers && handlers.localLinkClick) {
+                    handlers.localLinkClick.postMessage({ href: href });
+                }
+            };
+        });
+    }
+    // Review marks (v37): paint open anchors on tagged spans and jump by
+    // markdown UTF-16 offset. Called from Swift after load / mark changes.
+    // marks = [{start, end, type, id}]
+    window.applyReviewMarks = function (marks) {
+        var types = ['question','fix','rewrite','cut','keep','comment','suggest'];
+        document.querySelectorAll('[data-md-lo].review-wash').forEach(function (el) {
+            el.classList.remove('review-wash', 'review-flash');
+            types.forEach(function (t) { el.classList.remove('review-' + t); });
+            el.removeAttribute('data-review-id');
+            el.removeAttribute('title');
+        });
+        if (!marks || !marks.length) return;
+        // `pre` carries data-md-lo for scroll sync only. Washing it would paint
+        // the whole code block for a mark that touches one line of it, so the
+        // wash stays on the inline spans, as before code blocks were tagged.
+        document.querySelectorAll('[data-md-lo]:not(pre)').forEach(function (el) {
+            var lo = parseInt(el.getAttribute('data-md-lo'), 10);
+            var hi = parseInt(el.getAttribute('data-md-hi'), 10);
+            if (isNaN(lo) || isNaN(hi)) return;
+            for (var i = 0; i < marks.length; i++) {
+                var m = marks[i];
+                if (hi > m.start && lo < m.end) {
+                    el.classList.add('review-wash', 'review-' + (m.type || 'comment'));
+                    el.setAttribute('data-review-id', m.id || '');
+                    if (m.tip) el.setAttribute('title', m.tip);
+                    break; // first matching mark wins (worklist order)
+                }
+            }
+        });
+    };
+    // Scroll the span covering `offset` into view; fraction fallback is Swift-side.
+    window.scrollToMdOffset = function (offset) {
+        // A span CONTAINING the offset always beats the nearest-preceding
+        // fallback — a later non-containing span must not override it.
+        var contain = null, containLo = -1, near = null, nearLo = -1;
+        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
+            var lo = parseInt(el.getAttribute('data-md-lo'), 10);
+            var hi = parseInt(el.getAttribute('data-md-hi'), 10);
+            if (isNaN(lo) || isNaN(hi)) return;
+            if (lo <= offset && offset < hi) {
+                if (lo > containLo) { contain = el; containLo = lo; }
+            } else if (lo <= offset && lo > nearLo) {
+                near = el; nearLo = lo;
+            }
+        });
+        var best = contain || near;
+        if (best) {
+            best.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            best.classList.add('review-flash');
+            setTimeout(function () { best.classList.remove('review-flash'); }, 1200);
+            return true;
+        }
+        return false;
+    };
+    // Split-mode follow. Navigation jumps (scrollToMdOffset) center + flash on
+    // purpose; continuous synchronization instead aligns the matching rendered
+    // run with the viewport BOTTOM and never animates.
+    //
+    // Both directions read one cached anchor table. Re-querying the DOM and
+    // calling getBoundingClientRect per element ran on every frame of a scroll
+    // gesture — with syntax highlighting that is a walk over every token span.
+    // The table stores DOCUMENT-space geometry, so scrolling never stales it;
+    // anything that can change layout drops it.
+    var mdAnchorTable = null;
+    function mdAnchors() {
+        if (mdAnchorTable) return mdAnchorTable;
+        var list = [];
+        var scrollY = window.scrollY;
+        document.querySelectorAll('[data-md-lo]').forEach(function (el) {
+            var lo = parseInt(el.getAttribute('data-md-lo'), 10);
+            if (isNaN(lo)) return;
+            var rect = el.getBoundingClientRect();
+            if (rect.width <= 0 && rect.height <= 0) return;  // not laid out
+            list.push({ lo: lo, top: rect.top + scrollY, bottom: rect.bottom + scrollY });
+        });
+        list.sort(function (a, b) { return a.lo - b.lo; });
+        // Keep the table monotonic in Y: an anchor can only ever be at or below
+        // its predecessor, and the interpolation below relies on that.
+        for (var i = 1; i < list.length; i++) {
+            if (list[i].top < list[i - 1].top) list[i].top = list[i - 1].top;
+        }
+        mdAnchorTable = list;
+        return list;
+    }
+    function invalidateMdAnchors() { mdAnchorTable = null; }
+    window.addEventListener('resize', invalidateMdAnchors);
+    window.addEventListener('load', invalidateMdAnchors);
+    // Images and KaTeX resize blocks after first layout.
+    document.addEventListener('load', invalidateMdAnchors, true);
+    window.invalidateMdAnchors = invalidateMdAnchors;
+
+    // Y (document space) for a FRACTIONAL markdown offset, by interpolating
+    // between the two anchors around it. Both scales are monotonic, so the
+    // result is monotonic: the follow can neither stall nor run backwards.
+    //
+    // Anchoring to a rendered LINE (an earlier cut) could do both, because a
+    // source line and a rendered line are different objects — the two panes
+    // wrap at different widths.
+    function mdYForPosition(position) {
+        var anchors = mdAnchors();
+        if (!anchors.length) return null;
+        var lo = 0, hi = anchors.length - 1;
+        if (position <= anchors[0].lo) return anchors[0].top;
+        if (position >= anchors[hi].lo) {
+            var last = anchors[hi];
+            return last.bottom > last.top ? last.bottom : last.top;
+        }
+        while (lo + 1 < hi) {                     // binary search: last anchor <= position
+            var mid = (lo + hi) >> 1;
+            if (anchors[mid].lo <= position) lo = mid; else hi = mid;
+        }
+        var a = anchors[lo], b = anchors[lo + 1];
+        var span = b.lo - a.lo;
+        if (span <= 0) return a.top;
+        var t = Math.max(0, Math.min(1, (position - a.lo) / span));
+        return a.top + (b.top - a.top) * t;
+    }
+
+    // The inverse: the fractional markdown offset at a document-space Y.
+    function mdPositionForY(y) {
+        var anchors = mdAnchors();
+        if (!anchors.length) return null;
+        if (y <= anchors[0].top) return anchors[0].lo;
+        var last = anchors[anchors.length - 1];
+        if (y >= last.top) return last.lo;
+        var lo = 0, hi = anchors.length - 1;
+        while (lo + 1 < hi) {
+            var mid = (lo + hi) >> 1;
+            if (anchors[mid].top <= y) lo = mid; else hi = mid;
+        }
+        var a = anchors[lo], b = anchors[lo + 1];
+        var span = b.top - a.top;
+        if (span <= 0) return b.lo;
+        var t = Math.max(0, Math.min(1, (y - a.top) / span));
+        return a.lo + (b.lo - a.lo) * t;
+    }
+    window.editMDCurrentScrollPosition = function () {
+        return mdPositionForY(window.scrollY + 8);
+    };
+
+    // Set by any scroll the user drives, cleared by each fragment swap: a late
+    // settle pass consults it before touching the viewport (see settlePreviewLayout).
+    var userScrolledSinceSettle = false;
+
+    // Programmatic scrolls must not be reported back as user scrolls; the flag
+    // clears on the next frame, by which time WebKit has fired the event.
+    var suppressScrollReport = 0;
+    function beginScrollReportSuppression() {
+        suppressScrollReport++;
+    }
+    function endScrollReportSuppressionAfterFrame() {
+        requestAnimationFrame(function () {
+            suppressScrollReport = Math.max(0, suppressScrollReport - 1);
+        });
+    }
+    function programmaticScroll(y) {
+        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        beginScrollReportSuppression();
+        window.scrollTo(0, Math.max(0, Math.min(y, maxY)));
+        endScrollReportSuppressionAfterFrame();
+    }
+    window.programmaticScroll = programmaticScroll;
+
+    // The editor reports the position at ITS TOP edge, so put the matching point
+    // at ours. Aligning bottom edges instead pinned Preview to zero for the
+    // whole first screenful (the target Y minus a viewport height is negative).
+    // No easing: the position is already continuous, and smoothing only adds lag
+    // behind the gesture.
+    window.syncScrollToMdPosition = function (position) {
+        var y = mdYForPosition(position);
+        if (y === null) return false;
+        programmaticScroll(y - 8);
+        return true;
+    };
+    window.syncScrollToEdge = function (edge) {
+        programmaticScroll(edge === 'top' ? 0 : document.documentElement.scrollHeight);
+    };
+
+    // PUSH the position on every frame of a user scroll. Polling it from Swift
+    // per wheel event meant one round trip in flight at a time and the rest of
+    // the gesture's frames dropped — the editor moved in visible jerks.
+    var scrollReportQueued = false;
+    function reportScroll() {
+        var maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        if (maxY <= 0.5) return;      // nothing to scroll — no position to share
+        var payload;
+        if (window.scrollY <= 0.5) {
+            payload = { edge: 'top' };
+        } else if (window.scrollY >= maxY - 0.5) {
+            payload = { edge: 'bottom' };
+        } else {
+            var position = mdPositionForY(window.scrollY + 8);   // our TOP edge
+            if (position === null) return;
+            payload = { position: position };
+        }
+        try {
+            window.webkit.messageHandlers.previewScroll.postMessage(payload);
+        } catch (e) {}
+    }
+    window.addEventListener('scroll', function () {
+        if (suppressScrollReport > 0) return;   // our own restore, not the user
+        // The user has taken the viewport: a late settle pass (an image or the
+        // KaTeX webfonts landing seconds after the edit) must not yank them back
+        // to the anchor captured when the fragment was swapped in.
+        userScrolledSinceSettle = true;
+        if (scrollReportQueued) return;
+        scrollReportQueued = true;
+        requestAnimationFrame(function () {
+            scrollReportQueued = false;
+            reportScroll();
+        });
+    }, { passive: true });
+
+    // D4: hover copy button on code blocks and blockquotes.
+    function copyPreviewText(text, btn) {
+        function ok() {
+            var prev = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(function () { btn.textContent = prev; }, 1000);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(function () {
+                fallbackPreviewCopy(text); ok();
+            });
+        } else {
+            fallbackPreviewCopy(text); ok();
+        }
+    }
+    function fallbackPreviewCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+    }
+    function attachPreviewCopyButton(el) {
+        if (el.querySelector('.copy-block-btn')) return;
+        // One button per logical quote tree: a nested blockquote belongs
+        // to its outer quote and is copied together with it.
+        if (el.tagName === 'BLOCKQUOTE' && el.parentElement.closest('blockquote')) return;
+        el.classList.add('copy-host');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy-block-btn';
+        btn.textContent = '⎘';
+        btn.title = 'Copy';
+        btn.onclick = function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var clone = el.cloneNode(true);
+            clone.querySelectorAll('.copy-block-btn').forEach(function (b) { b.remove(); });
+            copyPreviewText(clone.innerText || '', btn);
+        };
+        el.appendChild(btn);
+    }
+    function hydratePreviewCopyButtons() {
+        document.querySelectorAll('pre, blockquote').forEach(attachPreviewCopyButton);
+    }
+
+    function hydratePreviewMath() {
+        if (typeof katex === 'undefined') return;
+        document.querySelectorAll('.math:not(.math-rendered)').forEach(function (el) {
+            var tex = el.textContent;
+            try {
+                katex.render(tex, el, {
+                    displayMode: el.classList.contains('math-display'),
+                    throwOnError: false
+                });
+                el.classList.add('math-rendered');
+                el.classList.remove('math-error');
+            } catch (e) {
+                el.classList.add('math-error');
+                el.textContent = tex;
+            }
+        });
+    }
+
+    // Make the DOM live again. Deliberately cheap: no geometry is read here,
+    // because hydrate runs BEFORE the new content has been laid out. Everything
+    // that depends on final geometry belongs in settlePreviewLayout.
+    window.editMDHydratePreviewContent = function () {
+        hydrateTaskCheckboxes();
+        hydrateBuiltInPluginTokens();
+        hydrateWikiLinks();
+        hydrateLocalLinks();
+        hydratePreviewCopyButtons();
+        hydratePreviewMath();
+        invalidateMdAnchors();
+    };
+
+    // One settle pass over final geometry: drop the anchor cache, re-place the
+    // line-number gutter, and (optionally) restore the scroll anchor. Both the
+    // gutter walk and the anchor table read getBoundingClientRect for every
+    // tagged element, so this must run ONCE per layout — not once in hydrate
+    // (pre-layout, therefore wrong) and again afterwards.
+    function settlePreviewLayout(position, pixelY) {
+        invalidateMdAnchors();
+        alignLineNumberGutter();
+        if (userScrolledSinceSettle) return;   // the user owns the viewport now
+        if (position !== null && position !== undefined) {
+            window.syncScrollToMdPosition(position);
+        } else if (pixelY !== null && pixelY !== undefined) {
+            programmaticScroll(pixelY);
+        }
+    }
+
+    // Images and the KaTeX webfonts land after first layout and change block
+    // heights, which moves every anchor below them. Replay the settle when they
+    // do — on the first page load as well as after a fragment swap; before, only
+    // the fragment path did this and a freshly opened math document kept a stale
+    // anchor table (split-scroll sync drifted until the next resize).
+    function replayPreviewSettle(root, position) {
+        root.querySelectorAll('img').forEach(function (image) {
+            if (image.complete) return;
+            image.addEventListener('load', function () {
+                settlePreviewLayout(position, null);
+            }, { once: true });
+        });
+        // A resolved FontFaceSet promise would replay immediately on every edit
+        // and defeat the pixel-stable first settle. Replay only while this DOM
+        // actually has fonts still landing.
+        if (document.fonts && document.fonts.status === 'loading') {
+            document.fonts.ready.then(function () { settlePreviewLayout(position, null); });
+        }
+    }
+
+    // SYNCHRONOUS on purpose. This function is the Swift side's continuation:
+    // whatever it waits on, the render task waits on too. It used to await two
+    // requestAnimationFrames "for layout" — and a WKWebView that is not
+    // producing frames (occluded, off-screen, a suspended rendering update)
+    // never fires them, so the promise never settled, the awaiting task never
+    // released the render slot, and Preview froze on the first edit for the rest
+    // of the session. Nothing here needs a frame: reading geometry in
+    // settlePreviewLayout forces a synchronous layout, which is exactly the
+    // "after layout" state we wanted. Late shifts (images, webfonts) are picked
+    // up by replayPreviewSettle, which is fire-and-forget — if frames never
+    // come, we lose a scroll-anchor touch-up, never the content update.
+    window.editMDReplacePreview = function (payload) {
+        if (!payload || payload.revision < window.editMDPreviewRevision) return false;
+        var root = document.getElementById('preview-content');
+        if (!root) return false;
+        var position = payload.position;
+        var pixelY = null;
+        var replayPosition = position;
+        if (position === null || position === undefined) {
+            // Typing is a content update, not a scroll gesture. Preserve the
+            // exact viewport instead of re-interpreting its old markdown offset
+            // in the new DOM (which visibly nudged the first edit after a click).
+            pixelY = window.scrollY;
+            // Late image/font layout needs the semantic point that occupied the
+            // viewport before the swap; replaying pixelY after heights change
+            // would show different content.
+            replayPosition = window.editMDCurrentScrollPosition();
+        }
+        // Replacing a long document with a shorter one can make WebKit clamp
+        // scrollY before our explicit restore. That implicit scroll belongs to
+        // this update transaction and must never be reported back to Source.
+        beginScrollReportSuppression();
+        try {
+            root.innerHTML = payload.html;
+            window.editMDPreviewRevision = payload.revision;
+            window.editMDHydratePreviewContent();
+            userScrolledSinceSettle = false;
+            settlePreviewLayout(position, pixelY);
+            replayPreviewSettle(root, replayPosition);
+            return true;
+        } finally {
+            endScrollReportSuppressionAfterFrame();
+        }
+    };
+
+    window.editMDHydratePreviewContent();
+    settlePreviewLayout(null, null);
+    replayPreviewSettle(document.getElementById('preview-content'), null);
+    </script>
+    </body>
+    </html>
+    """
+    return PreviewPageRender(html: html, hasMathAssets: mathAssets)
+}
