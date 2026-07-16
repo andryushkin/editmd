@@ -138,9 +138,11 @@ struct ContentView: View {
                             fileURL: fileURL,
                             outlineContent: document.content,
                             gitSnapshot: gitSnapshot,
+                            hasWorkspace: !workspace.workspaces.isEmpty,
                             onJump: { offset in
                                 positionStore.requestJump(toMarkdownOffset: offset)
-                            }
+                            },
+                            onOpen: openFromSidebar
                         )
                         .frame(width: inspectorWidth)
                     }
