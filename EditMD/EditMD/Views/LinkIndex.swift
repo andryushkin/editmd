@@ -19,6 +19,8 @@ final class LinkIndex: ObservableObject {
 
     @Published private(set) var outgoing: [URL: [OutgoingLink]] = [:]
     @Published private(set) var backlinks: [URL: [BacklinkEdge]] = [:]
+    /// Heading titles per file (plan 06 deadHeadingAnchor).
+    @Published private(set) var headings: [URL: [String]] = [:]
     @Published private(set) var isScanning = false
     @Published private(set) var skippedOversizedCount = 0
     /// True after at least one full scan finished for the current key.
@@ -85,12 +87,30 @@ final class LinkIndex: ObservableObject {
     /// Test/seed helper: install a resolved outgoing map as if a full scan finished.
     func seedForTesting(
         outgoing map: [URL: [OutgoingLink]],
+        headings heads: [URL: [String]] = [:],
+        roots: [URL] = [],
         key: String = "test"
     ) {
         outgoing = map
         backlinks = Self.projectBacklinks(from: map)
+        headings = Dictionary(uniqueKeysWithValues:
+            heads.map { ($0.key.standardizedFileURL, $0.value) })
+        self.roots = roots.map(\.standardizedFileURL)
         indexKey = key
         hasCompletedFullScan = true
+    }
+
+    /// Immutable slice for vault-lint (off-main pure function).
+    func snapshot() -> LinkIndexSnapshot {
+        let homes = Set(roots.compactMap { homeDocument(in: $0)?.standardizedFileURL })
+        return LinkIndexSnapshot(
+            outgoing: outgoing,
+            backlinks: backlinks,
+            headings: headings,
+            skippedOversizedCount: skippedOversizedCount,
+            roots: roots,
+            homeDocuments: homes
+        )
     }
 
     // MARK: - Resolution (testable pure-ish)
@@ -174,8 +194,10 @@ final class LinkIndex: ObservableObject {
     nonisolated static func scanWorkspaceOutgoing(
         roots: [URL],
         maxBytes: Int64 = LinkIndex.maxFileBytes
-    ) -> (outgoing: [URL: [OutgoingLink]], skipped: Int, filesScanned: Int) {
+    ) -> (outgoing: [URL: [OutgoingLink]], headings: [URL: [String]],
+          skipped: Int, filesScanned: Int) {
         var outgoing: [URL: [OutgoingLink]] = [:]
+        var headings: [URL: [String]] = [:]
         var skipped = 0
         var filesScanned = 0
         let mdExt: Set<String> = ["md", "markdown"]
@@ -209,14 +231,16 @@ final class LinkIndex: ObservableObject {
                         ?? String(data: data, encoding: .isoLatin1)
                 else { continue }
                 filesScanned += 1
-                outgoing[url.standardizedFileURL] = scanOutgoingLinks(text: text)
+                let key = url.standardizedFileURL
+                outgoing[key] = scanOutgoingLinks(text: text)
+                headings[key] = markdownOutline(text).map(\.title)
             }
         }
 
         for root in roots {
             walk(root.standardizedFileURL)
         }
-        return (outgoing, skipped, filesScanned)
+        return (outgoing, headings, skipped, filesScanned)
     }
 
     // MARK: - Internals
@@ -300,6 +324,8 @@ final class LinkIndex: ObservableObject {
                 if !self.scanPending {
                     self.outgoing = resolvedMap
                     self.backlinks = projected
+                    self.headings = Dictionary(uniqueKeysWithValues:
+                        scanned.headings.map { ($0.key.standardizedFileURL, $0.value) })
                     self.skippedOversizedCount = scanned.skipped
                     self.indexKey = key
                     self.hasCompletedFullScan = true
@@ -323,6 +349,7 @@ final class LinkIndex: ObservableObject {
         key: String
     ) async {
         let scanned = scanOutgoingLinks(text: content)
+        let fileHeadings = markdownOutline(content).map(\.title)
         let vault = roots.first { root in
             let p = url.path
             let r = root.standardizedFileURL.path
@@ -368,6 +395,7 @@ final class LinkIndex: ObservableObject {
                 return
             }
             self.outgoing[url] = resolvedLinks
+            self.headings[url.standardizedFileURL] = fileHeadings
             self.backlinks = Self.projectBacklinks(from: self.outgoing)
             self.fileScanCount += 1
         }
