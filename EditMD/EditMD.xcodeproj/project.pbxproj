@@ -63,6 +63,7 @@
 		5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */; };
 		6078210FA16D4E0A5BC55B1E /* FrontmatterEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5D8FA20CA685CC5C6221B3 /* FrontmatterEditTests.swift */; };
 		60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666BC06A474E4D37C8EA0265 /* LinkIndex.swift */; };
+		670C9265FFA4B3E3A4D2A55F /* FileHistoryGit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */; };
 		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
@@ -102,6 +103,7 @@
 		A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */; };
 		AA1618A105AF5DD84C831328 /* SidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */; };
 		AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */; };
+		B1BDD7296ECD5EAAB06A6748 /* FileHistoryGitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5892181628091BA354F2A95C /* FileHistoryGitTests.swift */; };
 		B239CEB4FF79B86A804DE706 /* ControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF009B9BF4E810D4E4326786 /* ControlService.swift */; };
 		B53D01C27281EC597C43ACAE /* FileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */; };
 		B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFAB2E84EB730567221C4320 /* AppDelegate.swift */; };
@@ -166,6 +168,7 @@
 		0D4DBEB9C88600602D1E9C67 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
 		0E24489CEA45FF0DDABBBD39 /* MathScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScan.swift; sourceTree = "<group>"; };
 		0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipSupport.swift; sourceTree = "<group>"; };
+		13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGit.swift; sourceTree = "<group>"; };
 		18F81FF14127B33B6927883A /* MathScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScanTests.swift; sourceTree = "<group>"; };
 		1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebar.swift; sourceTree = "<group>"; };
 		20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownToAttributed.swift; sourceTree = "<group>"; };
@@ -193,6 +196,7 @@
 		557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocolTests.swift; sourceTree = "<group>"; };
 		56FF3BD17201E239817B79BA /* EditMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMDApp.swift; sourceTree = "<group>"; };
 		57F65113867F0DDDF47D9686 /* GitUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitUI.swift; sourceTree = "<group>"; };
+		5892181628091BA354F2A95C /* FileHistoryGitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGitTests.swift; sourceTree = "<group>"; };
 		5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSnapshot.swift; sourceTree = "<group>"; };
 		5DE049C40EE9A0CB2F09BFBF /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		666BC06A474E4D37C8EA0265 /* LinkIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndex.swift; sourceTree = "<group>"; };
@@ -460,6 +464,7 @@
 			isa = PBXGroup;
 			children = (
 				52D121A56408289D8F49E90D /* DocumentStore.swift */,
+				13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */,
 				32C2504D8C5752A58EBA73FF /* FileRevisionStore.swift */,
 				F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */,
 			);
@@ -517,6 +522,7 @@
 				BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */,
 				CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */,
 				DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */,
+				5892181628091BA354F2A95C /* FileHistoryGitTests.swift */,
 				FA4433FB3DC2830D8E97651D /* FileRevisionStoreTests.swift */,
 				BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */,
 				703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */,
@@ -693,6 +699,7 @@
 				5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */,
 				DA424E58D0274B4EB89F9151 /* DocumentStoreTests.swift in Sources */,
 				8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */,
+				B1BDD7296ECD5EAAB06A6748 /* FileHistoryGitTests.swift in Sources */,
 				42A7ED43D152DE6D91D2AC7A /* FileRevisionStoreTests.swift in Sources */,
 				4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */,
 				29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */,
@@ -756,6 +763,7 @@
 				53FAFC3933BC24E2EADF3207 /* EditorToolbar.swift in Sources */,
 				95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */,
 				B53D01C27281EC597C43ACAE /* FileEditor.swift in Sources */,
+				670C9265FFA4B3E3A4D2A55F /* FileHistoryGit.swift in Sources */,
 				8717A872653EE3B7B15FFACB /* FileInfoStats.swift in Sources */,
 				413348709EF1DC2FC83513E5 /* FileRevisionStore.swift in Sources */,
 				9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */,
