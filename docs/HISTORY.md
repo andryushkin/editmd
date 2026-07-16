@@ -1033,6 +1033,13 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
 - Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.
 
+## История файла (план 05)
+
+- Вкладка «История» в правом inspector: **Не сохранено** (буфер vs `knownDiskContent`), **Локальные ревизии**, **Git** (`git log --follow --max-count=50`).
+- `Document/FileRevisionStore.swift` — content-addressed store в Application Support (`revisions/<sha256(path)>/{manifest.json,objects/}`); дедуп по content SHA, debounce 5 мин, prune 100, skip >4 МБ. Flush DocumentRegistry пишет в фоне; close clean-документа — force snapshot. Rename/move путь не мигрирует историю (v1).
+- `Document/FileHistoryGit.swift` — NUL-парсер log, `git show rev:path`, кэш по HEAD; инвалидация от `gitRepositoryDidChange`.
+- Diff — `DiffTextRepresentable` / unified sheet; restore через `applyDocumentEdit` + stale baseline guard (если буфер изменился после открытия preview — отказ и просьба обновить).
+
 ## Properties-панель (план 04)
 
 - Правый inspector: вкладка «Свойства» (`list.bullet.rectangle`) — frontmatter текущего документа как форма. Ядро `Editor/FrontmatterEdit.swift`: построчные `replace/insert/remove` + list, без YAML-сериализатора; complex / duplicate / multiline → отказ (Source only).
