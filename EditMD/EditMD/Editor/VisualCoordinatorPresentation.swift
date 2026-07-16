@@ -58,7 +58,6 @@ extension VisualMarkdownView.Coordinator {
         var ruleRanges: [NSRange] = []
         var headingDividers: [NSRange] = []
         var tableIslands: [TableIslandEntry] = []
-        var propertiesPanels: [NSRange] = []
 
         var orderedCounters: [String: Int] = [:]
         var lastListGroupDepth: (group: Int, depth: Int)? = nil
@@ -116,7 +115,6 @@ extension VisualMarkdownView.Coordinator {
             style.paragraphSpacing = 6 * spacingScale
             var markerIndent: CGFloat = 0
             var isTableIsland = false
-            var isFrontmatter = false
             // Document-leading block: top gap is `textContainerInset.height`
             // (Settings ▸ Vertical). Extra paragraphSpacingBefore here would
             // stack on insetV and make Vertical look broken at 0.
@@ -235,15 +233,6 @@ extension VisualMarkdownView.Coordinator {
                                                          columnEdges: edges, rowHeight: rowHeight,
                                                          font: bodyFont, headerFont: headerFont))
                     isTableIsland = true
-                } else if frontmatterRange(in: rawText) != nil {
-                    // Frontmatter properties card: a subtle panel (drawn in
-                    // drawBackground) with colored keys (colorYAMLIsland).
-                    // Leading frontmatter sits flush under the strip via insetV.
-                    style.paragraphSpacingBefore = isDocumentStart ? 0 : 4 * spacingScale
-                    style.paragraphSpacing = 12 * spacingScale
-                    markerIndent = 14
-                    propertiesPanels.append(paragraph)
-                    isFrontmatter = true
                 } else {
                     markerIndent = 10
                 }
@@ -273,8 +262,6 @@ extension VisualMarkdownView.Coordinator {
                     // drawn in drawBackground. Hide the characters.
                     storage.addAttribute(.foregroundColor, value: NSColor.clear,
                                          range: paragraph)
-                } else if isFrontmatter {
-                    colorYAMLIsland(storage, paragraph: paragraph)
                 } else {
                     applyDerivedInlineDecorations(storage, paragraph: paragraph, block: blockValue)
                 }
@@ -313,62 +300,7 @@ extension VisualMarkdownView.Coordinator {
         textView.ruleRanges = ruleRanges
         textView.headingDividerRanges = headingDividers
         textView.tableIslandEntries = tableIslands
-        textView.propertiesPanelRanges = propertiesPanels
         textView.needsDisplay = true
-    }
-
-    /// Colors a frontmatter island's display text. Token colors come from the
-    /// same YAML highlighter Source and Preview use — a per-mode palette is how
-    /// the modes drift apart. Keys additionally stay semibold: that's the
-    /// island's own Obsidian-style scanability, not a token color.
-    ///
-    /// Display lines are joined by the hard-break char inside one paragraph.
-    /// It's a single UTF-16 unit, so swapping it for `\n` to feed Highlight.js
-    /// keeps every offset valid in the island.
-    private func colorYAMLIsland(_ storage: NSTextStorage, paragraph: NSRange) {
-        guard let textView else { return }
-        let theme = textView.theme
-        let nsText = storage.string as NSString
-        storage.addAttribute(.foregroundColor, value: theme.textColor, range: paragraph)
-
-        let display = nsText.substring(with: paragraph)
-        if EditorSettings.shared.general.syntaxHighlighting {
-            let yaml = display.replacingOccurrences(of: mdHardBreak, with: "\n")
-            let runs = CodeSyntaxHighlighter.shared.runsToPaint(
-                for: yaml, language: "yaml",
-                stableKey: "visual:\(parent.fileURL?.path ?? "untitled")#frontmatter")
-            for run in runs where NSMaxRange(run.range) <= paragraph.length {
-                storage.addAttribute(
-                    .foregroundColor, value: run.color,
-                    range: NSRange(location: paragraph.location + run.range.location,
-                                   length: run.range.length))
-            }
-        }
-
-        let keyFont = NSFont.monospacedSystemFont(ofSize: max(1, visualStyle.baseSize - 1),
-                                                  weight: .semibold)
-        var lineStart = paragraph.location
-        for line in display.components(separatedBy: mdHardBreak) {
-            var col = lineStart
-            for (segText, kind) in yamlLineSegments(line) {
-                let length = (segText as NSString).length
-                let range = NSRange(location: col, length: length)
-                if kind == .key, NSMaxRange(range) <= NSMaxRange(paragraph) {
-                    storage.addAttribute(.font, value: keyFont, range: range)
-                }
-                col += length
-            }
-            lineStart += (line as NSString).length + 1   // + hard-break char
-        }
-
-        storage.enumerateAttribute(.mdFrontmatterToggle, in: paragraph) { value, range, _ in
-            guard value != nil else { return }
-            storage.addAttributes([
-                .font: visualStyle.font(for: [], blockKind: .heading(3)),
-                .foregroundColor: theme.textColor,
-                .cursor: NSCursor.pointingHand,
-            ], range: range)
-        }
     }
 
     private func isListKind(_ kind: MDBlock.Kind) -> Bool {

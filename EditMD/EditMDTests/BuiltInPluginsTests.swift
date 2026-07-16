@@ -219,8 +219,11 @@ final class BuiltInPluginsTests: XCTestCase {
         }
 
         XCTAssertEqual(payloads.map { $0.state.source }.sorted(), ["[?]", "[X]"].sorted())
-        XCTAssertEqual(serializeAttributedToMarkdown(attributed),
-                       frontmatter + "\n\n- [-] queued\n\nprose [?]\n\n| S |\n| --- |\n| [X] |")
+        // Visual renders body only; the coordinator re-attaches frontmatter.
+        XCTAssertEqual(
+            composeDocumentWithFrontmatter(frontmatter,
+                                           body: serializeAttributedToMarkdown(attributed)),
+            frontmatter + "\n\n- [-] queued\n\nprose [?]\n\n| S |\n| --- |\n| [X] |")
     }
 
     func testVisualRoundTripNeverSerializesSentinelsForInactiveCoreCheckboxes() {
@@ -413,66 +416,29 @@ struct BuiltInPluginPreviewConfigurationTests {
     ---
     """
 
-    @Test func previewFrontmatterIncludesEditablePluginStatesInCycleOrder() throws {
+    @Test func checklistCardsExposeStatesInCycleOrderWithoutTokenScan() throws {
+        let cards = BuiltInPluginRegistry.checklistCards(in: frontmatter + "\n[-] Item")
+
+        let card = try #require(cards.first)
+        #expect(cards.count == 1)
+        #expect(card.descriptor.id == "multi-checkbox")
+        #expect(card.states.map(\.source) == ["[-]", "[?]", "[X]"])
+        #expect(card.states.map(\.label) == ["Queued", "Needs review", "Done"])
+        #expect(card.states[1].icon == .emoji("❓"))
+        #expect(card.states[2].strikethrough)
+        #expect(BuiltInPluginRegistry.checklistCards(in: "# no plugins").isEmpty)
+    }
+
+    @Test func previewPageCarriesNoPluginCardMachinery() {
         let html = markdownHTMLBody(frontmatter + "\n[-] Item")
-
-        #expect(html.contains("class=\"fm-plugin-editor\""))
-        #expect(html.contains("data-plugin-id=\"multi-checkbox\""))
-        #expect(html.contains("class=\"fm-plugin-emoji-picker\""))
-        #expect(html.contains("value=\"emoji\" selected"))
-        #expect(html.contains("value=\"❓\""))
-        #expect(!html.contains("data-initial="))
-        #expect(!html.contains("class=\"fm-key\">editmd</div>"))
-        let queued = try #require(html.range(of: "value=\"Queued\""))
-        let review = try #require(html.range(of: "value=\"Needs review\""))
-        let done = try #require(html.range(of: "value=\"Done\""))
-        #expect(queued.lowerBound < review.lowerBound)
-        #expect(review.lowerBound < done.lowerBound)
-    }
-
-    @Test func visualFrontmatterShowsReadOnlyIconMarkerLegend() throws {
-        let attributed = renderMarkdownToAttributed(
-            frontmatter + "\n[-] Item", frontmatterCollapsed: false)
-        let display = attributed.string
-
-        #expect(display.contains("Multi-checkbox"))
-        #expect(display.contains("[-]  Queued"))
-        #expect(display.contains("❓  [?]  Needs review"))
-        #expect(display.contains("[X]  Done"))
-        #expect(!display.contains("editmd:"))
-
-        let doneRange = try #require(display.range(of: "Done"))
-        let doneLocation = display.utf16.distance(
-            from: display.utf16.startIndex,
-            to: doneRange.lowerBound.samePosition(in: display.utf16)!)
-        #expect(attributed.attribute(.strikethroughStyle,
-                                     at: doneLocation,
-                                     effectiveRange: nil) != nil)
-
-        let collapsed = renderMarkdownToAttributed(
-            frontmatter + "\n[-] Item", frontmatterCollapsed: true)
-        #expect(!collapsed.string.contains("Queued"))
-        #expect(serializeAttributedToMarkdown(attributed)
-            == serializeAttributedToMarkdown(collapsed))
-    }
-
-    @Test func previewPageHydratesPluginConfigurationBridge() {
         let page = previewHTMLPage(markdown: frontmatter, fontSize: 14)
 
-        #expect(page.contains("hydrateBuiltInPluginConfiguration()"))
-        #expect(page.contains("handlers.builtInPluginConfiguration"))
-        #expect(page.contains("action: 'openEmojiPicker'"))
-        #expect(page.contains("action: 'addState'"))
-        #expect(page.contains("Square brackets cannot be markers."))
-        #expect(page.contains("already used by another state"))
-    }
-
-    @Test func previewFlagsUnknownSFSymbolName() {
-        let invalid = frontmatter.replacingOccurrences(
-            of: "sf:circle", with: "sf:not.a.real.symbol")
-        let html = markdownHTMLBody(invalid)
-
-        #expect(html.contains("Unknown SF Symbol: not.a.real.symbol"))
+        // The plugin settings card moved to the Properties inspector; the page
+        // keeps only the interactive checkbox tokens themselves.
+        #expect(!html.contains("fm-plugin"))
+        #expect(!page.contains("hydrateBuiltInPluginConfiguration"))
+        #expect(!page.contains("handlers.builtInPluginConfiguration"))
+        #expect(page.contains("hydrateBuiltInPluginTokens"))
     }
 
     @Test func iconAndStrikeEditsUpdateOnlyTheSelectedState() throws {
@@ -581,10 +547,10 @@ struct BuiltInPluginPreviewConfigurationTests {
             BuiltInPluginRegistry.configurationDiagnostics(in: duplicates).first)
         #expect(diagnostic.descriptor.id == MultiCheckboxPlugin.pluginID)
         #expect(diagnostic.message == "Duplicate marker: [x].")
-        let html = markdownHTMLBody(duplicates)
-        #expect(html.contains("class=\"fm-plugin-editor fm-plugin-invalid\""))
-        #expect(html.contains("Duplicate marker: [x]."))
-        #expect(!html.contains("class=\"fm-key\">editmd</div>"))
+        // The page never shows the invalid block; the Properties inspector
+        // surfaces this diagnostic natively.
+        #expect(!markdownHTMLBody(duplicates).contains("fm-plugin"))
+        #expect(BuiltInPluginRegistry.checklistCards(in: duplicates).isEmpty)
     }
 
     @Test func visualStatusBarSurfacesDeclaredPluginConfigurationIssue() throws {
@@ -657,6 +623,7 @@ struct BuiltInPluginPreviewConfigurationTests {
 
         #expect(configuration.states.map(\.source) == ["[-]", "[x]"])
         #expect(configuration.states[1].label == "State 2")
-        #expect(markdownHTMLBody(updated).contains("class=\"fm-plugin-add-state\""))
+        #expect(BuiltInPluginRegistry.checklistCards(in: updated)
+            .first?.states.count == 2)
     }
 }

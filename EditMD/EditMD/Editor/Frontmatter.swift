@@ -1,9 +1,5 @@
 import Foundation
 
-/// Shared presentation title for the metadata card in Visual and Preview.
-/// Source mode intentionally keeps the YAML fences and keys as written.
-let frontmatterDisplayTitle = "Свойства"
-
 // YAML frontmatter (the `---\n…\n---` metadata block at the top of a markdown
 // file) plus a lightweight YAML tokenizer, shared by Visual (a read-only
 // "properties" island) and Preview (a properties table + `yaml` code-block
@@ -66,6 +62,17 @@ func frontmatterRange(in text: String) -> FrontmatterRange? {
         loc = le
     }
     return nil
+}
+
+/// Visual's serialization normal form for documents with frontmatter. The
+/// block is not rendered in Visual (the Properties inspector owns it), so the
+/// serializer output has no island carrying it — this re-attaches the verbatim
+/// block exactly the way the serializer used to join the old `.raw` island
+/// with the first body block (a blank line).
+func composeDocumentWithFrontmatter(_ frontmatter: String?, body: String) -> String {
+    guard let frontmatter, !frontmatter.isEmpty else { return body }
+    guard !body.isEmpty else { return frontmatter }
+    return frontmatter + "\n\n" + body
 }
 
 // MARK: - Properties

@@ -380,9 +380,12 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// serialized frontmatter source itself changes.
         var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
         private var builtInPluginFrontmatter: String?
-        /// Default collapsed once the Properties inspector owns editing
-        /// (plan 04). User disclosure toggle still flips session state.
-        private var frontmatterCollapsed = true
+        /// The document's verbatim frontmatter block (both fences, no trailing
+        /// newline) from the last load. Visual does not render frontmatter —
+        /// the Properties inspector owns it — so serialization re-attaches
+        /// this block (`composeDocumentWithFrontmatter`). Refreshed on every
+        /// loadDocument, which runs for any edit Visual did not originate.
+        private var frontmatterBlock: String?
 
         var visualStyle: VisualStyle {
             let settings = EditorSettings.shared.visual
@@ -439,12 +442,14 @@ struct VisualMarkdownView: NSViewRepresentable {
                 ?? BuiltInPluginRegistry.snapshot(for: source)
             builtInPluginSnapshot = pluginSnapshot
             builtInPluginFrontmatter = builtInPluginFrontmatterSource(in: source)
+            frontmatterBlock = frontmatterRange(in: source).map {
+                (source as NSString).substring(with: $0.full)
+            }
             let rendered = renderMarkdownToAttributed(
-                source, style: visualStyle, pluginSnapshot: pluginSnapshot,
-                frontmatterCollapsed: frontmatterCollapsed)
+                source, style: visualStyle, pluginSnapshot: pluginSnapshot)
             storage.setAttributedString(rendered)
             lastSerialized = parent.document.content
-            lastParagraphRanges = serializeAttributedToMarkdownDetailed(storage).paragraphRanges
+            lastParagraphRanges = serializeStorageWithFrontmatter(storage).paragraphRanges
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
@@ -453,17 +458,21 @@ struct VisualMarkdownView: NSViewRepresentable {
             if restoreCursorAfterLoad { restoreCursor() }
         }
 
-        /// Collapse is presentation-only: re-render the `.raw` island with a
-        /// shorter display string while retaining its verbatim YAML payload.
-        func toggleFrontmatterCollapse() {
-            guard frontmatterRange(in: parent.document.content) != nil,
-                  let textView else { return }
-            frontmatterCollapsed.toggle()
-            parent.positionStore?.markdownOffset = 0
-            loadDocument(pluginSnapshot: builtInPluginSnapshot,
-                         restoreCursorAfterLoad: false)
-            textView.setSelectedRange(NSRange(location: 0, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        /// Serializes the storage and re-attaches the frontmatter block that
+        /// Visual does not display. Paragraph ranges shift past the prefix so
+        /// every display ↔ markdown map stays in document coordinates.
+        private func serializeStorageWithFrontmatter(_ storage: NSTextStorage)
+            -> MarkdownSerialization {
+            let detailed = serializeAttributedToMarkdownDetailed(storage)
+            guard let frontmatterBlock, !frontmatterBlock.isEmpty else { return detailed }
+            let markdown = composeDocumentWithFrontmatter(frontmatterBlock,
+                                                          body: detailed.markdown)
+            let shift = (markdown as NSString).length
+                - (detailed.markdown as NSString).length
+            let ranges = detailed.paragraphRanges.map {
+                NSRange(location: $0.location + shift, length: $0.length)
+            }
+            return MarkdownSerialization(markdown: markdown, paragraphRanges: ranges)
         }
 
         // MARK: Review-mark anchors (v37)
@@ -1406,7 +1415,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         @discardableResult
         private func syncToDocument() -> Bool {
             guard let storage = textView?.textStorage else { return false }
-            let detailed = serializeAttributedToMarkdownDetailed(storage)
+            let detailed = serializeStorageWithFrontmatter(storage)
             lastParagraphRanges = detailed.paragraphRanges
             var serialized = detailed.markdown
             // Single trailing newline (POSIX text files). Do not append a second

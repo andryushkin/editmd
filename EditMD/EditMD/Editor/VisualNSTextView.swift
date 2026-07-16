@@ -110,7 +110,6 @@ final class VisualNSTextView: NSTextView {
             nativeRowFrameCache.removeAll(keepingCapacity: true)
         }
     }
-    var propertiesPanelRanges: [NSRange] = []
     private var islandHorizontalOffsets: [Int: CGFloat] = [:]
     private var focusedIslandCell: (paragraphLocation: Int, row: Int, column: Int)?
     private var activeEditor: TableCellEditorField?
@@ -184,10 +183,6 @@ final class VisualNSTextView: NSTextView {
             focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
         } else {
             focusedIslandCell = nil
-        }
-        if event.clickCount == 1, frontmatterToggleRange(at: point) != nil {
-            visualCoordinator?.toggleFrontmatterCollapse()
-            return
         }
         if let paragraph = builtInPluginTaskParagraph(at: point) {
             visualCoordinator?.toggleBuiltInPluginTask(at: paragraph)
@@ -285,28 +280,6 @@ final class VisualNSTextView: NSTextView {
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard charIndex < storage.length else { return nil }
         return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
-    }
-
-    /// Exact hit-test for the frontmatter title. `glyphIndex(for:)` returns the
-    /// nearest glyph even in blank space, so verify the title's bounding rect
-    /// before treating a click as a disclosure action.
-    private func frontmatterToggleRange(at point: NSPoint) -> NSRange? {
-        guard let layoutManager, let textContainer, let storage = textStorage,
-              storage.length > 0 else { return nil }
-        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
-                                     y: point.y - textContainerInset.height)
-        let glyph = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
-        let index = layoutManager.characterIndexForGlyph(at: glyph)
-        guard index < storage.length else { return nil }
-        var range = NSRange(location: 0, length: 0)
-        guard storage.attribute(.mdFrontmatterToggle, at: index,
-                                longestEffectiveRange: &range,
-                                in: NSRange(location: 0, length: storage.length)) != nil,
-              visualPointHitsCharacterRange(containerPoint, range: range,
-                                            layoutManager: layoutManager,
-                                            textContainer: textContainer)
-        else { return nil }
-        return range
     }
 
     /// Raw `[text](destination)` under the cursor — scheme URLs and local
@@ -985,19 +958,6 @@ final class VisualNSTextView: NSTextView {
             panel.lineWidth = 1
             theme.inlineCodeColor.withAlphaComponent(0.28).setStroke()
             panel.stroke()
-        }
-
-        // Frontmatter properties cards (Obsidian-style metadata panel)
-        for range in propertiesPanelRanges {
-            guard let rectUnion = unionRect(for: range) else { continue }
-            let padded = rectUnion.insetBy(dx: 0, dy: -8)
-            guard padded.intersects(rect) else { continue }
-            let path = NSBezierPath(roundedRect: padded, xRadius: 7, yRadius: 7)
-            NSColor(white: 0.5, alpha: 0.06).setFill()
-            path.fill()
-            path.lineWidth = 1
-            theme.separatorColor.withAlphaComponent(0.6).setStroke()
-            path.stroke()
         }
 
         // Quote bars

@@ -159,8 +159,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                   name: "taskToggle")
         userContentController.add(BuiltInPluginToggleHandler(coordinator: coordinator),
                                   name: "builtInPluginToggle")
-        userContentController.add(BuiltInPluginConfigurationHandler(coordinator: coordinator),
-                                  name: "builtInPluginConfiguration")
         userContentController.add(WikiLinkClickHandler(coordinator: coordinator),
                                   name: "wikiLinkClick")
         userContentController.add(LocalLinkClickHandler(coordinator: coordinator),
@@ -457,10 +455,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
     private func applyFragment(_ result: PreviewFragmentResult,
                                coordinator: Coordinator) async {
         guard let webView = coordinator.webView else { return }
-        // Removing a focused DOM control does not reliably emit focusout in
-        // WebKit. Clear the native gate before every replacement; successful
-        // focus restoration in the new fragment emits focusin and sets it back.
-        (webView as? PreviewWebView)?.prepareForContentReplacement()
         if PreviewShellUpdatePolicy.requiresFullReload(
             hasMath: result.hasMath,
             shellHasMathAssets: coordinator.shellHasMathAssets) {
@@ -726,42 +720,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
                       in: document.content, at: offset)
             else { return }
             document.applyDocumentEdit(toggled, actionName: "Cycle Status")
-        }
-
-        /// Applies a whitelisted field edit from the plugin card. The registry
-        /// re-parses current frontmatter before changing it, so stale WebKit
-        /// controls cannot address a different state after an external edit.
-        func updateBuiltInPluginConfiguration(pluginID: String, stateIndex: Int,
-                                              expectedSource: String,
-                                              fieldName: String, value: String) {
-            guard let document,
-                  let field = BuiltInPluginConfigurationField(rawValue: fieldName),
-                  let updated = BuiltInPluginRegistry.updateConfiguration(
-                      in: document.content, pluginID: pluginID,
-                      stateIndex: stateIndex, field: field, value: value,
-                      expectedSource: expectedSource)
-            else { return }
-            document.applyDocumentEdit(updated, actionName: "Edit Plugin Settings")
-        }
-
-        func addBuiltInPluginConfigurationState(pluginID: String) {
-            guard let document,
-                  let updated = BuiltInPluginRegistry.addConfigurationState(
-                      pluginID: pluginID, in: document.content)
-            else { return }
-            document.applyDocumentEdit(updated, actionName: "Add Plugin State")
-        }
-
-        /// The focused WebKit text field remains first responder; the standard
-        /// macOS Character Viewer inserts the selected emoji into that field.
-        func openEmojiPicker() {
-            guard let webView else { return }
-            webView.window?.makeFirstResponder(webView)
-            NSApp.orderFrontCharacterPalette(nil)
-        }
-
-        func setPluginEditorFocused(_ focused: Bool) {
-            (webView as? PreviewWebView)?.hasEditablePreviewFocus = focused
         }
 
         /// A wiki-link was clicked in the page: resolve its target and open the
@@ -1087,7 +1045,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
 /// editor is already on screen.
 final class PreviewWebView: WKWebView {
     var onReturnKey: (() -> Void)?
-    var hasEditablePreviewFocus = false
     /// Document for ⌘Z / ⌘⇧Z while the web view is first responder.
     weak var documentForUndo: MarkdownDocument?
 
@@ -1095,13 +1052,9 @@ final class PreviewWebView: WKWebView {
         documentForUndo?.contentUndoManager ?? super.undoManager
     }
 
-    func prepareForContentReplacement() {
-        hasEditablePreviewFocus = false
-    }
-
     override func keyDown(with event: NSEvent) {
         // 36 = Return, 76 = keypad Enter
-        if onReturnKey != nil, !hasEditablePreviewFocus,
+        if onReturnKey != nil,
            event.keyCode == 36 || event.keyCode == 76 {
             onReturnKey?()
             return
@@ -1149,46 +1102,6 @@ private final class BuiltInPluginToggleHandler: NSObject, WKScriptMessageHandler
                                didReceive message: WKScriptMessage) {
         guard let offset = message.body as? Int else { return }
         coordinator?.toggleBuiltInPlugin(at: offset)
-    }
-}
-
-/// Bridges the small, typed plugin settings form. It accepts no ranges or YAML
-/// paths; the registry resolves the current state again on every edit.
-@MainActor
-private final class BuiltInPluginConfigurationHandler: NSObject, WKScriptMessageHandler {
-    weak var coordinator: MarkdownPreviewView.Coordinator?
-
-    init(coordinator: MarkdownPreviewView.Coordinator) {
-        self.coordinator = coordinator
-    }
-
-    func userContentController(_ userContentController: WKUserContentController,
-                               didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any],
-              let action = body["action"] as? String else { return }
-        if action == "openEmojiPicker" {
-            coordinator?.openEmojiPicker()
-            return
-        }
-        if action == "focusChanged",
-           let focused = (body["focused"] as? NSNumber)?.boolValue {
-            coordinator?.setPluginEditorFocused(focused)
-            return
-        }
-        if action == "addState",
-           let pluginID = body["pluginID"] as? String {
-            coordinator?.addBuiltInPluginConfigurationState(pluginID: pluginID)
-            return
-        }
-        guard action == "edit",
-              let pluginID = body["pluginID"] as? String,
-              let stateIndex = (body["stateIndex"] as? NSNumber)?.intValue,
-              let expectedSource = body["expectedSource"] as? String,
-              let field = body["field"] as? String,
-              let value = body["value"] as? String else { return }
-        coordinator?.updateBuiltInPluginConfiguration(
-            pluginID: pluginID, stateIndex: stateIndex, expectedSource: expectedSource,
-            fieldName: field, value: value)
     }
 }
 

@@ -117,28 +117,17 @@ final class FrontmatterTests: XCTestCase {
 
     // MARK: - HTML rendering
 
-    func testFrontmatterRendersAsPropertiesPanel() {
-        let html = markdownHTMLBody("---\ntitle: A\n---\n\n# H\n")
-        XCTAssertTrue(html.contains("section class=\"frontmatter\""), html)
-        XCTAssertTrue(html.contains(
-            "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"), html)
-        XCTAssertTrue(html.contains("class=\"fm-disclosure\""), html)
-        XCTAssertTrue(html.contains("<span>Свойства</span></button>"), html)
-        XCTAssertTrue(html.contains("<div class=\"fm-content\">"), html)
-        XCTAssertTrue(html.contains("<span class=\"fm-icon\""), html)
-        XCTAssertTrue(html.contains("<div class=\"fm-key\">title</div>"), html)
+    func testFrontmatterIsNotRenderedInPreview() {
+        // The Properties inspector owns frontmatter; the page shows body only.
+        let html = markdownHTMLBody("---\ntitle: A\ntags: [a, b]\n---\n\n# H\n")
+        XCTAssertFalse(html.contains("frontmatter"), html)
+        XCTAssertFalse(html.contains("title: A"), html)
+        XCTAssertFalse(html.contains("fm-"), html)
         XCTAssertFalse(html.contains("<hr>"), html)   // opening --- must not render as a rule
         // Heading text is wrapped in a click-to-edit source span (<h1><span
         // data-md-lo…>H</span></h1>) — match structurally, not literally.
         XCTAssertNotNil(html.range(of: #"<h1>(<span[^>]*>)?H(</span>)?</h1>"#,
                                    options: .regularExpression), html)
-    }
-
-    func testFrontmatterListRendersChips() {
-        let html = markdownHTMLBody("---\ntags: [a, b]\n---\n")
-        XCTAssertTrue(html.contains("<circle cx=\"7.5\" cy=\"8.5\" r=\"1\"/>"), html)
-        XCTAssertTrue(html.contains("<span class=\"fm-chip\">a</span>"), html)
-        XCTAssertTrue(html.contains("<span class=\"fm-chip\">b</span>"), html)
     }
 
     func testYAMLCodeBlockGetsSyntaxSpans() {
@@ -156,65 +145,53 @@ final class FrontmatterTests: XCTestCase {
 
     // MARK: - Visual round-trip
 
-    func testFrontmatterRoundTripsVerbatim() {
+    func testFrontmatterRoundTripsThroughCompose() {
+        // Visual renders body only; the coordinator re-attaches the verbatim
+        // block via composeDocumentWithFrontmatter on serialize.
         let markdown = "---\ntitle: A\ntags: [x, y]\n---\n\n# Heading\n"
         let attributed = renderMarkdownToAttributed(markdown)
-        let serialized = serializeAttributedToMarkdown(attributed)
-        XCTAssertTrue(serialized.hasPrefix("---\ntitle: A\ntags: [x, y]\n---"), serialized)
-        XCTAssertTrue(serialized.contains("# Heading"), serialized)
+        XCTAssertFalse(attributed.string.contains("title: A"), attributed.string)
+        let body = serializeAttributedToMarkdown(attributed)
+        let composed = composeDocumentWithFrontmatter("---\ntitle: A\ntags: [x, y]\n---",
+                                                      body: body)
+        XCTAssertTrue(composed.hasPrefix("---\ntitle: A\ntags: [x, y]\n---\n\n"), composed)
+        XCTAssertTrue(composed.contains("# Heading"), composed)
     }
 }
 
-@Suite("Frontmatter disclosure presentation")
-struct FrontmatterDisclosureTests {
+@Suite("Frontmatter hidden from the page")
+struct FrontmatterHiddenTests {
     private let markdown = "---\ntitle: A\ntags: [x, y]\n---\n\n# Heading\n"
 
-    @Test func visualDisclosureChangesOnlyDisplayAndKeepsRawYAML() throws {
-        let expanded = renderMarkdownToAttributed(markdown, frontmatterCollapsed: false)
-        let collapsed = renderMarkdownToAttributed(markdown, frontmatterCollapsed: true)
-        let titleRange = (expanded.string as NSString).range(of: frontmatterDisplayTitle)
-
-        #expect(titleRange.location != NSNotFound)
-        #expect(expanded.attribute(.mdFrontmatterToggle,
-                                   at: titleRange.location,
-                                   effectiveRange: nil) != nil)
-        #expect(expanded.string.contains("title: A"))
-        #expect(collapsed.string.contains(frontmatterDisplayTitle))
-        #expect(!collapsed.string.contains("title: A"))
-        #expect(serializeAttributedToMarkdown(expanded)
-            == serializeAttributedToMarkdown(collapsed))
-        #expect(serializeAttributedToMarkdown(collapsed).hasPrefix(
-            "---\ntitle: A\ntags: [x, y]\n---"))
+    @Test func visualDoesNotRenderFrontmatter() {
+        let attributed = renderMarkdownToAttributed(markdown)
+        #expect(!attributed.string.contains("title: A"))
+        #expect(!attributed.string.contains("---"))
+        #expect(attributed.string.contains("Heading"))
     }
 
-    @Test func previewDisclosureIsHydratedFromPersistentShellState() {
+    @Test func previewShellCarriesNoFrontmatterMachinery() {
         let body = markdownHTMLBody(markdown)
         let page = previewHTMLPage(markdown: markdown, fontSize: 14)
 
-        #expect(body.contains(
-            "<button type=\"button\" class=\"fm-title\" aria-expanded=\"true\">"))
-        #expect(body.contains("class=\"fm-disclosure\""))
-        #expect(body.contains("<span>Свойства</span></button>"))
-        #expect(body.contains("<div class=\"fm-content\">"))
-        // Default collapsed after Properties panel (plan 04 stage 5).
-        #expect(page.contains("var frontmatterCollapsed = true;"))
-        #expect(page.contains("function hydrateFrontmatterDisclosure()"))
-        #expect(page.contains("hydrateFrontmatterDisclosure();"))
-        #expect(page.contains("content.hidden = frontmatterCollapsed;"))
+        #expect(!body.contains("class=\"frontmatter\""))
+        #expect(!page.contains("hydrateFrontmatterDisclosure"))
+        #expect(!page.contains("fm-plugin-state"))
     }
 
-    @Test func visualFrontmatterDefaultsToCollapsed() {
-        let attributed = renderMarkdownToAttributed(markdown)
-        #expect(attributed.string.contains(frontmatterDisplayTitle))
-        #expect(!attributed.string.contains("title: A"),
-                "default Visual render should collapse frontmatter body")
+    @Test func composeReattachesFrontmatterByteExactly() {
+        let frontmatter = "---\ntitle: A\ntags: [x, y]\n---"
+        #expect(composeDocumentWithFrontmatter(frontmatter, body: "# H")
+            == "---\ntitle: A\ntags: [x, y]\n---\n\n# H")
+        #expect(composeDocumentWithFrontmatter(frontmatter, body: "") == frontmatter)
+        #expect(composeDocumentWithFrontmatter(nil, body: "# H") == "# H")
+        #expect(composeDocumentWithFrontmatter("", body: "# H") == "# H")
     }
 
-    @Test func emptyFrontmatterDoesNotRenderAnEmptyPropertiesCard() {
+    @Test func emptyFrontmatterStillHiddenAndBodyRenders() {
         let body = markdownHTMLBody("---\n---\n\nBody")
 
         #expect(!body.contains("class=\"frontmatter\""))
-        #expect(!body.contains("<span>Свойства</span></button>"))
         #expect(body.contains("Body"))
     }
 }

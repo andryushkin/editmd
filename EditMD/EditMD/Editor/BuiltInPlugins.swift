@@ -270,6 +270,11 @@ protocol BuiltInMarkdownPlugin: Sendable {
 
     /// Return nil when the document did not activate this plugin.
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation?
+
+    /// Frontmatter-declared checklist states for plugins that define a cyclic
+    /// checklist. Must stay frontmatter-only (no cmark): the Properties panel
+    /// reads it on every SwiftUI update of the inspector.
+    func checklistStates(in markdown: String) -> [BuiltInPluginTokenState]?
 }
 
 extension BuiltInMarkdownPlugin {
@@ -278,6 +283,13 @@ extension BuiltInMarkdownPlugin {
     func configurationIssue(in markdown: String) -> String? { nil }
     func installingDefaultConfiguration(in markdown: String) -> String? { nil }
     func addingConfigurationState(in markdown: String) -> String? { nil }
+    func checklistStates(in markdown: String) -> [BuiltInPluginTokenState]? { nil }
+}
+
+/// One active plugin's settings card in the Properties inspector.
+struct BuiltInPluginChecklistCard {
+    let descriptor: BuiltInPluginDescriptor
+    let states: [BuiltInPluginTokenState]
 }
 
 enum BuiltInPluginRegistry {
@@ -297,6 +309,16 @@ enum BuiltInPluginRegistry {
             guard let message = plugin.configurationIssue(in: markdown) else { return nil }
             return BuiltInPluginConfigurationDiagnostic(
                 descriptor: plugin.descriptor, message: message)
+        }
+    }
+
+    /// Settings cards for the Properties inspector. Frontmatter-only — no
+    /// token scan, cheap enough for per-keystroke SwiftUI recomputes.
+    static func checklistCards(in markdown: String) -> [BuiltInPluginChecklistCard] {
+        plugins.compactMap { plugin in
+            guard let states = plugin.checklistStates(in: markdown) else { return nil }
+            return BuiltInPluginChecklistCard(descriptor: plugin.descriptor,
+                                              states: states)
         }
     }
 
@@ -559,6 +581,10 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
 
     func addingConfigurationState(in markdown: String) -> String? {
         Self.addingConfigurationState(in: markdown)
+    }
+
+    func checklistStates(in markdown: String) -> [BuiltInPluginTokenState]? {
+        Self.configuration(in: markdown)?.states
     }
 
     func activate(in markdown: String, coreSpans: [Span]) -> BuiltInPluginActivation? {

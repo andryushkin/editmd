@@ -98,8 +98,6 @@ extension NSAttributedString.Key {
     static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
     static let mdBuiltInPluginToken = NSAttributedString.Key("md.builtInPluginToken")
     static let mdCalloutSoftBreak = NSAttributedString.Key("md.calloutSoftBreak")
-    /// Click target for the presentation-only frontmatter disclosure title.
-    static let mdFrontmatterToggle = NSAttributedString.Key("md.frontmatterToggle")
     /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. The run text
     /// is the VERBATIM source including delimiters; the serializer re-emits it
     /// without markdown escaping (cheap NSNumber value — v29 hash invariant).
@@ -184,14 +182,15 @@ private extension NSFont {
 // MARK: - Renderer
 
 /// Markdown → attributed string with semantic attributes. Pure of UI state.
+/// Frontmatter is NOT rendered: the Properties inspector owns its display and
+/// editing. The Visual coordinator re-attaches the verbatim block on serialize
+/// (`composeDocumentWithFrontmatter`).
 func renderMarkdownToAttributed(_ markdown: String,
                                 style: VisualStyle = VisualStyle(),
-                                pluginSnapshot: BuiltInPluginSnapshot? = nil,
-                                frontmatterCollapsed: Bool = true)
+                                pluginSnapshot: BuiltInPluginSnapshot? = nil)
     -> NSAttributedString {
     VisualRenderer(source: markdown, style: style,
-                   pluginSnapshot: pluginSnapshot,
-                   frontmatterCollapsed: frontmatterCollapsed).run()
+                   pluginSnapshot: pluginSnapshot).run()
 }
 
 private final class VisualRenderer {
@@ -205,7 +204,6 @@ private final class VisualRenderer {
     /// escape processing would eat `\\`/`\,`.
     private let mathSpans: [MDMathSpan]
     private let pluginSnapshot: BuiltInPluginSnapshot
-    private let frontmatterCollapsed: Bool
     private let parseSource: String
     /// Spans that cover whole lines (multiline `$$` blocks) — rendered as one
     /// verbatim block run; per-span "already emitted" bookkeeping.
@@ -215,8 +213,7 @@ private final class VisualRenderer {
     private var groupCounter = 0
 
     init(source: String, style: VisualStyle,
-         pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot?,
-         frontmatterCollapsed: Bool) {
+         pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot?) {
         self.source = source
         self.style = style
         let ns = source as NSString
@@ -225,7 +222,6 @@ private final class VisualRenderer {
         self.mathSpans = math
         let plugins = providedPluginSnapshot ?? BuiltInPluginRegistry.snapshot(for: source)
         self.pluginSnapshot = plugins
-        self.frontmatterCollapsed = frontmatterCollapsed
         self.multilineMath = math.map {
             $0.display && ns.range(of: "\n", options: [], range: $0.range).location != NSNotFound
         }
@@ -251,11 +247,11 @@ private final class VisualRenderer {
 
     func run() -> NSAttributedString {
         let document = Document(parsing: parseSource)
-        // YAML frontmatter isn't in the markdown grammar — emit it as a
-        // read-only properties island and skip the AST nodes it produced
-        // (a thematic break + a setext heading) so it isn't rendered twice.
+        // YAML frontmatter isn't in the markdown grammar. It is not displayed
+        // in Visual at all (the Properties inspector owns it) — skip the AST
+        // nodes it produced (a thematic break + a setext heading). The Visual
+        // coordinator re-attaches the verbatim block on serialize.
         let frontmatter = frontmatterRange(in: source)
-        if let frontmatter { emitFrontmatterIsland(frontmatter) }
         let skipUntil = frontmatter.map { NSMaxRange($0.full) } ?? 0
         for child in document.children {
             if skipUntil > 0, let range = child.range,
@@ -265,96 +261,6 @@ private final class VisualRenderer {
             renderBlock(child, ctx: Ctx())
         }
         return out
-    }
-
-    /// The frontmatter as a `.raw` island: the stored value is the verbatim
-    /// block (fences included) so it round-trips unchanged, but the DISPLAYED
-    /// text is a clickable localized title followed by clean "key: value" lines
-    /// (fences dropped). Collapsing changes only this cosmetic display; the
-    /// stored `.raw` remains the sole serialization source.
-    private func emitFrontmatterIsland(_ frontmatter: FrontmatterRange) {
-        let full = nsSource.substring(with: frontmatter.full)
-        let bodyText = nsSource.substring(with: frontmatter.body)
-        let props = parseFrontmatterProperties(bodyText)
-        let visibleProperties = pluginSnapshot.activations.isEmpty
-            ? props
-            : props.filter { $0.key.lowercased() != "editmd" }
-        let propertyDisplay: String
-        if props.isEmpty {
-            propertyDisplay = bodyText.components(separatedBy: "\n")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .joined(separator: mdHardBreak)
-        } else {
-            propertyDisplay = visibleProperties
-                .map { $0.value.isEmpty ? "\($0.key):" : "\($0.key): \($0.value)" }
-                .joined(separator: mdHardBreak)
-        }
-        appendParagraph(makeBlock(.raw(full), Ctx())) { b in
-            var titleAttributes = self.baseAttributes(block: b, styles: [], link: nil)
-            titleAttributes[.mdFrontmatterToggle] = true
-            let title = NSMutableAttributedString()
-            let attachment = NSTextAttachment()
-            let symbolName = self.frontmatterCollapsed ? "chevron.right" : "chevron.down"
-            attachment.image = NSImage(systemSymbolName: symbolName,
-                                       accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
-            attachment.bounds = NSRect(x: 0, y: -1, width: 11, height: 11)
-            title.append(NSAttributedString(attachment: attachment))
-            title.append(NSAttributedString(string: " " + frontmatterDisplayTitle,
-                                            attributes: titleAttributes))
-            title.addAttributes(titleAttributes,
-                                range: NSRange(location: 0, length: title.length))
-            self.out.append(title)
-            guard !self.frontmatterCollapsed else { return }
-
-            var hasContent = false
-            func appendBreak() {
-                self.appendText(mdHardBreak, block: b, styles: [], link: nil)
-            }
-            if !propertyDisplay.isEmpty {
-                appendBreak()
-                self.appendText(propertyDisplay, block: b, styles: [], link: nil)
-                hasContent = true
-            }
-
-            // Active plugin configuration is nested below the top-level
-            // `editmd:` key, which the lightweight property parser cannot show
-            // meaningfully. Replace that stub with a read-only state legend so
-            // Visual exposes the same icon ↔ marker ↔ name mapping as Preview.
-            for activation in self.pluginSnapshot.activations {
-                guard let template = activation.initialChecklistPayload else { continue }
-                if hasContent { appendBreak() }
-                appendBreak()
-                var headingAttributes = self.baseAttributes(block: b, styles: [], link: nil)
-                headingAttributes[.font] = self.style.font(for: .bold, blockKind: .paragraph)
-                self.out.append(NSAttributedString(string: activation.descriptor.name,
-                                                   attributes: headingAttributes))
-                for state in template.states {
-                    appendBreak()
-                    let bodyFont = self.style.font(for: [], blockKind: .paragraph)
-                    self.out.append(builtInPluginIconAttributedString(
-                        state.icon, label: state.label, fallback: state.source,
-                        font: bodyFont, textColor: .labelColor,
-                        attributes: self.baseAttributes(block: b, styles: [], link: nil)))
-
-                    var markerAttributes = self.baseAttributes(block: b, styles: [], link: nil)
-                    markerAttributes[.font] = NSFont.monospacedSystemFont(
-                        ofSize: max(10, bodyFont.pointSize - 1), weight: .medium)
-                    self.out.append(NSAttributedString(string: "  \(state.source)  ",
-                                                       attributes: markerAttributes))
-
-                    var labelAttributes = self.baseAttributes(block: b, styles: [], link: nil)
-                    labelAttributes[.font] = bodyFont
-                    if state.strikethrough {
-                        labelAttributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                    }
-                    self.out.append(NSAttributedString(string: state.label,
-                                                       attributes: labelAttributes))
-                }
-                hasContent = true
-            }
-        }
     }
 
     // MARK: Block dispatch

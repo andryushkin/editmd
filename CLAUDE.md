@@ -10,7 +10,7 @@
 
 - **Source** — сырой markdown, подсветка и lint: `SourceTextView.swift`, `MarkdownHighlighter.swift`, `MarkdownLint.swift`.
 - **Visual** — attributed WYSIWYG с синхронной сериализацией: `MarkdownToAttributed.swift`, `AttributedToMarkdown.swift`, `Visual*.swift`.
-- **Preview** — в основном read-only HTML в WKWebView; интерактивны task/status и встроенная карточка настройки активного плагина: `MarkdownHTML.swift`, `MarkdownPreviewView.swift`.
+- **Preview** — в основном read-only HTML в WKWebView; интерактивны task/status-токены: `MarkdownHTML.swift`, `MarkdownPreviewView.swift`.
 
 Сайдбар: Files / Outline / Git / Review / Tags. Сплит Source/Visual + live Preview включается ⌥⌘P. PDF и локальные изображения открываются read-only; изображения можно добавить кнопкой или вставить из буфера.
 
@@ -53,9 +53,9 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 
 - Сквозная markdown-фича имеет три независимых пути: Source=`collectSpans`, Visual=`VisualRenderer`, Preview=`HTMLBodyVisitor`. Проверяй все три и round-trip.
 - Плагины EditMD — только встроенные Swift-типы из `BuiltInPluginRegistry`, с активацией на документ через frontmatter. Не добавляй загрузку JavaScript, внешних bundle или скачанного executable code; semantic token обязан сохранять UTF-16 offsets и пройти Source/Visual/Preview + round-trip.
-- Общая action strip во всех режимах показывает registry-driven меню добавления плагина. Инсталляция обязана быть undoable, не дублировать уже объявленный блок и корректно встраиваться в существующий frontmatter.
-- `.raw` — дословный source of truth для островов. Display-текст таблиц/frontmatter может отличаться, сериализатор читает payload `.raw`.
-- Сворачивание frontmatter — только presentation state: Visual не меняет `.raw`, а Preview хранит disclosure state в persistent shell, чтобы `innerHTML`-обновление его не сбрасывало.
+- Меню добавления плагина живёт в панели «Свойства» правого инспектора (registry-driven). Инсталляция обязана быть undoable, не дублировать уже объявленный блок и корректно встраиваться в существующий frontmatter.
+- `.raw` — дословный source of truth для островов. Display-текст таблиц может отличаться, сериализатор читает payload `.raw`.
+- Frontmatter не отображается ни в Visual, ни в Preview — им владеет панель «Свойства». Рендер Visual пропускает блок, а координатор препендит verbatim-блок при сериализации через `composeDocumentWithFrontmatter`; байтовая точность блока обязательна.
 - Формулы парсятся по маскированному тексту с сохранением UTF-16 offsets; Visual хранит исходный TeX в `.mdMathTex`.
 - Rendered-вставки Visual проходят только через `renderForInsertion`, который remap-ит group id. Нативные таблицы перестраиваются через `TableGrid`, island-таблицы — через `replaceTableIsland`.
 - Тяжёлые payload нельзя хешировать внутри значений атрибутов NSTextStorage. `MDBlock.hash(into:)` обязан быть O(1).
@@ -87,8 +87,7 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 ### Preview, review и integration
 
 - Preview грузится через `loadHTMLString`; schemeless local links обрабатывает JS bridge. Vault-root path начинается с `/`, обычный относительный — от папки документа.
-- Настройки активного встроенного плагина в Preview меняют только registry-whitelisted поля frontmatter через обычный undo path; WebKit не передаёт произвольные YAML paths/ranges.
-- Fragment replacement в Preview обязан сохранить активное поле plugin-card и selection; перед заменой Swift сбрасывает native editable-focus gate, а успешный DOM restore возвращает его через новый `focusin`.
+- Настройки активного встроенного плагина редактируются в панели «Свойства» и меняют только registry-whitelisted поля frontmatter (`updateConfiguration`) через обычный undo path — никаких произвольных YAML paths/ranges.
 - Review sidecar сохраняет smotr-схему без потерь; offsets — UTF-16. Persist/reload идёт строго FIFO, anchors считаются один раз off-main и кэшируются.
 - Физическая смена path сначала получает FIFO permit `ReviewModel`, затем без suspension ставит `AppState` gates и резервирует в `DocumentRegistry` сначала все destinations, потом все sources; завершение обязано передать точные relocate/drop outcomes всем трём координаторам.
 - `openDiff` — blocking tool: continuation завершается ровно один раз для Accept/Reject/close/disconnect/timeout.
