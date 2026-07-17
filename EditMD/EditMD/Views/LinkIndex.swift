@@ -270,12 +270,16 @@ final class LinkIndex: ObservableObject {
         Task.detached(priority: .utility) { [weak self] in
             let scanned = LinkIndex.scanWorkspaceOutgoing(roots: capturedRoots)
 
-            // Resolve against WikiLinkResolver with current roots.
+            // Resolve against WikiLinkResolver with current roots. The whole
+            // basename index is captured once — no actor hop per link.
             await WikiLinkResolver.shared.setRoots(capturedRoots)
+            let wikiIndex = await WikiLinkResolver.shared.indexedMatches()
             var resolvedMap: [URL: [OutgoingLink]] = [:]
             for (source, links) in scanned.outgoing {
-                resolvedMap[source] = await LinkIndex.resolveScannedLinks(
-                    links, source: source, roots: capturedRoots, vaultFallback: nil
+                if Task.isCancelled { return }
+                resolvedMap[source] = LinkIndex.resolveScannedLinks(
+                    links, source: source, roots: capturedRoots,
+                    vaultFallback: nil, wikiIndex: wikiIndex
                 )
             }
 
@@ -288,6 +292,9 @@ final class LinkIndex: ObservableObject {
                 // (it re-reads live workspace state below).
                 if !self.scanPending {
                     self.outgoing = resolvedMap
+                    // Invalidate any in-flight single-file projection so it
+                    // cannot overwrite the fresher full-scan result.
+                    self.backlinksGeneration += 1
                     self.backlinks = projected
                     self.headings = Dictionary(uniqueKeysWithValues:
                         scanned.headings.map { ($0.key.standardizedFileURL, $0.value) })
@@ -307,13 +314,16 @@ final class LinkIndex: ObservableObject {
     }
 
     /// Resolve one file's scanned links (wiki index + local path rules).
-    /// Pure over inputs; hits the disk — call off the main actor.
+    /// Pure over inputs; hits the disk — call off the main actor. `wikiIndex`
+    /// is a captured WikiLinkResolver snapshot: batch resolution must not hop
+    /// to the actor per link (the full scan resolves tens of thousands).
     nonisolated private static func resolveScannedLinks(
         _ links: [OutgoingLink],
         source: URL,
         roots: [URL],
-        vaultFallback: URL?
-    ) async -> [OutgoingLink] {
+        vaultFallback: URL?,
+        wikiIndex: [String: [URL]]
+    ) -> [OutgoingLink] {
         let vault = roots.first { root in
             let p = source.path
             let r = root.standardizedFileURL.path
@@ -325,7 +335,7 @@ final class LinkIndex: ObservableObject {
             let wikiHits: [URL]
             if link.kind == .wiki
                 || (link.kind == .image && !link.rawTarget.contains("/")) {
-                wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
+                wikiHits = WikiLinkResolver.matches(for: link.rawTarget, in: wikiIndex)
             } else if link.kind == .markdown
                         || link.kind == .image {
                 // Path resolve first; wiki fallback for bare names.
@@ -337,7 +347,7 @@ final class LinkIndex: ObservableObject {
                 if local != nil {
                     wikiHits = []
                 } else {
-                    wikiHits = await WikiLinkResolver.shared.resolve(link.rawTarget)
+                    wikiHits = WikiLinkResolver.matches(for: link.rawTarget, in: wikiIndex)
                 }
             } else {
                 wikiHits = []
@@ -368,6 +378,7 @@ final class LinkIndex: ObservableObject {
             } else {
                 await WikiLinkResolver.shared.setRoots([url.deletingLastPathComponent()])
             }
+            let wikiIndex = await WikiLinkResolver.shared.indexedMatches()
 
             let hasRootMatch = roots.contains { root in
                 let p = url.path
@@ -377,25 +388,40 @@ final class LinkIndex: ObservableObject {
             let fallback = hasRootMatch
                 ? nil
                 : nearestVaultRoot(startingAt: url.deletingLastPathComponent())
-            let resolved = await LinkIndex.resolveScannedLinks(
-                scanned, source: url, roots: roots, vaultFallback: fallback
+            let resolved = LinkIndex.resolveScannedLinks(
+                scanned, source: url, roots: roots, vaultFallback: fallback,
+                wikiIndex: wikiIndex
             )
             return (resolved, headings)
         }.value
 
-        await MainActor.run {
-            // Drop only when a newer *workspace* full-scan key won the race.
-            // Lite / empty-roots updates always apply (single-file map).
-            if !roots.isEmpty,
-               self.hasCompletedFullScan,
-               !self.indexKey.isEmpty,
-               self.indexKey != key {
-                return
-            }
-            self.outgoing[url] = resolvedLinks
-            self.headings[url.standardizedFileURL] = fileHeadings
-            self.backlinks = Self.projectBacklinks(from: self.outgoing)
-            self.fileScanCount += 1
+        // Back on the main actor. Drop only when a newer *workspace*
+        // full-scan key won the race. Lite / empty-roots updates always
+        // apply (single-file map).
+        if !roots.isEmpty,
+           hasCompletedFullScan,
+           !indexKey.isEmpty,
+           indexKey != key {
+            return
         }
+        outgoing[url] = resolvedLinks
+        headings[url.standardizedFileURL] = fileHeadings
+        fileScanCount += 1
+        await refreshBacklinksOffMain()
+    }
+
+    /// Recomputes the backlink projection off the main actor: projecting a
+    /// multi-thousand-file map on every autosave flush was long enough to trip
+    /// the hang detector. Stale projections are dropped via the generation.
+    private var backlinksGeneration = 0
+    private func refreshBacklinksOffMain() async {
+        backlinksGeneration += 1
+        let generation = backlinksGeneration
+        let snapshot = outgoing
+        let projected = await Task.detached(priority: .userInitiated) {
+            Self.projectBacklinks(from: snapshot)
+        }.value
+        guard generation == backlinksGeneration else { return }
+        backlinks = projected
     }
 }

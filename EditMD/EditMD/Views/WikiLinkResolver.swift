@@ -48,7 +48,21 @@ actor WikiLinkResolver {
     /// last path component; an explicit extension narrows matches to that type.
     func resolve(_ target: String) -> [URL] {
         buildIfNeeded()
-        let (key, ext) = Self.normalizeTarget(target)
+        return Self.matches(for: target, in: index)
+    }
+
+    /// Whole basename index (standardized URLs) — one actor hop for batch
+    /// consumers (the workspace link scan resolves tens of thousands of links;
+    /// a hop per link starved the cooperative pool for minutes on big vaults).
+    func indexedMatches() -> [String: [URL]] {
+        buildIfNeeded()
+        return index
+    }
+
+    /// Same lookup rules as `resolve`, over a captured index snapshot.
+    nonisolated static func matches(for target: String,
+                                    in index: [String: [URL]]) -> [URL] {
+        let (key, ext) = normalizeTarget(target)
         var matches = index[key] ?? []
         if let ext {
             matches = matches.filter { $0.pathExtension.lowercased() == ext }
@@ -68,7 +82,9 @@ actor WikiLinkResolver {
             for case let url as URL in enumerator
             where Self.indexedExtensions.contains(url.pathExtension.lowercased()) {
                 let key = url.deletingPathExtension().lastPathComponent.lowercased()
-                newIndex[key, default: []].append(url)
+                // Standardized once here — per-match standardization during
+                // link resolution was the hot spot of the workspace scan.
+                newIndex[key, default: []].append(url.standardizedFileURL)
             }
         }
         for key in newIndex.keys {
