@@ -497,13 +497,7 @@ private struct MarkCard: View {
                 Text(note).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if let repl = mark.replacement {
-                Text(repl)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary)
-                    .padding(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 5)
-                        .fill(Color.green.opacity(0.14)))
+                AIProposalReplacementView(text: repl)
             }
         }
     }
@@ -531,8 +525,7 @@ private struct MarkCard: View {
     private var actions: some View {
         HStack(spacing: 10) {
             if mark.isSuggestion && mark.isOpen {
-                actionButton(String(localized: "Accept"), "checkmark", .green, action: onAccept)
-                actionButton(String(localized: "Decline"), "xmark", .secondary, action: onReject)
+                AIProposalDecisionButtons(onAccept: onAccept, onDecline: onReject)
             } else {
                 Button { replying.toggle() } label: {
                     Label("Reply", systemImage: "arrowshape.turn.up.left")

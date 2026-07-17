@@ -1078,6 +1078,14 @@ final class DocumentRegistry {
         LineChangeTracker.shared.noteBaseline(url: entry.url, content: disk)
 
         if contentChanged {
+            let autoReloadToast = EditorSettings.shared.general.autoReloadCleanExternal
+            if autoReloadToast {
+                // Stage 7: quiet toast; keep a light status chip for Diff access.
+                AgentActivityModel.shared.showToast(
+                    String(localized: "Reloaded from disk"))
+                AgentActivityModel.shared.applyHarnessStatus(
+                    .idle, label: String(localized: "file changed on disk"), harness: "disk")
+            }
             entry.hasOpenExternalNotice = true
             let stats = lineDiff(before: before, after: disk)
             ExternalChangeCenter.shared.post(ExternalChangeNotice(
