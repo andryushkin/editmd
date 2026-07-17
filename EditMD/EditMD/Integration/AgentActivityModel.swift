@@ -108,7 +108,10 @@ final class AgentActivityModel: ObservableObject {
                 activeFilePath: active?.path,
                 workspaceRootPath: root.path,
                 openMarkCount: openMarkCount,
-                agentLaunchCommand: ReviewQueue.manualCommand(for: root),
+                agentLaunchCommand: ReviewQueue.manualCommand(
+                    for: root,
+                    preset: EditorSettings.shared.general.agentCommandPreset,
+                    custom: EditorSettings.shared.general.agentCustomCommand),
                 ideConnected: ideConnected
             )
         }

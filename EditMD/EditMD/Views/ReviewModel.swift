@@ -828,7 +828,11 @@ final class ReviewModel: ObservableObject {
                             ReviewAgentRunner.shared.start(in: root)
                         }
                     } else {
-                        let cmd = ReviewQueue.manualCommand(for: root)
+                        let g = EditorSettings.shared.general
+                        let cmd = ReviewQueue.manualCommand(
+                            for: root,
+                            preset: g.agentCommandPreset,
+                            custom: g.agentCustomCommand)
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(cmd, forType: .string)
                         self.queueStatus =

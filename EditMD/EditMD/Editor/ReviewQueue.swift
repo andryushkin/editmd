@@ -175,11 +175,19 @@ enum ReviewQueue {
     }
 
     /// Shell command the user can paste when auto-spawn is off.
-    @MainActor
-    static func manualCommand(for root: URL) -> String {
-        let g = EditorSettings.shared.general
-        let argv = agentArgvSnapshot(preset: g.agentCommandPreset, custom: g.agentCustomCommand)
-        let body = argv.map { shellEscapeIfNeeded($0) }.joined(separator: " ")
+    static func manualCommand(
+        for root: URL,
+        preset: AgentCommandPreset = .claude,
+        custom: String = ""
+    ) -> String {
+        let argv = agentArgvSnapshot(preset: preset, custom: custom)
+        // Keep the classic Claude line byte-stable for clipboard / tests.
+        let body: String
+        if argv == defaultAgentCommand {
+            body = "claude -p \"/smotr -pr\""
+        } else {
+            body = argv.map { shellEscapeIfNeeded($0) }.joined(separator: " ")
+        }
         return "cd \(shellEscape(root.path)) && \(body)"
     }
 
