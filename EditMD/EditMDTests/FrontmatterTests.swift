@@ -85,36 +85,6 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertEqual(props.first?.value, "Hello World")
     }
 
-    // MARK: - yamlLineSegments
-
-    func testSegmentsReconstructLine() {
-        let line = "  key: false  # note"
-        let joined = yamlLineSegments(line).map(\.text).joined()
-        XCTAssertEqual(joined, line)
-    }
-
-    func testKeyValueClassification() {
-        let segs = yamlLineSegments("priority: 42")
-        XCTAssertEqual(segs.first(where: { $0.text == "priority" })?.kind, .key)
-        XCTAssertEqual(segs.first(where: { $0.text == "42" })?.kind, .number)
-    }
-
-    func testBooleanValue() {
-        let segs = yamlLineSegments("draft: false")
-        XCTAssertEqual(segs.first(where: { $0.text == "false" })?.kind, .bool)
-    }
-
-    func testFullLineComment() {
-        let segs = yamlLineSegments("# just a comment")
-        XCTAssertEqual(segs.map(\.kind), [.comment])
-    }
-
-    func testPlainScalarNotOvercolored() {
-        // An unquoted, non-typed scalar stays plain (default text color).
-        let segs = yamlLineSegments("title: Some Long Title")
-        XCTAssertEqual(segs.first(where: { $0.text == "Some Long Title" })?.kind, .plain)
-    }
-
     // MARK: - HTML rendering
 
     func testFrontmatterIsNotRenderedInPreview() {

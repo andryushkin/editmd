@@ -1,14 +1,14 @@
 import Foundation
 
 // YAML frontmatter (the `---\n…\n---` metadata block at the top of a markdown
-// file) plus a lightweight YAML tokenizer, shared by Visual (a read-only
-// "properties" island) and Preview (a properties table + `yaml` code-block
-// coloring). Source mode is intentionally left untouched.
+// file): range detection plus a pragmatic line-based property reader, used by
+// the Properties inspector, Tags sidebar and wiki completion. Source mode is
+// intentionally left untouched.
 //
 // swift-markdown does not model frontmatter: the opening `---` parses as a
 // thematic break and the closing `---` after the body as a *setext heading*,
-// which blows the whole block up into a big heading. Both renderers detect the
-// block here and render it as an Obsidian-style properties block instead.
+// which blows the whole block up into a big heading. Callers detect the block
+// here and treat it as properties instead.
 //
 // Everything in this file is a pure function — no view / controller state.
 
@@ -148,105 +148,6 @@ func parseFrontmatterProperties(_ body: String) -> [FMProperty] {
         }
     }
     return props
-}
-
-// MARK: - YAML line tokenizer (display coloring)
-
-enum YAMLTokenKind: Equatable {
-    case key, punctuation, string, number, bool, null, comment, plain
-}
-
-/// Splits one YAML line into colored segments. Concatenating the segment texts
-/// reproduces the line exactly (offsets stay valid for NSTextStorage coloring).
-/// Plain (unquoted, non-typed) scalars stay `.plain` so long text values aren't
-/// over-colored — only quoted strings, numbers, booleans, null, keys, comments
-/// and punctuation get a distinct kind.
-func yamlLineSegments(_ line: String) -> [(text: String, kind: YAMLTokenKind)] {
-    var segments: [(String, YAMLTokenKind)] = []
-
-    let indentCount = leadingWhitespaceCount(line)
-    if indentCount > 0 {
-        segments.append((String(line.prefix(indentCount)), .plain))
-    }
-    var rest = String(line.dropFirst(indentCount))
-
-    if rest.hasPrefix("#") {
-        segments.append((rest, .comment))
-        return segments
-    }
-
-    var trailingComment: String?
-    if let cIdx = trailingCommentIndex(rest) {
-        trailingComment = String(rest[cIdx...])
-        rest = String(rest[..<cIdx])
-    }
-
-    appendContentSegments(rest, into: &segments)
-    if let trailingComment { segments.append((trailingComment, .comment)) }
-    return segments
-}
-
-private func appendContentSegments(_ content: String,
-                                   into segments: inout [(String, YAMLTokenKind)]) {
-    var s = content
-    if s == "-" {
-        segments.append(("-", .punctuation))
-        return
-    }
-    if s.hasPrefix("- ") {
-        segments.append(("- ", .punctuation))
-        s = String(s.dropFirst(2))
-    }
-    if let colon = keyColonIndex(s) {
-        segments.append((String(s[..<colon]), .key))
-        segments.append((":", .punctuation))
-        appendValueSegments(String(s[s.index(after: colon)...]), into: &segments)
-    } else {
-        appendValueSegments(s, into: &segments)
-    }
-}
-
-private func appendValueSegments(_ value: String,
-                                 into segments: inout [(String, YAMLTokenKind)]) {
-    let leadCount = leadingWhitespaceCount(value)
-    if leadCount > 0 { segments.append((String(value.prefix(leadCount)), .plain)) }
-    var core = String(value.dropFirst(leadCount))
-    guard !core.isEmpty else { return }
-
-    var trailing = ""
-    while let last = core.last, last == " " || last == "\t" {
-        trailing = String(last) + trailing
-        core.removeLast()
-    }
-    guard !core.isEmpty else {
-        segments.append((trailing, .plain)); return
-    }
-
-    if core.hasPrefix("[") && core.hasSuffix("]") && core.count >= 2 {
-        segments.append(("[", .punctuation))
-        let inner = String(core.dropFirst().dropLast())
-        var first = true
-        for element in inner.split(separator: ",", omittingEmptySubsequences: false) {
-            if !first { segments.append((",", .punctuation)) }
-            first = false
-            appendValueSegments(String(element), into: &segments)
-        }
-        segments.append(("]", .punctuation))
-    } else {
-        segments.append((core, classifyScalar(core)))
-    }
-    if !trailing.isEmpty { segments.append((trailing, .plain)) }
-}
-
-private func classifyScalar(_ s: String) -> YAMLTokenKind {
-    if (s.hasPrefix("\"") && s.hasSuffix("\"") && s.count >= 2)
-        || (s.hasPrefix("'") && s.hasSuffix("'") && s.count >= 2) { return .string }
-    switch s.lowercased() {
-    case "true", "false", "yes", "no", "on", "off": return .bool
-    case "null", "~": return .null
-    default: break
-    }
-    return isYAMLNumber(s) ? .number : .plain
 }
 
 // MARK: - Property field icon (Preview SVG / Properties SF Symbol)
