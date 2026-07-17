@@ -187,12 +187,31 @@ private func bulletFamily(_ kind: MDBlock.Kind) -> Bool {
     }
 }
 
+/// Nesting depth of a list item (nil for non-items) — used to keep a loose
+/// list's blank lines between siblings only, never across a parent→child step.
+private func listDepth(_ kind: MDBlock.Kind) -> Int? {
+    switch kind {
+    case .bulletItem(let d), .orderedItem(let d, _), .taskItem(let d, _),
+         .builtInPluginTaskItem(let d, _):
+        return d
+    default:
+        return nil
+    }
+}
+
 private func separator(_ a: MDBlock, _ b: MDBlock) -> String {
-    // Adjacent list items stay tight (loose lists normalize to tight).
     // Same quoteGroup required: items of lists living in two *different*
     // blockquotes must not glue those quotes together.
     if isListItem(a.kind) && isListItem(b.kind) && a.quoteGroup == b.quoteGroup {
-        if a.group == b.group || a.quoteDepth > 0 { return "\n" }
+        if a.group == b.group {
+            // Quote-nested lists stay tight (a blank line would break quote
+            // reconstruction). A loose list keeps its blank line between
+            // SAME-LEVEL siblings; a parent→nested-child step stays tight.
+            if a.quoteDepth == 0, a.loose, b.loose, listDepth(a.kind) == listDepth(b.kind) {
+                return "\n\n"
+            }
+            return "\n"
+        }
         // Different list trees. A blank line cannot separate two lists whose
         // markers normalize to the same char — use an HTML-comment fence
         // (Prettier's trick). Different families split on the marker alone.

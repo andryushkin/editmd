@@ -88,6 +88,12 @@ struct MDBlock: Equatable, Hashable {
     var group: Int = -1
     /// Leading spaces for blocks nested inside a list item.
     var listIndent: Int = 0
+    /// List items only: the source list was *loose* (blank lines between
+    /// items). The serializer re-emits those blanks between same-level
+    /// siblings so opening a document in Visual doesn't silently rewrite a
+    /// loose list to tight. EditMD renders both identically, so this is a
+    /// byte-fidelity concern, not a presentation one.
+    var loose: Bool = false
 }
 
 extension NSAttributedString.Key {
@@ -509,6 +515,7 @@ private final class VisualRenderer {
     private func renderList(items: [ListItem], ordered: Bool, start: Int, depth: Int,
                             group inheritedGroup: Int?, ctx: Ctx) {
         let group = inheritedGroup ?? nextGroup()
+        let listIsLoose = listIsLoose(items)
         for (index, item) in items.enumerated() {
             noteSource(item)
             let kind: MDBlock.Kind
@@ -533,19 +540,27 @@ private final class VisualRenderer {
             var childCtx = ctx
             childCtx.listIndent = contentIndent
 
+            // Item head carries the list's looseness; continuation paragraphs
+            // and nested lists get their own blocks.
+            func itemHead() -> MDBlock {
+                var b = makeBlock(kind, ctx, group: group)
+                b.loose = listIsLoose
+                return b
+            }
+
             var emittedHead = false
             for child in item.children {
                 if !emittedHead {
                     emittedHead = true
                     if let paragraph = child as? Paragraph {
-                        appendParagraph(makeBlock(kind, ctx, group: group)) { b in
+                        appendParagraph(itemHead()) { b in
                             self.renderInlines(paragraph.children, block: b, styles: [], link: nil)
                         }
                         continue
                     }
                     // Item starts with a non-paragraph child: emit an empty head
                     // so the marker survives, then render the child indented.
-                    appendParagraph(makeBlock(kind, ctx, group: group)) { _ in }
+                    appendParagraph(itemHead()) { _ in }
                 }
                 switch child {
                 case let paragraph as Paragraph:
@@ -566,9 +581,38 @@ private final class VisualRenderer {
                 }
             }
             if !emittedHead {
-                appendParagraph(makeBlock(kind, ctx, group: group)) { _ in }
+                appendParagraph(itemHead()) { _ in }
             }
         }
+    }
+
+    /// A list is *loose* when a blank line separates any two consecutive items.
+    /// Item source ranges alone can't tell tight from loose (a loose item's
+    /// range simply absorbs the trailing blank line, so the item-to-item line
+    /// gap is 1 either way); instead we check the source line immediately
+    /// before each item start. Multi-paragraph items already serialize with
+    /// blank lines via `.listContinuation`, so only the item-to-item gap
+    /// matters here. Missing ranges (never happens for parsed lists) → tight.
+    private func listIsLoose(_ items: [ListItem]) -> Bool {
+        let ranges = items.compactMap(\.range)
+        guard ranges.count == items.count, ranges.count >= 2 else { return false }
+        for i in 1..<ranges.count where sourceLineIsBlank(ranges[i].lowerBound.line - 1) {
+            return true
+        }
+        return false
+    }
+
+    /// Whether the given 1-based line of the parsed (masked) source is empty or
+    /// whitespace-only. Masking preserves line boundaries, so blank lines match
+    /// the original text.
+    private func sourceLineIsBlank(_ line: Int) -> Bool {
+        guard line >= 1, line <= lineIdx.lineCount else { return false }
+        let ns = parseSource as NSString
+        let start = lineIdx.offset(line, 1)
+        let end = line < lineIdx.lineCount ? lineIdx.offset(line + 1, 1) : ns.length
+        guard start >= 0, start <= end, end <= ns.length else { return false }
+        return ns.substring(with: NSRange(location: start, length: end - start))
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func pluginListToken(for item: ListItem) -> BuiltInPluginToken? {

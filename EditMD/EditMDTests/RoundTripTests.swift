@@ -90,6 +90,19 @@ final class RoundTripTests: XCTestCase {
     func testOrderedList() { assertStable("1. first\n2. second") }
     func testOrderedListCustomStart() { assertStable("3. third\n4. fourth") }
 
+    // Loose lists (blank line between items) must survive the Visual round-trip
+    // instead of silently collapsing to tight — a real file (CLAUDE.md) lost its
+    // blank lines this way.
+    func testLooseBulletListKeepsBlankLines() { assertStable("- one\n\n- two\n\n- three") }
+    func testLooseOrderedListKeepsBlankLines() { assertStable("1. first\n\n2. second") }
+    func testLooseTaskListKeepsBlankLines() { assertStable("- [ ] todo\n\n- [x] done") }
+    func testTightListStaysTight() { assertStable("- one\n- two") }
+    // A loose top list whose nested sublist is tight: siblings keep their blank,
+    // the parent→child step stays tight.
+    func testLooseListWithTightNested() {
+        assertRoundTrip("- one\n    - a\n    - b\n\n- two")
+    }
+
     func testQuote() { assertStable("> quoted line") }
     func testQuoteTwoParagraphs() { assertStable("> first\n>\n> second") }
     func testNestedQuote() { assertStable("> > deep\n>\n> back") }
@@ -213,8 +226,10 @@ final class RoundTripTests: XCTestCase {
         XCTAssertEqual(roundTrip("[a][b]\n\n[b]: https://e.com"), "[a](https://e.com)")
     }
 
-    func testLooseListBecomesTight() {
-        XCTAssertEqual(roundTrip("- a\n\n- b"), "- a\n- b")
+    // Loose lists are now PRESERVED (was: normalized to tight). A real file
+    // (CLAUDE.md) lost its blank lines under the old normalization.
+    func testLooseListPreserved() {
+        XCTAssertEqual(roundTrip("- a\n\n- b"), "- a\n\n- b")
     }
 
     func testSoftBreakBecomesSpace() {
