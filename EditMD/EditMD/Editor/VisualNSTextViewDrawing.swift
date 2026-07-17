@@ -77,9 +77,13 @@ extension VisualNSTextView {
         let codePanelPadding: CGFloat = 6
         let codeBlockMargin: CGFloat = 18
         var panelRects: [NSRect] = []
-        panelRects.reserveCapacity(codePanelRanges.count)
-        for range in codePanelRanges {
+        panelRects.reserveCapacity(codePanelEntries.count)
+        for entry in codePanelEntries {
+            let range = entry.range
             guard var box = unionRect(for: range) else { continue }
+            // Nested-in-list fences indent to the item's content column.
+            box.origin.x += entry.leadingIndent
+            box.size.width = max(0, box.width - entry.leadingIndent)
             // Internal padding around the text of THIS fence only.
             box = box.insetBy(dx: 0, dy: -codePanelPadding)
             // Clamp to neighbors outside the character range so pad cannot
@@ -166,6 +170,8 @@ extension VisualNSTextView {
             guard var r = unionRect(for: entry.range) else { return nil }
             r.origin.y += entry.topTrim
             r.size.height = max(0, r.height - entry.topTrim - entry.bottomTrim)
+            r.origin.x += entry.leadingIndent
+            r.size.width = max(0, r.width - entry.leadingIndent)
             return r
         }
         var groupBoxes: [Int: (box: NSRect, calloutType: String?)] = [:]
@@ -190,14 +196,16 @@ extension VisualNSTextView {
             let callout = makeCallout(entry.calloutType)
             (callout?.color ?? theme.accentColor).withAlphaComponent(0.78).setFill()
             for level in 0..<entry.depth {
-                NSRect(x: inset.width + CGFloat(level) * 18, y: rectUnion.minY,
+                NSRect(x: inset.width + entry.leadingIndent + CGFloat(level) * 18,
+                       y: rectUnion.minY,
                        width: theme.quoteBarWidth, height: rectUnion.height).fill()
             }
             if entry.showsCalloutIcon, let callout,
                let image = NSImage(systemSymbolName: callout.iconSystemName,
                                    accessibilityDescription: callout.type) {
                 let iconRect = NSRect(
-                    x: inset.width + CGFloat(max(0, entry.depth - 1)) * 18 + 5,
+                    x: inset.width + entry.leadingIndent
+                        + CGFloat(max(0, entry.depth - 1)) * 18 + 5,
                     y: rectUnion.minY + 1,
                     width: 11,
                     height: 11)

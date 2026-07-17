@@ -85,6 +85,8 @@ struct VisualQuoteEntry {
     /// group (per-paragraph boxes overlapped at seams and double-painted the
     /// translucent fill).
     let group: Int
+    /// Display indent when the quote is nested in a list item.
+    let leadingIndent: CGFloat
     let calloutType: String?
     let showsCalloutIcon: Bool
     /// Paragraph spacing at the quote run's edges. Line fragment rects include
@@ -108,7 +110,7 @@ final class VisualNSTextView: NSTextView {
         didSet { tableCellAttrCache.removeAll(keepingCapacity: true) }
     }
     var quoteEntries: [VisualQuoteEntry] = []
-    var codePanelRanges: [NSRange] = []
+    var codePanelEntries: [(range: NSRange, leadingIndent: CGFloat)] = []
     var ruleRanges: [NSRange] = []
     var headingDividerRanges: [NSRange] = []
     var tableIslandEntries: [TableIslandEntry] = [] {

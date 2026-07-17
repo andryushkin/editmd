@@ -55,6 +55,7 @@ extension VisualMarkdownView.Coordinator {
         var seenCalloutGroups = Set<Int>()
         var codeGroups: [Int: NSRange] = [:]
         var codeLanguages: [Int: String] = [:]
+        var codeGroupIndents: [Int: CGFloat] = [:]
         var ruleRanges: [NSRange] = []
         var headingDividers: [NSRange] = []
         var tableIslands: [TableIslandEntry] = []
@@ -204,6 +205,7 @@ extension VisualMarkdownView.Coordinator {
                 let existing = codeGroups[blockValue.group]
                 codeGroups[blockValue.group] = existing.map { NSUnionRange($0, paragraph) } ?? paragraph
                 codeLanguages[blockValue.group] = language
+                codeGroupIndents[blockValue.group] = listIndentPoints(blockValue.listIndent)
             case .thematicBreak:
                 ruleRanges.append(paragraph)
             case .tableCell(let row, let column, let columns, let alignment):
@@ -261,6 +263,10 @@ extension VisualMarkdownView.Coordinator {
 
             if !isListKind(blockValue.kind) { lastListGroupDepth = nil }
 
+            // A non-item block nested in a list item (quote, code fence,
+            // island) indents to the item's content column, like Preview.
+            markerIndent += listIndentPoints(blockValue.listIndent)
+
             if blockValue.quoteDepth > 0 {
                 markerIndent += CGFloat(blockValue.quoteDepth) * 18
                 let showsCalloutIcon = blockValue.calloutType != nil
@@ -269,6 +275,7 @@ extension VisualMarkdownView.Coordinator {
                     range: paragraph,
                     depth: blockValue.quoteDepth,
                     group: blockValue.quoteGroup,
+                    leadingIndent: listIndentPoints(blockValue.listIndent),
                     calloutType: blockValue.calloutType,
                     showsCalloutIcon: showsCalloutIcon))
             }
@@ -373,11 +380,20 @@ extension VisualMarkdownView.Coordinator {
         textView.builtInPluginTaskEntries = pluginTasks
         textView.builtInPluginSnapshot = pluginSnapshot
         textView.quoteEntries = quotes
-        textView.codePanelRanges = Array(codeGroups.values)
+        textView.codePanelEntries = codeGroups.map { group, range in
+            (range: range, leadingIndent: codeGroupIndents[group] ?? 0)
+        }
         textView.ruleRanges = ruleRanges
         textView.headingDividerRanges = headingDividers
         textView.tableIslandEntries = tableIslands
         textView.needsDisplay = true
+    }
+
+    /// Display indent for a block nested in a list item, from the item's raw
+    /// space indent (`MDBlock.listIndent`). Matches the `.listContinuation`
+    /// formula so nested blocks align with the item's own content column.
+    private func listIndentPoints(_ spaces: Int) -> CGFloat {
+        spaces <= 0 ? 0 : 24 + CGFloat(max(0, spaces - 2) / 4) * 22
     }
 
     private func isListKind(_ kind: MDBlock.Kind) -> Bool {
