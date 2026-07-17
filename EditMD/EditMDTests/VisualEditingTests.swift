@@ -82,6 +82,10 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertTrue(visual.contains("table"))
         XCTAssertTrue(visual.contains("image"))
         XCTAssertFalse(visual.contains("copy"))
+        // Column ops are Visual-only, via the strip Table menu / "…" overflow.
+        XCTAssertTrue(visual.contains("table.addColumn"))
+        XCTAssertTrue(visual.contains("table.delColumn"))
+        XCTAssertFalse(source.contains("table.addColumn"))
     }
 
     func testSplitAddsReviewToSourceEditingProfile() {

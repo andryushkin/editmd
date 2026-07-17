@@ -93,6 +93,8 @@ struct ContentView: View {
             stripActions.insertTable = nil
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
+            stripActions.tableAddColumn = nil
+            stripActions.tableDeleteColumn = nil
             stripActions.insertInlineFormula = nil
             stripActions.insertBlockFormula = nil
         }
@@ -509,12 +511,16 @@ struct ContentView: View {
             stripActions.insertTable = fa.insertTable
             stripActions.tableAddRow = fa.tableAddRow
             stripActions.tableDeleteRow = fa.tableDeleteRow
+            stripActions.tableAddColumn = fa.tableAddColumn
+            stripActions.tableDeleteColumn = fa.tableDeleteColumn
             stripActions.insertInlineFormula = fa.insertInlineFormula
             stripActions.insertBlockFormula = fa.insertBlockFormula
         } else {
             stripActions.insertTable = nil
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
+            stripActions.tableAddColumn = nil
+            stripActions.tableDeleteColumn = nil
             stripActions.insertInlineFormula = nil
             stripActions.insertBlockFormula = nil
         }

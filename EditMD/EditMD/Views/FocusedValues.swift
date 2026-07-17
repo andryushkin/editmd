@@ -53,6 +53,8 @@ struct FormatActions {
     var insertTable: (() -> Void)? = nil
     var tableAddRow: (() -> Void)? = nil
     var tableDeleteRow: (() -> Void)? = nil
+    var tableAddColumn: (() -> Void)? = nil
+    var tableDeleteColumn: (() -> Void)? = nil
     /// Insert `$…$` / `$$…$$` templates at the caret (Visual).
     var insertInlineFormula: (() -> Void)? = nil
     var insertBlockFormula: (() -> Void)? = nil

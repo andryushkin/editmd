@@ -34,6 +34,8 @@ final class EditorStripActions {
     var insertTable: (() -> Void)?
     var tableAddRow: (() -> Void)?
     var tableDeleteRow: (() -> Void)?
+    var tableAddColumn: (() -> Void)?
+    var tableDeleteColumn: (() -> Void)?
     var insertInlineFormula: (() -> Void)?
     var insertBlockFormula: (() -> Void)?
 
@@ -459,6 +461,14 @@ struct EditorActionStrip: View {
                           title: String(localized: "Delete Row"), help: String(localized: "Delete Row"),
                           menuIcon: "minus.rectangle",
                           action: { actions.run(actions.tableDeleteRow) }),
+                StripItem(id: "table.addColumn", glyph: .symbol("tablecells"),
+                          title: String(localized: "Add Column"), help: String(localized: "Add Column"),
+                          menuIcon: "plus.rectangle.portrait",
+                          action: { actions.run(actions.tableAddColumn) }),
+                StripItem(id: "table.delColumn", glyph: .symbol("tablecells"),
+                          title: String(localized: "Delete Column"), help: String(localized: "Delete Column"),
+                          menuIcon: "minus.rectangle.portrait",
+                          action: { actions.run(actions.tableDeleteColumn) }),
                 StripItem(id: "math.inline", glyph: .symbol("function"),
                           title: String(localized: "Inline Formula  $…$"), help: String(localized: "Inline Formula"),
                           menuIcon: "function",
@@ -496,6 +506,8 @@ struct EditorActionStrip: View {
             Divider()
             Button("Add Row") { actions.run(actions.tableAddRow) }
             Button("Delete Row") { actions.run(actions.tableDeleteRow) }
+            Button("Add Column") { actions.run(actions.tableAddColumn) }
+            Button("Delete Column") { actions.run(actions.tableDeleteColumn) }
         } label: {
             Image(systemName: "tablecells")
                 .font(.system(size: 12, weight: .medium))
@@ -652,7 +664,8 @@ private enum StripGroup: String, CaseIterable, Identifiable {
             return ["h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock"]
         case .lists: return ["bullet", "checklist", "numbered", "quote"]
         case .extras:
-            return ["table", "table.addRow", "table.delRow", "math.inline", "math.block"]
+            return ["table", "table.addRow", "table.delRow", "table.addColumn",
+                    "table.delColumn", "math.inline", "math.block"]
         case .theme:
             return PreviewTheme.allPresets.map { "theme.\($0.id)" }
         }

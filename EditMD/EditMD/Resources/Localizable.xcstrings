@@ -580,6 +580,16 @@
         }
       }
     },
+    "Add Column" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить столбец"
+          }
+        }
+      }
+    },
     "Add Folder…" : {
       "extractionState" : "stale",
       "localizations" : {

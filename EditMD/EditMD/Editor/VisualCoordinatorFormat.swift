@@ -37,6 +37,8 @@ extension VisualMarkdownView.Coordinator {
             insertTable: { [weak self] in self?.insertEmptyTable() },
             tableAddRow: { [weak self] in self?.tableAddRowAtCursor() },
             tableDeleteRow: { [weak self] in self?.tableDeleteRowAtCursor() },
+            tableAddColumn: { [weak self] in self?.tableAddColumnAtCursor() },
+            tableDeleteColumn: { [weak self] in self?.tableDeleteColumnAtCursor() },
             insertInlineFormula: { [weak self] in self?.insertFormulaTemplate(display: false) },
             insertBlockFormula: { [weak self] in self?.insertFormulaTemplate(display: true) }
         )
@@ -346,6 +348,43 @@ extension VisualMarkdownView.Coordinator {
         if let island = tableIsland(at: paragraph.location), !island.grid.rows.isEmpty {
             let last = island.grid.rows.count - 1
             if deleteTableIslandRow(paragraphLocation: paragraph.location, atBodyIndex: last) {
+                return
+            }
+        }
+        NSSound.beep()
+    }
+
+    private func tableAddColumnAtCursor() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let caret = textView.selectedRange().location
+        // Native table: insert to the right of the cursor's column (caret follows).
+        if let target = nativeTableTarget(atCharIndex: caret),
+           performTableOp(.insertColumnRight, on: target) {
+            return
+        }
+        // Large-table island: append a column at the right edge.
+        let paragraph = paragraphRange(at: caret, in: storage.string as NSString)
+        if let island = tableIsland(at: paragraph.location) {
+            let at = island.grid.columnCount
+            if mutateTableIsland(at: paragraph.location, { $0.insertColumn(at: at); return true }) {
+                return
+            }
+        }
+        NSSound.beep()
+    }
+
+    private func tableDeleteColumnAtCursor() {
+        guard let textView, let storage = textView.textStorage else { return }
+        let caret = textView.selectedRange().location
+        // Native table: delete the cursor's column (the ≥1-column floor beeps).
+        if let target = nativeTableTarget(atCharIndex: caret) {
+            if !performTableOp(.deleteColumn, on: target) { NSSound.beep() }
+            return
+        }
+        let paragraph = paragraphRange(at: caret, in: storage.string as NSString)
+        if let island = tableIsland(at: paragraph.location), island.grid.columnCount > 1 {
+            let last = island.grid.columnCount - 1
+            if mutateTableIsland(at: paragraph.location, { $0.deleteColumn(at: last) }) {
                 return
             }
         }
