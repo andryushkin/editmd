@@ -2,12 +2,16 @@ import AppKit
 import Foundation
 import os
 
-/// Installs the bundled EditMD agent skill into `~/.claude/skills/editmd/`
-/// (and `~/.codex/skills/editmd/` when present) — agterm-style Help menu action.
+/// Installs the bundled EditMD agent skill package into
+/// `~/.claude/skills/editmd/` and `~/.codex/skills/editmd/` (plan 09 stage 3).
 enum SkillInstaller {
 
     static let skillFolderName = "editmd"
     static let skillFileName = "SKILL.md"
+    /// Extra docs shipped next to SKILL.md.
+    static let packageFiles = [
+        "SKILL.md", "reference.md", "examples.md", "troubleshooting.md", "prompts.md"
+    ]
 
     enum Result: Equatable {
         case installed(URL)
@@ -17,27 +21,35 @@ enum SkillInstaller {
         case failed(String)
     }
 
-    /// Destination under the user's Claude skills tree.
     static func claudeDestination(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
         home.appendingPathComponent(".claude/skills/\(skillFolderName)", isDirectory: true)
     }
 
-    /// Optional Codex sibling (same layout as agterm).
     static func codexDestination(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
         home.appendingPathComponent(".codex/skills/\(skillFolderName)", isDirectory: true)
     }
 
-    /// Bundled skill markdown from the app Resources.
-    static func bundledSkillURL(
-        bundle: Bundle = .main
-    ) -> URL? {
-        // Folder-structured layouts (folder-reference resources).
-        if let url = bundle.url(forResource: "SKILL",
-                                withExtension: "md",
+    /// All known skill destinations (easy to extend for other harnesses).
+    static func destinations(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [(name: String, url: URL)] {
+        [
+            ("Claude", claudeDestination(home: home)),
+            ("Codex", codexDestination(home: home)),
+        ]
+    }
+
+    /// Bundled SKILL.md lookup (new package layout first).
+    static func bundledSkillURL(bundle: Bundle = .main) -> URL? {
+        if let url = bundle.url(forResource: "SKILL", withExtension: "md",
+                                subdirectory: "agent-skill") {
+            return url
+        }
+        if let url = bundle.url(forResource: "SKILL", withExtension: "md",
                                 subdirectory: "skills/editmd") {
             return url
         }
@@ -45,18 +57,35 @@ enum SkillInstaller {
                                 subdirectory: "editmd") {
             return url
         }
-        // Actual layout: xcodegen adds SKILL.md as a plain file reference, so
-        // it lands flat in Contents/Resources/.
+        // Flat resource (legacy xcodegen file ref).
         return bundle.url(forResource: "SKILL", withExtension: "md")
     }
 
-    /// Reads bundled content, or nil if missing.
     static func bundledContent(bundle: Bundle = .main) -> String? {
         guard let url = bundledSkillURL(bundle: bundle) else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
-    /// Pure install into `destination` from `content`. Testable without UI.
+    /// Bundled companion files (reference/examples/…) keyed by file name.
+    static func bundledPackageContents(bundle: Bundle = .main) -> [String: String] {
+        var out: [String: String] = [:]
+        for name in packageFiles {
+            let base = (name as NSString).deletingPathExtension
+            let ext = (name as NSString).pathExtension
+            let url =
+                bundle.url(forResource: base, withExtension: ext,
+                           subdirectory: "agent-skill")
+                ?? bundle.url(forResource: base, withExtension: ext,
+                              subdirectory: "skills/editmd")
+                ?? (name == skillFileName ? bundledSkillURL(bundle: bundle) : nil)
+            if let url, let text = try? String(contentsOf: url, encoding: .utf8) {
+                out[name] = text
+            }
+        }
+        return out
+    }
+
+    /// Pure install of SKILL.md only (existing tests / simple path).
     static func install(content: String, to destination: URL,
                         fileManager: FileManager = .default) throws -> Result {
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -74,18 +103,49 @@ enum SkillInstaller {
         }
     }
 
-    /// Diff text for confirmation when updating an existing skill.
+    /// Install full package (SKILL + companions). Returns SKILL.md result.
+    static func installPackage(
+        files: [String: String],
+        to destination: URL,
+        fileManager: FileManager = .default
+    ) throws -> Result {
+        guard let skill = files[skillFileName] ?? files["SKILL.md"] else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let skillResult = try install(content: skill, to: destination, fileManager: fileManager)
+        for (name, body) in files where name != skillFileName {
+            let target = destination.appendingPathComponent(name)
+            try body.write(to: target, atomically: true, encoding: .utf8)
+        }
+        return skillResult
+    }
+
     static func unifiedDiff(old: String, new: String) -> String {
         formatUnifiedDiff(old: old, new: new,
                           oldName: "installed/SKILL.md",
                           newName: "bundled/SKILL.md")
     }
 
-    // MARK: UI entry (Help menu)
+    /// Whether skill is installed and matches bundled SKILL.md.
+    static func isInstalled(
+        at destination: URL = claudeDestination(),
+        bundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let bundled = bundledContent(bundle: bundle) else { return false }
+        let target = destination.appendingPathComponent(skillFileName)
+        guard let existing = try? String(contentsOf: target, encoding: .utf8) else {
+            return false
+        }
+        return existing == bundled
+    }
+
+    // MARK: UI entry (Help menu / Integrations)
 
     @MainActor
     static func installWithUI() {
-        guard let content = bundledContent() else {
+        let package = bundledPackageContents()
+        guard let content = package[skillFileName] ?? bundledContent() else {
             presentAlert(title: "Skill missing",
                          text: "This build has no bundled editmd skill.")
             return
@@ -96,26 +156,28 @@ enum SkillInstaller {
 
         if fm.fileExists(atPath: target.path),
            let existing = try? String(contentsOf: target, encoding: .utf8) {
-            if existing == content {
+            if existing == content, package.keys.count <= 1 {
                 presentAlert(title: String(localized: "Already up to date"),
                              text: String(localized: "editmd skill is already installed at\n\(target.path)"))
                 return
             }
-            let diff = unifiedDiff(old: existing, new: content)
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Update editmd agent skill?")
-            alert.informativeText =
-                String(localized: "An older skill exists at \(target.path).\n\nDiff (truncated):\n")
-                + String(diff.prefix(2000))
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: String(localized: "Update"))
-            alert.addButton(withTitle: String(localized: "Cancel"))
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            if existing != content {
+                let diff = unifiedDiff(old: existing, new: content)
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Update editmd agent skill?")
+                alert.informativeText =
+                    String(localized: "An older skill exists at \(target.path).\n\nDiff (truncated):\n")
+                    + String(diff.prefix(2000))
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: String(localized: "Update"))
+                alert.addButton(withTitle: String(localized: "Cancel"))
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
         } else {
             let alert = NSAlert()
             alert.messageText = String(localized: "Install editmd agent skill?")
             alert.informativeText =
-                String(localized: "Copies the skill to \(dest.path) so Claude Code can run `editmdctl` and the review-mark workflow.")
+                String(localized: "Copies the skill package to \(dest.path) (and Codex if present) so agents can run editmdctl and the review-mark workflow.")
             alert.alertStyle = .informational
             alert.addButton(withTitle: String(localized: "Install"))
             alert.addButton(withTitle: String(localized: "Cancel"))
@@ -123,15 +185,14 @@ enum SkillInstaller {
         }
 
         do {
-            let result = try install(content: content, to: dest)
-            // Best-effort Codex copy (no extra prompts).
-            if FileManager.default.fileExists(
-                atPath: codexDestination().deletingLastPathComponent().path) {
-                _ = try? install(content: content, to: codexDestination())
-            }
+            let files = package.isEmpty ? [skillFileName: content] : package
+            let result = try installPackage(files: files, to: dest)
+            // Always try Codex destination (create tree if parent exists or always).
+            _ = try? installPackage(files: files, to: codexDestination())
             switch result {
             case .installed(let url):
-                presentAlert(title: String(localized: "Skill installed"), text: url.path)
+                presentAlert(title: String(localized: "Skill installed"),
+                             text: String(localized: "\(url.path)\nAlso installed for Codex when possible."))
             case .updated(let url):
                 presentAlert(title: String(localized: "Skill updated"), text: url.path)
             case .unchanged(let url):
