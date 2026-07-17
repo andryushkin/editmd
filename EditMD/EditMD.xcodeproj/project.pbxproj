@@ -24,6 +24,7 @@
 		0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */; };
 		103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */; };
 		1336942C491650E720695632 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD07144B2A6466FF2484C /* SettingsView.swift */; };
+		13B4F34440F8E0CCB2B0FCAA /* VisualGutterSourceLineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18816986CB29E40D5679A515 /* VisualGutterSourceLineTests.swift */; };
 		14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4840BC0DD8B410D784453BC /* GitSidebar.swift */; };
 		155D2DD4FEB70FF922B71D87 /* ControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9917191640BDEC49A4A21EBD /* ControlProtocol.swift */; };
 		16A09F6624873FD33471F396 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 3502DDBEA215B3B26B719677 /* SwiftMath */; };
@@ -220,6 +221,7 @@
 		0F53F4F01CE5CA16609C6376 /* prompts.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = prompts.md; sourceTree = "<group>"; };
 		126CB1B5E2775BA49FF067A9 /* VaultLintModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLintModel.swift; sourceTree = "<group>"; };
 		13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGit.swift; sourceTree = "<group>"; };
+		18816986CB29E40D5679A515 /* VisualGutterSourceLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualGutterSourceLineTests.swift; sourceTree = "<group>"; };
 		18F81FF14127B33B6927883A /* MathScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScanTests.swift; sourceTree = "<group>"; };
 		1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebar.swift; sourceTree = "<group>"; };
 		1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
@@ -713,6 +715,7 @@
 				749088093E0AF04AA2B75E48 /* TextDiffTests.swift */,
 				E86500DFCE1FD7E94B9A48A1 /* VaultLintTests.swift */,
 				DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */,
+				18816986CB29E40D5679A515 /* VisualGutterSourceLineTests.swift */,
 				826B3718B5967A1074331A2A /* WikiCompletionTests.swift */,
 				7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */,
 				3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */,
@@ -926,6 +929,7 @@
 				9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */,
 				D266504367F58D06B5A05151 /* VaultLintTests.swift in Sources */,
 				173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */,
+				13B4F34440F8E0CCB2B0FCAA /* VisualGutterSourceLineTests.swift in Sources */,
 				97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */,
 				D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */,
 				29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */,
