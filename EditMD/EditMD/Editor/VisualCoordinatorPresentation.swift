@@ -74,13 +74,28 @@ extension VisualMarkdownView.Coordinator {
         var codeGroupFirst = Set<Int>()  // paragraph.location
         var codeGroupLast = Set<Int>()
         var codeGroupsTmp: [Int: (first: Int, last: Int)] = [:]  // group → (firstLoc, lastLoc)
+        // Blank source lines are collapsed in Visual, so the gap between
+        // neighboring blocks of different kinds comes only from paragraph
+        // spacing. The scan records what each paragraph is, and the main pass
+        // opens up run boundaries (list end, quote edges, table edges) by
+        // looking at the neighbors.
+        struct ParaScan { var isList = false; var isTable = false; var isQuote = false }
+        var paraScan: [ParaScan] = []
         var scanLoc = 0
         while scanLoc < nsText.length {
             let para = nsText.paragraphRange(for: NSRange(location: scanLoc, length: 0))
             defer { scanLoc = NSMaxRange(para) == scanLoc ? scanLoc + 1 : NSMaxRange(para) }
             guard let block = storage.attribute(.mdBlock, at: para.location,
-                                                effectiveRange: nil) as? MDBlock,
-                  case .codeBlock = block.kind else { continue }
+                                                effectiveRange: nil) as? MDBlock else {
+                paraScan.append(ParaScan())
+                continue
+            }
+            var info = ParaScan()
+            info.isList = isListKind(block.kind)
+            if case .tableCell = block.kind { info.isTable = true }
+            info.isQuote = block.quoteDepth > 0
+            paraScan.append(info)
+            guard case .codeBlock = block.kind else { continue }
             if var ends = codeGroupsTmp[block.group] {
                 ends.last = para.location
                 codeGroupsTmp[block.group] = ends
@@ -104,9 +119,13 @@ extension VisualMarkdownView.Coordinator {
         isMutating = true
         storage.beginEditing()
         var location = 0
+        var paraIndex = 0
         while location < nsText.length {
             let paragraph = nsText.paragraphRange(for: NSRange(location: location, length: 0))
-            defer { location = NSMaxRange(paragraph) == location ? location + 1 : NSMaxRange(paragraph) }
+            defer {
+                location = NSMaxRange(paragraph) == location ? location + 1 : NSMaxRange(paragraph)
+                paraIndex += 1
+            }
             var blockValue = storage.attribute(.mdBlock, at: paragraph.location,
                                                effectiveRange: nil) as? MDBlock
                 ?? MDBlock(kind: .paragraph)
@@ -252,6 +271,30 @@ extension VisualMarkdownView.Coordinator {
                     calloutType: blockValue.calloutType,
                     showsCalloutIcon: showsCalloutIcon))
             }
+            // Run-boundary margins (see paraScan above). `max` so blocks that
+            // already carry a bigger margin (headings, code panels) keep it.
+            let prevScan = paraIndex > 0 && paraIndex <= paraScan.count ? paraScan[paraIndex - 1] : nil
+            let nextScan = paraIndex + 1 < paraScan.count ? paraScan[paraIndex + 1] : nil
+            let isTableCellKind: Bool
+            if case .tableCell = blockValue.kind { isTableCellKind = true } else { isTableCellKind = false }
+            if isListKind(blockValue.kind), nextScan?.isList != true {
+                style.paragraphSpacing = max(style.paragraphSpacing, 6 * spacingScale)
+            }
+            if !isTableCellKind, nextScan?.isTable == true {
+                style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
+            }
+            if !isTableCellKind, prevScan?.isTable == true {
+                style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 8 * spacingScale)
+            }
+            if blockValue.quoteDepth > 0 {
+                if prevScan?.isQuote != true, !isDocumentStart {
+                    style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 4 * spacingScale)
+                }
+                if nextScan?.isQuote != true {
+                    style.paragraphSpacing = max(style.paragraphSpacing, 6 * spacingScale)
+                }
+            }
+
             style.firstLineHeadIndent = markerIndent
             style.headIndent = markerIndent
 
