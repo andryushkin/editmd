@@ -1033,6 +1033,16 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Preview хранит disclosure state в persistent WebKit shell, а не внутри заменяемого `#preview-content`, поэтому live `innerHTML` update не раскрывает карточку обратно. После каждой замены новый frontmatter получает текущее shell-state при hydration.
 - Редактируемый конструктор произвольных frontmatter-полей в Visual не добавлен: текущий Visual island остаётся read-only. Для безопасного конструктора нужен отдельный AppKit overlay с typed YAML mutations и undo, аналогичный whitelist bridge Preview, а не редактирование display-текста острова.
 
+## AI ready (план 09)
+
+- Единое лицо: тулбар ✨ (`AgentActivityModel` + popover, промпты, badge, toast, Stop).
+- `editmdctl agent-status` + `Resources/agent-status/*` (no-op wrapper, Claude/Codex/pi/shell).
+- Skill-пакет `Resources/agent-skill/` → `~/.claude/skills/editmd` и `~/.codex/skills/editmd`.
+- Settings ▸ Integrations: статусы, installers, пресет ✈️, `EDITMD_*` env на spawn.
+- `AIProposalChrome` — общий Accept/Decline; clean external reload → toast.
+- Target `editmd-mcp` (stdio → control socket); openDiff по-прежнему только /ide.
+- Follow-up: auto-merge MCP registration в `~/.codex/config.toml` / `.mcp.json`.
+
 ## Workspace search (план 07)
 
 - Левый сайдбар: вкладка Search (`magnifyingglass`) — workspace full-text. Нижний Filter скрыт (своё поле запроса).

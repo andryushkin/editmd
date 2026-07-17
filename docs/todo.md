@@ -15,13 +15,13 @@ Properties-панель, история файла, vault-lint, поиск по 
 вся AI-интеграция видима в UX. Сквозной принцип: каждый AI-touchpoint ведёт дальше
 (подсказки следующего шага, палитра готовых промптов из одного источника со skill).
 
-- [ ] Этап 1 — `AgentActivityModel` + индикатор ✨ в тулбаре (popover, промпты, badge)
-- [ ] Этап 2 — статус-канал `editmdctl agent-status` + пакет хуков (Claude/Codex/pi/shell)
-- [ ] Этап 3 — skill-пакет в бандле + установка в `~/.claude/skills/` и `~/.codex/skills/`
-- [ ] Этап 4 — Settings ▸ Integrations (установщики, выбор команды агента для ✈️, env)
-- [ ] Этап 5 — единый визуальный язык AI-правок (openDiff ↔ suggestions)
-- [ ] Этап 6 — MCP stdio proxy `editmd-mcp` (опциональный слой)
-- [ ] Этап 7 — грациозные внешние правки (auto-reload чистого буфера + toast)
+- [x] Этап 1 — `AgentActivityModel` + индикатор ✨ в тулбаре (popover, промпты, badge)
+- [x] Этап 2 — статус-канал `editmdctl agent-status` + пакет хуков (Claude/Codex/pi/shell)
+- [x] Этап 3 — skill-пакет в бандле + установка в `~/.claude/skills/` и `~/.codex/skills/`
+- [x] Этап 4 — Settings ▸ Integrations (установщики, выбор команды агента для ✈️, env)
+- [x] Этап 5 — единый визуальный язык AI-правок (openDiff ↔ suggestions)
+- [x] Этап 6 — MCP stdio proxy `editmd-mcp` (опциональный слой; auto-reg в конфиги — follow-up)
+- [x] Этап 7 — грациозные внешние правки (auto-reload чистого буфера + toast)
 
 Закрывает пункт бывшего бэклога «Вкладка AI-интеграции в сайдбаре — непонятно,
 как работает интеграция с Claude».
