@@ -189,8 +189,28 @@ func renderMarkdownToAttributed(_ markdown: String,
                                 style: VisualStyle = VisualStyle(),
                                 pluginSnapshot: BuiltInPluginSnapshot? = nil)
     -> NSAttributedString {
-    VisualRenderer(source: markdown, style: style,
-                   pluginSnapshot: pluginSnapshot).run()
+    renderMarkdownToAttributedDetailed(markdown, style: style,
+                                       pluginSnapshot: pluginSnapshot).attributed
+}
+
+/// Render result plus, per display paragraph, the UTF-16 offset in the ORIGINAL
+/// markdown where its source block begins. Serialize-based offsets drift on
+/// documents that are not in the editor's normal form (lazy quote
+/// continuations, etc.) — these are exact for the freshly loaded text.
+struct VisualRenderResult {
+    let attributed: NSAttributedString
+    let paragraphSourceStarts: [Int]
+}
+
+func renderMarkdownToAttributedDetailed(_ markdown: String,
+                                        style: VisualStyle = VisualStyle(),
+                                        pluginSnapshot: BuiltInPluginSnapshot? = nil)
+    -> VisualRenderResult {
+    let renderer = VisualRenderer(source: markdown, style: style,
+                                  pluginSnapshot: pluginSnapshot)
+    let attributed = renderer.run()
+    return VisualRenderResult(attributed: attributed,
+                              paragraphSourceStarts: renderer.paragraphSourceStarts)
 }
 
 private final class VisualRenderer {
@@ -211,6 +231,10 @@ private final class VisualRenderer {
     private var emittedMath = Set<Int>()
     let out = NSMutableAttributedString()
     private var groupCounter = 0
+    /// Per display paragraph: source UTF-16 offset of the block it came from
+    /// (see VisualRenderResult). Updated via `noteSource` as the AST is walked.
+    private(set) var paragraphSourceStarts: [Int] = []
+    private var currentSourceStart = 0
 
     init(source: String, style: VisualStyle,
          pluginSnapshot providedPluginSnapshot: BuiltInPluginSnapshot?) {
@@ -265,13 +289,22 @@ private final class VisualRenderer {
 
     // MARK: Block dispatch
 
+    /// Remember where `block` starts in the source — every display paragraph
+    /// appended while it renders inherits this offset.
+    private func noteSource(_ block: Markup) {
+        guard let r = block.range else { return }
+        currentSourceStart = lineIdx.offset(r.lowerBound.line, r.lowerBound.column)
+    }
+
     private func renderBlock(_ block: Markup, ctx: Ctx) {
+        noteSource(block)
         // A block fully inside a multiline `$$` span (masked → sentinel
         // paragraphs; blank lines inside TeX split it into several) becomes
         // ONE verbatim math run; the follow-up pieces are dropped silently.
         if let idx = multilineMathIndex(containing: block) {
             if !emittedMath.contains(idx) {
                 emittedMath.insert(idx)
+                currentSourceStart = mathSpans[idx].range.location
                 emitDisplayMathBlock(mathSpans[idx], ctx: ctx)
             }
             return
@@ -360,6 +393,7 @@ private final class VisualRenderer {
         }
 
         func renderCell(_ cell: Markdown.Table.Cell, row: Int, column: Int) {
+            noteSource(cell)
             let kind = MDBlock.Kind.tableCell(row: row, column: column,
                                               columns: columns,
                                               alignment: alignmentCode(column))
@@ -476,6 +510,7 @@ private final class VisualRenderer {
                             group inheritedGroup: Int?, ctx: Ctx) {
         let group = inheritedGroup ?? nextGroup()
         for (index, item) in items.enumerated() {
+            noteSource(item)
             let kind: MDBlock.Kind
             let markerLen: Int
             if let checkbox = item.checkbox {
@@ -514,6 +549,7 @@ private final class VisualRenderer {
                 }
                 switch child {
                 case let paragraph as Paragraph:
+                    noteSource(paragraph)
                     appendParagraph(makeBlock(.listContinuation(indent: contentIndent), ctx,
                                               group: group)) { b in
                         self.renderInlines(paragraph.children, block: b, styles: [], link: nil)
@@ -811,6 +847,7 @@ private final class VisualRenderer {
     /// block attribute over the whole range (including the newline, so empty
     /// paragraphs stay identifiable).
     private func appendParagraph(_ block: MDBlock, build: (MDBlock) -> Void) {
+        paragraphSourceStarts.append(currentSourceStart)
         let start = out.length
         build(block)
         out.append(NSAttributedString(string: "\n",

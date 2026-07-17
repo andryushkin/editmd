@@ -79,7 +79,7 @@ extension VisualMarkdownView.Coordinator {
         // spacing. The scan records what each paragraph is, and the main pass
         // opens up run boundaries (list end, quote edges, table edges) by
         // looking at the neighbors.
-        struct ParaScan { var isList = false; var isTable = false; var isQuote = false }
+        struct ParaScan { var isList = false; var isTable = false; var quoteGroup: Int? }
         var paraScan: [ParaScan] = []
         var scanLoc = 0
         while scanLoc < nsText.length {
@@ -93,7 +93,7 @@ extension VisualMarkdownView.Coordinator {
             var info = ParaScan()
             info.isList = isListKind(block.kind)
             if case .tableCell = block.kind { info.isTable = true }
-            info.isQuote = block.quoteDepth > 0
+            info.quoteGroup = block.quoteDepth > 0 ? block.quoteGroup : nil
             paraScan.append(info)
             guard case .codeBlock = block.kind else { continue }
             if var ends = codeGroupsTmp[block.group] {
@@ -287,19 +287,23 @@ extension VisualMarkdownView.Coordinator {
                 style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 8 * spacingScale)
             }
             if blockValue.quoteDepth > 0 {
-                if prevScan?.isQuote != true, !isDocumentStart {
+                // Boundaries are per quote GROUP: two adjacent but distinct
+                // quotes must separate, not merge into one panel.
+                let startsRun = prevScan?.quoteGroup != blockValue.quoteGroup
+                let endsRun = nextScan?.quoteGroup != blockValue.quoteGroup
+                if startsRun, !isDocumentStart {
                     style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 4 * spacingScale)
                 }
-                if nextScan?.isQuote != true {
+                if endsRun {
                     style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
                 }
                 // The entry for this paragraph was appended above; keep its
                 // painted panel off the edge spacing (see VisualQuoteEntry).
                 if !quotes.isEmpty {
-                    if prevScan?.isQuote != true {
+                    if startsRun {
                         quotes[quotes.count - 1].topTrim = style.paragraphSpacingBefore
                     }
-                    if nextScan?.isQuote != true {
+                    if endsRun {
                         quotes[quotes.count - 1].bottomTrim = style.paragraphSpacing
                     }
                 }

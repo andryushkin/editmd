@@ -182,6 +182,10 @@ struct VisualMarkdownView: NSViewRepresentable {
         var isProgrammaticTableEdit = false
         /// Display-paragraph → markdown-range map from the last serialization.
         private var lastParagraphRanges: [NSRange] = []
+        /// Gutter source lines from the load-time render (exact for documents
+        /// not in normal form); nil once the document adopts the serialized
+        /// normal form — from then on the serialize-based map is exact.
+        private var gutterSourceLinesFromRender: [Int]?
         /// One NSTextAttachment per image source — reused across presentation
         /// passes so layout doesn't churn on every keystroke.
         var imageAttachments: [String: NSTextAttachment] = [:]
@@ -255,11 +259,20 @@ struct VisualMarkdownView: NSViewRepresentable {
             frontmatterBlock = frontmatterRange(in: source).map {
                 (source as NSString).substring(with: $0.full)
             }
-            let rendered = renderMarkdownToAttributed(
+            let rendered = renderMarkdownToAttributedDetailed(
                 source, style: visualStyle, pluginSnapshot: pluginSnapshot)
-            storage.setAttributedString(rendered)
+            storage.setAttributedString(rendered.attributed)
             lastSerialized = parent.document.content
             lastParagraphRanges = serializeStorageWithFrontmatter(storage).paragraphRanges
+            // Serialize-based ranges live in the buffer's NORMAL form; a fresh
+            // file may not be in it (lazy quotes, …), which skews the gutter's
+            // source lines. Until the first sync rewrites the document, map
+            // display paragraphs through the renderer's exact source offsets.
+            gutterSourceLinesFromRender = displayToSourceLineMap(
+                paragraphRanges: rendered.paragraphSourceStarts.map {
+                    NSRange(location: $0, length: 0)
+                },
+                markdown: source)
             textView.typingAttributes = defaultTypingAttributes()
             applyPresentation()
             updateStats()
@@ -520,8 +533,9 @@ struct VisualMarkdownView: NSViewRepresentable {
                 settings: EditorSettings.shared.gutter,
                 dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
                 // Visual shows SOURCE line numbers: paragraphs → markdown lines.
-                displayToSourceLine: displayToSourceLineMap(paragraphRanges: lastParagraphRanges,
-                                                            markdown: md))
+                displayToSourceLine: gutterSourceLinesFromRender
+                    ?? displayToSourceLineMap(paragraphRanges: lastParagraphRanges,
+                                              markdown: md))
             textView.needsDisplay = true
             reportTextLeading(textView.textContainerInset.width)
         }
@@ -1039,6 +1053,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard let storage = textView?.textStorage else { return false }
             let detailed = serializeStorageWithFrontmatter(storage)
             lastParagraphRanges = detailed.paragraphRanges
+            gutterSourceLinesFromRender = nil
             var serialized = detailed.markdown
             // Single trailing newline (POSIX text files). Do not append a second
             // one when the serializer already ended with \n — that grew blank

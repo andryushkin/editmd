@@ -1,876 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Reloaded from disk: %@ · %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перечитано с диска: %@ · %@"
-          }
-        }
-      }
-    },
-    "Show a toast when a clean buffer reloads from disk" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показывать тост, когда чистый буфер перечитывается с диска"
-          }
-        }
-      }
-    },
-    "A buffer with no unsaved edits always follows the disk. Dirty buffers still show the conflict chip." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Буфер без несохранённых правок всегда следует за диском. Для изменённого буфера остаётся чип конфликта."
-          }
-        }
-      }
-    },
-    "Empty agent command — check Settings ▸ Integrations" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пустая команда агента — проверьте Настройки ▸ Интеграции"
-          }
-        }
-      }
-    },
-    "%@\n\nYou can copy manually:\n  ln -sf %@ %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@\n\nМожно скопировать вручную:\n  ln -sf %@ %@"
-          }
-        }
-      }
-    },
-    "%@\nAlso installed for Codex when possible." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@\nПо возможности установлено и для Codex."
-          }
-        }
-      }
-    },
-    "%lld open mark(s) — send to Claude ✈️" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открытых меток: %lld — отправьте Claude ✈️"
-          }
-        }
-      }
-    },
-    "%lld open mark(s) → ✈️ agent" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открытых меток: %lld → агент ✈️"
-          }
-        }
-      }
-    },
-    "%lld open suggestion(s) in Review" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открытых предложений в Review: %lld"
-          }
-        }
-      }
-    },
-    "AI activity" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI-активность"
-          }
-        }
-      }
-    },
-    "AI — agent available" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI — агент доступен"
-          }
-        }
-      }
-    },
-    "AI — agent working" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI — агент работает"
-          }
-        }
-      }
-    },
-    "AI — needs your decision" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI — нужно ваше решение"
-          }
-        }
-      }
-    },
-    "AI — no agent connected. Click for setup and prompts." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "AI — агент не подключён. Клик: настройка и промпты."
-          }
-        }
-      }
-    },
-    "Agent finished — %lld new suggestion(s)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Агент закончил — новых предложений: %lld"
-          }
-        }
-      }
-    },
-    "Agent is blocked — needs input" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Агент заблокирован — нужен ввод"
-          }
-        }
-      }
-    },
-    "Agent log (tail)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Лог агента (хвост)"
-          }
-        }
-      }
-    },
-    "Agent skill (Claude)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skill агента (Claude)"
-          }
-        }
-      }
-    },
-    "Agent skill (Codex)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skill агента (Codex)"
-          }
-        }
-      }
-    },
-    "Ask agent to review active file" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Попросить агента отревьюить активный файл"
-          }
-        }
-      }
-    },
-    "Auto-reload clean buffer when disk changes" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Автоперезагрузка чистого буфера при изменении на диске"
-          }
-        }
-      }
-    },
-    "Auto-run agent for Review queue" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Автозапуск агента для очереди Review"
-          }
-        }
-      }
-    },
-    "Build the editmdctl target, or invoke it from DerivedData. You can still set EDITMDCTL to an absolute path for hooks." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Соберите target editmdctl или вызывайте его из DerivedData. Для хуков можно задать EDITMDCTL с абсолютным путём."
-          }
-        }
-      }
-    },
-    "Claude Code IDE" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code IDE"
-          }
-        }
-      }
-    },
-    "Claude Code connected" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code подключён"
-          }
-        }
-      }
-    },
-    "Claude Code connected (%lld clients)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code подключён (клиентов: %lld)"
-          }
-        }
-      }
-    },
-    "Claude Code listening — run /ide in a workspace" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Claude Code слушает — запустите /ide в workspace"
-          }
-        }
-      }
-    },
-    "Command Line Tool installed" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Инструмент командной строки установлен"
-          }
-        }
-      }
-    },
-    "Command preset" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пресет команды"
-          }
-        }
-      }
-    },
-    "Control socket" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Управляющий сокет"
-          }
-        }
-      }
-    },
-    "Copied to clipboard" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скопировано в буфер обмена"
-          }
-        }
-      }
-    },
-    "Copies the skill package to %@ (and Codex if present) so agents can run editmdctl and the review-mark workflow." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Копирует пакет skill в %@ (и для Codex, если он есть), чтобы агенты могли использовать editmdctl и цикл review-меток."
-          }
-        }
-      }
-    },
-    "Could not install symlink" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось создать симлинк"
-          }
-        }
-      }
-    },
-    "Custom command" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Своя команда"
-          }
-        }
-      }
-    },
-    "Exited %lld" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Завершился с кодом %lld"
-          }
-        }
-      }
-    },
-    "External agent is active" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Внешний агент активен"
-          }
-        }
-      }
-    },
-    "External files" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Внешние файлы"
-          }
-        }
-      }
-    },
-    "Finished" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Готово"
-          }
-        }
-      }
-    },
-    "Get started" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "С чего начать"
-          }
-        }
-      }
-    },
-    "Harness: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Харнесс: %@"
-          }
-        }
-      }
-    },
-    "Hooks install failed: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось установить хуки: %@"
-          }
-        }
-      }
-    },
-    "Hooks installed to %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Хуки установлены в %@"
-          }
-        }
-      }
-    },
-    "IDE failed: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ошибка IDE: %@"
-          }
-        }
-      }
-    },
-    "Install / Update Agent Skill…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установить / обновить skill агента…"
-          }
-        }
-      }
-    },
-    "Install Command Line Tool…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установить инструмент командной строки…"
-          }
-        }
-      }
-    },
-    "Install Status Hooks…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установить статус-хуки…"
-          }
-        }
-      }
-    },
-    "Install skill and check the socket" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установите skill и проверьте сокет"
-          }
-        }
-      }
-    },
-    "Installers are idempotent and merge carefully — they do not wipe foreign hooks or skills." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установщики идемпотентны и аккуратно сливают конфиги — чужие хуки и skills не затираются."
-          }
-        }
-      }
-    },
-    "Integrations" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Интеграции"
-          }
-        }
-      }
-    },
-    "Last agent-status: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Последний agent-status: %@"
-          }
-        }
-      }
-    },
-    "Live harness" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Живой харнесс"
-          }
-        }
-      }
-    },
-    "Local /ide server for live selection and openDiff." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Локальный /ide-сервер: живое выделение и openDiff."
-          }
-        }
-      }
-    },
-    "Moved to Settings ▸ Integrations (skill, hooks, ✈️ command, auto-spawn)." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Переехало в Настройки ▸ Интеграции (skill, хуки, команда ✈️, автозапуск)."
-          }
-        }
-      }
-    },
-    "No agent connected" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Агент не подключён"
-          }
-        }
-      }
-    },
-    "Open Review tab" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть вкладку Review"
-          }
-        }
-      }
-    },
-    "Open Settings…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть настройки…"
-          }
-        }
-      }
-    },
-    "Open diff: %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть diff: %@"
-          }
-        }
-      }
-    },
-    "Or click ✨ in the toolbar for ready-made prompts." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Или нажмите ✨ в тулбаре — там готовые промпты."
-          }
-        }
-      }
-    },
-    "Pending approval" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ждёт подтверждения"
-          }
-        }
-      }
-    },
-    "Press + to place a mark" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нажмите +, чтобы поставить метку"
-          }
-        }
-      }
-    },
-    "Process review queue" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Обработать очередь ревью"
-          }
-        }
-      }
-    },
-    "Processing review queue…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Обрабатываю очередь ревью…"
-          }
-        }
-      }
-    },
-    "Ready-made prompts" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Готовые промпты"
-          }
-        }
-      }
-    },
-    "Review agent (✈️)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Агент ревью (✈️)"
-          }
-        }
-      }
-    },
-    "Review agent is running" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Агент ревью работает"
-          }
-        }
-      }
-    },
-    "Review cycle" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цикл ревью"
-          }
-        }
-      }
-    },
-    "Select text in Preview or the editor" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выделите текст в Preview или редакторе"
-          }
-        }
-      }
-    },
-    "Send" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отправить"
-          }
-        }
-      }
-    },
-    "Send the queue ✈️ to your agent" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отправьте очередь ✈️ вашему агенту"
-          }
-        }
-      }
-    },
-    "Setup" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройка"
-          }
-        }
-      }
-    },
-    "Shell-split argv. EDITMD_AGENT_CMD still overrides for tests." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Argv по правилам shell. EDITMD_AGENT_CMD по-прежнему главнее (для тестов)."
-          }
-        }
-      }
-    },
-    "Skill + editmdctl discovery" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skill + знакомство с editmdctl"
-          }
-        }
-      }
-    },
-    "Spawn injects EDITMD_ENABLED, EDITMD_SOCKET, EDITMD_WORKSPACE, EDITMD_QUEUE." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запуск передаёт EDITMD_ENABLED, EDITMD_SOCKET, EDITMD_WORKSPACE, EDITMD_QUEUE."
-          }
-        }
-      }
-    },
-    "Starting Claude Code integration…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запуск интеграции Claude Code…"
-          }
-        }
-      }
-    },
-    "Status hooks" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Статус-хуки"
-          }
-        }
-      }
-    },
-    "Stop agent" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Остановить агента"
-          }
-        }
-      }
-    },
-    "Stopped by user" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Остановлено пользователем"
-          }
-        }
-      }
-    },
-    "Suggestions" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Предложения"
-          }
-        }
-      }
-    },
-    "Tell agent how to use EditMD" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Рассказать агенту, как работать с EditMD"
-          }
-        }
-      }
-    },
-    "Waiting for your decision on a proposed change" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ожидает вашего решения по предложенной правке"
-          }
-        }
-      }
-    },
-    "When the buffer has no unsaved edits, silently reload and show a short toast. Dirty buffers still show the conflict chip." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Если несохранённых правок нет — тихо перезагрузить и показать короткий тост. Для изменённого буфера остаётся чип конфликта."
-          }
-        }
-      }
-    },
-    "connected :%lld · %lld" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "подключён :%lld · %lld"
-          }
-        }
-      }
-    },
-    "editmdctl not found in this build" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "editmdctl не найден в этой сборке"
-          }
-        }
-      }
-    },
-    "editmdctl on PATH" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "editmdctl на PATH"
-          }
-        }
-      }
-    },
-    "listening :%lld" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "слушает :%lld"
-          }
-        }
-      }
-    },
-    "off" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "выкл"
-          }
-        }
-      }
-    },
-    "starting" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "запускается"
-          }
-        }
-      }
-    },
     "" : {
 
     },
@@ -997,12 +127,32 @@
         }
       }
     },
+    "%@\n\nYou can copy manually:\n  ln -sf %@ %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@\n\nМожно скопировать вручную:\n  ln -sf %@ %@"
+          }
+        }
+      }
+    },
     "%@\n+%lld −%lld lines relative to the current version.\nUndo with ⌘Z." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@\n+%2$lld −%3$lld строк относительно текущей версии.\nОткат — ⌘Z."
+          }
+        }
+      }
+    },
+    "%@\nAlso installed for Codex when possible." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@\nПо возможности установлено и для Codex."
           }
         }
       }
@@ -1182,6 +332,36 @@
         }
       }
     },
+    "%lld open mark(s) — send to Claude ✈️" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открытых меток: %lld — отправьте Claude ✈️"
+          }
+        }
+      }
+    },
+    "%lld open mark(s) → ✈️ agent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открытых меток: %lld → агент ✈️"
+          }
+        }
+      }
+    },
+    "%lld open suggestion(s) in Review" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открытых предложений в Review: %lld"
+          }
+        }
+      }
+    },
     "%lld skipped" : {
       "localizations" : {
         "ru" : {
@@ -1296,6 +476,19 @@
     },
     "0" : {
 
+    },
+    "9+" : {
+
+    },
+    "A buffer with no unsaved edits always follows the disk. Dirty buffers still show the conflict chip." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Буфер без несохранённых правок всегда следует за диском. Для изменённого буфера остаётся чип конфликта."
+          }
+        }
+      }
     },
     "A workspace with a link index is required" : {
       "localizations" : {
@@ -1508,12 +701,112 @@
         }
       }
     },
+    "Agent finished — %lld new suggestion(s)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент закончил — новых предложений: %lld"
+          }
+        }
+      }
+    },
+    "Agent is blocked — needs input" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент заблокирован — нужен ввод"
+          }
+        }
+      }
+    },
+    "Agent log (tail)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лог агента (хвост)"
+          }
+        }
+      }
+    },
+    "Agent skill (Claude)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skill агента (Claude)"
+          }
+        }
+      }
+    },
+    "Agent skill (Codex)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skill агента (Codex)"
+          }
+        }
+      }
+    },
     "Agent: %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Агент: %@"
+          }
+        }
+      }
+    },
+    "AI — agent available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI — агент доступен"
+          }
+        }
+      }
+    },
+    "AI — agent working" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI — агент работает"
+          }
+        }
+      }
+    },
+    "AI — needs your decision" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI — нужно ваше решение"
+          }
+        }
+      }
+    },
+    "AI — no agent connected. Click for setup and prompts." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI — агент не подключён. Клик: настройка и промпты."
+          }
+        }
+      }
+    },
+    "AI activity" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI-активность"
           }
         }
       }
@@ -1588,6 +881,16 @@
         }
       }
     },
+    "Ask agent to review active file" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попросить агента отревьюить активный файл"
+          }
+        }
+      }
+    },
     "at %@" : {
       "localizations" : {
         "ru" : {
@@ -1598,7 +901,29 @@
         }
       }
     },
+    "Auto-reload clean buffer when disk changes" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоперезагрузка чистого буфера при изменении на диске"
+          }
+        }
+      }
+    },
+    "Auto-run agent for Review queue" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автозапуск агента для очереди Review"
+          }
+        }
+      }
+    },
     "Auto-run Claude for Review queue" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -1778,6 +1103,16 @@
         }
       }
     },
+    "Build the editmdctl target, or invoke it from DerivedData. You can still set EDITMDCTL to an absolute path for hooks." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Соберите target editmdctl или вызывайте его из DerivedData. Для хуков можно задать EDITMDCTL с абсолютным путём."
+          }
+        }
+      }
+    },
     "Build the queue and launch Claude (claude -p \"/smotr -pr\")" : {
       "localizations" : {
         "ru" : {
@@ -1951,12 +1286,52 @@
     "Claude Code" : {
 
     },
+    "Claude Code connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code подключён"
+          }
+        }
+      }
+    },
+    "Claude Code connected (%lld clients)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code подключён (клиентов: %lld)"
+          }
+        }
+      }
+    },
+    "Claude Code IDE" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code IDE"
+          }
+        }
+      }
+    },
     "Claude Code integration" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Интеграция с Claude Code"
+          }
+        }
+      }
+    },
+    "Claude Code listening — run /ide in a workspace" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code слушает — запустите /ide в workspace"
           }
         }
       }
@@ -2165,6 +1540,26 @@
         }
       }
     },
+    "Command Line Tool installed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инструмент командной строки установлен"
+          }
+        }
+      }
+    },
+    "Command preset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пресет команды"
+          }
+        }
+      }
+    },
     "Commit" : {
       "localizations" : {
         "ru" : {
@@ -2217,6 +1612,26 @@
     "Conflict with disk for %@" : {
 
     },
+    "connected :%lld · %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "подключён :%lld · %lld"
+          }
+        }
+      }
+    },
+    "Control socket" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управляющий сокет"
+          }
+        }
+      }
+    },
     "Convert line endings to LF and add a trailing newline" : {
       "localizations" : {
         "ru" : {
@@ -2227,7 +1642,28 @@
         }
       }
     },
+    "Copied to clipboard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировано в буфер обмена"
+          }
+        }
+      }
+    },
+    "Copies the skill package to %@ (and Codex if present) so agents can run editmdctl and the review-mark workflow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Копирует пакет skill в %@ (и для Codex, если он есть), чтобы агенты могли использовать editmdctl и цикл review-меток."
+          }
+        }
+      }
+    },
     "Copies the skill to %@ so Claude Code can run `editmdctl` and the review-mark workflow." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -2337,6 +1773,16 @@
         }
       }
     },
+    "Could not install symlink" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось создать симлинк"
+          }
+        }
+      }
+    },
     "Could not move the file" : {
       "localizations" : {
         "ru" : {
@@ -2423,6 +1869,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "текущая ветка"
+          }
+        }
+      }
+    },
+    "Custom command" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Своя команда"
           }
         }
       }
@@ -2780,12 +2236,42 @@
         }
       }
     },
+    "editmdctl not found in this build" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "editmdctl не найден в этой сборке"
+          }
+        }
+      }
+    },
+    "editmdctl on PATH" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "editmdctl на PATH"
+          }
+        }
+      }
+    },
     "Editor theme & settings" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Тема и настройки редактора"
+          }
+        }
+      }
+    },
+    "Empty agent command — check Settings ▸ Integrations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пустая команда агента — проверьте Настройки ▸ Интеграции"
           }
         }
       }
@@ -2850,12 +2336,42 @@
         }
       }
     },
+    "Exited %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завершился с кодом %lld"
+          }
+        }
+      }
+    },
     "Export as PDF…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Экспортировать в PDF…"
+          }
+        }
+      }
+    },
+    "External agent is active" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внешний агент активен"
+          }
+        }
+      }
+    },
+    "External files" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внешние файлы"
           }
         }
       }
@@ -3050,6 +2566,16 @@
         }
       }
     },
+    "Finished" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово"
+          }
+        }
+      }
+    },
     "Fix the plugin block in Source mode." : {
       "localizations" : {
         "ru" : {
@@ -3140,6 +2666,16 @@
         }
       }
     },
+    "Get started" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С чего начать"
+          }
+        }
+      }
+    },
     "Get Started" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3178,6 +2714,16 @@
     },
     "H6" : {
 
+    },
+    "Harness: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Харнесс: %@"
+          }
+        }
+      }
     },
     "Heading" : {
       "localizations" : {
@@ -3409,6 +2955,26 @@
         }
       }
     },
+    "Hooks install failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось установить хуки: %@"
+          }
+        }
+      }
+    },
+    "Hooks installed to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хуки установлены в %@"
+          }
+        }
+      }
+    },
     "Horizontal" : {
       "localizations" : {
         "ru" : {
@@ -3425,6 +2991,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "иконка"
+          }
+        }
+      }
+    },
+    "IDE failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка IDE: %@"
           }
         }
       }
@@ -3579,12 +3155,32 @@
         }
       }
     },
+    "Install / Update Agent Skill…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить / обновить skill агента…"
+          }
+        }
+      }
+    },
     "Install Agent Skill…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Установить скилл агента…"
+          }
+        }
+      }
+    },
+    "Install Command Line Tool…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить инструмент командной строки…"
           }
         }
       }
@@ -3605,6 +3201,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Установка не удалась"
+          }
+        }
+      }
+    },
+    "Install skill and check the socket" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установите skill и проверьте сокет"
+          }
+        }
+      }
+    },
+    "Install Status Hooks…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить статус-хуки…"
+          }
+        }
+      }
+    },
+    "Installers are idempotent and merge carefully — they do not wipe foreign hooks or skills." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установщики идемпотентны и аккуратно сливают конфиги — чужие хуки и skills не затираются."
+          }
+        }
+      }
+    },
+    "Integrations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Интеграции"
           }
         }
       }
@@ -3725,6 +3361,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Редактор больших таблиц"
+          }
+        }
+      }
+    },
+    "Last agent-status: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Последний agent-status: %@"
           }
         }
       }
@@ -3922,6 +3568,16 @@
         }
       }
     },
+    "listening :%lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "слушает :%lld"
+          }
+        }
+      }
+    },
     "Lists" : {
       "localizations" : {
         "ru" : {
@@ -3942,12 +3598,32 @@
         }
       }
     },
+    "Live harness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живой харнесс"
+          }
+        }
+      }
+    },
     "Loading…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Загрузка…"
+          }
+        }
+      }
+    },
+    "Local /ide server for live selection and openDiff." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальный /ide-сервер: живое выделение и openDiff."
           }
         }
       }
@@ -4196,6 +3872,16 @@
         }
       }
     },
+    "Moved to Settings ▸ Integrations (skill, hooks, ✈️ command, auto-spawn)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переехало в Настройки ▸ Интеграции (skill, хуки, команда ✈️, автозапуск)."
+          }
+        }
+      }
+    },
     "Moving “%@”…" : {
       "localizations" : {
         "ru" : {
@@ -4346,6 +4032,16 @@
         }
       }
     },
+    "No agent connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент не подключён"
+          }
+        }
+      }
+    },
     "No commits for this file" : {
       "localizations" : {
         "ru" : {
@@ -4487,6 +4183,7 @@
       }
     },
     "No marks yet.\nSelect text and press +" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -4716,6 +4413,16 @@
         }
       }
     },
+    "off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "выкл"
+          }
+        }
+      }
+    },
     "Off: a double-click in Finder loads the file into the main window. Sidebar clicks and File ▸ Open always use the main window; right-click a file to open it separately." : {
       "localizations" : {
         "ru" : {
@@ -4782,6 +4489,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть"
+          }
+        }
+      }
+    },
+    "Open diff: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть diff: %@"
           }
         }
       }
@@ -4876,6 +4593,26 @@
         }
       }
     },
+    "Open Review tab" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть вкладку Review"
+          }
+        }
+      }
+    },
+    "Open Settings…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки…"
+          }
+        }
+      }
+    },
     "Open Source to fix the plugin frontmatter" : {
 
     },
@@ -4885,6 +4622,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть…"
+          }
+        }
+      }
+    },
+    "Or click ✨ in the toolbar for ready-made prompts." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Или нажмите ✨ в тулбаре — там готовые промпты."
           }
         }
       }
@@ -4975,6 +4722,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "path:docs/plans"
+          }
+        }
+      }
+    },
+    "Pending approval" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждёт подтверждения"
           }
         }
       }
@@ -5089,8 +4846,38 @@
         }
       }
     },
+    "Press + to place a mark" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажмите +, чтобы поставить метку"
+          }
+        }
+      }
+    },
     "Preview" : {
 
+    },
+    "Process review queue" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обработать очередь ревью"
+          }
+        }
+      }
+    },
+    "Processing review queue…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обрабатываю очередь ревью…"
+          }
+        }
+      }
     },
     "Project" : {
       "localizations" : {
@@ -5256,6 +5043,16 @@
         }
       }
     },
+    "Ready-made prompts" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готовые промпты"
+          }
+        }
+      }
+    },
     "Recent" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5330,6 +5127,16 @@
     },
     "Reloaded from disk — %@" : {
 
+    },
+    "Reloaded from disk: %@ · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перечитано с диска: %@ · %@"
+          }
+        }
+      }
     },
     "Remove “%@”" : {
       "localizations" : {
@@ -5681,6 +5488,36 @@
         }
       }
     },
+    "Review agent (✈️)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент ревью (✈️)"
+          }
+        }
+      }
+    },
+    "Review agent is running" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент ревью работает"
+          }
+        }
+      }
+    },
+    "Review cycle" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цикл ревью"
+          }
+        }
+      }
+    },
     "revision → now" : {
       "localizations" : {
         "ru" : {
@@ -5732,6 +5569,7 @@
       }
     },
     "Runs a local server on 127.0.0.1 so `claude` in your terminal can attach with /ide: it then sees the current file, your selection and the workspace, and proposes edits as a diff you accept or reject. No API key is stored and nothing leaves your machine." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -5851,12 +5689,42 @@
         }
       }
     },
+    "Select text in Preview or the editor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделите текст в Preview или редакторе"
+          }
+        }
+      }
+    },
     "Semibold" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Полужирный"
+          }
+        }
+      }
+    },
+    "Send" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить"
+          }
+        }
+      }
+    },
+    "Send the queue ✈️ to your agent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправьте очередь ✈️ вашему агенту"
           }
         }
       }
@@ -5891,12 +5759,42 @@
         }
       }
     },
+    "Setup" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройка"
+          }
+        }
+      }
+    },
+    "Shell-split argv. EDITMD_AGENT_CMD still overrides for tests." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Argv по правилам shell. EDITMD_AGENT_CMD по-прежнему главнее (для тестов)."
+          }
+        }
+      }
+    },
     "Show" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Показать"
+          }
+        }
+      }
+    },
+    "Show a toast when a clean buffer reloads from disk" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать тост, когда чистый буфер перечитывается с диска"
           }
         }
       }
@@ -6022,6 +5920,16 @@
         }
       }
     },
+    "Skill + editmdctl discovery" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skill + знакомство с editmdctl"
+          }
+        }
+      }
+    },
     "Skill installed" : {
       "localizations" : {
         "ru" : {
@@ -6095,6 +6003,36 @@
         }
       }
     },
+    "Spawn injects EDITMD_ENABLED, EDITMD_SOCKET, EDITMD_WORKSPACE, EDITMD_QUEUE." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запуск передаёт EDITMD_ENABLED, EDITMD_SOCKET, EDITMD_WORKSPACE, EDITMD_QUEUE."
+          }
+        }
+      }
+    },
+    "starting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "запускается"
+          }
+        }
+      }
+    },
+    "Starting Claude Code integration…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запуск интеграции Claude Code…"
+          }
+        }
+      }
+    },
     "State" : {
       "localizations" : {
         "ru" : {
@@ -6111,6 +6049,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Статус"
+          }
+        }
+      }
+    },
+    "Status hooks" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Статус-хуки"
+          }
+        }
+      }
+    },
+    "Stop agent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановить агента"
+          }
+        }
+      }
+    },
+    "Stopped by user" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено пользователем"
           }
         }
       }
@@ -6171,6 +6139,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Правка"
+          }
+        }
+      }
+    },
+    "Suggestions" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предложения"
           }
         }
       }
@@ -6301,6 +6279,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Задачи"
+          }
+        }
+      }
+    },
+    "Tell agent how to use EditMD" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рассказать агенту, как работать с EditMD"
           }
         }
       }
@@ -6848,6 +6836,16 @@
     "Visual" : {
 
     },
+    "Waiting for your decision on a proposed change" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ожидает вашего решения по предложенной правке"
+          }
+        }
+      }
+    },
     "Weight" : {
       "localizations" : {
         "ru" : {
@@ -6879,11 +6877,23 @@
       }
     },
     "When on, the Review sidebar ➤ button writes `.smotr-queue.json` and spawns `claude -p \"/smotr -pr\"` in the workspace root (opt-in; off by default). When off, ➤ only prepares the queue and copies the terminal command." : {
+      "extractionState" : "stale",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вкл: кнопка ➤ в сайдбаре Review записывает `.smotr-queue.json` и запускает `claude -p \"/smotr -pr\"` в корне workspace (по умолчанию выключено). Выкл: ➤ только готовит очередь и копирует команду для терминала."
+          }
+        }
+      }
+    },
+    "When the buffer has no unsaved edits, silently reload and show a short toast. Dirty buffers still show the conflict chip." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если несохранённых правок нет — тихо перезагрузить и показать короткий тост. Для изменённого буфера остаётся чип конфликта."
           }
         }
       }
