@@ -81,6 +81,10 @@ private final class TableCellEditorCell: NSTextFieldCell {
 struct VisualQuoteEntry {
     let range: NSRange
     let depth: Int
+    /// Quote group of the paragraph — the background panel is painted ONCE per
+    /// group (per-paragraph boxes overlapped at seams and double-painted the
+    /// translucent fill).
+    let group: Int
     let calloutType: String?
     let showsCalloutIcon: Bool
     /// Paragraph spacing at the quote run's edges. Line fragment rects include

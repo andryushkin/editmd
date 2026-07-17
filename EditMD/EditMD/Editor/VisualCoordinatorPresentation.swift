@@ -268,6 +268,7 @@ extension VisualMarkdownView.Coordinator {
                 quotes.append(VisualQuoteEntry(
                     range: paragraph,
                     depth: blockValue.quoteDepth,
+                    group: blockValue.quoteGroup,
                     calloutType: blockValue.calloutType,
                     showsCalloutIcon: showsCalloutIcon))
             }

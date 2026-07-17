@@ -151,19 +151,43 @@ extension VisualNSTextView {
             panel.stroke()
         }
 
-        // Quote bars
-        for entry in quoteEntries {
-            guard var rectUnion = unionRect(for: entry.range), rectUnion.intersects(rect) else { continue }
-            rectUnion.origin.y += entry.topTrim
-            rectUnion.size.height = max(0, rectUnion.height - entry.topTrim - entry.bottomTrim)
-            let quoteBox = rectUnion.insetBy(dx: 0, dy: -3)
-            let callout: MarkdownCallout? = entry.calloutType.map { type in
+        // Quote panels + bars. The translucent background is painted ONCE per
+        // quote group: per-paragraph boxes overlapped at the seams and the
+        // doubled fill showed as darker bands. All boxes share x/width, so the
+        // group panel is a plain vertical union of the trimmed paragraph rects.
+        func makeCallout(_ type: String?) -> MarkdownCallout? {
+            type.map { type in
                 let style = MarkdownCalloutStyle(rawValue: type.lowercased()) ?? .note
                 return MarkdownCallout(type: type, style: style, title: nil,
                                        markerRange: NSRange(location: 0, length: 0))
             }
+        }
+        func trimmedRect(_ entry: VisualQuoteEntry) -> NSRect? {
+            guard var r = unionRect(for: entry.range) else { return nil }
+            r.origin.y += entry.topTrim
+            r.size.height = max(0, r.height - entry.topTrim - entry.bottomTrim)
+            return r
+        }
+        var groupBoxes: [Int: (box: NSRect, calloutType: String?)] = [:]
+        for entry in quoteEntries {
+            guard let r = trimmedRect(entry) else { continue }
+            if let existing = groupBoxes[entry.group] {
+                groupBoxes[entry.group] = (existing.box.union(r),
+                                           existing.calloutType ?? entry.calloutType)
+            } else {
+                groupBoxes[entry.group] = (r, entry.calloutType)
+            }
+        }
+        for (_, groupBox) in groupBoxes {
+            let box = groupBox.box.insetBy(dx: 0, dy: -3)
+            guard box.intersects(rect), box.height > 1 else { continue }
+            let callout = makeCallout(groupBox.calloutType)
             (callout?.color.withAlphaComponent(0.09) ?? theme.quoteBackground).setFill()
-            NSBezierPath(roundedRect: quoteBox, xRadius: 5, yRadius: 5).fill()
+            NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
+        }
+        for entry in quoteEntries {
+            guard let rectUnion = trimmedRect(entry), rectUnion.intersects(rect) else { continue }
+            let callout = makeCallout(entry.calloutType)
             (callout?.color ?? theme.accentColor).withAlphaComponent(0.78).setFill()
             for level in 0..<entry.depth {
                 NSRect(x: inset.width + CGFloat(level) * 18, y: rectUnion.minY,
