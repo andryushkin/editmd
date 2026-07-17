@@ -842,6 +842,7 @@ struct SourceTextView: NSViewRepresentable {
                 canIncreaseFontSize: EditorSettings.shared.source.fontSize < ModeSettings.fontSizeRange.upperBound,
                 canDecreaseFontSize: EditorSettings.shared.source.fontSize > ModeSettings.fontSizeRange.lowerBound,
                 toggleChecklist: { [weak self] in self?.transformSelectedLines(.checklist) },
+                editLink: { [weak self] in self?.editLink() },
                 toggleStrikethrough: { [weak self] in self?.wrapSelection(with: "~~") },
                 toggleCodeSpan: { [weak self] in self?.wrapSelection(with: "`") },
                 toggleHighlight: { [weak self] in self?.wrapSelection(with: "==") },
@@ -1010,6 +1011,48 @@ struct SourceTextView: NSViewRepresentable {
             textView.replaceCharacters(in: range, with: wrapped)
             textView.didChangeText()
             textView.setSelectedRange(newSelection)
+        }
+
+        /// ⌘K: add a link on the selection, or edit / remove the `[text](url)`
+        /// link under the caret. Operates on the raw markdown (Source's source of
+        /// truth); the existing link is located via the swift-markdown AST so
+        /// escapes and angle-bracket destinations are handled correctly.
+        private func editLink() {
+            guard let textView else { return }
+            let ns = textView.string as NSString
+            var selection = textView.selectedRange()
+            var existingText = selection.length > 0 ? ns.substring(with: selection) : ""
+            var existingURL = ""
+
+            // Prefer an existing link touching the caret / selection start.
+            if let match = inlineLinkMatch(in: textView.string, at: selection.location) {
+                selection = match.range
+                existingText = match.text
+                existingURL = match.url
+            }
+
+            switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL) {
+            case .apply(let text, let url):
+                let label = text.isEmpty ? url : text
+                let replacement = markdownLinkSyntax(text: label, url: url)
+                guard textView.shouldChangeText(in: selection, replacementString: replacement)
+                else { return }
+                textView.replaceCharacters(in: selection, with: replacement)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(
+                    location: selection.location + (replacement as NSString).length, length: 0))
+            case .remove:
+                // Only reachable while editing an existing link, so `selection`
+                // is its full span and `existingText` its label.
+                guard textView.shouldChangeText(in: selection, replacementString: existingText)
+                else { return }
+                textView.replaceCharacters(in: selection, with: existingText)
+                textView.didChangeText()
+                textView.setSelectedRange(NSRange(location: selection.location,
+                                                  length: (existingText as NSString).length))
+            case .cancel:
+                break
+            }
         }
 
         /// Replaces the lines the selection touches with `replacement`,

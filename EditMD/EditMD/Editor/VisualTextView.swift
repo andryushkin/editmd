@@ -809,20 +809,26 @@ struct VisualMarkdownView: NSViewRepresentable {
             return true
         }
 
-        /// Wraps the current (non-empty) selection as a rendered Markdown link
-        /// when the clipboard is a bare URL. Returns false — so plain paste runs
-        /// — with no selection, a non-URL clipboard, or a literal/table context.
+        /// Renders a bare-URL clipboard as a link: over a selection the selection
+        /// becomes the label (`[text](url)`); with no selection it inserts a
+        /// `<url>` autolink (a plain bare URL would not render as a link).
+        /// Returns false — so plain paste runs — for a non-URL clipboard or a
+        /// literal/table context.
         func pasteURLLinkFromPasteboard() -> Bool {
             guard let textView, let storage = textView.textStorage else { return false }
-            let selection = textView.selectedRange()
-            guard selection.length > 0,
-                  let url = bareWebURLForPaste(NSPasteboard.general.string(forType: .string))
+            guard let url = bareWebURLForPaste(NSPasteboard.general.string(forType: .string))
             else { return false }
+            let selection = textView.selectedRange()
             let blockKind = pasteBlockKindAtSelection() ?? .paragraph
             guard visualContextAllowsStructuredPaste(blockKind) else { return false }
 
-            let selected = (storage.string as NSString).substring(with: selection)
-            let markdown = markdownLinkSyntax(text: selected, url: url)
+            let markdown: String
+            if selection.length > 0 {
+                let selected = (storage.string as NSString).substring(with: selection)
+                markdown = markdownLinkSyntax(text: selected, url: url)
+            } else {
+                markdown = markdownAutolinkSyntax(url: url)
+            }
             let rendered = renderForInsertion(markdown, into: storage)
             guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
             else { return true }

@@ -37,6 +37,7 @@
 		186E6C22B5D0D627F9A7A735 /* katex.css in Resources */ = {isa = PBXBuildFile; fileRef = 7876EB215E777CB863F2221B /* katex.css */; };
 		193F11852B92E034FAC48D21 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */; };
 		1C84AD51EE94F31FA210176F /* examples.md in Resources */ = {isa = PBXBuildFile; fileRef = 1F700A1EEC267F66246E53F7 /* examples.md */; };
+		1CFD35C0DD0E6F82F3D45EFD /* LinkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDEDA9BAE4A39EA48A9EAD3 /* LinkEdit.swift */; };
 		1E1C496DB940AEC5A01CD263 /* ClaudeIDETools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7534B860CEE234DA0F13BA8B /* ClaudeIDETools.swift */; };
 		1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75D9EDD5F391199A959F85D /* GitCLITests.swift */; };
 		21577D8F9B1EC7A8D3E178A5 /* SearchQueryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0DE4EC9E426532AD54632F /* SearchQueryTests.swift */; };
@@ -111,6 +112,7 @@
 		7F57C0EC4C8CEAC7472E1A4B /* MarkdownCallout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D3D813EE4916BCB54B32D3 /* MarkdownCallout.swift */; };
 		810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */; };
 		82F97A527857A21C40BF35CD /* VaultLintReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */; };
+		837EE7B796F5A444A1EDDA5A /* ZZRenderProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0319D3B8FEC64691885A578 /* ZZRenderProbe.swift */; };
 		83ED51D42ADA1AD8B4C41FC2 /* LinkScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 920961C775AF3E1E6E2AAF93 /* LinkScan.swift */; };
 		84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */; };
 		84CF1A4445DEF3DA95260487 /* ClaudeIDEUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */; };
@@ -187,6 +189,7 @@
 		E9B12661CB0A36CB8A634015 /* EditMDApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FF3BD17201E239817B79BA /* EditMDApp.swift */; };
 		EB1794B535F9012AA920A33C /* GitUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57F65113867F0DDDF47D9686 /* GitUI.swift */; };
 		EB3CCCB901409C444B32A78D /* ClaudeIDEServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */; };
+		EF8A101D55D7E3AB166F8863 /* LinkEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B13D0E02D697E7841AB55C8 /* LinkEditTests.swift */; };
 		F01D7B266D913201DAA10D4E /* EditorActionStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA09CFB97A06931314CAEC0 /* EditorActionStrip.swift */; };
 		F14D26430627E1043375BFF1 /* FolderInfoActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43FDE14678AC0C05027F7AA /* FolderInfoActions.swift */; };
 		F2A0594151F491FD4EF8D2D2 /* MathScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18F81FF14127B33B6927883A /* MathScanTests.swift */; };
@@ -229,6 +232,7 @@
 		0E24489CEA45FF0DDABBBD39 /* MathScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScan.swift; sourceTree = "<group>"; };
 		0ECEA266AF8BFC41C97D25F8 /* TooltipSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipSupport.swift; sourceTree = "<group>"; };
 		0F53F4F01CE5CA16609C6376 /* prompts.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = prompts.md; sourceTree = "<group>"; };
+		0FDEDA9BAE4A39EA48A9EAD3 /* LinkEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkEdit.swift; sourceTree = "<group>"; };
 		126CB1B5E2775BA49FF067A9 /* VaultLintModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLintModel.swift; sourceTree = "<group>"; };
 		13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGit.swift; sourceTree = "<group>"; };
 		18816986CB29E40D5679A515 /* VisualGutterSourceLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualGutterSourceLineTests.swift; sourceTree = "<group>"; };
@@ -317,6 +321,7 @@
 		95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterTests.swift; sourceTree = "<group>"; };
 		9917191640BDEC49A4A21EBD /* ControlProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlProtocol.swift; sourceTree = "<group>"; };
 		9A0FFE1D25D7589E46587CBD /* CodeSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeSyntaxHighlighter.swift; sourceTree = "<group>"; };
+		9B13D0E02D697E7841AB55C8 /* LinkEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkEditTests.swift; sourceTree = "<group>"; };
 		9DA7CE97E32CED7AB5D0F5E3 /* MathAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathAttachment.swift; sourceTree = "<group>"; };
 		9E073DD795A643E5543DB171 /* VisualNSTextViewDrawing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualNSTextViewDrawing.swift; sourceTree = "<group>"; };
 		9E5DD70CA3310989A4D190EF /* IDELockFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFile.swift; sourceTree = "<group>"; };
@@ -389,6 +394,7 @@
 		EDDA15226FE19583870CDF72 /* SourceTextView+Highlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SourceTextView+Highlighting.swift"; sourceTree = "<group>"; };
 		EF12B04334689B39D654FE1E /* SourceNSTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceNSTextView.swift; sourceTree = "<group>"; };
 		EFCED5DC382D884472BF2D8E /* BuiltInPlugins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPlugins.swift; sourceTree = "<group>"; };
+		F0319D3B8FEC64691885A578 /* ZZRenderProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZZRenderProbe.swift; sourceTree = "<group>"; };
 		F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLintReportView.swift; sourceTree = "<group>"; };
 		F218590314138A42580FA6D8 /* ReviewQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewQueue.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
@@ -501,6 +507,7 @@
 				50BA444A2429A2E9B1751007 /* KaTeXResources.swift */,
 				F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */,
 				CC2E01E52E9D350180F84BCF /* LineNumberGutter.swift */,
+				0FDEDA9BAE4A39EA48A9EAD3 /* LinkEdit.swift */,
 				920961C775AF3E1E6E2AAF93 /* LinkScan.swift */,
 				E6D3D813EE4916BCB54B32D3 /* MarkdownCallout.swift */,
 				73443608878228D727F6A239 /* MarkdownHighlighter.swift */,
@@ -722,6 +729,7 @@
 				A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */,
 				712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */,
 				924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */,
+				9B13D0E02D697E7841AB55C8 /* LinkEditTests.swift */,
 				5095045B9037F0630921FB05 /* LinkIndexTests.swift */,
 				D45090939E587BA5C57087E3 /* LinkScanTests.swift */,
 				55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */,
@@ -747,6 +755,7 @@
 				7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */,
 				3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */,
 				3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */,
+				F0319D3B8FEC64691885A578 /* ZZRenderProbe.swift */,
 			);
 			path = EditMDTests;
 			sourceTree = "<group>";
@@ -940,6 +949,7 @@
 				810D704C833ED20F5A4A667A /* InspectorSidebarTests.swift in Sources */,
 				0FC140FB6B5FF48844ECEA1F /* LargeDocumentTests.swift in Sources */,
 				AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */,
+				EF8A101D55D7E3AB166F8863 /* LinkEditTests.swift in Sources */,
 				175865854FE20802B678A99A /* LinkIndexTests.swift in Sources */,
 				9E73EAAA73509F0687D41207 /* LinkScanTests.swift in Sources */,
 				DC139233A12E3FF14314161B /* MCPProtocolTests.swift in Sources */,
@@ -965,6 +975,7 @@
 				D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */,
 				29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */,
 				9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */,
+				837EE7B796F5A444A1EDDA5A /* ZZRenderProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1028,6 +1039,7 @@
 				E0C5F0E5FA0696446CBF0AFE /* KaTeXResources.swift in Sources */,
 				3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */,
 				7E698ED39A84574149B1B31F /* LineNumberGutter.swift in Sources */,
+				1CFD35C0DD0E6F82F3D45EFD /* LinkEdit.swift in Sources */,
 				60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */,
 				83ED51D42ADA1AD8B4C41FC2 /* LinkScan.swift in Sources */,
 				84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */,
@@ -1311,7 +1323,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 418;
+				CURRENT_PROJECT_VERSION = 419;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -1321,7 +1333,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.47.0;
+				MARKETING_VERSION = 0.47.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -1355,7 +1367,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 418;
+				CURRENT_PROJECT_VERSION = 419;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
@@ -1365,7 +1377,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.47.0;
+				MARKETING_VERSION = 0.47.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

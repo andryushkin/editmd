@@ -7,8 +7,9 @@ import AppKit
 /// Ordered special-paste doors for Source. Closures are lazy on purpose: a
 /// Word/Excel table must be consumed before image detection even inspects its
 /// TIFF preview, and a fenced code block must inspect neither door. The URL
-/// door comes last (before plain text): it only fires for a pure-URL clipboard
-/// over a non-empty selection, which can't be a table or image payload.
+/// door comes last (before plain text): it fires for a pure-URL clipboard,
+/// wrapping a selection as `[text](url)` or inserting a `<url>` autolink when
+/// there is none — neither of which can be a table or image payload.
 func handleSourceSpecialPaste(insideFence: Bool,
                               tableMarkdown: () -> String?,
                               insertTable: (String) -> Void,
@@ -75,16 +76,21 @@ final class SourceNSTextView: NSTextView {
         pasteAsPlainText(sender)
     }
 
-    /// Wraps the current (non-empty) selection as a Markdown link when the
-    /// clipboard is a bare URL. Returns false — so plain paste runs — when there
-    /// is no selection or the clipboard isn't a single URL.
+    /// Formats a bare-URL clipboard as a Markdown link: over a non-empty
+    /// selection the selection becomes the label (`[selection](url)`); with no
+    /// selection it inserts an autolink (`<url>`), which — unlike a plain bare
+    /// URL — actually renders as a clickable link. Returns false (so plain paste
+    /// runs) only when the clipboard isn't a single URL.
     private func linkifyPastedURL(_ pasteboardString: String?) -> Bool {
+        guard let url = bareWebURLForPaste(pasteboardString) else { return false }
         let selection = selectedRange()
-        guard selection.length > 0, let url = bareWebURLForPaste(pasteboardString) else {
-            return false
+        let replacement: String
+        if selection.length > 0 {
+            let selected = (string as NSString).substring(with: selection)
+            replacement = markdownLinkSyntax(text: selected, url: url)
+        } else {
+            replacement = markdownAutolinkSyntax(url: url)
         }
-        let selected = (string as NSString).substring(with: selection)
-        let replacement = markdownLinkSyntax(text: selected, url: url)
         guard shouldChangeText(in: selection, replacementString: replacement) else { return true }
         textStorage?.replaceCharacters(in: selection, with: replacement)
         didChangeText()
