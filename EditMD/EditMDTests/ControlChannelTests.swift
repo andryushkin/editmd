@@ -39,9 +39,23 @@ final class ControlChannelTests: XCTestCase {
     func testKnownCommandsCoverPlan() {
         let names = Set(ControlCommandName.allCases.map(\.rawValue))
         for need in ["ping", "status", "open", "reveal", "mode",
-                     "marks.list", "marks.add", "diff.show", "workspace.add"] {
+                     "marks.list", "marks.add", "diff.show", "workspace.add",
+                     "agent-status"] {
             XCTAssertTrue(names.contains(need), "missing \(need)")
         }
+    }
+
+    func testParseAgentStatusArgs() {
+        let ok = parseAgentStatusArgs([
+            "status": .string("active"),
+            "label": .string("thinking"),
+            "harness": .string("codex"),
+        ])
+        XCTAssertEqual(ok?.status, "active")
+        XCTAssertEqual(ok?.label, "thinking")
+        XCTAssertEqual(ok?.harness, "codex")
+        XCTAssertNil(parseAgentStatusArgs(nil))
+        XCTAssertTrue(agentStatusKnownStates.contains("blocked"))
     }
 
     func testWorkspaceAddCommandName() {

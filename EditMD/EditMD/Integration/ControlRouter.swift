@@ -86,7 +86,30 @@ enum ControlRouter {
 
         case .workspaceAdd:
             return try workspaceAdd(request)
+
+        case .agentStatus:
+            return try agentStatus(request)
         }
+    }
+
+    // MARK: agent-status (plan 09)
+
+    private static func agentStatus(_ request: ControlRequest) throws -> Dispatched {
+        guard let parsed = parseAgentStatusArgs(request.args) else {
+            throw ControlError("agent-status requires status=idle|active|completed|blocked")
+        }
+        let key = parsed.status.lowercased()
+        guard agentStatusKnownStates.contains(key),
+              let status = AgentHarnessStatus(rawValue: key) else {
+            throw ControlError("unknown agent status: \(parsed.status)")
+        }
+        AgentActivityModel.shared.applyHarnessStatus(
+            status, label: parsed.label, harness: parsed.harness)
+        return .data(.object([
+            "status": .string(status.rawValue),
+            "label": parsed.label.map { .string($0) } ?? .null,
+            "harness": parsed.harness.map { .string($0) } ?? .null,
+        ]))
     }
 
     // MARK: workspace.add (D6)

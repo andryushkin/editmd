@@ -109,6 +109,8 @@ enum ControlCommandName: String, CaseIterable, Sendable {
     case diffShow = "diff.show"
     /// D6: adopt a folder as workspace root (absolute path).
     case workspaceAdd = "workspace.add"
+    /// Plan 09: harness → app presence channel.
+    case agentStatus = "agent-status"
 
     var help: String {
         switch self {
@@ -121,8 +123,31 @@ enum ControlCommandName: String, CaseIterable, Sendable {
         case .marksAdd: return "add a mark from selection or --quote/--note/--type"
         case .diffShow: return "unified diff of buffer vs last-saved / disk"
         case .workspaceAdd: return "workspace.add <absolute folder path>"
+        case .agentStatus: return "agent-status <idle|active|completed|blocked> [--label T] [--harness N]"
         }
     }
+}
+
+// MARK: - agent-status parse (pure; shared with editmdctl + tests)
+
+/// Known harness status tokens (protocol is English-only).
+let agentStatusKnownStates: Set<String> = ["idle", "active", "completed", "blocked"]
+
+/// Parse `agent-status` wire args: status/state + optional label/harness.
+func parseAgentStatusArgs(_ args: [String: JSONValue]?) -> (
+    status: String, label: String?, harness: String?
+)? {
+    guard let args else { return nil }
+    let status: String?
+    if case .string(let s) = args["status"] { status = s }
+    else if case .string(let s) = args["state"] { status = s }
+    else { status = nil }
+    guard let status, !status.isEmpty else { return nil }
+    let label: String?
+    if case .string(let s) = args["label"] { label = s } else { label = nil }
+    let harness: String?
+    if case .string(let s) = args["harness"] { harness = s } else { harness = nil }
+    return (status, label, harness)
 }
 
 // MARK: - Socket path

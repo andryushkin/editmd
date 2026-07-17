@@ -214,6 +214,29 @@ enum EditMDCtl {
             return ControlRequest(id: "1", cmd: "workspace.add",
                                   args: ["path": .string(path)])
 
+        case "agent-status":
+            // editmdctl agent-status <idle|active|completed|blocked> [--label T] [--harness N]
+            guard let state = rest.first, !state.hasPrefix("-") else {
+                throw CLIError("agent-status requires idle|active|completed|blocked")
+            }
+            var label: String?
+            var harness: String?
+            var j = 1
+            while j < rest.count {
+                let a = rest[j]
+                if a == "--label", j + 1 < rest.count {
+                    label = rest[j + 1]; j += 2; continue
+                }
+                if a == "--harness", j + 1 < rest.count {
+                    harness = rest[j + 1]; j += 2; continue
+                }
+                throw CLIError("unknown agent-status flag: \(a)")
+            }
+            var argsMap: [String: JSONValue] = ["status": .string(state)]
+            if let label { argsMap["label"] = .string(label) }
+            if let harness { argsMap["harness"] = .string(harness) }
+            return ControlRequest(id: "1", cmd: "agent-status", args: argsMap)
+
         default:
             throw CLIError("unknown command: \(cmd)")
         }
@@ -367,6 +390,8 @@ enum EditMDCtl {
           reveal [--path P] [--line N | --heading TITLE]
           mode source|visual|preview
           marks list [--path P] [--all]
+          agent-status <idle|active|completed|blocked> [--label T] [--harness N]
+
           marks add [--path P] --type TYPE --note TEXT [--quote Q]
           diff show [--path P]
 

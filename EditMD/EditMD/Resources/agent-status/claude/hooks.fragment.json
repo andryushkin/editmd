@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.config/editmd/agent-status/editmd-agent-status.sh\" idle --harness claude"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.config/editmd/agent-status/editmd-agent-status.sh\" active --label \"prompt\" --harness claude"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.config/editmd/agent-status/editmd-agent-status.sh\" completed --harness claude"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.config/editmd/agent-status/editmd-agent-status.sh\" blocked --label \"needs input\" --harness claude"
+          }
+        ]
+      }
+    ]
+  },
+  "_editmd_comment": "Merge these hooks into ~/.claude/settings.json. Installer (Settings ▸ Integrations) does a careful merge and never wipes foreign hooks."
+}
