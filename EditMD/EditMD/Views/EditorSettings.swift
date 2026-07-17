@@ -356,7 +356,7 @@ enum AgentCommandPreset: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .claude: return "Claude (`claude -p \"/smotr -pr\"`)"
         case .codex: return "Codex (`codex …`)"
-        case .custom: return "Custom command"
+        case .custom: return String(localized: "Custom command")
         }
     }
 

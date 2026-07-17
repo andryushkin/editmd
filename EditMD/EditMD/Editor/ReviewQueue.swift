@@ -191,39 +191,21 @@ enum ReviewQueue {
         return "cd \(shellEscape(root.path)) && \(body)"
     }
 
-    private static func shellEscape(_ path: String) -> String {
-        // Single-quote, escaping any embedded single quotes.
+    /// Single-quote for the shell, escaping embedded single quotes. Shared
+    /// with the prompt palette (AgentPromptCatalog).
+    static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func shellEscapeIfNeeded(_ s: String) -> String {
+    static func shellEscapeIfNeeded(_ s: String) -> String {
         if s.contains(" ") || s.contains("\"") || s.contains("'") {
             return shellEscape(s)
         }
         return s
     }
 
-    /// Resolve argv: `EDITMD_AGENT_CMD` env (test hook) wins; else Settings preset.
-    @MainActor
-    static func agentArgv() -> [String] {
-        if let env = ProcessInfo.processInfo.environment["EDITMD_AGENT_CMD"],
-           !env.isEmpty {
-            return shellSplit(env)
-        }
-        let g = EditorSettings.shared.general
-        switch g.agentCommandPreset {
-        case .claude:
-            return defaultAgentCommand
-        case .codex:
-            return AgentCommandPreset.codex.defaultArgv
-        case .custom:
-            let custom = g.agentCustomCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            if custom.isEmpty { return defaultAgentCommand }
-            return shellSplit(custom)
-        }
-    }
-
-    /// Non-MainActor argv for Process (snapshot settings first on main).
+    /// Argv for Process (snapshot settings on main first). `EDITMD_AGENT_CMD`
+    /// env (test hook) wins over the preset.
     static func agentArgvSnapshot(
         preset: AgentCommandPreset,
         custom: String
@@ -318,7 +300,7 @@ final class ReviewAgentRunner: ObservableObject {
         let argv = ReviewQueue.agentArgvSnapshot(
             preset: g.agentCommandPreset, custom: g.agentCustomCommand)
         guard let exe = argv.first else {
-            state = .failed("empty agent command")
+            state = .failed(String(localized: "Empty agent command — check Settings ▸ Integrations"))
             return
         }
         let args = Array(argv.dropFirst())
@@ -353,6 +335,9 @@ final class ReviewAgentRunner: ObservableObject {
                 let clipped = String(tail.suffix(2000))
                 await MainActor.run {
                     guard let self else { return }
+                    // stop() cancelled us after terminate(): it already set the
+                    // "stopped" state — don't overwrite it with .finished(15).
+                    guard !Task.isCancelled else { return }
                     self.runningProcess = nil
                     self.logTail = clipped
                     switch result {
@@ -376,7 +361,7 @@ final class ReviewAgentRunner: ObservableObject {
         waitTask?.cancel()
         waitTask = nil
         runningProcess = nil
-        state = .failed("stopped by user")
+        state = .failed(String(localized: "Stopped by user"))
         let logURL = root.map { ReviewQueue.agentLogURL(in: $0) }
         if let logURL, let tail = try? String(contentsOf: logURL, encoding: .utf8) {
             logTail = String(tail.suffix(2000))

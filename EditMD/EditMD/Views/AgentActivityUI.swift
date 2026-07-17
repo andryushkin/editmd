@@ -4,16 +4,7 @@ import AppKit
 // MARK: - Toolbar ✨
 
 /// Plan 09 face of the AI system: sparkles in the toolbar + popover.
-struct AgentActivityToolbarItem: ToolbarContent {
-    @ObservedObject private var activity = AgentActivityModel.shared
-
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            AgentActivityButton()
-        }
-    }
-}
-
+/// Mounted by `EditorToolbar` as a plain ToolbarItem.
 struct AgentActivityButton: View {
     @ObservedObject private var activity = AgentActivityModel.shared
     @State private var showPopover = false
@@ -215,7 +206,9 @@ struct AgentActivityPopover: View {
                 .font(.system(size: 12))
             Button {
                 activity.clearSuggestionBadge()
-                // Switch right inspector to Review when possible.
+                // Same pair as ContentView.requestReviewMark(): the tab switch
+                // alone is invisible while the inspector is hidden.
+                UserDefaults.standard.set(true, forKey: "inspectorVisible")
                 UserDefaults.standard.set("review", forKey: "inspectorTab")
                 isPresented = false
             } label: {

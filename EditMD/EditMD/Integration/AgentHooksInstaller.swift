@@ -73,21 +73,7 @@ enum AgentHooksInstaller {
         let settingsURL = home.appendingPathComponent(".claude/settings.json")
         let wrapper = installDirectory(home: home)
             .appendingPathComponent("editmd-agent-status.sh").path
-        // Minimal marker hooks if fragment missing.
-        let editmdHooks: [String: Any] = [
-            "SessionStart": [[
-                "hooks": [[
-                    "type": "command",
-                    "command": "\"\(wrapper)\" idle --harness claude",
-                ]]
-            ]],
-            "Stop": [[
-                "hooks": [[
-                    "type": "command",
-                    "command": "\"\(wrapper)\" completed --harness claude",
-                ]]
-            ]],
-        ]
+        let editmdHooks = claudeHooksToInstall(wrapper: wrapper, home: home)
 
         var root: [String: Any] = [:]
         if let data = try? Data(contentsOf: settingsURL),
@@ -114,6 +100,51 @@ enum AgentHooksInstaller {
         try fileManager.createDirectory(
             at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: settingsURL, options: .atomic)
+    }
+
+    /// Hooks to merge: the INSTALLED copy of hooks.fragment.json (the full set —
+    /// UserPromptSubmit→active and Notification→blocked drive the ✨ working /
+    /// needs-attention states), with `$HOME/…` rewritten to the real wrapper
+    /// path. Falls back to a minimal idle/completed pair only when the
+    /// fragment is unreadable.
+    static func claudeHooksToInstall(
+        wrapper: String,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [String: Any] {
+        let fragmentURL = installDirectory(home: home)
+            .appendingPathComponent("hooks.fragment.json")
+        if let data = try? Data(contentsOf: fragmentURL),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           var hooks = obj["hooks"] as? [String: Any], !hooks.isEmpty {
+            let placeholder = "$HOME/.config/editmd/agent-status/editmd-agent-status.sh"
+            for (event, value) in hooks {
+                // .withoutEscapingSlashes: the default `\/` escaping would
+                // break the plain-text placeholder match below.
+                guard let json = try? JSONSerialization.data(
+                        withJSONObject: value, options: [.withoutEscapingSlashes]),
+                      let text = String(data: json, encoding: .utf8) else { continue }
+                let rewritten = text.replacingOccurrences(of: placeholder, with: wrapper)
+                if let back = try? JSONSerialization.jsonObject(
+                    with: Data(rewritten.utf8)) as? [Any] {
+                    hooks[event] = back
+                }
+            }
+            return hooks
+        }
+        return [
+            "SessionStart": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": "\"\(wrapper)\" idle --harness claude",
+                ]]
+            ]],
+            "Stop": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": "\"\(wrapper)\" completed --harness claude",
+                ]]
+            ]],
+        ]
     }
 
     private static func findBundled(name: String, bundle: Bundle) -> URL? {

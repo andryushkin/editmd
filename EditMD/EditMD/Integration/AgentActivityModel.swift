@@ -43,6 +43,11 @@ final class AgentActivityModel: ObservableObject {
     @Published private(set) var toast: String?
     private var toastTask: Task<Void, Never>?
 
+    /// Last quiet external reload (stage 7) — an event, NOT a harness status:
+    /// it must never overwrite what a live agent reported about itself.
+    @Published private(set) var lastDiskReloadFile: String?
+    @Published private(set) var lastDiskReloadAt: Date?
+
     /// After Place mark — “N open marks — send to Claude ✈️”.
     @Published var nextStepHint: String?
 
@@ -52,6 +57,10 @@ final class AgentActivityModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastSuggestionIDs = Set<String>()
     private var bootstrapped = false
+    /// While set (and not past), the next refresh that sees new suggestions
+    /// announces them (badge + toast). Opened by an agent finishing; the
+    /// sidecar reload arrives later through the FIFO pipeline.
+    private var announceSuggestionsUntil: Date?
 
     private init() {
         bind()
@@ -142,6 +151,13 @@ final class AgentActivityModel: ObservableObject {
 
     func dismissToast() { toast = nil }
 
+    /// Stage 7: quiet auto-reload happened — toast + popover event line.
+    func noteDiskReload(fileName: String) {
+        lastDiskReloadFile = fileName
+        lastDiskReloadAt = Date()
+        showToast(String(localized: "Reloaded from disk — \(fileName)"))
+    }
+
     func clearSuggestionBadge() { suggestionBadge = 0 }
 
     func noteMarkPlaced() {
@@ -167,10 +183,13 @@ final class AgentActivityModel: ObservableObject {
         if let label { harnessLabel = label.isEmpty ? nil : label }
         if let harness { harnessName = harness.isEmpty ? nil : harness }
         harnessUpdatedAt = Date()
+        // No toast here: with global hooks installed, `completed` arrives after
+        // EVERY turn of any Claude session on the machine. The meaningful
+        // signal is new suggestions — open the announce window and let
+        // refreshReviewDerived toast only when they actually appear.
         if status == .completed {
-            showToast(String(localized: "Agent finished"))
+            announceSuggestionsUntil = Date().addingTimeInterval(30)
         }
-        objectWillChange.send()
     }
 
     func stopAgent() {
@@ -263,27 +282,28 @@ final class AgentActivityModel: ObservableObject {
             agentStateLabel = code == 0
                 ? String(localized: "Finished")
                 : String(localized: "Exited \(Int(code))")
-            // After finish, reload may add suggestions — refresh shortly.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                self?.refreshReviewDerived(announceNewSuggestions: true)
-            }
+            // The sidecar reload lands through the FIFO pipeline at its own
+            // pace; open an announce window instead of racing it with a timer.
+            announceSuggestionsUntil = Date().addingTimeInterval(30)
         case .failed(let msg):
             agentRunning = false
             agentStateLabel = msg
         }
     }
 
-    private func refreshReviewDerived(announceNewSuggestions: Bool = false) {
+    private func refreshReviewDerived() {
         let review = ReviewModel.shared
         openMarkCount = review.openCount
         let suggests = review.doc.marks.filter { $0.isSuggestion && $0.isOpen }
         openSuggestionCount = suggests.count
         let ids = Set(suggests.map(\.id))
-        if bootstrapped, announceNewSuggestions {
+        if bootstrapped,
+           let until = announceSuggestionsUntil, Date() < until {
             let fresh = ids.subtracting(lastSuggestionIDs)
             if !fresh.isEmpty {
                 suggestionBadge += fresh.count
-                showToast(String(localized: "Claude finished — \(fresh.count) suggestion(s)"))
+                announceSuggestionsUntil = nil
+                showToast(String(localized: "Agent finished — \(fresh.count) new suggestion(s)"))
             }
         }
         lastSuggestionIDs = ids

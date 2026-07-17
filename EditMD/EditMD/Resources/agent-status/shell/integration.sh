@@ -35,8 +35,19 @@ if [ -n "${ZSH_VERSION:-}" ]; then
   add-zsh-hook precmd _editmd_precmd 2>/dev/null || true
 fi
 
-# bash
+# bash — no native preexec; a guarded DEBUG trap fills in (skipped when a
+# DEBUG trap already exists so we never clobber bash-preexec or user traps).
 if [ -n "${BASH_VERSION:-}" ]; then
+  _editmd_bash_debug() {
+    # Ignore completion, prompt-command re-entry, and our own hooks.
+    [ -n "${COMP_LINE:-}" ] && return
+    [ "${BASH_COMMAND}" = "${PROMPT_COMMAND:-}" ] && return
+    case "$BASH_COMMAND" in _editmd_*) return ;; esac
+    _editmd_preexec "$BASH_COMMAND"
+  }
+  if [ -z "$(trap -p DEBUG)" ]; then
+    trap '_editmd_bash_debug' DEBUG
+  fi
   # shellcheck disable=SC2034
   PROMPT_COMMAND="_editmd_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 fi

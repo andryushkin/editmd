@@ -82,12 +82,21 @@ func controlRequest(_ req: ControlRequest) throws -> ControlResponse {
     proc.standardOutput = out
     proc.standardError = err
     try proc.run()
-    proc.waitUntilExit()
+    // Drain BOTH pipes before waitUntilExit: waiting first deadlocks as soon
+    // as the child fills a ~64KB pipe buffer (large marks.list output).
+    let errBox = PipeDrainBox()
+    let errHandle = err.fileHandleForReading
+    let drainGroup = DispatchGroup()
+    DispatchQueue.global(qos: .utility).async(group: drainGroup) {
+        errBox.data = errHandle.readDataToEndOfFile()
+    }
     let data = out.fileHandleForReading.readDataToEndOfFile()
+    drainGroup.wait()
+    proc.waitUntilExit()
     let line = String(data: data, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if line.isEmpty {
-        let e = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let e = String(data: errBox.data, encoding: .utf8) ?? ""
         return .failure(id: req.id, error: e.isEmpty ? "editmdctl failed" : e)
     }
     return try ControlCodec.decodeResponse(line)
@@ -252,6 +261,12 @@ func pretty(_ resp: ControlResponse) -> String {
         return s
     }
     return resp.ok ? "ok" : (resp.error ?? "error")
+}
+
+/// Single-writer box for the stderr drain; DispatchGroup.wait() provides the
+/// happens-before edge for the read after the background write.
+final class PipeDrainBox: @unchecked Sendable {
+    var data = Data()
 }
 
 struct CLIError: Error, CustomStringConvertible {

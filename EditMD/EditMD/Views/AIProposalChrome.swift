@@ -7,14 +7,6 @@ enum AIProposalChrome {
     static let acceptColor = Color.green
     static let declineColor = Color.secondary
     static let replacementFill = Color.green.opacity(0.14)
-
-    /// Status labels used in both openDiff residual UI and review cards.
-    static func statusLabel(accepted: Bool?, declined: Bool?, drifted: Bool) -> String {
-        if drifted { return String(localized: "Drifted") }
-        if accepted == true { return String(localized: "Accepted") }
-        if declined == true { return String(localized: "Declined") }
-        return String(localized: "Pending")
-    }
 }
 
 /// Compact Accept / Decline pair shared by Review suggest cards.
@@ -25,13 +17,16 @@ struct AIProposalDecisionButtons: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // No keyboardShortcut here: these cards live in a scrolling list
+            // (possibly several at once), and scene-wide ⏎/⎋ would invisibly
+            // accept/decline a suggestion from anywhere in the window. The
+            // modal openDiff sheet keeps its own ⏎/⎋ pair.
             Button(action: onAccept) {
                 Label(AIProposalChrome.acceptTitle, systemImage: "checkmark")
                     .font(.system(size: compact ? 11 : 12, weight: .semibold))
                     .foregroundStyle(AIProposalChrome.acceptColor)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
 
             Button(action: onDecline) {
                 Label(AIProposalChrome.declineTitle, systemImage: "xmark")
@@ -39,7 +34,6 @@ struct AIProposalDecisionButtons: View {
                     .foregroundStyle(AIProposalChrome.declineColor)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
         }
     }
 }

@@ -9,6 +9,18 @@ struct IntegrationsSettingsTab: View {
     @ObservedObject private var activity = AgentActivityModel.shared
 
     @State private var statusNote: String?
+    /// Disk-derived install states, refreshed off-main (CLAUDE.md: no sync
+    /// disk I/O from a SwiftUI body) on appear and after each install action.
+    @State private var disk = DiskStatusSnapshot()
+
+    /// One pass of every file-system check the Status section shows.
+    struct DiskStatusSnapshot: Equatable, Sendable {
+        var skillClaude = false
+        var skillCodex = false
+        var hooks = false
+        var ctlLinked = false
+        var ctlOnPath: String?
+    }
 
     var body: some View {
         Form {
@@ -28,26 +40,25 @@ struct IntegrationsSettingsTab: View {
                 )
                 statusRow(
                     title: String(localized: "Agent skill (Claude)"),
-                    ok: SkillInstaller.isInstalled(at: SkillInstaller.claudeDestination()),
+                    ok: disk.skillClaude,
                     detail: SkillInstaller.claudeDestination().path
                 )
                 statusRow(
                     title: String(localized: "Agent skill (Codex)"),
-                    ok: SkillInstaller.isInstalled(at: SkillInstaller.codexDestination()),
+                    ok: disk.skillCodex,
                     detail: SkillInstaller.codexDestination().path
                 )
                 statusRow(
                     title: String(localized: "Status hooks"),
-                    ok: AgentHooksInstaller.isInstalled(),
+                    ok: disk.hooks,
                     detail: AgentHooksInstaller.installDirectory().path
                 )
                 statusRow(
                     title: String(localized: "editmdctl on PATH"),
-                    ok: EditMDCtlInstaller.isLinked()
-                        || resolveEditmdctlOnPath() != nil,
-                    detail: EditMDCtlInstaller.isLinked()
+                    ok: disk.ctlLinked || disk.ctlOnPath != nil,
+                    detail: disk.ctlLinked
                         ? EditMDCtlInstaller.linkPath
-                        : (resolveEditmdctlOnPath() ?? String(localized: "not found"))
+                        : (disk.ctlOnPath ?? String(localized: "not found"))
                 )
                 if let statusNote {
                     Text(statusNote)
@@ -59,13 +70,15 @@ struct IntegrationsSettingsTab: View {
             Section("Install") {
                 Button(String(localized: "Install / Update Agent Skill…")) {
                     SkillInstaller.installWithUI()
-                    statusNote = String(localized: "Skill install finished")
+                    refreshDiskStatus()
                 }
                 Button(String(localized: "Install Status Hooks…")) {
                     installHooks()
+                    refreshDiskStatus()
                 }
                 Button(String(localized: "Install Command Line Tool…")) {
                     EditMDCtlInstaller.installWithUI()
+                    refreshDiskStatus()
                 }
                 Text(String(localized: "Installers are idempotent and merge carefully — they do not wipe foreign hooks or skills."))
                     .font(.caption)
@@ -117,14 +130,30 @@ struct IntegrationsSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { refreshDiskStatus() }
+    }
+
+    private func refreshDiskStatus() {
+        Task.detached(priority: .userInitiated) {
+            let snapshot = DiskStatusSnapshot(
+                skillClaude: SkillInstaller.isInstalled(at: SkillInstaller.claudeDestination()),
+                skillCodex: SkillInstaller.isInstalled(at: SkillInstaller.codexDestination()),
+                hooks: AgentHooksInstaller.isInstalled(),
+                ctlLinked: EditMDCtlInstaller.isLinked(),
+                ctlOnPath: Self.resolveEditmdctlOnPath()
+            )
+            await MainActor.run { disk = snapshot }
+        }
     }
 
     private var ideStatusDetail: String {
         switch ide.state {
         case .off: return String(localized: "off")
         case .starting: return String(localized: "starting")
-        case .listening(let s): return String(localized: "listening :\(s.port)")
-        case .connected(let s, let n): return String(localized: "connected :\(s.port) · \(n)")
+        // UInt16 interpolation extracts as a different specifier than %lld —
+        // cast to Int so the catalog key stays the predictable "%lld" form.
+        case .listening(let s): return String(localized: "listening :\(Int(s.port))")
+        case .connected(let s, let n): return String(localized: "connected :\(Int(s.port)) · \(Int(n))")
         case .failed(let m): return m
         }
     }
@@ -146,7 +175,7 @@ struct IntegrationsSettingsTab: View {
     private func installHooks() {
         do {
             let ctl = EditMDCtlInstaller.bundledBinaryURL()?.path
-                ?? resolveEditmdctlOnPath()
+                ?? Self.resolveEditmdctlOnPath()
             let dest = try AgentHooksInstaller.installPackage(editmdctlPath: ctl)
             try? AgentHooksInstaller.mergeClaudeHooks()
             statusNote = String(localized: "Hooks installed to \(dest.path)")
@@ -155,7 +184,7 @@ struct IntegrationsSettingsTab: View {
         }
     }
 
-    private func resolveEditmdctlOnPath() -> String? {
+    nonisolated private static func resolveEditmdctlOnPath() -> String? {
         let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
         let home = NSHomeDirectory()
         let dirs = ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]

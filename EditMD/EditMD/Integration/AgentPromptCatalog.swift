@@ -36,8 +36,8 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
         }
         items.append(AgentPromptItem(
             id: "process-queue",
-            title: "Process review queue",
-            detail: "\(ctx.openMarkCount) open mark(s) → ✈️ agent",
+            title: String(localized: "Process review queue"),
+            detail: String(localized: "\(ctx.openMarkCount) open mark(s) → ✈️ agent"),
             command: cmd
         ))
     }
@@ -58,7 +58,7 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
         """.trimmingCharacters(in: .whitespacesAndNewlines)
         items.append(AgentPromptItem(
             id: "review-file",
-            title: "Ask agent to review active file",
+            title: String(localized: "Ask agent to review active file"),
             detail: (file as NSString).lastPathComponent,
             command: reviewPrompt
         ))
@@ -72,8 +72,8 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
         """
         items.append(AgentPromptItem(
             id: "connect-editmd",
-            title: "Tell agent how to use EditMD",
-            detail: "Skill + editmdctl discovery",
+            title: String(localized: "Tell agent how to use EditMD"),
+            detail: String(localized: "Skill + editmdctl discovery"),
             command: connect
         ))
     }
@@ -81,8 +81,8 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
     if items.isEmpty {
         items.append(AgentPromptItem(
             id: "install-start",
-            title: "Get started",
-            detail: "Install skill and check the socket",
+            title: String(localized: "Get started"),
+            detail: String(localized: "Install skill and check the socket"),
             command: """
             # In EditMD: Help ▸ Install Agent Skill…
             editmdctl status
@@ -96,14 +96,11 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
 
 /// Default ✈️ launch argv as a single shell line.
 func defaultAgentLaunchLine() -> String {
-    ReviewQueue.defaultAgentCommand.map { shellQuoteIfNeeded($0) }.joined(separator: " ")
+    ReviewQueue.defaultAgentCommand
+        .map { ReviewQueue.shellEscapeIfNeeded($0) }
+        .joined(separator: " ")
 }
 
 private func shellQuote(_ path: String) -> String {
-    "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
-private func shellQuoteIfNeeded(_ s: String) -> String {
-    if s.contains(" ") || s.contains("\"") { return shellQuote(s) }
-    return s
+    ReviewQueue.shellEscape(path)
 }
