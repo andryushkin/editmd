@@ -80,6 +80,21 @@ final class RoundTripTests: XCTestCase {
         assertStable("before\n\n$$\nE = mc^2\n$$\n\nafter")
     }
 
+    // Inline and same-line display math INSIDE a blockquote are supported.
+    func testInlineMathInQuoteVerbatim() { assertStable("> energy $E = mc^2$ here") }
+    func testDisplayMathSameLineInQuoteVerbatim() { assertStable("> $$E = mc^2$$") }
+
+    // KNOWN LIMITATION: a MULTILINE `$$…$$` inside a blockquote is not scanned
+    // as math — the mask would erase the `>` prefixes and break the quote (see
+    // MathScan `matchDisplay`). It degrades gracefully to escaped literal text
+    // (content preserved, no data loss) and stays idempotent. This pins that
+    // behavior so it can't regress silently while the limitation stands.
+    func testMultilineDisplayMathInQuoteDegradesButStays() {
+        let out = roundTrip("> $$\n> E = mc^2\n> $$")
+        XCTAssertEqual(out, "> \\$\\$ E = mc^2 \\$\\$")
+        XCTAssertEqual(roundTrip(out), out, "must stay idempotent")
+    }
+
     func testInlineCode() { assertStable("run `cmd` now") }
     func testInlineCodeWithBacktick() { assertStable("``a`b``") }
     func testNestedBoldItalic() { assertStable("***both***") }
