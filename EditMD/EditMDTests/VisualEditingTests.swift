@@ -262,10 +262,25 @@ final class VisualEditingTests: XCTestCase {
             insideFence: false,
             tableMarkdown: { calls.append("table-probe"); return "| A | B |" },
             insertTable: { _ in calls.append("table-insert") },
-            insertImage: { calls.append("image"); return true })
+            insertImage: { calls.append("image"); return true },
+            linkifySelection: { calls.append("link"); return true })
 
         XCTAssertTrue(handled)
         XCTAssertEqual(calls, ["table-probe", "table-insert"])
+    }
+
+    func testSourcePasteLinkifiesAfterImageBeforePlain() {
+        var calls: [String] = []
+        let handled = handleSourceSpecialPaste(
+            insideFence: false,
+            tableMarkdown: { calls.append("table"); return nil },
+            insertTable: { _ in calls.append("insert") },
+            insertImage: { calls.append("image"); return false },
+            linkifySelection: { calls.append("link"); return true })
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(calls, ["table", "image", "link"],
+                       "link door runs only after table and image decline")
     }
 
     func testSourceFenceSkipsTableAndImageDoors() {
@@ -274,7 +289,8 @@ final class VisualEditingTests: XCTestCase {
             insideFence: true,
             tableMarkdown: { calls.append("table"); return "table" },
             insertTable: { _ in calls.append("insert") },
-            insertImage: { calls.append("image"); return true })
+            insertImage: { calls.append("image"); return true },
+            linkifySelection: { calls.append("link"); return true })
 
         XCTAssertFalse(handled)
         XCTAssertTrue(calls.isEmpty)
@@ -284,14 +300,16 @@ final class VisualEditingTests: XCTestCase {
         var calls: [String] = []
         XCTAssertTrue(handleVisualSpecialPaste(
             pasteMarkdown: { calls.append("markdown"); return true },
-            pasteImage: { calls.append("image"); return true }))
+            pasteImage: { calls.append("image"); return true },
+            pasteURLLink: { calls.append("link"); return true }))
         XCTAssertEqual(calls, ["markdown"])
 
         calls = []
         XCTAssertFalse(handleVisualSpecialPaste(
             pasteMarkdown: { calls.append("markdown"); return false },
-            pasteImage: { calls.append("image"); return false }))
-        XCTAssertEqual(calls, ["markdown", "image"],
+            pasteImage: { calls.append("image"); return false },
+            pasteURLLink: { calls.append("link"); return false }))
+        XCTAssertEqual(calls, ["markdown", "image", "link"],
                        "false must reach NSTextView's plain-text fallback")
     }
 

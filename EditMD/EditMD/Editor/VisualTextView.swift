@@ -805,6 +805,33 @@ struct VisualMarkdownView: NSViewRepresentable {
             return true
         }
 
+        /// Wraps the current (non-empty) selection as a rendered Markdown link
+        /// when the clipboard is a bare URL. Returns false — so plain paste runs
+        /// — with no selection, a non-URL clipboard, or a literal/table context.
+        func pasteURLLinkFromPasteboard() -> Bool {
+            guard let textView, let storage = textView.textStorage else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length > 0,
+                  let url = bareWebURLForPaste(NSPasteboard.general.string(forType: .string))
+            else { return false }
+            let blockKind = pasteBlockKindAtSelection() ?? .paragraph
+            guard visualContextAllowsStructuredPaste(blockKind) else { return false }
+
+            let selected = (storage.string as NSString).substring(with: selection)
+            let markdown = markdownLinkSyntax(text: selected, url: url)
+            let rendered = renderForInsertion(markdown, into: storage)
+            guard textView.shouldChangeText(in: selection, replacementString: rendered.string)
+            else { return true }
+            isMutating = true
+            storage.replaceCharacters(in: selection, with: rendered)
+            isMutating = false
+            textView.didChangeText()
+            let caret = selection.location + rendered.length
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            afterMutation()
+            return true
+        }
+
         /// Semantic block under the Visual selection, shared by every paste
         /// door so their context guards cannot drift apart.
         func pasteBlockKindAtSelection() -> MDBlock.Kind? {

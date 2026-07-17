@@ -6,17 +6,21 @@ import AppKit
 
 /// Ordered special-paste doors for Source. Closures are lazy on purpose: a
 /// Word/Excel table must be consumed before image detection even inspects its
-/// TIFF preview, and a fenced code block must inspect neither door.
+/// TIFF preview, and a fenced code block must inspect neither door. The URL
+/// door comes last (before plain text): it only fires for a pure-URL clipboard
+/// over a non-empty selection, which can't be a table or image payload.
 func handleSourceSpecialPaste(insideFence: Bool,
                               tableMarkdown: () -> String?,
                               insertTable: (String) -> Void,
-                              insertImage: () -> Bool) -> Bool {
+                              insertImage: () -> Bool,
+                              linkifySelection: () -> Bool) -> Bool {
     guard !insideFence else { return false }
     if let markdown = tableMarkdown() {
         insertTable(markdown)
         return true
     }
-    return insertImage()
+    if insertImage() { return true }
+    return linkifySelection()
 }
 
 final class SourceNSTextView: NSTextView {
@@ -62,10 +66,31 @@ final class SourceNSTextView: NSTextView {
                 guard let coordinator = self?.delegate as? SourceTextView.Coordinator
                 else { return false }
                 return coordinator.pasteImageFromPasteboard()
+            },
+            linkifySelection: { [weak self] in
+                self?.linkifyPastedURL(pasteboard.string(forType: .string)) == true
             }) {
             return
         }
         pasteAsPlainText(sender)
+    }
+
+    /// Wraps the current (non-empty) selection as a Markdown link when the
+    /// clipboard is a bare URL. Returns false — so plain paste runs — when there
+    /// is no selection or the clipboard isn't a single URL.
+    private func linkifyPastedURL(_ pasteboardString: String?) -> Bool {
+        let selection = selectedRange()
+        guard selection.length > 0, let url = bareWebURLForPaste(pasteboardString) else {
+            return false
+        }
+        let selected = (string as NSString).substring(with: selection)
+        let replacement = markdownLinkSyntax(text: selected, url: url)
+        guard shouldChangeText(in: selection, replacementString: replacement) else { return true }
+        textStorage?.replaceCharacters(in: selection, with: replacement)
+        didChangeText()
+        setSelectedRange(NSRange(location: selection.location + (replacement as NSString).length,
+                                 length: 0))
+        return true
     }
 
     /// Fenced code blocks are literal — TSV pasted there must stay TSV.

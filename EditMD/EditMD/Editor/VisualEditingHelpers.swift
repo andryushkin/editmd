@@ -4,11 +4,15 @@ import AppKit
 // VisualTextView.swift.
 
 /// Visual uses its semantic Markdown/table door first; image is a fallback.
-/// The individual doors share the same semantic context predicate below.
+/// The URL door comes last (before plain text): it only fires for a pure-URL
+/// clipboard over a non-empty selection. The individual doors share the same
+/// semantic context predicate below.
 func handleVisualSpecialPaste(pasteMarkdown: () -> Bool,
-                              pasteImage: () -> Bool) -> Bool {
+                              pasteImage: () -> Bool,
+                              pasteURLLink: () -> Bool) -> Bool {
     if pasteMarkdown() { return true }
-    return pasteImage()
+    if pasteImage() { return true }
+    return pasteURLLink()
 }
 
 // MARK: - Pure editing helpers (unit-tested)

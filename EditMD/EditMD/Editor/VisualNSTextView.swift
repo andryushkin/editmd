@@ -160,6 +160,9 @@ final class VisualNSTextView: NSTextView {
             },
             pasteImage: { [weak self] in
                 self?.visualCoordinator?.pasteImageFromPasteboard() == true
+            },
+            pasteURLLink: { [weak self] in
+                self?.visualCoordinator?.pasteURLLinkFromPasteboard() == true
             }) { return }
         pasteAsPlainText(sender)
     }
