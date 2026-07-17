@@ -304,8 +304,22 @@ func previewHTMLPageRender(markdown: String,
         border-radius: 2px;
         padding: 0 0.12em;
     }
+    /* ⌘F find (sprint 5): every match gets a soft wash, the active one a
+       stronger fill. Wrapping spans are injected/removed by editMDFind and
+       never touch the markdown source. */
+    .editmd-find {
+        background: rgba(255, 214, 10, 0.40);
+        border-radius: 2px;
+    }
+    .editmd-find-current {
+        background: rgba(255, 149, 0, 0.85);
+        color: #1d1d1f;
+        border-radius: 2px;
+    }
     @media (prefers-color-scheme: dark) {
         mark { background: rgba(255, 196, 0, 0.35); }
+        .editmd-find { background: rgba(255, 214, 10, 0.30); }
+        .editmd-find-current { background: rgba(255, 159, 10, 0.90); color: #1d1d1f; }
         pre {
             background: rgba(191,90,242,0.12);
             border-color: rgba(191,90,242,0.36);
@@ -760,6 +774,111 @@ func previewHTMLPageRender(markdown: String,
         });
     }
 
+    // ⌘F find (sprint 5). Highlighting is done by wrapping matched runs in
+    // <span class="editmd-find"> — no source is touched, and clearing unwraps
+    // and re-normalizes the text. Case-insensitive substring, matching the
+    // default of Source/Visual's NSTextFinder. The Swift side drives every
+    // search (including a re-run after a fragment swap), so this holds no state
+    // that must survive innerHTML replacement beyond the last query string.
+    var findMatches = [];
+    var findCurrent = -1;
+    function clearFindHighlights() {
+        var root = document.getElementById('preview-content');
+        var spans = root ? root.querySelectorAll('span.editmd-find') : [];
+        spans.forEach(function (s) {
+            var t = document.createTextNode(s.textContent);
+            s.parentNode.replaceChild(t, s);
+        });
+        if (root && spans.length) root.normalize();
+        findMatches = [];
+        findCurrent = -1;
+    }
+    function collectFindTextNodes(root) {
+        var nodes = [];
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) {
+                if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+                var p = n.parentElement;
+                if (!p) return NodeFilter.FILTER_REJECT;
+                var tag = p.tagName;
+                if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
+                // The hover copy button's glyph is chrome, not content.
+                if (p.classList && p.classList.contains('copy-block-btn')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        var n;
+        while ((n = walker.nextNode())) nodes.push(n);
+        return nodes;
+    }
+    // Split one text node around each match and wrap the hits. Matches never
+    // cross a node boundary (an inline element between two words is a gap), the
+    // same limitation the native find bar has on rendered rich text.
+    function highlightFindInNode(node, needleLower, qlen, out) {
+        var text = node.nodeValue;
+        var hay = text.toLowerCase();
+        var idx = hay.indexOf(needleLower);
+        if (idx < 0) return;
+        var frag = document.createDocumentFragment();
+        var last = 0;
+        while (idx >= 0) {
+            if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
+            var span = document.createElement('span');
+            span.className = 'editmd-find';
+            span.textContent = text.slice(idx, idx + qlen);
+            frag.appendChild(span);
+            out.push(span);
+            last = idx + qlen;
+            idx = hay.indexOf(needleLower, last);
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag, node);
+    }
+    function setFindCurrent(index) {
+        if (findCurrent >= 0 && findCurrent < findMatches.length) {
+            findMatches[findCurrent].classList.remove('editmd-find-current');
+        }
+        findCurrent = index;
+        if (findCurrent >= 0 && findCurrent < findMatches.length) {
+            var el = findMatches[findCurrent];
+            el.classList.add('editmd-find-current');
+            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        }
+    }
+    // Returns {count, index} (index is 1-based, 0 = none). Keeps the current
+    // ordinal when a re-run (after a content edit) still has that many matches.
+    window.editMDFind = function (query) {
+        var prevCurrent = findCurrent;
+        clearFindHighlights();
+        var q = query || '';
+        if (!q) return { count: 0, index: 0 };
+        var root = document.getElementById('preview-content');
+        if (!root) return { count: 0, index: 0 };
+        var needleLower = q.toLowerCase();
+        var qlen = q.length;
+        var nodes = collectFindTextNodes(root);
+        for (var i = 0; i < nodes.length; i++) {
+            highlightFindInNode(nodes[i], needleLower, qlen, findMatches);
+        }
+        if (!findMatches.length) { findCurrent = -1; return { count: 0, index: 0 }; }
+        var target = (prevCurrent >= 0 && prevCurrent < findMatches.length) ? prevCurrent : 0;
+        setFindCurrent(target);
+        return { count: findMatches.length, index: findCurrent + 1 };
+    };
+    window.editMDFindStep = function (delta) {
+        if (!findMatches.length) return { count: 0, index: 0 };
+        var n = findMatches.length;
+        var next = ((findCurrent + delta) % n + n) % n;
+        setFindCurrent(next);
+        return { count: n, index: findCurrent + 1 };
+    };
+    window.editMDFindClear = function () {
+        clearFindHighlights();
+        return { count: 0, index: 0 };
+    };
+
     // Make the DOM live again. Deliberately cheap: no geometry is read here,
     // because hydrate runs BEFORE the new content has been laid out. Everything
     // that depends on final geometry belongs in settlePreviewLayout.
@@ -843,6 +962,11 @@ func previewHTMLPageRender(markdown: String,
         beginScrollReportSuppression();
         try {
             root.innerHTML = payload.html;
+            // The old find spans were just discarded with the previous DOM; drop
+            // the stale references so a later step/clear can't touch dead nodes.
+            // An active find is re-run from Swift right after this returns.
+            findMatches = [];
+            findCurrent = -1;
             window.editMDPreviewRevision = payload.revision;
             window.editMDHydratePreviewContent();
             userScrolledSinceSettle = false;

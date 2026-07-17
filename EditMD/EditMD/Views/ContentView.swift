@@ -48,6 +48,9 @@ struct ContentView: View {
     @State private var stripActions = EditorStripActions()
     /// B6: strip B/I/`/S accent state (updated from editor caret callbacks).
     @State private var activeFormats = ActiveInlineFormats()
+    /// ⌘F find state for full Preview mode (sprint 5). Driven by the Edit ▸ Find
+    /// menu via a focused value, and by the overlaid `PreviewFindBar`.
+    @StateObject private var previewFind = PreviewFindModel()
     @State private var showExternalDiff = false
     @State private var showGitCommit = false
     @State private var gitSnapshot = GitFileSnapshot.empty
@@ -82,11 +85,24 @@ struct ContentView: View {
         )
     }
 
+    /// Edit ▸ Find bridge for the active full Preview (sprint 5). Published only
+    /// while `mode == .preview`; Source/Visual keep the native `NSTextFinder`.
+    private var previewFindActions: PreviewFindActions {
+        PreviewFindActions(
+            show: { previewFind.activate() },
+            findNext: { previewFind.next() },
+            findPrevious: { previewFind.previous() },
+            useSelectionForFind: { previewFind.useSelectionForFind() }
+        )
+    }
+
     /// Switch editor mode after flushing any coalesced typing onto the
     /// document undo stack (so ⌘Z still works after Source↔Visual↔Preview).
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
+        // Leaving Preview retires its ⌘F find bar and highlights.
+        if newMode != .preview { previewFind.close() }
         if newMode != .visual {
             stripActions.insertTable = nil
             stripActions.tableAddRow = nil
@@ -182,6 +198,7 @@ struct ContentView: View {
         }
         .agentActivityToast()
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
+        .focusedSceneValue(\.previewFind, mode == .preview ? previewFindActions : nil)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
         .focusedSceneValue(\.inspectorVisible, $inspectorVisible)
@@ -252,6 +269,8 @@ struct ContentView: View {
             }
         }
         .onChange(of: fileURL) { _ in
+            // A different file is now on screen — the old find no longer applies.
+            previewFind.close()
             restoreModeForCurrentFile()
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
@@ -422,8 +441,18 @@ struct ContentView: View {
                                         positionStore: positionStore,
                                         onRequestEdit: { setEditorMode(.visual) },
                                         toolbarActions: stripActions,
-                                        onActiveFormats: { activeFormats = $0 })
+                                        onActiveFormats: { activeFormats = $0 },
+                                        findModel: previewFind)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(alignment: .topTrailing) {
+                            if previewFind.isActive {
+                                PreviewFindBar(model: previewFind)
+                                    .padding(.top, 8)
+                                    .padding(.trailing, 14)
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                            }
+                        }
+                        .animation(.easeOut(duration: 0.12), value: previewFind.isActive)
                 case .split:
                     HStack(spacing: 0) {
                         editorPane

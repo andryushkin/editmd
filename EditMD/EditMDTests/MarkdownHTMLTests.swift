@@ -225,6 +225,21 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertLessThan(rootEnd, bridge)
     }
 
+    func testPreviewPageIncludesFindLayer() {
+        let page = previewHTMLPage(markdown: "# Title\n\nfind me", fontSize: 14)
+        XCTAssertTrue(page.contains("window.editMDFind = function (query)"), page)
+        XCTAssertTrue(page.contains("window.editMDFindStep = function (delta)"), page)
+        XCTAssertTrue(page.contains("window.editMDFindClear = function ()"), page)
+        // Highlight classes the Swift side never names but the CSS must style.
+        XCTAssertTrue(page.contains(".editmd-find"), page)
+        XCTAssertTrue(page.contains(".editmd-find-current"), page)
+        // A fragment swap discards the old spans; the references must be dropped
+        // so a later step/clear can't touch dead nodes.
+        let swap = page.range(of: "root.innerHTML = payload.html")!.upperBound
+        let reset = page.range(of: "findMatches = [];", range: swap..<page.endIndex)
+        XCTAssertNotNil(reset, "editMDReplacePreview must reset find state after innerHTML swap")
+    }
+
     /// Geometry is read ONCE per layout. `alignLineNumberGutter` walks every
     /// `[data-ln]` element with getBoundingClientRect, so calling it from
     /// hydrate (pre-layout, therefore wrong anyway) *and* from the settle pass

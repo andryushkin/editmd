@@ -146,6 +146,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
     var toolbarActions: EditorStripActions? = nil
     /// Inline styles uniformly active at the Preview caret/selection.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
+    /// ⌘F find state (full Preview mode only). The coordinator installs the
+    /// search closures and reports match tallies back into it (sprint 5).
+    var findModel: PreviewFindModel? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -277,6 +280,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         bindRenderCallbacks(to: coordinator)
+        bindFind(to: coordinator)
         coordinator.observe(document: document)
         // Preview settings changes must re-render: the page bakes font size/
         // insets/line-height/column width into its CSS, so no content change
@@ -332,6 +336,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.reverseScrollEnabled = onRequestEdit == nil
         coordinator.bindToolbar(toolbarActions)
         bindRenderCallbacks(to: coordinator)
+        bindFind(to: coordinator)
         coordinator.observe(document: document)
         (webView as? PreviewWebView)?.onReturnKey = onRequestEdit
         (webView as? PreviewWebView)?.documentForUndo = document
@@ -357,6 +362,28 @@ struct MarkdownPreviewView: NSViewRepresentable {
         coordinator.rerender = { [weak coordinator] in
             guard let coordinator else { return }
             self.forceFullReload(coordinator: coordinator)
+        }
+    }
+
+    /// Wires the ⌘F find model to this coordinator's web view. Rebound from
+    /// make + update so the closures always point at the live coordinator; the
+    /// model keeps its query/tally across those rebinds (only the transport is
+    /// replaced). Installing closures never runs a search.
+    private func bindFind(to coordinator: Coordinator) {
+        coordinator.findModel = findModel
+        guard let findModel else { return }
+        findModel.runSearch = { [weak coordinator] query in
+            coordinator?.performFind(query)
+        }
+        findModel.stepMatch = { [weak coordinator] delta in
+            coordinator?.performFindStep(delta)
+        }
+        findModel.clearSearch = { [weak coordinator] in
+            coordinator?.performFindClear()
+        }
+        findModel.currentSelection = { [weak coordinator] in
+            let text = coordinator?.cachedSelection ?? ""
+            return text.isEmpty ? nil : text
         }
     }
 
@@ -499,6 +526,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 coordinator.lastRenderedContent = result.scheduled.content
             }
             coordinator.applyReviewHighlights()
+            coordinator.reapplyFindIfActive()
         } catch {
             guard !Task.isCancelled else { return }
             // A stale/missing/hung JS shell must never leave Preview frozen.
@@ -634,6 +662,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         /// `-1` means offsets unknown (copy still works; wrap beeps).
         var cachedStart: Int = -1
         var cachedEnd: Int = -1
+        /// ⌘F find state (sprint 5). Weak: the model outlives any single
+        /// coordinator and is owned by ContentView.
+        weak var findModel: PreviewFindModel?
 
         deinit {
             renderTask?.cancel()
@@ -945,6 +976,60 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 completionHandler: nil)
         }
 
+        // MARK: ⌘F find (sprint 5)
+
+        /// Run a full search in the page and report the tally back to the model.
+        func performFind(_ query: String) {
+            guard let webView, let findModel else { return }
+            Task { @MainActor [weak self, weak findModel] in
+                do {
+                    let result = try await webView.callAsyncJavaScript(
+                        "return window.editMDFind ? window.editMDFind(query) : null;",
+                        arguments: ["query": query], in: nil, contentWorld: .page)
+                    self?.reportFind(result, to: findModel)
+                } catch {
+                    findModel?.report(count: 0, index: 0)
+                }
+            }
+        }
+
+        /// Move to the next/previous match (`delta` = +1 / -1).
+        func performFindStep(_ delta: Int) {
+            guard let webView, let findModel else { return }
+            Task { @MainActor [weak self, weak findModel] in
+                do {
+                    let result = try await webView.callAsyncJavaScript(
+                        "return window.editMDFindStep ? window.editMDFindStep(delta) : null;",
+                        arguments: ["delta": delta], in: nil, contentWorld: .page)
+                    self?.reportFind(result, to: findModel)
+                } catch { }
+            }
+        }
+
+        func performFindClear() {
+            webView?.evaluateJavaScript("window.editMDFindClear && window.editMDFindClear()",
+                                        completionHandler: nil)
+        }
+
+        private func reportFind(_ result: Any?, to model: PreviewFindModel?) {
+            guard let model else { return }
+            guard let dict = result as? [String: Any] else {
+                model.report(count: 0, index: 0)
+                return
+            }
+            let count = (dict["count"] as? NSNumber)?.intValue ?? 0
+            let index = (dict["index"] as? NSNumber)?.intValue ?? 0
+            model.report(count: count, index: index)
+        }
+
+        /// A fragment swap / full reload discards the previous DOM (and its find
+        /// spans). Re-run the active query into the fresh content so highlights
+        /// and the "N of M" tally stay live while a Preview document changes.
+        func reapplyFindIfActive() {
+            guard let model = findModel, model.isActive, !model.query.isEmpty else { return }
+            performFind(model.query)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Ignore a navigation we did not start (or one already superseded);
             // with none on record, the page in front of the user is ours anyway.
@@ -964,6 +1049,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
             }
             // Fresh shell — re-paint review washes (loadHTMLString wipes classes).
             applyReviewHighlights()
+            // A full reload also wiped any find highlights; restore them.
+            reapplyFindIfActive()
             if let position = lastFollowedPosition {
                 pendingScrollPosition = nil
                 scroll(toMarkdownPosition: position)

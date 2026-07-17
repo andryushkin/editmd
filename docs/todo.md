@@ -47,8 +47,8 @@
 - [x] Drag-and-drop изображений в Source/Visual (8d6df89) — тот же store+insert путь, что у paste/кнопки; NSTextView override drag-методов → `insertDraggedImage`, fence/context guard'ы соблюдены
 - [x] Remote images (`http(s)`) в Visual (e4a2e9a) — `RemoteImageCache` (сессионный in-memory кэш, shared in-flight, 20MB cap), async off-main, placeholder → картинка с per-image reflow. Совпадает с Preview
 
-### 5. Поиск внутри Preview
-- [ ] ⌘F в режиме Preview: подсветка совпадений в WKWebView (JS-слой), навигация next/prev; связать с существующей моделью поиска Source/Visual
+### 5. Поиск внутри Preview — **ЗАВЕРШЁН 2026-07-18** (app 0.47.0)
+- [x] ⌘F в режиме Preview: подсветка совпадений в WKWebView (JS-слой), навигация next/prev. `PreviewFindModel` (@StateObject в ContentView) → focused value `previewFind` → Edit ▸ Find маршрутизируется на Preview, когда он активный режим; Source/Visual остаются на нативном NSTextFinder. JS `editMDFind/Step/Clear` оборачивает совпадения в `<span class="editmd-find">` (case-insensitive substring), Swift драйвит каждый поиск и переигрывает его после fragment swap / reload. Плавающий `PreviewFindBar` (⌘G/⌘⇧G/⎋, «N из M»). Replace в Preview нет (read-only) — падает на нативный путь.
 
 ### 6. Review tombstones (кросс-репо со smotr)
 - [ ] Маркер удаления в sidecar-схеме (иначе локально удалённая метка воскресает через merge-by-id при гонке с внешним писателем); согласовать схему в `~/Server/smotr`, PR туда + поддержка в `ReviewSidecar.save`

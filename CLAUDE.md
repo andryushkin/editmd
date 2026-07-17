@@ -110,4 +110,4 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 
 ## Известные хвосты
 
-Поиск внутри Preview и перенос широких ячеек Visual-grid. (Remote images в Visual и drag-and-drop изображений сделаны в 0.46.0.)
+Перенос широких ячеек Visual-grid. (Поиск ⌘F внутри Preview сделан в 0.47.0; remote images в Visual и drag-and-drop изображений — в 0.46.0.)

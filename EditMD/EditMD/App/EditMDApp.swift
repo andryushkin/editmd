@@ -13,6 +13,10 @@ struct EditMDApp: App {
     @FocusedValue(\.inspectorVisible) var inspectorVisible
     @FocusedValue(\.documentActions) var documentActions
     @FocusedValue(\.documentUndoActions) var documentUndoActions
+    /// Non-nil only while a full Preview is the active mode (sprint 5). When
+    /// present, Edit ▸ Find drives the Preview's JS search instead of the
+    /// native text finder (which the WKWebView doesn't answer).
+    @FocusedValue(\.previewFind) var previewFind
 
     @StateObject private var history = DocumentHistory.shared
     // Both drive the enabled state of Edit ▸ Send to Claude.
@@ -191,29 +195,48 @@ struct EditMDApp: App {
 
                 Menu("Find") {
                     Button("Find…") {
-                        sendFindAction(.showFindInterface)
+                        if let previewFind {
+                            previewFind.show()
+                        } else {
+                            sendFindAction(.showFindInterface)
+                        }
                     }
                     .keyboardShortcut("f")
 
+                    // Preview is read-only — no replace target there, so it always
+                    // falls through to the native finder (Source/Visual).
                     Button("Find and Replace…") {
                         sendFindAction(.showReplaceInterface)
                     }
                     .keyboardShortcut("f", modifiers: [.option, .command])
+                    .disabled(previewFind != nil)
 
                     Button("Find Next") {
-                        sendFindAction(.nextMatch)
+                        if let previewFind {
+                            previewFind.findNext()
+                        } else {
+                            sendFindAction(.nextMatch)
+                        }
                     }
                     .keyboardShortcut("g")
 
                     Button("Find Previous") {
-                        sendFindAction(.previousMatch)
+                        if let previewFind {
+                            previewFind.findPrevious()
+                        } else {
+                            sendFindAction(.previousMatch)
+                        }
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        sendFindAction(.setSearchString)
+                        if let previewFind {
+                            previewFind.useSelectionForFind()
+                        } else {
+                            sendFindAction(.setSearchString)
+                        }
                     }
                     .keyboardShortcut("e")
                 }
