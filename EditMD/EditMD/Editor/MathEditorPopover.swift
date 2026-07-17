@@ -16,6 +16,7 @@ final class MathEditorPopover: NSViewController, NSTextViewDelegate, NSPopoverDe
     /// Strong while shown (nothing else retains an NSPopover); the cycle
     /// popover → controller → popover is broken in popoverDidClose.
     private var popover: NSPopover?
+    private var editorHeight: NSLayoutConstraint?
 
     /// Shows the editor over `charRange` (the attachment character).
     static func present(over textView: NSTextView, charRange: NSRange,
@@ -62,7 +63,9 @@ final class MathEditorPopover: NSViewController, NSTextViewDelegate, NSPopoverDe
         texView.textContainerInset = NSSize(width: 4, height: 6)
         scroll.borderType = .bezelBorder
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.heightAnchor.constraint(equalToConstant: display ? 84 : 46).isActive = true
+        let height = scroll.heightAnchor.constraint(equalToConstant: minEditorHeight)
+        height.isActive = true
+        editorHeight = height
         scroll.widthAnchor.constraint(equalToConstant: 380).isActive = true
 
         preview.imageScaling = .scaleProportionallyDown
@@ -99,6 +102,31 @@ final class MathEditorPopover: NSViewController, NSTextViewDelegate, NSPopoverDe
 
     func textDidChange(_ notification: Notification) {
         refreshPreview()
+        updateEditorHeight()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateEditorHeight()
+    }
+
+    private var minEditorHeight: CGFloat { display ? 84 : 46 }
+
+    /// Grows the TeX field with its content so multi-line formulas stay fully
+    /// visible; scrolling only kicks in past the cap.
+    private func updateEditorHeight() {
+        guard let heightConstraint = editorHeight,
+              let layoutManager = texView.layoutManager,
+              let container = texView.textContainer,
+              let font = texView.font else { return }
+        layoutManager.ensureLayout(for: container)
+        let insets = texView.textContainerInset.height * 2 + 2
+        let maxHeight = layoutManager.defaultLineHeight(for: font) * 14 + insets
+        let content = layoutManager.usedRect(for: container).height + insets
+        let clamped = min(max(content, minEditorHeight), maxHeight)
+        guard abs(clamped - heightConstraint.constant) > 0.5 else { return }
+        heightConstraint.constant = clamped
+        popover?.contentSize = view.fittingSize
     }
 
     func popoverDidClose(_ notification: Notification) {
