@@ -180,8 +180,8 @@ struct DiffSheetContent: Equatable, Sendable {
 /// Turns the sheet from a viewer into a decision: Claude's `openDiff` blocks on
 /// one of these two buttons (v36).
 struct DiffApprovalActions {
-    var acceptTitle: String = "Принять"
-    var rejectTitle: String = "Отклонить"
+    var acceptTitle: String = String(localized: "Accept")
+    var rejectTitle: String = String(localized: "Decline")
     let onAccept: () -> Void
     let onReject: () -> Void
 }

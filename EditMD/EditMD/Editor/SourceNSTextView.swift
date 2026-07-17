@@ -156,13 +156,13 @@ final class SourceNSTextView: NSTextView {
                 insertAt += 1
             }
             let onBody = context.bodyIndex != nil
-            add("Строка выше", .rowAbove, enabled: onBody)
-            add("Строка ниже", .rowBelow)
-            add("Удалить строку", .deleteRow, enabled: onBody)
+            add(String(localized: "Row Above"), .rowAbove, enabled: onBody)
+            add(String(localized: "Row Below"), .rowBelow)
+            add(String(localized: "Delete Row"), .deleteRow, enabled: onBody)
             menu.insertItem(.separator(), at: insertAt); insertAt += 1
-            add("Столбец слева", .colLeft)
-            add("Столбец справа", .colRight)
-            add("Удалить столбец", .deleteColumn, enabled: context.grid.columnCount > 1)
+            add(String(localized: "Column Left"), .colLeft)
+            add(String(localized: "Column Right"), .colRight)
+            add(String(localized: "Delete Column"), .deleteColumn, enabled: context.grid.columnCount > 1)
             menu.insertItem(.separator(), at: insertAt)
         }
         return menu

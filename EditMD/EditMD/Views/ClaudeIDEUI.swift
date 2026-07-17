@@ -41,14 +41,14 @@ private struct ClaudeDiffApprovalHost: ViewModifier {
     private func sheetContent(for diff: DiffApprovalController.PendingDiff) -> DiffSheetContent {
         let warning: String?
         if diff.isNewFile {
-            warning = "Новый файл — будет создан при принятии"
+            warning = String(localized: "New file — it will be created on accept")
         } else if diff.bufferIsDirty {
-            warning = "В буфере есть несохранённые правки — принятие их перезапишет"
+            warning = String(localized: "The buffer has unsaved edits — accepting will overwrite them")
         } else {
             warning = nil
         }
         return DiffSheetContent(
-            title: "Claude предлагает изменение: \(diff.tabName)",
+            title: String(localized: "Claude proposes a change: \(diff.tabName)"),
             fileName: diff.targetURL.lastPathComponent,
             sideLabel: "current → Claude",
             before: diff.before,

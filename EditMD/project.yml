@@ -1,6 +1,7 @@
 name: EditMD
 options:
   bundleIdPrefix: com.editmd
+  developmentLanguage: en
   deploymentTarget:
     macOS: "13.0"
   xcodeVersion: "16.0"
@@ -53,6 +54,7 @@ targets:
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_EMIT_LOC_STRINGS: YES
 
   EditMDTests:
     type: bundle.unit-test
@@ -104,6 +106,10 @@ schemes:
     test:
       config: Debug
       gathersCoverageData: false
+      # Force English in the test host: UI-string assertions must not depend
+      # on the machine's macOS language now that ru localization exists.
+      commandLineArguments:
+        "-AppleLanguages (en)": true
       targets:
         - EditMDTests
     profile:

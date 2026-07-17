@@ -63,6 +63,7 @@
 		512BBEB3B4229AD845D1CBC6 /* SearchQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F1DD229BD0098840E86A20F /* SearchQuery.swift */; };
 		515D2C4E8A4B75A59C4548BA /* GitCommitWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */; };
 		52198EC7AF2A09DC135DC864 /* VisualCoordinatorTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382918F08562A9ADAA8F1D25 /* VisualCoordinatorTable.swift */; };
+		531B054F811B678A753CC758 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */; };
 		53FAFC3933BC24E2EADF3207 /* EditorToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB851CD26B911D4370D78D4C /* EditorToolbar.swift */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
 		5DF3620561EB18DD158495CD /* EditorFieldGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */; };
@@ -132,6 +133,7 @@
 		C8D7751F66CA0117C9E55A9D /* katex.js in Resources */ = {isa = PBXBuildFile; fileRef = 7CAB5B4807D5CB206D4DE973 /* katex.js */; };
 		CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */; };
 		CC5DCB8C753404B2696E4CB0 /* ClaudeIDEBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31548F0C4231C7F51D2F326 /* ClaudeIDEBridge.swift */; };
+		CD19F7C49BC20737F3FB0E27 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 30DF9127E3E644FF1BE638F3 /* Localizable.xcstrings */; };
 		CEE95797B45754B164DD2E4A /* MarkdownOutlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37CE31BE8D22A8531D232CB8 /* MarkdownOutlineTests.swift */; };
 		CFE8F3E6709C55891CC38572 /* SearchMatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F5C9AB47EBD2CE8A4C2E8EC /* SearchMatchTests.swift */; };
 		D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */; };
@@ -198,12 +200,14 @@
 		13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGit.swift; sourceTree = "<group>"; };
 		18F81FF14127B33B6927883A /* MathScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MathScanTests.swift; sourceTree = "<group>"; };
 		1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebar.swift; sourceTree = "<group>"; };
+		1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownToAttributed.swift; sourceTree = "<group>"; };
 		24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterEdit.swift; sourceTree = "<group>"; };
 		2621A82FDDEF41681AC8F3B0 /* ControlRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRouter.swift; sourceTree = "<group>"; };
 		299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedValues.swift; sourceTree = "<group>"; };
 		2C803DB18A964AA7724C35CE /* FileMoveActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMoveActions.swift; sourceTree = "<group>"; };
 		2F5C9AB47EBD2CE8A4C2E8EC /* SearchMatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchMatchTests.swift; sourceTree = "<group>"; };
+		30DF9127E3E644FF1BE638F3 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		32C2504D8C5752A58EBA73FF /* FileRevisionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileRevisionStore.swift; sourceTree = "<group>"; };
 		336FFD4A0B5057982542467A /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
 		37CE31BE8D22A8531D232CB8 /* MarkdownOutlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownOutlineTests.swift; sourceTree = "<group>"; };
@@ -483,6 +487,7 @@
 		65C7C369C30DEA414280104E /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */,
 				92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */,
 				92161BAEF22CB4D7970B98F1 /* ContentView.swift */,
 				AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */,
@@ -633,6 +638,7 @@
 				9E846D593359014AA812A9A3 /* AppIcon.icns */,
 				5DE049C40EE9A0CB2F09BFBF /* icon.png */,
 				E376139687B7CCA83695B07F /* KitchenSink.md */,
+				30DF9127E3E644FF1BE638F3 /* Localizable.xcstrings */,
 				0C87D668957C96EC7A6C264F /* katex */,
 				3AC9D62337346F4BEBD7A4F8 /* skills */,
 			);
@@ -722,6 +728,7 @@
 			knownRegions = (
 				Base,
 				en,
+				ru,
 			);
 			mainGroup = 61FDC8302754468698E412CF;
 			minimizedProjectReferenceProxies = 1;
@@ -749,6 +756,7 @@
 			files = (
 				745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */,
 				46F16BFCEE41796A3DAC0568 /* KitchenSink.md in Resources */,
+				CD19F7C49BC20737F3FB0E27 /* Localizable.xcstrings in Resources */,
 				DFD03AF6B2AE74B68AD778BD /* SKILL.md in Resources */,
 				306320E68714D8C69F0D62A8 /* icon.png in Resources */,
 				186E6C22B5D0D627F9A7A735 /* katex.css in Resources */,
@@ -811,6 +819,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */,
+				531B054F811B678A753CC758 /* AppLanguage.swift in Sources */,
 				7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */,
 				2DC3DD70D9EABD4B0A3F79BB /* AttributedToMarkdown.swift in Sources */,
 				3FEE507709F1C9F1E75CB30D /* BuiltInPlugins.swift in Sources */,
@@ -1141,6 +1150,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.2;
 			};
@@ -1184,6 +1194,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.2;
 			};

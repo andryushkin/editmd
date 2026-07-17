@@ -320,12 +320,12 @@ extension EditorTheme {
 
     /// All selectable theme presets (toolbar + Settings).
     static let allPresets: [(id: String, title: String)] = [
-        ("system", "System"),
+        ("system", String(localized: "System")),
         ("github", "GitHub"),
         ("sepia", "Sepia"),
         ("nord", "Nord"),
         ("solarized", "Solarized"),
-        ("high-contrast", "High Contrast"),
+        ("high-contrast", String(localized: "High Contrast")),
         ("dracula", "Dracula"),
     ]
 

@@ -73,8 +73,8 @@ final class MathEditorPopover: NSViewController, NSTextViewDelegate, NSPopoverDe
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
 
-        let cancel = NSButton(title: "Отмена", target: self, action: #selector(cancelEdit))
-        let ok = NSButton(title: "OK", target: self, action: #selector(commitEdit))
+        let cancel = NSButton(title: String(localized: "Cancel"), target: self, action: #selector(cancelEdit))
+        let ok = NSButton(title: String(localized: "OK"), target: self, action: #selector(commitEdit))
         ok.keyEquivalent = "\r"
         ok.keyEquivalentModifierMask = [.command]
         let hint = NSTextField(labelWithString: "⌘⏎")
@@ -114,8 +114,8 @@ final class MathEditorPopover: NSViewController, NSTextViewDelegate, NSPopoverDe
         } else {
             preview.image = nil
             status.stringValue = tex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "Пустая формула — OK удалит её"
-                : "TeX не разбирается — сохранится как текст"
+                ? String(localized: "Empty formula — OK deletes it")
+                : String(localized: "TeX does not parse — it will be kept as text")
         }
     }
 

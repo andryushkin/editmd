@@ -37,7 +37,7 @@ struct VaultLintReportView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Проверка ссылок workspace")
+                Text("Workspace link check")
                     .font(.headline)
                 Text(summaryLine)
                     .font(.caption)
@@ -48,7 +48,7 @@ struct VaultLintReportView: View {
                 ProgressView()
                     .controlSize(.small)
             }
-            Button("Обновить") {
+            Button("Refresh") {
                 LinkIndex.shared.ensureIndex()
                 model.runNow()
             }
@@ -59,16 +59,16 @@ struct VaultLintReportView: View {
 
     private var summaryLine: String {
         var parts: [String] = []
-        parts.append("\(model.errorCount) ошибок")
-        parts.append("\(model.warningCount) предупреждений")
+        parts.append(String(localized: "\(model.errorCount) errors"))
+        parts.append(String(localized: "\(model.warningCount) warnings"))
         if model.skippedOversizedCount > 0 {
-            parts.append("пропущено файлов: \(model.skippedOversizedCount)")
+            parts.append(String(localized: "files skipped: \(model.skippedOversizedCount)"))
         }
         if let last = model.lastRun {
             let f = DateFormatter()
             f.timeStyle = .short
             f.dateStyle = .none
-            parts.append("в \(f.string(from: last))")
+            parts.append(String(localized: "at \(f.string(from: last))"))
         }
         return parts.joined(separator: " · ")
     }
@@ -78,10 +78,10 @@ struct VaultLintReportView: View {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 28))
                 .foregroundStyle(.secondary)
-            Text("Проблем не найдено")
+            Text("No problems found")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-            Text("Нужен workspace с индексом ссылок")
+            Text("A workspace with a link index is required")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -108,7 +108,7 @@ struct VaultLintReportView: View {
                                     HStack(spacing: 6) {
                                         Text(finding.rule.rawValue)
                                         if let line = finding.line {
-                                            Text("стр. \(line)")
+                                            Text("line \(line)")
                                         }
                                         if let sug = finding.targetSuggestion {
                                             Text("→ \(sug.lastPathComponent)")
@@ -128,7 +128,7 @@ struct VaultLintReportView: View {
             }
             if model.skippedOversizedCount > 0 {
                 Section {
-                    Text("Пропущено файлов (>4 МБ): \(model.skippedOversizedCount)")
+                    Text("Files skipped (>4 MB): \(model.skippedOversizedCount)")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -139,11 +139,11 @@ struct VaultLintReportView: View {
 
     private var footer: some View {
         HStack {
-            Text("Только отчёт — автоматических правок нет")
+            Text("Report only — no automatic fixes")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Закрыть", action: onClose)
+            Button("Close", action: onClose)
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -196,7 +196,7 @@ enum VaultLintReportPresenter {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Проверка ссылок workspace"
+        panel.title = String(localized: "Workspace link check")
         panel.contentViewController = hosting
         panel.isReleasedWhenClosed = false
         panel.center()

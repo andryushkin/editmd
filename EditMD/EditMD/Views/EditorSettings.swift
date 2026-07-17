@@ -17,9 +17,9 @@ enum AppearanceMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
+        case .system: return String(localized: "System")
+        case .light: return String(localized: "Light")
+        case .dark: return String(localized: "Dark")
         }
     }
     /// `nil` = follow the system (no `.preferredColorScheme`).
@@ -42,15 +42,15 @@ enum FontWeight: String, Codable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .ultraLight: return "Ultra Light"
-        case .thin: return "Thin"
-        case .light: return "Light"
-        case .regular: return "Regular"
-        case .medium: return "Medium"
-        case .semibold: return "Semibold"
-        case .bold: return "Bold"
-        case .heavy: return "Heavy"
-        case .black: return "Black"
+        case .ultraLight: return String(localized: "Ultra Light")
+        case .thin: return String(localized: "Thin")
+        case .light: return String(localized: "Light")
+        case .regular: return String(localized: "Regular")
+        case .medium: return String(localized: "Medium")
+        case .semibold: return String(localized: "Semibold")
+        case .bold: return String(localized: "Bold")
+        case .heavy: return String(localized: "Heavy")
+        case .black: return String(localized: "Black")
         }
     }
 

@@ -97,29 +97,28 @@ enum SkillInstaller {
         if fm.fileExists(atPath: target.path),
            let existing = try? String(contentsOf: target, encoding: .utf8) {
             if existing == content {
-                presentAlert(title: "Already up to date",
-                             text: "editmd skill is already installed at\n\(target.path)")
+                presentAlert(title: String(localized: "Already up to date"),
+                             text: String(localized: "editmd skill is already installed at\n\(target.path)"))
                 return
             }
             let diff = unifiedDiff(old: existing, new: content)
             let alert = NSAlert()
-            alert.messageText = "Update editmd agent skill?"
+            alert.messageText = String(localized: "Update editmd agent skill?")
             alert.informativeText =
-                "An older skill exists at \(target.path).\n\nDiff (truncated):\n"
+                String(localized: "An older skill exists at \(target.path).\n\nDiff (truncated):\n")
                 + String(diff.prefix(2000))
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "Update")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: String(localized: "Update"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         } else {
             let alert = NSAlert()
-            alert.messageText = "Install editmd agent skill?"
+            alert.messageText = String(localized: "Install editmd agent skill?")
             alert.informativeText =
-                "Copies the skill to \(dest.path) so Claude Code can run "
-                + "`editmdctl` and the review-mark workflow."
+                String(localized: "Copies the skill to \(dest.path) so Claude Code can run `editmdctl` and the review-mark workflow.")
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "Install")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: String(localized: "Install"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
@@ -132,18 +131,18 @@ enum SkillInstaller {
             }
             switch result {
             case .installed(let url):
-                presentAlert(title: "Skill installed", text: url.path)
+                presentAlert(title: String(localized: "Skill installed"), text: url.path)
             case .updated(let url):
-                presentAlert(title: "Skill updated", text: url.path)
+                presentAlert(title: String(localized: "Skill updated"), text: url.path)
             case .unchanged(let url):
-                presentAlert(title: "Already up to date", text: url.path)
+                presentAlert(title: String(localized: "Already up to date"), text: url.path)
             case .cancelled:
                 break
             case .failed(let msg):
-                presentAlert(title: "Install failed", text: msg)
+                presentAlert(title: String(localized: "Install failed"), text: msg)
             }
         } catch {
-            presentAlert(title: "Install failed", text: String(describing: error))
+            presentAlert(title: String(localized: "Install failed"), text: String(describing: error))
         }
     }
 
@@ -153,7 +152,7 @@ enum SkillInstaller {
         alert.messageText = title
         alert.informativeText = text
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 }

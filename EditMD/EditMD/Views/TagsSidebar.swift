@@ -37,8 +37,8 @@ struct TagsSidebar: View {
                         .font(.system(size: 22))
                         .foregroundStyle(.tertiary)
                     Text(query.isEmpty
-                         ? "Нет frontmatter-тегов\nв workspace"
-                         : "Нет совпадений")
+                         ? String(localized: "No frontmatter tags\nin the workspace")
+                         : String(localized: "No matches"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

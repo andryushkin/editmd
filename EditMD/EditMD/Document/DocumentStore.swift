@@ -12,9 +12,9 @@ enum DocumentMovePreparationError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .unresolvedExternalConflict(let name):
-            return "Сначала разрешите конфликт внешних изменений в «\(name)»."
+            return String(localized: "Resolve the external change conflict in “\(name)” first.")
         case .moveInProgress(let name):
-            return "Файл «\(name)» уже подготавливается к перемещению."
+            return String(localized: "The file “\(name)” is already being prepared for a move.")
         }
     }
 }

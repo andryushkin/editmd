@@ -802,7 +802,7 @@ struct SourceTextView: NSViewRepresentable {
                     value: NSUnderlineStyle([.single, .patternDot]).rawValue,
                     forCharacterRange: r)
                 lm.addTemporaryAttribute(.underlineColor, value: wikiColor, forCharacterRange: r)
-                lm.addTemporaryAttribute(.toolTip, value: "Неразрешённая ссылка",
+                lm.addTemporaryAttribute(.toolTip, value: String(localized: "Unresolved link"),
                                          forCharacterRange: r)
             }
         }

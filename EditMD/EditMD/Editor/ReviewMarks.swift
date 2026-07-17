@@ -59,13 +59,13 @@ enum ReviewMarkType: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .question: return "Вопрос"
-        case .fix: return "Факт"
-        case .rewrite: return "Переписать"
-        case .cut: return "Вырезать"
-        case .keep: return "Не трогать"
-        case .comment: return "Заметка"
-        case .suggest: return "Правка"
+        case .question: return String(localized: "Question")
+        case .fix: return String(localized: "Fact")
+        case .rewrite: return String(localized: "Rewrite")
+        case .cut: return String(localized: "Cut Out")
+        case .keep: return String(localized: "Keep")
+        case .comment: return String(localized: "Note")
+        case .suggest: return String(localized: "Suggestion")
         }
     }
 }

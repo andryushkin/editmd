@@ -49,7 +49,8 @@ struct EditMDApp: App {
         // Prefer live editor buffer — works without a path on disk.
         let content = actions.markdownContent()
         let url = actions.fileURL
-        let name = url?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let name = url?.deletingPathExtension().lastPathComponent
+            ?? String(localized: "Untitled")
         PDFExporter.export(markdown: content, suggestedName: name, fileURL: url)
     }
 
@@ -277,7 +278,7 @@ struct EditMDApp: App {
 
                 Divider()
 
-                Button("Проверить ссылки workspace") {
+                Button("Check Workspace Links") {
                     VaultLintReportPresenter.present()
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift, .control])
@@ -287,7 +288,7 @@ struct EditMDApp: App {
                 Button("Install Agent Skill…") {
                     SkillInstaller.installWithUI()
                 }
-                Button("Демо-разметка") {
+                Button("Demo Markup") {
                     openKitchenSinkDemo()
                 }
             }

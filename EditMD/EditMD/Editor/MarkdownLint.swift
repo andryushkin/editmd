@@ -118,8 +118,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
             range: match.range,
             severity: .warning,
             rule: .repeatedInlineMarkers,
-            message: "Repeated \(marker) markers — formatting was probably toggled twice",
-            fixes: [LintFix(title: "Reduce to one marker pair",
+            message: String(localized: "Repeated \(marker) markers — formatting was probably toggled twice"),
+            fixes: [LintFix(title: String(localized: "Reduce to one marker pair"),
                             range: match.range,
                             replacement: marker + body + marker)]))
     }
@@ -154,36 +154,36 @@ func lint(_ text: String) -> [LintDiagnostic] {
             if !spacedAfter {
                 diags.append(LintDiagnostic(
                     range: bracketRange, severity: .warning, rule: .checkboxMissingSpace,
-                    message: "No space after checkbox — it will not render",
-                    fixes: [LintFix(title: "Insert space",
+                    message: String(localized: "No space after checkbox — it will not render"),
+                    fixes: [LintFix(title: String(localized: "Insert space"),
                                     range: NSRange(location: NSMaxRange(bracketRange), length: 0),
                                     replacement: " ")]))
             }
         case "X":
             diags.append(LintDiagnostic(
                 range: bracketRange, severity: .warning, rule: .uppercaseCheckbox,
-                message: "Uppercase X in checkbox",
-                fixes: [LintFix(title: "Replace with [x]", range: contentRange, replacement: "x")]))
+                message: String(localized: "Uppercase X in checkbox"),
+                fixes: [LintFix(title: String(localized: "Replace with [x]"), range: contentRange, replacement: "x")]))
             if !spacedAfter {
                 diags.append(LintDiagnostic(
                     range: bracketRange, severity: .warning, rule: .checkboxMissingSpace,
-                    message: "No space after checkbox — it will not render",
-                    fixes: [LintFix(title: "Insert space",
+                    message: String(localized: "No space after checkbox — it will not render"),
+                    fixes: [LintFix(title: String(localized: "Insert space"),
                                     range: NSRange(location: NSMaxRange(bracketRange), length: 0),
                                     replacement: " ")]))
             }
         case "":
             diags.append(LintDiagnostic(
                 range: bracketRange, severity: .error, rule: .emptyCheckbox,
-                message: "Empty checkbox “[]” — needs a space or x inside",
-                fixes: [LintFix(title: "Replace with [ ]", range: bracketRange, replacement: "[ ]"),
-                        LintFix(title: "Replace with [x]", range: bracketRange, replacement: "[x]")]))
+                message: String(localized: "Empty checkbox “[]” — needs a space or x inside"),
+                fixes: [LintFix(title: String(localized: "Replace with [ ]"), range: bracketRange, replacement: "[ ]"),
+                        LintFix(title: String(localized: "Replace with [x]"), range: bracketRange, replacement: "[x]")]))
         default:
             diags.append(LintDiagnostic(
                 range: bracketRange, severity: .error, rule: .invalidCheckbox,
-                message: "Invalid checkbox marker “\(content)” — only [ ] and [x] render",
-                fixes: [LintFix(title: "Replace with [x]", range: contentRange, replacement: "x"),
-                        LintFix(title: "Replace with [ ]", range: contentRange, replacement: " ")]))
+                message: String(localized: "Invalid checkbox marker “\(content)” — only [ ] and [x] render"),
+                fixes: [LintFix(title: String(localized: "Replace with [x]"), range: contentRange, replacement: "x"),
+                        LintFix(title: String(localized: "Replace with [ ]"), range: contentRange, replacement: " ")]))
         }
     }
 
@@ -202,8 +202,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
         guard !isCovered(diagRange) else { return }
         diags.append(LintDiagnostic(
             range: diagRange, severity: .warning, rule: .listMarkerMissingSpace,
-            message: "No space after list marker — checkbox will not render",
-            fixes: [LintFix(title: "Insert space",
+            message: String(localized: "No space after list marker — checkbox will not render"),
+            fixes: [LintFix(title: String(localized: "Insert space"),
                             range: NSRange(location: NSMaxRange(markerRange), length: 0),
                             replacement: " ")]))
     }
@@ -221,8 +221,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
         guard !isExcluded(diagRange) else { return }
         diags.append(LintDiagnostic(
             range: diagRange, severity: .warning, rule: .headingMissingSpace,
-            message: "No space after # — heading will not render",
-            fixes: [LintFix(title: "Insert space",
+            message: String(localized: "No space after # — heading will not render"),
+            fixes: [LintFix(title: String(localized: "Insert space"),
                             range: NSRange(location: NSMaxRange(hashes), length: 0),
                             replacement: " ")]))
     }
@@ -239,25 +239,25 @@ func lint(_ text: String) -> [LintDiagnostic] {
             if !isCovered(found) {
                 diags.append(LintDiagnostic(
                     range: found, severity: severity, rule: rule, message: message,
-                    fixes: [LintFix(title: "Remove “\(needle)”", range: found, replacement: "")]))
+                    fixes: [LintFix(title: String(localized: "Remove “\(needle)”"), range: found, replacement: "")]))
             }
             let next = NSMaxRange(found)
             search = NSRange(location: next, length: nsText.length - next)
         }
     }
     scanUnpaired("**", rule: .unpairedBold, severity: .warning,
-                 message: "Unpaired ** — bold is not closed")
+                 message: String(localized: "Unpaired ** — bold is not closed"))
     scanUnpaired("~~", rule: .unpairedStrikethrough, severity: .warning,
-                 message: "Unpaired ~~ — strikethrough is not closed")
+                 message: String(localized: "Unpaired ~~ — strikethrough is not closed"))
     scanUnpaired("`", rule: .unpairedBacktick, severity: .warning,
-                 message: "Unpaired backtick — inline code is not closed")
+                 message: String(localized: "Unpaired backtick — inline code is not closed"))
 
     // MARK: Rule: links
 
     for entry in linkTextSpans where (entry.destination ?? "").isEmpty {
         diags.append(LintDiagnostic(
             range: entry.range, severity: .warning, rule: .emptyLinkDestination,
-            message: "Link has an empty URL", fixes: []))
+            message: String(localized: "Link has an empty URL"), fixes: []))
     }
 
     // `[text][ref]` left as literal text = reference without a definition.
@@ -269,7 +269,7 @@ func lint(_ text: String) -> [LintDiagnostic] {
         let label = nsText.substring(with: m.range(at: 2).length > 0 ? m.range(at: 2) : m.range(at: 1))
         diags.append(LintDiagnostic(
             range: r, severity: .warning, rule: .unresolvedReference,
-            message: "Reference “\(label)” has no definition", fixes: []))
+            message: String(localized: "Reference “\(label)” has no definition"), fixes: []))
     }
 
     // `[text](…` with no closing paren before end of line.
@@ -285,8 +285,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
         guard !isCovered(bracketPart), !intersects(linkTextSpans.map(\.range), bracketPart) else { return }
         diags.append(LintDiagnostic(
             range: r, severity: .error, rule: .unclosedLink,
-            message: "Unclosed link — missing “)”",
-            fixes: [LintFix(title: "Insert )",
+            message: String(localized: "Unclosed link — missing “)”"),
+            fixes: [LintFix(title: String(localized: "Insert )"),
                             range: NSRange(location: NSMaxRange(r), length: 0),
                             replacement: ")")]))
     }
@@ -316,8 +316,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
             diags.append(LintDiagnostic(
                 range: NSRange(location: s.range.location, length: openLineLen),
                 severity: .warning, rule: .unclosedCodeFence,
-                message: "Code fence is not closed",
-                fixes: [LintFix(title: "Close fence",
+                message: String(localized: "Code fence is not closed"),
+                fixes: [LintFix(title: String(localized: "Close fence"),
                                 range: NSRange(location: NSMaxRange(s.range), length: 0),
                                 replacement: "\n" + String(repeating: fenceChar, count: max(fenceLen, 3)))]))
         }
@@ -346,7 +346,7 @@ func lint(_ text: String) -> [LintDiagnostic] {
                 guard let cells = tableCellCount(lineStr), cells != table.columns else { continue }
                 diags.append(LintDiagnostic(
                     range: lineRange, severity: .warning, rule: .tableCellCountMismatch,
-                    message: "Row has \(cells) cells, header has \(table.columns)",
+                    message: String(localized: "Row has \(cells) cells, header has \(table.columns)"),
                     fixes: []))
             }
         }

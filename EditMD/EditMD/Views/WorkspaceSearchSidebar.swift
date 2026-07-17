@@ -45,7 +45,7 @@ struct WorkspaceSearchSidebar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                 TextField(
-                    "поиск · \"фраза\" path: type: tag:",
+                    String(localized: "search · \"phrase\" path: type: tag:"),
                     text: Binding(
                         get: { model.queryText },
                         set: { model.setQueryText($0) }
@@ -79,7 +79,9 @@ struct WorkspaceSearchSidebar: View {
                         model.sortByDate.toggle()
                     } label: {
                         Label(
-                            model.sortByDate ? "По дате" : "По совпадениям",
+                            model.sortByDate
+                                ? String(localized: "By date")
+                                : String(localized: "By matches"),
                             systemImage: model.sortByDate
                                 ? "calendar"
                                 : "text.magnifyingglass"
@@ -88,7 +90,7 @@ struct WorkspaceSearchSidebar: View {
                         .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .editMDHelp("Переключить сортировку: совпадения ↔ дата изменения")
+                    .editMDHelp(String(localized: "Toggle sorting: matches ↔ modification date"))
                     Spacer(minLength: 0)
                     if model.isSearching {
                         ProgressView()
@@ -103,12 +105,12 @@ struct WorkspaceSearchSidebar: View {
 
     private var cheatSheet: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Фильтры")
+            Text("Filters")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
             Group {
-                Text("токен1 токен2  — AND")
-                Text("\"точная фраза\"")
+                Text("token1 token2  — AND")
+                Text("\"exact phrase\"")
                 Text("path:docs/plans")
                 Text("type:md · type:*")
                 Text("tag:research")
@@ -128,13 +130,13 @@ struct WorkspaceSearchSidebar: View {
     private var resultsArea: some View {
         let q = model.queryText.trimmingCharacters(in: .whitespacesAndNewlines)
         if workspace.workspaces.isEmpty {
-            emptyMessage("Добавьте папку workspace\nчтобы искать")
+            emptyMessage(String(localized: "Add a workspace folder\nto search"))
         } else if q.isEmpty {
-            emptyMessage("Введите запрос")
+            emptyMessage(String(localized: "Type a query"))
         } else if let reason = model.emptyReason, model.results.isEmpty, !model.isSearching {
             emptyMessage(reason)
         } else if model.results.isEmpty && !model.isSearching {
-            emptyMessage("Ничего не найдено")
+            emptyMessage(String(localized: "Nothing found"))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -142,7 +144,7 @@ struct WorkspaceSearchSidebar: View {
                         fileGroup(file)
                     }
                     if model.truncated {
-                        Text("Показаны первые \(model.results.count) файлов — уточните запрос")
+                        Text("Showing the first \(model.results.count) files — refine the query")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 10)
@@ -224,7 +226,7 @@ struct WorkspaceSearchSidebar: View {
         }
 
         if file.lineHits.isEmpty && file.nameMatched {
-            Text("совпадение в имени файла")
+            Text("match in the file name")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
                 .padding(.leading, 46)
@@ -255,17 +257,17 @@ struct WorkspaceSearchSidebar: View {
     private var footer: some View {
         HStack(spacing: 4) {
             if model.isSearching {
-                Text("Поиск…")
+                Text("Searching…")
             } else if model.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Диск · без несохранённых буферов")
+                Text("Disk · unsaved buffers not included")
             } else {
-                Text("\(model.results.count) файл\(filePlural(model.results.count))")
+                Text(String(localized: "\(model.results.count) files"))
                 if model.skippedOversized > 0 {
                     Text("·")
-                    Text("\(model.skippedOversized) пропущено")
+                    Text("\(model.skippedOversized) skipped")
                 }
                 Text("·")
-                Text("\(model.elapsedMs) мс")
+                Text("\(model.elapsedMs) ms")
             }
             Spacer(minLength: 0)
         }
@@ -273,16 +275,9 @@ struct WorkspaceSearchSidebar: View {
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .editMDHelp("Поиск по диску; несохранённые изменения в других окнах не учитываются")
+        .editMDHelp(String(localized: "Searches the disk; unsaved changes in other windows are not included"))
     }
 
-    private func filePlural(_ n: Int) -> String {
-        let mod10 = n % 10
-        let mod100 = n % 100
-        if mod10 == 1 && mod100 != 11 { return "" }
-        if mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14) { return "а" }
-        return "ов"
-    }
 
     // MARK: - Actions
 

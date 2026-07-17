@@ -126,7 +126,9 @@ func sidebarMoveMenuTitle(anchor: URL, selectedFiles: Set<URL>) -> String {
     let count = selectedFiles.contains(anchor.standardizedFileURL)
         ? max(selectedFiles.count, 1)
         : 1
-    return count > 1 ? "Переместить \(count) файла…" : "Переместить…"
+    return count > 1
+        ? String(localized: "Move \(count) Files…")
+        : String(localized: "Move…")
 }
 
 @MainActor
@@ -315,7 +317,7 @@ struct WorkspaceSidebar: View {
             navDivider
             navTabButton(id: "search",
                          systemImage: "magnifyingglass",
-                         help: "Search — поиск по workspace")
+                         help: String(localized: "Search — search the workspace"))
             navDivider
             navTabButton(id: "git",
                          systemImage: "arrow.triangle.branch",
@@ -368,7 +370,7 @@ struct WorkspaceSidebar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .editMDHelp(badge > 0 ? "\(help) · \(badge) открытых" : help)
+        .editMDHelp(badge > 0 ? String(localized: "\(help) · \(badge) open") : help)
     }
 
     // MARK: - Bottom bar (+ · Filter · eye)
@@ -421,10 +423,10 @@ struct WorkspaceSidebar: View {
                 }
                 .buttonStyle(.plain)
                 .editMDHelp(showHidden
-                      ? "Скрыть снова (скрытые файлы и пустые папки)"
+                      ? String(localized: "Hide again (hidden files and empty folders)")
                       : (hidden > 0
-                         ? "Показать скрытые файлы (\(hidden)) и пустые папки"
-                         : "Показать скрытые файлы и пустые папки"))
+                         ? String(localized: "Show hidden files (\(hidden)) and empty folders")
+                         : String(localized: "Show hidden files and empty folders")))
             }
         }
         .padding(.horizontal, 8)
@@ -444,7 +446,7 @@ struct WorkspaceSidebar: View {
                     emptyState
                 }
                 if !filteredFavorites.isEmpty {
-                    sectionHeader("Избранное")
+                    sectionHeader(String(localized: "Favorites"))
                     ForEach(filteredFavorites, id: \.self) { favorite in
                         favoriteRow(favorite)
                     }
@@ -463,7 +465,7 @@ struct WorkspaceSidebar: View {
                         .frame(height: 1)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
-                    sectionHeader("Открытые файлы")
+                    sectionHeader(String(localized: "Open Files"))
                     ForEach(filteredLoose, id: \.self) { url in
                         looseRow(url)
                     }
@@ -483,7 +485,7 @@ struct WorkspaceSidebar: View {
         return FileRow(
             name: url.lastPathComponent,
             icon: sidebarFileIcon(for: url),
-            subtitle: missing ? "Файл не найден — нажмите, чтобы убрать" : nil,
+            subtitle: missing ? String(localized: "File not found — click to remove") : nil,
             isActive: isActive(url),
             dimmed: missing,
             trailing: .none,
@@ -491,10 +493,10 @@ struct WorkspaceSidebar: View {
                 if let target = workspace.favoriteOpenTarget(url) { onOpen(target) }
             })
         .contextMenu {
-            Button("Убрать из избранного") { workspace.removeFavorite(url) }
+            Button("Remove from Favorites") { workspace.removeFavorite(url) }
             if !missing {
                 copyPathMenuItem(url)
-                Button("Показать в Finder") {
+                Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             }
@@ -637,21 +639,21 @@ struct WorkspaceSidebar: View {
                 onTap: { handleFileTap(url) },
                 onTrailing: { hidden ? workspace.unhide(url, in: ws) : workspace.hide(url, in: ws) })
         .contextMenu {
-            Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
+            Button("Open in Separate Window") { AppState.shared.openInSeparateWindow(url) }
             Divider()
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
-            Button(workspace.isFavorite(url) ? "Убрать из избранного" : "В избранное") {
+            Button(workspace.isFavorite(url) ? "Remove from Favorites" : "Add to Favorites") {
                 workspace.isFavorite(url)
                     ? workspace.removeFavorite(url)
                     : workspace.addFavorite(url)
             }
             if hidden {
-                Button("Вернуть в список") { workspace.unhide(url, in: ws) }
+                Button("Return to List") { workspace.unhide(url, in: ws) }
             } else {
-                Button("Скрыть из списка") { workspace.hide(url, in: ws) }
+                Button("Hide from List") { workspace.hide(url, in: ws) }
             }
             copyPathMenuItem(url)
-            Button("Показать в Finder") {
+            Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
@@ -675,15 +677,15 @@ struct WorkspaceSidebar: View {
                        onTap: { handleFileTap(url) },
                        onTrailing: { pinned ? workspace.unpin(url) : workspace.pin(url) })
         .contextMenu {
-            Button("Открыть в отдельном окне") { AppState.shared.openInSeparateWindow(url) }
+            Button("Open in Separate Window") { AppState.shared.openInSeparateWindow(url) }
             Divider()
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
-            Button(pinned ? "Открепить" : "Закрепить") {
+            Button(pinned ? "Unpin" : "Pin") {
                 pinned ? workspace.unpin(url) : workspace.pin(url)
             }
-            Button("Убрать из списка") { workspace.removeLoose(url) }
+            Button("Remove from List") { workspace.removeLoose(url) }
             copyPathMenuItem(url)
-            Button("Показать в Finder") {
+            Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         }
@@ -746,7 +748,7 @@ struct WorkspaceSidebar: View {
     /// Shared context-menu item: absolute path → pasteboard.
     @ViewBuilder
     private func copyPathMenuItem(_ url: URL) -> some View {
-        Button("Скопировать путь") { copyPathToPasteboard(url) }
+        Button("Copy Path") { copyPathToPasteboard(url) }
     }
 }
 
@@ -894,23 +896,23 @@ private struct SubfolderNode: View {
                     if hidden { workspace.unhide(file) } else { workspace.hide(file) }
                 })
         .contextMenu {
-            Button("Открыть в отдельном окне") {
+            Button("Open in Separate Window") {
                 AppState.shared.openInSeparateWindow(file)
             }
             Divider()
             Button(moveMenuTitle(for: file)) { promptToMoveSelection(anchoredAt: file) }
-            Button(workspace.isFavorite(file) ? "Убрать из избранного" : "В избранное") {
+            Button(workspace.isFavorite(file) ? "Remove from Favorites" : "Add to Favorites") {
                 workspace.isFavorite(file)
                     ? workspace.removeFavorite(file)
                     : workspace.addFavorite(file)
             }
             if hidden {
-                Button("Вернуть в список") { workspace.unhide(file) }
+                Button("Return to List") { workspace.unhide(file) }
             } else {
-                Button("Скрыть из списка") { workspace.hide(file) }
+                Button("Hide from List") { workspace.hide(file) }
             }
-            Button("Скопировать путь") { copyPathToPasteboard(file) }
-            Button("Показать в Finder") {
+            Button("Copy Path") { copyPathToPasteboard(file) }
+            Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
             }
         }

@@ -556,15 +556,16 @@ extension VisualMarkdownView.Coordinator {
         }
 
         let alert = NSAlert()
-        alert.messageText = existingURL.isEmpty ? "Add Link" : "Edit Link"
-        alert.informativeText = "Display text and URL:"
+        alert.messageText = existingURL.isEmpty
+            ? String(localized: "Add Link") : String(localized: "Edit Link")
+        alert.informativeText = String(localized: "Display text and URL:")
         let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 320, height: 56))
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         textField.stringValue = existingText
-        textField.placeholderString = "Link text"
+        textField.placeholderString = String(localized: "Link text")
         let urlField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         urlField.stringValue = existingURL
         urlField.placeholderString = "https://"
@@ -572,9 +573,9 @@ extension VisualMarkdownView.Coordinator {
         stack.addArrangedSubview(urlField)
         alert.accessoryView = stack
         alert.window.initialFirstResponder = existingURL.isEmpty ? urlField : textField
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        if !existingURL.isEmpty { alert.addButton(withTitle: "Remove Link") }
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        if !existingURL.isEmpty { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
         let response = alert.runModal()
         let url = urlField.stringValue.trimmingCharacters(in: .whitespaces)

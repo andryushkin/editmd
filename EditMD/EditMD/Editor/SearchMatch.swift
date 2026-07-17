@@ -300,7 +300,7 @@ func runWorkspaceSearch(
             files: [],
             skippedOversized: 0,
             truncated: false,
-            emptyReason: "is:modified — workspace вне git или статус недоступен",
+            emptyReason: String(localized: "is:modified — the workspace is not under git or status is unavailable"),
             cancelled: false
         )
     }

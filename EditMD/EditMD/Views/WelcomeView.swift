@@ -192,13 +192,13 @@ struct WelcomeCard: View {
             let lead = contentLeading(for: geo.size.width)
             HStack(alignment: .center, spacing: 0) {
                 HStack(spacing: 0) {
-                    iconButton("doc.badge.plus", "Новый файл (⌘N)") {
+                    iconButton("doc.badge.plus", String(localized: "New File (⌘N)")) {
                         AppState.shared.openUntitled()
                     }
                     pillSeparator
-                    iconButton("doc", "Открыть файл… (⌘O)", action: openFilePanel)
+                    iconButton("doc", String(localized: "Open File… (⌘O)"), action: openFilePanel)
                     pillSeparator
-                    iconButton("folder.badge.plus", "Открыть папку… (⇧⌘O)",
+                    iconButton("folder.badge.plus", String(localized: "Open Folder… (⇧⌘O)"),
                                action: openFolderPanel)
                 }
                 .padding(.horizontal, 5)

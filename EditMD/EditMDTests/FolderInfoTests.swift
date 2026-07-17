@@ -753,15 +753,15 @@ struct SidebarFileSelectionTests {
         // Anchor not selected → single-file wording.
         #expect(sidebarMoveMenuTitle(anchor: outsider,
                                      selectedFiles: [first, second])
-                == "Переместить…")
+                == "Move…")
         // Anchor inside a multi-selection → count = whole selection
         // (same count sidebarMoveFiles would return, without walking the tree).
         #expect(sidebarMoveMenuTitle(anchor: first,
                                      selectedFiles: [first, second])
-                == "Переместить 2 файла…")
+                == "Move 2 Files…")
         // Single-file selection keeps the plain wording.
         #expect(sidebarMoveMenuTitle(anchor: first, selectedFiles: [first])
-                == "Переместить…")
+                == "Move…")
     }
 
     @Test("Drag payload round-trips the complete group")

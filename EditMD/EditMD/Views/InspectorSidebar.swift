@@ -105,24 +105,24 @@ struct InspectorSidebar: View {
             navDivider
             navTabButton(id: "review",
                          systemImage: "text.bubble",
-                         help: "Review — метки документа",
+                         help: String(localized: "Review — document marks"),
                          badge: review.openCount)
             navDivider
             navTabButton(id: "properties",
                          systemImage: "list.bullet.rectangle",
-                         help: "Свойства — frontmatter")
+                         help: String(localized: "Properties — frontmatter"))
             navDivider
             navTabButton(id: "history",
                          systemImage: "clock.arrow.circlepath",
-                         help: "История — локальные ревизии и git")
+                         help: String(localized: "History — local revisions and git"))
             navDivider
             navTabButton(id: "links",
                          systemImage: "link",
-                         help: "Ссылки — исходящие")
+                         help: String(localized: "Links — outgoing"))
             navDivider
             navTabButton(id: "backlinks",
                          systemImage: "arrow.turn.down.left",
-                         help: "Backlinks — входящие")
+                         help: String(localized: "Backlinks — incoming"))
             navDivider
             navTabButton(id: "info",
                          systemImage: "info.circle",
@@ -174,7 +174,7 @@ struct InspectorSidebar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .editMDHelp(badge > 0 ? "\(help) · \(badge) открытых" : help)
+        .editMDHelp(badge > 0 ? String(localized: "\(help) · \(badge) open") : help)
     }
 
     // MARK: - Bottom bar (Filter only)
@@ -232,10 +232,10 @@ private struct OutgoingLinksPanel: View {
         ScrollView {
             if liveLinks.isEmpty {
                 emptyState(linkIndex.isScanning
-                           ? "Индекс обновляется…"
-                           : "Нет исходящих ссылок")
+                           ? String(localized: "Index is updating…")
+                           : String(localized: "No outgoing links"))
             } else if visible.isEmpty {
-                emptyState("Нет совпадений")
+                emptyState(String(localized: "No matches"))
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(visible.enumerated()), id: \.offset) { _, link in
@@ -369,15 +369,15 @@ private struct BacklinksPanel: View {
     var body: some View {
         ScrollView {
             if !hasWorkspace {
-                emptyState("Нужен workspace")
+                emptyState(String(localized: "Workspace required"))
             } else if linkIndex.isScanning && edges.isEmpty {
-                emptyState("Индекс обновляется…")
+                emptyState(String(localized: "Index is updating…"))
             } else if edges.isEmpty {
                 emptyState(linkIndex.hasCompletedFullScan
-                           ? "Нет входящих ссылок"
-                           : "Индекс обновляется…")
+                           ? String(localized: "No incoming links")
+                           : String(localized: "Index is updating…"))
             } else if visible.isEmpty {
-                emptyState("Нет совпадений")
+                emptyState(String(localized: "No matches"))
             } else {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(visible.enumerated()), id: \.offset) { _, edge in
@@ -434,11 +434,11 @@ private struct LinkRowView: View {
                             .foregroundStyle(isMissing ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                             .lineLimit(1)
                         if isMissing {
-                            Text("не найдена")
+                            Text("not found")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
                         } else if isAmbiguous {
-                            Text("неоднозначна")
+                            Text("ambiguous")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.orange)
                         }
@@ -472,7 +472,9 @@ private struct LinkRowView: View {
                 Button {
                     expanded.toggle()
                 } label: {
-                    Text(expanded ? "Скрыть варианты" : "\(link.candidates.count) варианта…")
+                    Text(expanded
+                         ? String(localized: "Hide candidates")
+                         : String(localized: "\(link.candidates.count) candidates…"))
                         .font(.system(size: 10))
                         .foregroundStyle(Color.accentColor)
                 }
@@ -585,14 +587,14 @@ private struct FileInfoPanel: View {
     // MARK: Sections
 
     @ViewBuilder private var fileSection: some View {
-        sectionHeader("ФАЙЛ")
+        sectionHeader(String(localized: "FILE"))
         if let url = fileURL {
-            infoRow(label: "Имя", value: url.lastPathComponent)
-            infoRow(label: "Путь", value: displayPath(for: url))
+            infoRow(label: String(localized: "Name"), value: url.lastPathComponent)
+            infoRow(label: String(localized: "Path"), value: displayPath(for: url))
             Button {
                 copyPath(url)
             } label: {
-                Label("Скопировать путь", systemImage: "doc.on.doc")
+                Label("Copy Path", systemImage: "doc.on.doc")
                     .font(.system(size: 11))
             }
             .buttonStyle(.plain)
@@ -600,43 +602,44 @@ private struct FileInfoPanel: View {
             .editMDHelp(url.path)
 
             if let size = diskInfo.byteSize {
-                infoRow(label: "Размер", value: formatByteSize(size))
+                infoRow(label: String(localized: "Size"), value: formatByteSize(size))
             } else {
-                infoRow(label: "Размер", value: "—")
+                infoRow(label: String(localized: "Size"), value: "—")
             }
             if let mtime = diskInfo.modificationDate {
-                infoRow(label: "Изменён", value: Self.dateFormatter.string(from: mtime))
+                infoRow(label: String(localized: "Modified"), value: Self.dateFormatter.string(from: mtime))
             } else {
-                infoRow(label: "Изменён", value: "—")
+                infoRow(label: String(localized: "Modified"), value: "—")
             }
         } else {
-            Text("Нет открытого файла")
+            Text("No open file")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
     }
 
     @ViewBuilder private var documentSection: some View {
-        sectionHeader("ДОКУМЕНТ")
-        infoRow(label: "Слова", value: "\(stats.words)")
-        infoRow(label: "Символы", value: "\(stats.chars)")
-        infoRow(label: "Строки", value: "\(stats.lines)")
-        infoRow(label: "Заголовки", value: "\(stats.headings)")
-        infoRow(label: "Концы строк", value: lineEndingCaption(stats.lineEndings))
-        infoRow(label: "Newline в конце",
-                value: stats.hasTrailingNewline ? "да" : "нет")
+        sectionHeader(String(localized: "DOCUMENT"))
+        infoRow(label: String(localized: "Words"), value: "\(stats.words)")
+        infoRow(label: String(localized: "Characters"), value: "\(stats.chars)")
+        infoRow(label: String(localized: "Lines"), value: "\(stats.lines)")
+        infoRow(label: String(localized: "Headings"), value: "\(stats.headings)")
+        infoRow(label: String(localized: "Line Endings"), value: lineEndingCaption(stats.lineEndings))
+        infoRow(label: String(localized: "Trailing Newline"),
+                value: stats.hasTrailingNewline
+                    ? String(localized: "yes") : String(localized: "no"))
         // Availability comes from the debounced refresh: normalizeLineEndings
         // copies the whole buffer — not per render in `body`.
         if canNormalizeLineEndings {
-            Button("Нормализовать") {
+            Button("Normalize") {
                 guard let normalized = normalizeLineEndings(text: document.content)
                 else { return }
-                document.applyDocumentEdit(normalized, actionName: "Normalize Line Endings")
+                document.applyDocumentEdit(normalized, actionName: String(localized: "Normalize Line Endings"))
             }
             .buttonStyle(.plain)
             .font(.system(size: 11))
             .foregroundStyle(Color.accentColor)
-            .editMDHelp("Преобразовать концы строк в LF и добавить финальный newline")
+            .editMDHelp(String(localized: "Convert line endings to LF and add a trailing newline"))
         }
     }
 
@@ -645,17 +648,17 @@ private struct FileInfoPanel: View {
         if gitSnapshot.inRepo {
             let status = gitSnapshot.statusCaption.isEmpty
                 ? "clean" : gitSnapshot.statusCaption
-            infoRow(label: "Статус", value: status)
+            infoRow(label: String(localized: "Status"), value: status)
             if let branch = gitSnapshot.branch {
-                infoRow(label: "Ветка", value: branch)
+                infoRow(label: String(localized: "Branch"), value: branch)
             }
         } else {
-            infoRow(label: "Статус", value: "не в репозитории")
+            infoRow(label: String(localized: "Status"), value: String(localized: "not in a repository"))
         }
     }
 
     @ViewBuilder private var linksSection: some View {
-        sectionHeader("СВЯЗИ")
+        sectionHeader(String(localized: "LINKS"))
         let backCount = linkIndex.backlinkEdges(for: fileURL).count
         let backLabel: String = {
             if !linkIndex.hasCompletedFullScan, linkIndex.isScanning {
@@ -663,7 +666,7 @@ private struct FileInfoPanel: View {
             }
             return "\(backCount)"
         }()
-        Text("Ссылки: \(liveOutgoingCount)  ·  Backlinks: \(backLabel)")
+        Text("Links: \(liveOutgoingCount)  ·  Backlinks: \(backLabel)")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
     }
@@ -672,7 +675,7 @@ private struct FileInfoPanel: View {
         sectionHeader("WORKSPACE")
         let n = vaultLint.issueCount
         if n == 0, !vaultLint.isRunning {
-            Text("Проблем в workspace: 0")
+            Text("Workspace problems: 0")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         } else {
@@ -681,11 +684,11 @@ private struct FileInfoPanel: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(vaultLint.isRunning
-                         ? "Проверка…"
-                         : "Проблем в workspace: \(n)")
+                         ? String(localized: "Checking…")
+                         : String(localized: "Workspace problems: \(n)"))
                         .font(.system(size: 11))
                     if n > 0 {
-                        Text("Показать")
+                        Text("Show")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }

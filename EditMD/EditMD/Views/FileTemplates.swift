@@ -12,12 +12,12 @@ enum FileTemplate: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .blank: "Пустой"
-        case .note: "Заметка"
-        case .meeting: "Встреча"
-        case .project: "Проект"
-        case .research: "Исследование"
-        case .daily: "Ежедневная заметка"
+        case .blank: String(localized: "Blank")
+        case .note: String(localized: "Note")
+        case .meeting: String(localized: "Meeting")
+        case .project: String(localized: "Project")
+        case .research: String(localized: "Research")
+        case .daily: String(localized: "Daily Note")
         }
     }
 
@@ -55,11 +55,11 @@ enum FileTemplate: String, CaseIterable, Identifiable, Sendable {
 
             # {{title}}
 
-            ## Повестка
+            ## \(String(localized: "Agenda"))
 
-            ## Заметки
+            ## \(String(localized: "Notes"))
 
-            ## Решения
+            ## \(String(localized: "Decisions"))
 
             """
         case .project:
@@ -74,13 +74,13 @@ enum FileTemplate: String, CaseIterable, Identifiable, Sendable {
 
             # {{title}}
 
-            ## Цель
+            ## \(String(localized: "Goal"))
 
-            ## Задачи
+            ## \(String(localized: "Tasks"))
 
             - [ ]
 
-            ## Заметки
+            ## \(String(localized: "Notes"))
 
             """
         case .research:
@@ -95,11 +95,11 @@ enum FileTemplate: String, CaseIterable, Identifiable, Sendable {
 
             # {{title}}
 
-            ## Вопрос
+            ## \(String(localized: "Question"))
 
-            ## Источники
+            ## \(String(localized: "Sources"))
 
-            ## Выводы
+            ## \(String(localized: "Conclusions"))
 
             """
         case .daily:
@@ -113,9 +113,9 @@ enum FileTemplate: String, CaseIterable, Identifiable, Sendable {
 
             # {{date}}
 
-            ## Заметки
+            ## \(String(localized: "Notes"))
 
-            ## Задачи
+            ## \(String(localized: "Tasks"))
 
             - [ ]
 

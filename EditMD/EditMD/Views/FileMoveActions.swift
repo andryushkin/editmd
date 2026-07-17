@@ -17,11 +17,12 @@ func promptForFileMove(_ rawFiles: [URL], workspace: WorkspaceModel) -> Bool {
     let files = uniqueStandardizedFiles(rawFiles)
     guard let first = files.first else { return false }
     let panel = NSOpenPanel()
-    panel.title = files.count == 1 ? "Переместить файл" : "Переместить файлы"
+    panel.title = files.count == 1
+        ? String(localized: "Move File") : String(localized: "Move Files")
     panel.message = files.count == 1
-        ? "Выберите папку назначения для «\(first.lastPathComponent)»."
-        : "Выберите общую папку назначения для \(files.count) выбранных файлов."
-    panel.prompt = "Переместить"
+        ? String(localized: "Choose a destination folder for “\(first.lastPathComponent)”.")
+        : String(localized: "Choose a common destination folder for the \(files.count) selected files.")
+    panel.prompt = String(localized: "Move")
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.canCreateDirectories = true
@@ -113,8 +114,8 @@ func performFileMoves(_ rawFiles: [URL], to rawFolder: URL, workspace: Workspace
         do {
             try await LongRunningOperationCenter.shared.run(
                 title: files.count == 1
-                    ? "Перемещаем «\(files[0].lastPathComponent)»…"
-                    : "Перемещаем файлы (\(files.count))…"
+                    ? String(localized: "Moving “\(files[0].lastPathComponent)”…")
+                    : String(localized: "Moving files (\(files.count))…")
             ) {
                 // Acquire the global FIFO permit before installing path gates.
                 // A transaction queued behind an earlier rename must not keep
@@ -306,8 +307,8 @@ func performFileMoves(_ rawFiles: [URL], to rawFolder: URL, workspace: Workspace
             presentFolderError(
                 error,
                 title: files.count == 1
-                    ? "Не удалось переместить файл"
-                    : "Не удалось переместить файлы")
+                    ? String(localized: "Could not move the file")
+                    : String(localized: "Could not move the files"))
         }
     }
 }

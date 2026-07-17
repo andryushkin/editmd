@@ -42,7 +42,7 @@ struct FileHistoryPanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if fileURL == nil {
-                    emptyState("Нет открытого файла")
+                    emptyState(String(localized: "No open file"))
                 } else {
                     unsavedSection
                     localSection
@@ -78,12 +78,12 @@ struct FileHistoryPanel: View {
 
     @ViewBuilder private var unsavedSection: some View {
         if let unsaved {
-            sectionHeader("НЕ СОХРАНЕНО")
+            sectionHeader(String(localized: "UNSAVED"))
             Button {
                 openUnsavedDiff()
             } label: {
                 historyRow(
-                    title: "Буфер ↔ диск",
+                    title: String(localized: "Buffer ↔ disk"),
                     subtitle: "+\(unsaved.added) −\(unsaved.removed)",
                     systemImage: "pencil.circle"
                 )
@@ -93,9 +93,9 @@ struct FileHistoryPanel: View {
     }
 
     @ViewBuilder private var localSection: some View {
-        sectionHeader("ЛОКАЛЬНЫЕ РЕВИЗИИ")
+        sectionHeader(String(localized: "LOCAL REVISIONS"))
         if localRevisions.isEmpty {
-            Text("Пока нет снимков")
+            Text("No snapshots yet")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         } else {
@@ -121,7 +121,7 @@ struct FileHistoryPanel: View {
             sectionHeader("GIT")
             if let entries = gitCache.history(for: fileURL) {
                 if entries.isEmpty {
-                    Text("Нет коммитов для файла")
+                    Text("No commits for this file")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 } else {
@@ -139,7 +139,7 @@ struct FileHistoryPanel: View {
                     }
                 }
             } else if gitCache.isLoading(url: fileURL) {
-                Text("Загрузка…")
+                Text("Loading…")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
@@ -227,13 +227,13 @@ struct FileHistoryPanel: View {
         // `unsaved` is the already-computed buffer↔disk diff for this state.
         sheet = HistoryDiffSheetModel(
             id: "unsaved",
-            title: "Несохранённые изменения",
+            title: String(localized: "Unsaved Changes"),
             fileName: url.lastPathComponent,
-            sideLabel: "диск → буфер",
+            sideLabel: String(localized: "disk → buffer"),
             before: disk,
             after: document.content,
             baselineContent: document.content,
-            oldLabel: "На диске",
+            oldLabel: String(localized: "On disk"),
             canRestore: false,
             stats: unsaved
         )
@@ -248,9 +248,9 @@ struct FileHistoryPanel: View {
             await MainActor.run {
                 sheet = HistoryDiffSheetModel(
                     id: rev.id,
-                    title: "Локальная ревизия",
+                    title: String(localized: "Local revision"),
                     fileName: url.lastPathComponent,
-                    sideLabel: "ревизия → сейчас",
+                    sideLabel: String(localized: "revision → now"),
                     before: old,
                     after: current,
                     baselineContent: current,
@@ -273,7 +273,7 @@ struct FileHistoryPanel: View {
                     id: entry.hash,
                     title: entry.subject.isEmpty ? entry.shortHash : entry.subject,
                     fileName: url.lastPathComponent,
-                    sideLabel: "\(entry.shortHash) → сейчас",
+                    sideLabel: String(localized: "\(entry.shortHash) → now"),
                     before: old,
                     after: current,
                     baselineContent: current,
@@ -327,14 +327,14 @@ struct HistoryRevisionDiffSheet: View {
             footer
         }
         .frame(minWidth: 1200, idealWidth: 1320, minHeight: 560, idealHeight: 780)
-        .alert("Восстановить ревизию?", isPresented: $confirmRestore) {
-            Button("Отмена", role: .cancel) {}
-            Button("Восстановить", role: .destructive) {
+        .alert(String(localized: "Restore this revision?"), isPresented: $confirmRestore) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restore", role: .destructive) {
                 onRestore?(model.before, model.baselineContent)
                 onClose()
             }
         } message: {
-            Text("\(model.oldLabel)\n+\(stats.added) −\(stats.removed) строк относительно текущей версии.\nОткат — ⌘Z.")
+            Text("\(model.oldLabel)\n+\(stats.added) −\(stats.removed) lines relative to the current version.\nUndo with ⌘Z.")
         }
     }
 
@@ -366,14 +366,14 @@ struct HistoryRevisionDiffSheet: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Button("Скопировать старую версию") {
+            Button("Copy Old Version") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(model.before, forType: .string)
             }
             .controlSize(.small)
             Spacer()
             if model.canRestore, onRestore != nil {
-                Button("Восстановить…") {
+                Button("Restore…") {
                     confirmRestore = true
                 }
                 .controlSize(.small)

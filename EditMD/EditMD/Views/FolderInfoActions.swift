@@ -40,9 +40,9 @@ enum FolderCreateError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .emptyName: return "Имя не может быть пустым."
-        case .invalidName: return "Недопустимое имя."
-        case .alreadyExists(let n): return "«\(n)» уже существует."
+        case .emptyName: return String(localized: "The name cannot be empty.")
+        case .invalidName: return String(localized: "Invalid name.")
+        case .alreadyExists(let n): return String(localized: "“\(n)” already exists.")
         }
     }
 }
@@ -59,26 +59,18 @@ enum FolderRenameError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .folderNoLongerOpen:
-            return "Эта папка больше не открыта в сайдбаре."
+            return String(localized: "This folder is no longer open in the sidebar.")
         case .folderNoLongerExists:
-            return "Папка больше не существует по прежнему пути."
+            return String(localized: "The folder no longer exists at its previous path.")
         case .openDocuments(let count):
-            let suffix: String
-            if count % 10 == 1, count % 100 != 11 {
-                suffix = "документ"
-            } else if (2...4).contains(count % 10), !(12...14).contains(count % 100) {
-                suffix = "документа"
-            } else {
-                suffix = "документов"
-            }
-            return "Сначала закройте открытые файлы внутри папки (\(count) \(suffix))."
+            return String(localized: "Close the open files inside the folder first (\(count) documents).")
         case .renameInProgress:
-            return "Эта папка уже переименовывается."
+            return String(localized: "This folder is already being renamed.")
         case .diskFailure(let survivor):
             if let survivor {
-                return "Не удалось завершить переименование. Папка сохранена по пути «\(survivor.path)»; состояние EditMD обновлено на этот путь."
+                return String(localized: "Could not finish the rename. The folder survived at “\(survivor.path)”; EditMD state now points there.")
             }
-            return "Не удалось завершить переименование, а состояние папки на диске неоднозначно. Проверьте исходный и новый пути в Finder."
+            return String(localized: "Could not finish the rename, and the on-disk state of the folder is ambiguous. Check the old and new paths in Finder.")
         }
     }
 }
@@ -252,12 +244,12 @@ enum FolderStatsCache {
 
 @MainActor
 func promptForNewName(title: String, message: String, defaultName: String,
-                      confirmTitle: String = "Создать", allowsEmpty: Bool = false) -> String? {
+                      confirmTitle: String = String(localized: "Create"), allowsEmpty: Bool = false) -> String? {
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = message
     alert.addButton(withTitle: confirmTitle)
-    alert.addButton(withTitle: "Отмена")
+    alert.addButton(withTitle: String(localized: "Cancel"))
     let field = NSTextField(string: defaultName)
     field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
     alert.accessoryView = field
@@ -270,21 +262,21 @@ func promptForNewName(title: String, message: String, defaultName: String,
 @MainActor
 func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTemplate)? {
     let alert = NSAlert()
-    alert.messageText = "Новый markdown-файл"
-    alert.informativeText = "Файл будет создан в «\(folder.lastPathComponent)»."
-    alert.addButton(withTitle: "Создать")
-    alert.addButton(withTitle: "Отмена")
+    alert.messageText = String(localized: "New Markdown File")
+    alert.informativeText = String(localized: "The file will be created in “\(folder.lastPathComponent)”.")
+    alert.addButton(withTitle: String(localized: "Create"))
+    alert.addButton(withTitle: String(localized: "Cancel"))
 
-    let field = NSTextField(string: "Untitled.md")
-    field.placeholderString = "Имя файла"
+    let field = NSTextField(string: String(localized: "Untitled") + ".md")
+    field.placeholderString = String(localized: "File name")
     let templatePicker = NSPopUpButton(frame: .zero, pullsDown: false)
     for template in FileTemplate.allCases {
         templatePicker.addItem(withTitle: template.title)
         templatePicker.lastItem?.representedObject = template.rawValue
     }
 
-    let nameLabel = NSTextField(labelWithString: "Имя:")
-    let templateLabel = NSTextField(labelWithString: "Шаблон:")
+    let nameLabel = NSTextField(labelWithString: String(localized: "Name:"))
+    let templateLabel = NSTextField(labelWithString: String(localized: "Template:"))
     let grid = NSGridView(views: [
         [nameLabel, field],
         [templateLabel, templatePicker]
@@ -305,12 +297,12 @@ func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTe
 }
 
 @MainActor
-func presentFolderError(_ error: Error, title: String = "Не удалось создать") {
+func presentFolderError(_ error: Error, title: String = String(localized: "Could not create")) {
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = error.localizedDescription
     alert.alertStyle = .warning
-    alert.addButton(withTitle: "OK")
+    alert.addButton(withTitle: String(localized: "OK"))
     alert.runModal()
 }
 
@@ -318,10 +310,10 @@ func presentFolderError(_ error: Error, title: String = "Не удалось с�
 func promptForWorkspaceDisplayName(_ ws: WorkspaceModel.Workspace,
                                    workspace: WorkspaceModel) {
     guard let name = promptForNewName(
-        title: "Отображаемое имя",
-        message: "Это имя видно только в EditMD. Пустое поле вернёт настоящее имя папки.",
+        title: String(localized: "Display Name"),
+        message: String(localized: "This name is visible only in EditMD. An empty field restores the real folder name."),
         defaultName: ws.displayName ?? ws.folderName,
-        confirmTitle: "Сохранить",
+        confirmTitle: String(localized: "Save"),
         allowsEmpty: true
     ) else { return }
     workspace.setDisplayName(name, for: ws)
@@ -331,10 +323,10 @@ func promptForWorkspaceDisplayName(_ ws: WorkspaceModel.Workspace,
 func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
                                     workspace: WorkspaceModel) {
     guard let name = promptForNewName(
-        title: "Переименовать папку на диске",
-        message: "Имя изменится также в Finder. Перед переименованием закройте файлы из этой папки.",
+        title: String(localized: "Rename Folder on Disk"),
+        message: String(localized: "The name will change in Finder as well. Close files from this folder before renaming."),
         defaultName: ws.folderName,
-        confirmTitle: "Переименовать"
+        confirmTitle: String(localized: "Rename")
     ) else { return }
 
     Task { @MainActor in
@@ -344,7 +336,7 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
             .standardizedFileURL
         do {
             try await LongRunningOperationCenter.shared.run(
-                title: "Переименовываем «\(oldURL.lastPathComponent)»…"
+                title: String(localized: "Renaming “\(oldURL.lastPathComponent)”…")
             ) {
                 let review = ReviewModel.shared
                 let reviewToken = await review.beginPathMutation()
@@ -425,7 +417,7 @@ func promptForWorkspaceFolderRename(_ ws: WorkspaceModel.Workspace,
                 }
             }
         } catch {
-            presentFolderError(error, title: "Не удалось переименовать папку")
+            presentFolderError(error, title: String(localized: "Could not rename the folder"))
         }
     }
 }
@@ -447,9 +439,9 @@ func promptCreateMarkdownFile(in folder: URL, workspace: WorkspaceModel) {
 @MainActor
 func promptCreateSubfolder(in folder: URL, workspace: WorkspaceModel) {
     guard let name = promptForNewName(
-        title: "Новая папка",
-        message: "Папка будет создана в «\(folder.lastPathComponent)».",
-        defaultName: "New Folder"
+        title: String(localized: "New Folder"),
+        message: String(localized: "The folder will be created in “\(folder.lastPathComponent)”."),
+        defaultName: String(localized: "New Folder")
     ) else { return }
     do {
         _ = try workspace.createSubfolder(named: name, in: folder)

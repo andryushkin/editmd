@@ -48,7 +48,7 @@ struct PropertiesPanel: View {
                 if !hasFrontmatter {
                     emptyPrompt
                 } else if fields.isEmpty {
-                    emptyState("Пустой блок свойств")
+                    emptyState(String(localized: "Empty properties block"))
                     addFieldControls
                 } else {
                     ForEach(Array(fields.enumerated()), id: \.element.key) { _, field in
@@ -110,12 +110,12 @@ struct PropertiesPanel: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .editMDHelp("Удалить поле")
+                    .editMDHelp(String(localized: "Delete field"))
                 } else if let offset = field.utf16Offset, let onOpenInSource {
                     Button {
                         onOpenInSource(offset)
                     } label: {
-                        Text("Открыть в Source")
+                        Text("Open in Source")
                             .font(.system(size: 10))
                     }
                     .buttonStyle(.plain)
@@ -169,7 +169,7 @@ struct PropertiesPanel: View {
 
         case .string, .number:
             TextField(
-                field.kind == .number ? "0" : "значение",
+                field.kind == .number ? "0" : String(localized: "value"),
                 text: scalarDraftBinding(for: field)
             )
             .textFieldStyle(.roundedBorder)
@@ -210,7 +210,7 @@ struct PropertiesPanel: View {
             }
             HStack(spacing: 4) {
                 TextField(
-                    "добавить…",
+                    String(localized: "add…"),
                     text: Binding(
                         get: { newTagText[field.key] ?? "" },
                         set: { newTagText[field.key] = $0 }
@@ -235,7 +235,7 @@ struct PropertiesPanel: View {
     @ViewBuilder private var pluginSection: some View {
         Divider()
             .padding(.top, 6)
-        Text("ПЛАГИНЫ")
+        Text("PLUGINS")
             .font(.system(size: 10.5, weight: .bold))
             .foregroundStyle(.tertiary)
         ForEach(pluginCards, id: \.descriptor.id) { card in
@@ -260,7 +260,7 @@ struct PropertiesPanel: View {
                 Text(diagnostic.descriptor.name)
                     .font(.system(size: 11, weight: .semibold))
                 Spacer(minLength: 0)
-                Text("Ошибка")
+                Text("Error")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
@@ -270,7 +270,7 @@ struct PropertiesPanel: View {
             Text(diagnostic.message)
                 .font(.system(size: 10))
                 .foregroundStyle(.red)
-            Text("Исправьте блок плагина в режиме Source.")
+            Text("Fix the plugin block in Source mode.")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
@@ -297,27 +297,27 @@ struct PropertiesPanel: View {
                 .disabled(installed)
             }
         } label: {
-            Label("Плагин", systemImage: "plus")
+            Label("Plugin", systemImage: "plus")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.accentColor)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .editMDHelp("Добавить встроенный плагин в этот документ")
+        .editMDHelp(String(localized: "Add a built-in plugin to this document"))
     }
 
     // MARK: - Add field / empty
 
     private var emptyPrompt: some View {
         VStack(spacing: 10) {
-            Text("Нет frontmatter")
+            Text("No frontmatter")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
             Button {
                 createFrontmatter()
             } label: {
-                Label("Добавить свойства", systemImage: "plus")
+                Label("Add Properties", systemImage: "plus")
                     .font(.system(size: 12))
             }
             .buttonStyle(.plain)
@@ -330,10 +330,10 @@ struct PropertiesPanel: View {
     private var addFieldControls: some View {
         VStack(alignment: .leading, spacing: 6) {
             if showAddField {
-                TextField("ключ", text: $addKey)
+                TextField(String(localized: "key"), text: $addKey)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
-                Picker("Тип", selection: $addType) {
+                Picker("Type", selection: $addType) {
                     ForEach(AddFieldType.allCases, id: \.self) { t in
                         Text(t.label).tag(t)
                     }
@@ -342,15 +342,15 @@ struct PropertiesPanel: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if addType == .string || addType == .number || addType == .date {
-                    TextField("значение", text: $addValue)
+                    TextField(String(localized: "value"), text: $addValue)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12))
                 }
                 HStack {
-                    Button("Добавить") { commitAddField() }
+                    Button("Add") { commitAddField() }
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.accentColor)
-                    Button("Отмена") {
+                    Button("Cancel") {
                         showAddField = false
                         addKey = ""
                         addValue = ""
@@ -363,7 +363,7 @@ struct PropertiesPanel: View {
                 Button {
                     showAddField = true
                 } label: {
-                    Label("Поле", systemImage: "plus")
+                    Label("Field", systemImage: "plus")
                         .font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
@@ -595,13 +595,13 @@ private enum AddFieldType: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .string: return "Текст"
-        case .number: return "Число"
-        case .bool: return "Да/нет"
-        case .date: return "Дата"
-        case .tags: return "Теги"
+        case .string: return String(localized: "Text")
+        case .number: return String(localized: "Number")
+        case .bool: return String(localized: "Yes/No")
+        case .date: return String(localized: "Date")
+        case .tags: return String(localized: "Tags")
         case .aliases: return "Aliases"
-        case .list: return "Список"
+        case .list: return String(localized: "List")
         }
     }
 }
@@ -622,7 +622,7 @@ private struct PluginChecklistCardView: View {
                 Text(card.descriptor.name)
                     .font(.system(size: 11, weight: .semibold))
                 Spacer(minLength: 0)
-                Text("Включён")
+                Text("Enabled")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
@@ -639,12 +639,12 @@ private struct PluginChecklistCardView: View {
             Button {
                 onAddState()
             } label: {
-                Label("Состояние", systemImage: "plus")
+                Label("State", systemImage: "plus")
                     .font(.system(size: 11))
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
-            Text("Изменения сохраняются во frontmatter. Порядок состояний задаёт цикл клика.")
+            Text("Changes are saved to frontmatter. The state order defines the click cycle.")
                 .font(.system(size: 9.5))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -676,7 +676,7 @@ private enum PluginIconKind: String, CaseIterable {
         switch self {
         case .sf: return "SF Symbol"
         case .emoji: return "Emoji"
-        case .text: return "Текст"
+        case .text: return String(localized: "Text")
         }
     }
 }
@@ -723,7 +723,7 @@ private struct PluginStateRowView: View {
         guard case .sfSymbol(let name) = state.icon,
               NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil
         else { return nil }
-        return "Неизвестный SF Symbol: \(name)"
+        return String(localized: "Unknown SF Symbol: \(name)")
     }
 
     var body: some View {
@@ -737,8 +737,8 @@ private struct PluginStateRowView: View {
                     .frame(width: 32)
                     .focused($focus, equals: .marker)
                     .onSubmit { commitMarker() }
-                    .editMDHelp("Маркер: символ внутри [ ]")
-                TextField("название", text: $label)
+                    .editMDHelp(String(localized: "Marker: the character inside [ ]"))
+                TextField(String(localized: "label"), text: $label)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11))
                     .focused($focus, equals: .label)
@@ -763,17 +763,17 @@ private struct PluginStateRowView: View {
                     }
                     commitIcon()
                 }
-                TextField("иконка", text: $iconValue)
+                TextField(String(localized: "icon"), text: $iconValue)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11))
                     .focused($focus, equals: .icon)
                     .onSubmit { commitIcon() }
-                Toggle("Зачеркнуть", isOn: strikethroughBinding)
+                Toggle("Strike Through", isOn: strikethroughBinding)
                     .font(.system(size: 10))
                     .toggleStyle(.checkbox)
                     .controlSize(.mini)
                     .fixedSize()
-                    .editMDHelp("Зачёркивать текст пункта в этом состоянии")
+                    .editMDHelp(String(localized: "Strike through the item text in this state"))
             }
             if let warning = sfSymbolWarning {
                 Text(warning)

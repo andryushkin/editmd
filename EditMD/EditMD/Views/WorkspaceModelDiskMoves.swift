@@ -47,19 +47,19 @@ enum FileMoveError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .sourceNoLongerExists:
-            return "Файл больше не существует по прежнему пути."
+            return String(localized: "The file no longer exists at its previous path.")
         case .unsupportedSource:
-            return "Можно перемещать только файлы, которые EditMD показывает в сайдбаре."
+            return String(localized: "Only files that EditMD shows in the sidebar can be moved.")
         case .destinationNotFolder:
-            return "Папка назначения больше не существует."
+            return String(localized: "The destination folder no longer exists.")
         case .alreadyExists(let name):
-            return "В папке назначения уже существует «\(name)»."
+            return String(localized: "“\(name)” already exists in the destination folder.")
         case .moveInProgress:
-            return "Этот файл уже перемещается."
+            return String(localized: "This file is already being moved.")
         case .rollbackFailed(let states):
             let names = states.map { "«\($0.move.destination.lastPathComponent)»" }
                 .joined(separator: ", ")
-            return "Не удалось полностью отменить перенос \(names). Пути на диске были перепроверены; обновите открытые документы перед продолжением."
+            return String(localized: "Could not fully roll back the move of \(names). The on-disk paths were re-checked; refresh the open documents before continuing.")
         }
     }
 }

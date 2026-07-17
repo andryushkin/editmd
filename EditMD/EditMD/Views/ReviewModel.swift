@@ -91,9 +91,9 @@ final class ReviewModel: ObservableObject {
         case open, all, closed
         var label: String {
             switch self {
-            case .open: return "Открытые"
-            case .all: return "Все"
-            case .closed: return "Закрытые"
+            case .open: return String(localized: "Open")
+            case .all: return String(localized: "All")
+            case .closed: return String(localized: "Closed")
             }
         }
     }
@@ -742,7 +742,7 @@ final class ReviewModel: ObservableObject {
         guard let url = fileURL, var m = doc[id], m.isSuggestion else { return }
         guard let newContent = ReviewSidecar.applySuggest(m, to: currentText) else {
             m.setStatus(.needsRebase)
-            m.appendReply(role: "author", text: "⚠ фрагмент не найден в актуальном файле")
+            m.appendReply(role: "author", text: String(localized: "⚠ fragment not found in the current file"))
             doc[id] = m
             persist()
             return
@@ -751,7 +751,7 @@ final class ReviewModel: ObservableObject {
             try DocumentRegistry.shared.applyAgentEdit(url, content: newContent)
             m.setStatus(.resolved)
             m.applied = ReviewClock.nowMillis()
-            m.appendReply(role: "author", text: "✓ принято и применено")
+            m.appendReply(role: "author", text: String(localized: "✓ accepted and applied"))
             // A suggestion answering an author mark closes it too (smotr `for`).
             if let src = m.forMark, var origin = doc[src], origin.isOpen {
                 origin.setStatus(.resolved)
@@ -767,7 +767,7 @@ final class ReviewModel: ObservableObject {
     func rejectSuggestion(_ id: String) {
         guard var m = doc[id] else { return }
         m.setStatus(.wontfix)
-        m.appendReply(role: "author", text: "✕ отклонено")
+        m.appendReply(role: "author", text: String(localized: "✕ declined"))
         doc[id] = m
         persist()
     }
@@ -807,24 +807,24 @@ final class ReviewModel: ObservableObject {
     /// terminal command to the pasteboard and surfaces it in `queueStatus`.
     func sendQueue(workspace: WorkspaceModel) {
         guard let root = queueRoot(workspace: workspace) else {
-            queueStatus = "Нет workspace — открой папку (File ▸ Open Folder)"
+            queueStatus = String(localized: "No workspace — open a folder (File ▸ Open Folder)")
             return
         }
         let autoSpawn = EditorSettings.shared.general.claudeReviewAutoSpawn
-        queueStatus = "Собираю очередь…"
+        queueStatus = String(localized: "Building the queue…")
         Task.detached(priority: .userInitiated) {
             do {
                 let result = try ReviewQueue.writeQueue(in: root)
                 await MainActor.run {
                     if result.count == 0 {
-                        self.queueStatus = "Открытых меток нет — очередь пуста"
+                        self.queueStatus = String(localized: "No open marks — the queue is empty")
                         return
                     }
                     if autoSpawn {
                         if ReviewAgentRunner.shared.isRunning {
-                            self.queueStatus = "Очередь \(result.count) · агент уже работает"
+                            self.queueStatus = String(localized: "Queue \(result.count) · the agent is already running")
                         } else {
-                            self.queueStatus = "Очередь \(result.count) · запускаю Claude…"
+                            self.queueStatus = String(localized: "Queue \(result.count) · launching Claude…")
                             ReviewAgentRunner.shared.start(in: root)
                         }
                     } else {
@@ -832,12 +832,12 @@ final class ReviewModel: ObservableObject {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(cmd, forType: .string)
                         self.queueStatus =
-                            "Очередь \(result.count) → \(ReviewQueue.fileName). Команда в буфере:\n\(cmd)"
+                            String(localized: "Queue \(result.count) → \(ReviewQueue.fileName). Command copied to clipboard:\n\(cmd)")
                     }
                 }
             } catch {
                 await MainActor.run {
-                    self.queueStatus = "Ошибка очереди: \(error.localizedDescription)"
+                    self.queueStatus = String(localized: "Queue error: \(error.localizedDescription)")
                     reviewLog.error("queue write failed: \(String(describing: error), privacy: .public)")
                 }
             }

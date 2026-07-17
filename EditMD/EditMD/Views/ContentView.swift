@@ -536,9 +536,9 @@ struct ContentView: View {
         guard canApplyHistoryRestore(previewBaseline: baseline,
                                      currentContent: document.content) else {
             let alert = NSAlert()
-            alert.messageText = "Документ изменился"
+            alert.messageText = String(localized: "The document has changed")
             alert.informativeText =
-                "Откройте diff заново, чтобы восстановить эту ревизию."
+                String(localized: "Reopen the diff to restore this revision.")
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -748,11 +748,11 @@ struct ContentView: View {
 
     private func presentAlreadyOpenModal(url: URL, other: NSWindow) {
         let alert = NSAlert()
-        alert.messageText = "«\(url.lastPathComponent)» уже открыт в другом окне"
-        alert.informativeText = "Перейти к тому окну или открыть здесь и закрыть то?"
-        alert.addButton(withTitle: "Перейти к нему")
-        alert.addButton(withTitle: "Открыть здесь")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = String(localized: "“\(url.lastPathComponent)” is already open in another window")
+        alert.informativeText = String(localized: "Switch to that window, or open here and close it?")
+        alert.addButton(withTitle: String(localized: "Switch to It"))
+        alert.addButton(withTitle: String(localized: "Open Here"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             other.makeKeyAndOrderFront(nil)

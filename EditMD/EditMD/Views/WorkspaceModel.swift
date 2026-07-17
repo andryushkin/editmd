@@ -756,11 +756,11 @@ final class WorkspaceModel: ObservableObject {
     /// is adopted by the sidebar and opened in the main window.
     func promptCreateFolder() {
         let panel = NSSavePanel()
-        panel.title = "New Folder"
-        panel.message = "Choose where to create the folder and enter its name."
+        panel.title = String(localized: "New Folder")
+        panel.message = String(localized: "Choose where to create the folder and enter its name.")
         panel.nameFieldLabel = "Name:"
         panel.nameFieldStringValue = "New Folder"
-        panel.prompt = "Create"
+        panel.prompt = String(localized: "Create")
         panel.canCreateDirectories = true
         panel.showsTagField = false
         guard panel.runModal() == .OK, let url = panel.url else { return }

@@ -84,6 +84,13 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 - `NSTextView.isFlipped == true`. Overlay-вью переиспользуй через pool; add/remove subview из каждого layout создаёт цикл.
 - Для Swift 6 AppKit delegate методов, не аннотированных `@MainActor`, используй `nonisolated` + `MainActor.assumeIsolated` только когда AppKit гарантирует main thread.
 
+### Локализация
+
+- Development language — английский; все user-facing строки в коде — английские литералы (SwiftUI-ключи или `String(localized:)` для plain String/AppKit). Русский живёт переводом в `Resources/Localizable.xcstrings`.
+- Новая user-facing строка обязана получить ru-перевод в каталоге; формат-спецификаторы перевода должны совпадать с ключом (Int32 в интерполяции кастуй в `Int`).
+- Протокольные сообщения MCP/control/логи не локализуются — их читает агент.
+- Выбор языка: Settings ▸ General ▸ Language пишет `AppleLanguages` (см. `AppLanguage.swift`), применяется после перезапуска. Тест-хост форсирует en через scheme-аргумент `-AppleLanguages (en)` — строковые ассерты пишутся по-английски.
+
 ### Preview, review и integration
 
 - Preview грузится через `loadHTMLString`; schemeless local links обрабатывает JS bridge. Vault-root path начинается с `/`, обычный относительный — от папки документа.

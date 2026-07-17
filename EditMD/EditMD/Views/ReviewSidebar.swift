@@ -47,14 +47,14 @@ struct ReviewSidebar: View {
         .onChange(of: agent.state) { newState in
             switch newState {
             case .running:
-                review.queueStatus = "⏳ Claude обрабатывает…"
+                review.queueStatus = String(localized: "⏳ Claude is processing…")
             case .finished(let code):
                 review.queueStatus = code == 0
-                    ? "Claude закончил — метки обновлены"
-                    : "Claude завершился с кодом \(code)"
+                    ? String(localized: "Claude finished — marks updated")
+                    : String(localized: "Claude exited with code \(Int(code))")
                 review.reload()
             case .failed(let msg):
-                review.queueStatus = "Агент: \(msg)"
+                review.queueStatus = String(localized: "Agent: \(msg)")
             case .idle:
                 break
             }
@@ -114,8 +114,8 @@ struct ReviewSidebar: View {
             .buttonStyle(.plain)
             .disabled(agent.isRunning)
             .editMDHelp(EditorSettings.shared.general.claudeReviewAutoSpawn
-                        ? "Собрать очередь и запустить Claude (claude -p \"/smotr -pr\")"
-                        : "Собрать очередь .smotr-queue.json и скопировать команду")
+                        ? String(localized: "Build the queue and launch Claude (claude -p \"/smotr -pr\")")
+                        : String(localized: "Build the .smotr-queue.json queue and copy the command"))
             Button { toggleCompose() } label: {
                 Image(systemName: composing ? "xmark" : "plus")
                     .font(.system(size: 13, weight: .medium))
@@ -123,7 +123,7 @@ struct ReviewSidebar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .editMDHelp("Добавить метку из выделения")
+            .editMDHelp(String(localized: "Add a mark from the selection"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -158,7 +158,7 @@ struct ReviewSidebar: View {
 
     private var typeFilterMenu: some View {
         Menu {
-            Button("Все типы") { review.typeFilter = nil }
+            Button("All Types") { review.typeFilter = nil }
             Divider()
             ForEach(ReviewMarkType.allCases.filter { $0 != .suggest }, id: \.self) { t in
                 Button { review.typeFilter = t } label: {
@@ -174,7 +174,7 @@ struct ReviewSidebar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 22, height: 22)
-        .editMDHelp("Фильтр по типу")
+        .editMDHelp(String(localized: "Filter by type"))
     }
 
     // MARK: Compose
@@ -215,16 +215,16 @@ struct ReviewSidebar: View {
 
                 HStack {
                     Spacer()
-                    Button("Отмена") { cancelCompose() }
+                    Button("Cancel") { cancelCompose() }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
-                    Button("Поставить") { saveCompose() }
+                    Button("Place") { saveCompose() }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
                 .font(.system(size: 11))
             } else {
-                Label("В Preview (или Source/Visual) выдели фрагмент, затем нажми +.",
+                Label(String(localized: "Select a fragment in Preview (or Source/Visual), then press +."),
                       systemImage: "hand.point.up.left")
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
@@ -278,11 +278,11 @@ struct ReviewSidebar: View {
 
     @ViewBuilder private var content: some View {
         if review.fileURL == nil {
-            placeholder("Нет активного файла")
+            placeholder(String(localized: "No active file"))
         } else if marks.isEmpty {
             placeholder(review.openCount == 0
-                        ? "Меток нет.\nВыдели текст и нажми +"
-                        : "Нет меток под фильтром")
+                        ? String(localized: "No marks yet.\nSelect text and press +")
+                        : String(localized: "No marks match the filter"))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
@@ -391,7 +391,7 @@ private struct MarkCard: View {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 9))
                         .foregroundStyle(.orange)
-                        .help("Фрагмент не найден в текущем тексте")
+                        .help(String(localized: "Fragment not found in the current text"))
                 }
             }
         }
@@ -439,23 +439,23 @@ private struct MarkCard: View {
     private var actions: some View {
         HStack(spacing: 10) {
             if mark.isSuggestion && mark.isOpen {
-                actionButton("Принять", "checkmark", .green, action: onAccept)
-                actionButton("Отклонить", "xmark", .secondary, action: onReject)
+                actionButton(String(localized: "Accept"), "checkmark", .green, action: onAccept)
+                actionButton(String(localized: "Decline"), "xmark", .secondary, action: onReject)
             } else {
                 Button { replying.toggle() } label: {
-                    Label("Ответить", systemImage: "arrowshape.turn.up.left")
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
                         .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.plain)
                 if mark.isOpen {
-                    actionButton("Решить", "checkmark.circle", .secondary, action: onResolve)
+                    actionButton(String(localized: "Resolve"), "checkmark.circle", .secondary, action: onResolve)
                 } else {
-                    actionButton("Открыть", "arrow.counterclockwise", .secondary, action: onReopen)
+                    actionButton(String(localized: "Reopen"), "arrow.counterclockwise", .secondary, action: onReopen)
                 }
             }
             Spacer(minLength: 0)
             Menu {
-                Button("Удалить метку", role: .destructive, action: onDelete)
+                Button("Delete Mark", role: .destructive, action: onDelete)
             } label: {
                 Image(systemName: "ellipsis")
             }
@@ -478,7 +478,7 @@ private struct MarkCard: View {
 
     private var replyBox: some View {
         HStack(spacing: 5) {
-            TextField("Ответ…", text: $replyText)
+            TextField(String(localized: "Reply…"), text: $replyText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .onSubmit(send)
@@ -503,11 +503,11 @@ private struct MarkCard: View {
 
     private var statusLabel: String {
         switch ReviewMarkStatus(rawValue: mark.statusOrOpen) {
-        case .open: return "открыта"
-        case .resolved: return "решена"
-        case .wontfix: return "отклонена"
-        case .needsInfo: return "нужен ответ"
-        case .needsRebase: return "уехала"
+        case .open: return String(localized: "open")
+        case .resolved: return String(localized: "resolved")
+        case .wontfix: return String(localized: "declined")
+        case .needsInfo: return String(localized: "needs reply")
+        case .needsRebase: return String(localized: "drifted")
         case nil: return mark.statusOrOpen
         }
     }

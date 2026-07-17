@@ -89,14 +89,14 @@ struct FileRow: View {
         switch trailing {
         case .hide:
             if hovering {
-                iconButton("eye.slash", "Скрыть из списка", accent: false)
+                iconButton("eye.slash", String(localized: "Hide from List"), accent: false)
             }
         case .unhide:
-            iconButton("eye", "Вернуть в список", accent: true)
+            iconButton("eye", String(localized: "Return to List"), accent: true)
         case .pin(let pinned):
             if pinned || hovering {
                 iconButton(pinned ? "pin.fill" : "pin",
-                           pinned ? "Открепить" : "Закрепить",
+                           pinned ? String(localized: "Unpin") : String(localized: "Pin"),
                            accent: pinned)
             }
         case .none:

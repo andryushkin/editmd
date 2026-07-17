@@ -297,7 +297,7 @@ struct EditorActionStrip: View {
             }
             .menuStyle(.borderlessButton)
             .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-            .editMDHelp("Ещё инструменты")
+            .editMDHelp(String(localized: "More Tools"))
         }
     }
 
@@ -307,7 +307,9 @@ struct EditorActionStrip: View {
         // Bare glyph, no pill: it belongs to the margin, not to the tool
         // groups. State carried by the tint — same as B/I/lists.
         icon("textformat.123",
-             showLineNumbers ? "Скрыть номера строк" : "Показать номера строк",
+             showLineNumbers
+                 ? String(localized: "Hide Line Numbers")
+                 : String(localized: "Show Line Numbers"),
              active: showLineNumbers) {
             toggleLineNumbers()
         }
@@ -335,29 +337,29 @@ struct EditorActionStrip: View {
         switch group {
         case .inline:
             items = [
-                StripItem(id: "bold", glyph: .symbol("bold"), title: "Жирный",
-                          help: "Жирный (**…**)", menuIcon: "bold",
+                StripItem(id: "bold", glyph: .symbol("bold"), title: String(localized: "Bold"),
+                          help: String(localized: "Bold (**…**)"), menuIcon: "bold",
                           active: activeFormats.bold,
                           action: { actions.run(actions.toggleBold) }),
-                StripItem(id: "italic", glyph: .symbol("italic"), title: "Курсив",
-                          help: "Курсив (*…*)", menuIcon: "italic",
+                StripItem(id: "italic", glyph: .symbol("italic"), title: String(localized: "Italic"),
+                          help: String(localized: "Italic (*…*)"), menuIcon: "italic",
                           active: activeFormats.italic,
                           action: { actions.run(actions.toggleItalic) }),
-                StripItem(id: "strike", glyph: .symbol("strikethrough"), title: "Зачёркивание",
-                          help: "Зачёркивание (~~…~~)", menuIcon: "strikethrough",
+                StripItem(id: "strike", glyph: .symbol("strikethrough"), title: String(localized: "Strikethrough"),
+                          help: String(localized: "Strikethrough (~~…~~)"), menuIcon: "strikethrough",
                           active: activeFormats.strikethrough,
                           action: { actions.run(actions.toggleStrikethrough) }),
-                StripItem(id: "code", glyph: .text("<>"), title: "Инлайн-код",
-                          help: "Инлайн-код (`…`)",
+                StripItem(id: "code", glyph: .text("<>"), title: String(localized: "Inline Code"),
+                          help: String(localized: "Inline Code (`…`)"),
                           menuIcon: "chevron.left.forwardslash.chevron.right",
                           active: activeFormats.code,
                           action: { actions.run(actions.toggleCodeSpan) }),
-                StripItem(id: "highlight", glyph: .symbol("highlighter"), title: "Выделение",
-                          help: "Выделение (==…==)", menuIcon: "highlighter",
+                StripItem(id: "highlight", glyph: .symbol("highlighter"), title: String(localized: "Highlight"),
+                          help: String(localized: "Highlight (==…==)"), menuIcon: "highlighter",
                           active: activeFormats.highlight,
                           action: { actions.run(actions.toggleHighlight) }),
                 StripItem(id: "image", glyph: .symbol("photo.badge.plus"),
-                          title: "Добавить изображение", help: "Добавить изображение…",
+                          title: String(localized: "Add Image"), help: String(localized: "Add Image…"),
                           menuIcon: "photo.badge.plus",
                           action: { actions.run(actions.insertImage) }),
             ]
@@ -365,40 +367,40 @@ struct EditorActionStrip: View {
             items = [
                 StripItem(
                     id: "review", glyph: .symbol("plus.bubble"),
-                    title: "Добавить review-метку",
-                    help: "Добавить review-метку из выделения",
+                    title: String(localized: "Add Review Mark"),
+                    help: String(localized: "Add Review Mark from Selection"),
                     menuIcon: "plus.bubble", action: addReviewMark),
             ]
         case .paragraph:
             items = [
-                StripItem(id: "h1", glyph: .text("H1"), title: "Заголовок 1",
-                          help: "Заголовок 1 (#)", menuIcon: "textformat.size.larger",
+                StripItem(id: "h1", glyph: .text("H1"), title: String(localized: "Heading 1"),
+                          help: String(localized: "Heading 1 (#)"), menuIcon: "textformat.size.larger",
                           active: activeFormats.headingLevel == 1,
                           action: { runHeading(1) }),
-                StripItem(id: "h2", glyph: .text("H2"), title: "Заголовок 2",
-                          help: "Заголовок 2 (##)", menuIcon: "textformat.size",
+                StripItem(id: "h2", glyph: .text("H2"), title: String(localized: "Heading 2"),
+                          help: String(localized: "Heading 2 (##)"), menuIcon: "textformat.size",
                           active: activeFormats.headingLevel == 2,
                           action: { runHeading(2) }),
-                StripItem(id: "h3", glyph: .text("H3"), title: "Заголовок 3",
-                          help: "Заголовок 3 (###)", menuIcon: "textformat.size.smaller",
+                StripItem(id: "h3", glyph: .text("H3"), title: String(localized: "Heading 3"),
+                          help: String(localized: "Heading 3 (###)"), menuIcon: "textformat.size.smaller",
                           active: activeFormats.headingLevel == 3,
                           action: { runHeading(3) }),
-                StripItem(id: "plain", glyph: .text("T"), title: "Снять inline-разметку",
-                          help: "Обычный текст (снять inline-разметку)", menuIcon: "eraser",
+                StripItem(id: "plain", glyph: .text("T"), title: String(localized: "Clear Inline Formatting"),
+                          help: String(localized: "Plain text (clear inline formatting)"), menuIcon: "eraser",
                           action: { actions.run(actions.clearInlineFormatting) }),
-                StripItem(id: "body", glyph: .text("Aa"), title: "Снять заголовок/список",
-                          help: "Снять заголовок/список", menuIcon: "paragraphsign",
+                StripItem(id: "body", glyph: .text("Aa"), title: String(localized: "Clear Heading/List"),
+                          help: String(localized: "Clear Heading/List"), menuIcon: "paragraphsign",
                           action: { actions.run(actions.setBody) }),
-                StripItem(id: "case", glyph: .text("aA"), title: "Регистр",
-                          help: "Регистр: UPPER → lower → Capitalized",
+                StripItem(id: "case", glyph: .text("aA"), title: String(localized: "Letter Case"),
+                          help: String(localized: "Letter case: UPPER → lower → Capitalized"),
                           menuIcon: "characters.uppercase",
                           action: { actions.run(actions.cycleCase) }),
-                StripItem(id: "divider", glyph: .symbol("minus"), title: "Линия-разделитель",
-                          help: "Линия-разделитель (---)", menuIcon: "minus",
+                StripItem(id: "divider", glyph: .symbol("minus"), title: String(localized: "Divider Line"),
+                          help: String(localized: "Divider Line (---)"), menuIcon: "minus",
                           action: { actions.run(actions.insertDivider) }),
                 StripItem(id: "codeblock",
                           glyph: .symbol("chevron.left.forwardslash.chevron.right"),
-                          title: "Блок кода", help: "Блок кода",
+                          title: String(localized: "Code Block"), help: String(localized: "Code Block"),
                           menuIcon: "chevron.left.forwardslash.chevron.right",
                           active: activeFormats.codeBlock,
                           action: { actions.run(actions.toggleCodeBlock) }),
@@ -406,44 +408,44 @@ struct EditorActionStrip: View {
         case .lists:
             items = [
                 StripItem(id: "bullet", glyph: .symbol("list.bullet"),
-                          title: "Маркированный список", help: "Маркированный список",
+                          title: String(localized: "Bulleted List"), help: String(localized: "Bulleted List"),
                           menuIcon: "list.bullet",
                           active: activeFormats.bulletList,
                           action: { actions.run(actions.toggleBulletList) }),
                 StripItem(id: "checklist", glyph: .symbol("checklist"),
-                          title: "Чеклист", help: "Чеклист", menuIcon: "checklist",
+                          title: String(localized: "Checklist"), help: String(localized: "Checklist"), menuIcon: "checklist",
                           active: activeFormats.checklist,
                           action: { actions.run(actions.toggleChecklist) }),
                 StripItem(id: "numbered", glyph: .symbol("list.number"),
-                          title: "Нумерованный список", help: "Нумерованный список",
+                          title: String(localized: "Numbered List"), help: String(localized: "Numbered List"),
                           menuIcon: "list.number",
                           active: activeFormats.numberedList,
                           action: { actions.run(actions.toggleNumberedList) }),
                 StripItem(id: "quote", glyph: .symbol("text.quote"),
-                          title: "Цитата", help: "Цитата", menuIcon: "text.quote",
+                          title: String(localized: "Quote"), help: String(localized: "Quote"), menuIcon: "text.quote",
                           active: activeFormats.quote,
                           action: { actions.run(actions.toggleQuote) }),
             ]
         case .extras:
             items = [
                 StripItem(id: "table", glyph: .symbol("tablecells"),
-                          title: "Вставить таблицу 3×3", help: "Таблица",
+                          title: String(localized: "Insert 3×3 Table"), help: String(localized: "Table"),
                           menuIcon: "tablecells",
                           action: { actions.run(actions.insertTable) }),
                 StripItem(id: "table.addRow", glyph: .symbol("tablecells"),
-                          title: "Добавить строку", help: "Добавить строку",
+                          title: String(localized: "Add Row"), help: String(localized: "Add Row"),
                           menuIcon: "plus.rectangle",
                           action: { actions.run(actions.tableAddRow) }),
                 StripItem(id: "table.delRow", glyph: .symbol("tablecells"),
-                          title: "Удалить строку", help: "Удалить строку",
+                          title: String(localized: "Delete Row"), help: String(localized: "Delete Row"),
                           menuIcon: "minus.rectangle",
                           action: { actions.run(actions.tableDeleteRow) }),
                 StripItem(id: "math.inline", glyph: .symbol("function"),
-                          title: "Встроенная формула  $…$", help: "Встроенная формула",
+                          title: String(localized: "Inline Formula  $…$"), help: String(localized: "Inline Formula"),
                           menuIcon: "function",
                           action: { actions.run(actions.insertInlineFormula) }),
                 StripItem(id: "math.block", glyph: .symbol("function"),
-                          title: "Блочная формула  $$…$$", help: "Блочная формула",
+                          title: String(localized: "Block Formula  $$…$$"), help: String(localized: "Block Formula"),
                           menuIcon: "sum",
                           action: { actions.run(actions.insertBlockFormula) }),
             ]
@@ -471,10 +473,10 @@ struct EditorActionStrip: View {
 
     private var tableMenu: some View {
         Menu {
-            Button("Вставить таблицу 3×3") { actions.run(actions.insertTable) }
+            Button("Insert 3×3 Table") { actions.run(actions.insertTable) }
             Divider()
-            Button("Добавить строку") { actions.run(actions.tableAddRow) }
-            Button("Удалить строку") { actions.run(actions.tableDeleteRow) }
+            Button("Add Row") { actions.run(actions.tableAddRow) }
+            Button("Delete Row") { actions.run(actions.tableDeleteRow) }
         } label: {
             Image(systemName: "tablecells")
                 .font(.system(size: 12, weight: .medium))
@@ -485,15 +487,15 @@ struct EditorActionStrip: View {
         }
         .menuStyle(.borderlessButton)
         .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-        .editMDHelp("Таблица")
+        .editMDHelp(String(localized: "Table"))
     }
 
     // MARK: Formula menu (Visual)
 
     private var formulaMenu: some View {
         Menu {
-            Button("Встроенная формула  $…$") { actions.run(actions.insertInlineFormula) }
-            Button("Блочная формула  $$…$$") { actions.run(actions.insertBlockFormula) }
+            Button("Inline Formula  $…$") { actions.run(actions.insertInlineFormula) }
+            Button("Block Formula  $$…$$") { actions.run(actions.insertBlockFormula) }
         } label: {
             Image(systemName: "function")
                 .font(.system(size: 12, weight: .medium))
@@ -504,7 +506,7 @@ struct EditorActionStrip: View {
         }
         .menuStyle(.borderlessButton)
         .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-        .editMDHelp("Формула")
+        .editMDHelp(String(localized: "Formula"))
     }
 
     // MARK: Chrome
@@ -588,11 +590,11 @@ private enum StripGroup: String, CaseIterable, Identifiable {
     /// Section header inside the "…" menu.
     var title: String {
         switch self {
-        case .inline:    return "Начертание"
+        case .inline:    return String(localized: "Inline Styles")
         case .review:    return "Review"
-        case .paragraph: return "Абзац"
-        case .lists:     return "Списки"
-        case .extras:    return "Таблицы и формулы"
+        case .paragraph: return String(localized: "Paragraph")
+        case .lists:     return String(localized: "Lists")
+        case .extras:    return String(localized: "Tables & Formulas")
         }
     }
 

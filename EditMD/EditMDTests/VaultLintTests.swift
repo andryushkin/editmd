@@ -105,7 +105,7 @@ final class VaultLintTests: XCTestCase {
         )
         let f = vaultLintFindings(index: snap)
         XCTAssertTrue(f.contains {
-            $0.rule == .deadRelativeLink && $0.message.contains("за пределы")
+            $0.rule == .deadRelativeLink && $0.message.contains("points outside")
         })
     }
 
@@ -254,7 +254,7 @@ final class VaultLintTests: XCTestCase {
         // Engine does not emit findings about skipped files; count is for UI only.
         XCTAssertEqual(snap.skippedOversizedCount, 3)
         XCTAssertFalse(vaultLintFindings(index: snap).contains {
-            $0.message.lowercased().contains("пропущ")
+            $0.message.lowercased().contains("skipped")
         })
     }
 

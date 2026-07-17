@@ -57,8 +57,8 @@ enum ImageInsertionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsavedDocument: return "Сначала сохраните документ, чтобы создать папку assets."
-        case .unreadableImage: return "Не удалось прочитать изображение."
+        case .unsavedDocument: return String(localized: "Save the document first to create the assets folder.")
+        case .unreadableImage: return String(localized: "Could not read the image.")
         }
     }
 }
@@ -294,7 +294,7 @@ private func pastedImageFilename(extension ext: String) -> String {
 @MainActor
 func presentImageInsertionError(_ error: Error) {
     let alert = NSAlert()
-    alert.messageText = "Не удалось добавить изображение"
+    alert.messageText = String(localized: "Could not add the image")
     alert.informativeText = error.localizedDescription
     alert.alertStyle = .warning
     alert.addButton(withTitle: "OK")
@@ -428,7 +428,7 @@ struct PDFViewerHost: View {
                     Image(systemName: "doc.questionmark")
                         .font(.system(size: 32))
                         .foregroundStyle(.tertiary)
-                    Text("Файл не найден")
+                    Text("File not found")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                     Text((fileURL.path as NSString).abbreviatingWithTildeInPath)
@@ -550,16 +550,16 @@ private final class ImageCanvasView: NSView {
                 return
             case .missing:
                 self.displayedVersion = nil
-                self.showFailure("Файл не найден\n\((requested.path as NSString).abbreviatingWithTildeInPath)")
+                self.showFailure(String(localized: "File not found\n\((requested.path as NSString).abbreviatingWithTildeInPath)"))
             case .unreadable:
                 self.displayedVersion = nil
-                self.showFailure("Не удалось прочитать изображение\n\(requested.lastPathComponent)")
+                self.showFailure(String(localized: "Could not read the image\n\(requested.lastPathComponent)"))
             case .data(let data, let version):
                 guard let image = NSImage(data: data), image.size.width > 0,
                       image.size.height > 0, image.size.width.isFinite,
                       image.size.height.isFinite else {
                     self.displayedVersion = nil
-                    self.showFailure("Не удалось отобразить изображение\n\(requested.lastPathComponent)")
+                    self.showFailure(String(localized: "Could not display the image\n\(requested.lastPathComponent)"))
                     return
                 }
                 self.displayedVersion = version
@@ -584,7 +584,7 @@ private final class ImageCanvasView: NSView {
         imageView.image = nil
         scrollView.documentView = nil
         scrollView.isHidden = true
-        statusLabel.stringValue = "Загрузка…"
+        statusLabel.stringValue = String(localized: "Loading…")
         statusLabel.isHidden = false
     }
 

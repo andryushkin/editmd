@@ -67,11 +67,20 @@ private struct BuiltInPluginsTab: View {
 
 private struct GeneralTab: View {
     @ObservedObject var settings: EditorSettings
+    @State private var language: AppLanguageChoice = .current
 
     private var preset: EditorTheme { EditorTheme.preset(named: settings.general.themePreset) }
 
     var body: some View {
         Form {
+            Section("Language") {
+                Picker("App language", selection: $language) {
+                    ForEach(AppLanguageChoice.allCases) { Text($0.label).tag($0) }
+                }
+                .onChange(of: language) { $0.apply() }
+                Text("Automatic follows the macOS language. A manual choice takes effect after EditMD restarts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Theme") {
                 Picker("Preset", selection: $settings.general.themePreset) {
                     ForEach(EditorTheme.allPresets, id: \.id) { preset in
@@ -278,7 +287,7 @@ private struct ModeTab: View {
     /// Grid (not a per-row HStack in a Form) frees the controls from Form's
     /// label/value split, which was squeezing them.
     @ViewBuilder
-    private func elementRow(_ title: String, _ element: Binding<ElementStyle>,
+    private func elementRow(_ title: LocalizedStringKey, _ element: Binding<ElementStyle>,
                            showSize: Bool, showWeight: Bool, fallback: NSColor) -> some View {
         GridRow {
             Text(title).frame(width: 40, alignment: .leading)
@@ -339,7 +348,7 @@ private struct ModeTab: View {
 /// field looked dead or snapped back. Draft text only commits on Submit /
 /// focus loss; the stepper still writes `value` directly.
 private struct FontSizeStepper: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var value: CGFloat
     var range = ModeSettings.fontSizeRange
 
@@ -392,7 +401,7 @@ private struct FontSizeStepper: View {
 /// A slider with a live numeric readout — for fuzzy values (margins, column
 /// width, scales) where exact numbers matter less than font size.
 private struct ValueSlider: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var value: CGFloat
     var range: ClosedRange<CGFloat>
     var format = "%.0f pt"
@@ -410,7 +419,7 @@ private struct ValueSlider: View {
 }
 
 private struct FontFamilyPicker: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var family: String
     let families: [String]
 
@@ -426,7 +435,7 @@ private struct FontFamilyPicker: View {
 /// ColorPicker bound to an optional hex override: nil shows the fallback
 /// (theme) color; picking writes the override; Reset clears back to default.
 private struct ColorOverrideRow: View {
-    let title: String
+    let title: LocalizedStringKey
     @Binding var hex: String?
     let fallback: NSColor
 
@@ -471,7 +480,7 @@ private struct StyleSample: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    private func headingLine(_ text: String, _ style: ElementStyle,
+    private func headingLine(_ text: LocalizedStringKey, _ style: ElementStyle,
                              defaultWeight: FontWeight) -> some View {
         Text(text)
             .font(font(size: mode.fontSize * style.sizeScale,

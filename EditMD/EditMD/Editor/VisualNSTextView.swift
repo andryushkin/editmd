@@ -626,13 +626,13 @@ final class VisualNSTextView: NSTextView {
             insertAt += 1
         }
         let isHeader = target.row == 0
-        add("Строка выше", .insertRowAbove, enabled: !isHeader)
-        add("Строка ниже", .insertRowBelow)
-        add("Удалить строку", .deleteRow, enabled: !isHeader)
+        add(String(localized: "Row Above"), .insertRowAbove, enabled: !isHeader)
+        add(String(localized: "Row Below"), .insertRowBelow)
+        add(String(localized: "Delete Row"), .deleteRow, enabled: !isHeader)
         menu.insertItem(.separator(), at: insertAt); insertAt += 1
-        add("Столбец слева", .insertColumnLeft)
-        add("Столбец справа", .insertColumnRight)
-        add("Удалить столбец", .deleteColumn, enabled: target.columns > 1)
+        add(String(localized: "Column Left"), .insertColumnLeft)
+        add(String(localized: "Column Right"), .insertColumnRight)
+        add(String(localized: "Delete Column"), .deleteColumn, enabled: target.columns > 1)
         menu.insertItem(.separator(), at: insertAt)
         return menu
     }

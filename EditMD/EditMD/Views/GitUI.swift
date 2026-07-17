@@ -52,13 +52,13 @@ struct GitFileSnapshot: Equatable {
     var statusCaption: String {
         guard inRepo else { return "" }
         switch pathStatus {
-        case .modified: return "modified"
-        case .untracked: return "untracked"
-        case .deleted: return "deleted"
+        case .modified: return String(localized: "modified")
+        case .untracked: return String(localized: "untracked")
+        case .deleted: return String(localized: "deleted")
         case .clean:
-            if bufferDirty { return "unsaved" }
-            if sessionDirtyLines > 0 { return "edited" }
-            return "clean"
+            if bufferDirty { return String(localized: "unsaved") }
+            if sessionDirtyLines > 0 { return String(localized: "edited") }
+            return String(localized: "clean")
         case .notInRepo: return ""
         }
     }
@@ -439,7 +439,7 @@ struct GitCommitSheet: View {
     private func performCommit() {
         let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !msg.isEmpty else {
-            errorText = "Commit message is empty."
+            errorText = String(localized: "Commit message is empty.")
             return
         }
         isBusy = true
@@ -449,7 +449,7 @@ struct GitCommitSheet: View {
             try DocumentRegistry.shared.saveNow(fileURL)
         } catch {
             isBusy = false
-            errorText = "Save failed: \(error.localizedDescription)"
+            errorText = String(localized: "Save failed: \(error.localizedDescription)")
             return
         }
         // 2) Stage + commit on a utility queue (Process is blocking).
@@ -483,12 +483,12 @@ struct GitCommitSheet: View {
         let url = fileURL
         // Confirm first (stage 5).
         let alert = NSAlert()
-        alert.messageText = "Push to remote?"
-        let branchName = branch ?? "current branch"
-        alert.informativeText = "This runs `git push` for “\(branchName)” using your system credentials (Keychain / SSH agent). Network access required."
+        alert.messageText = String(localized: "Push to remote?")
+        let branchName = branch ?? String(localized: "current branch")
+        alert.informativeText = String(localized: "This runs `git push` for “\(branchName)” using your system credentials (Keychain / SSH agent). Network access required.")
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Push")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Push"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else {
             isBusy = false
             return
@@ -519,10 +519,10 @@ enum GitPushConfirm {
     static func run(for fileURL: URL) {
         Task.detached(priority: .userInitiated) {
             guard GitCLI.repositoryRoot(containing: fileURL) != nil else {
-                await presentError("Not inside a git repository.")
+                await presentError(String(localized: "Not inside a git repository."))
                 return
             }
-            let branch = GitCLI.currentBranch(containing: fileURL) ?? "current branch"
+            let branch = GitCLI.currentBranch(containing: fileURL) ?? String(localized: "current branch")
             let ab = GitCLI.aheadBehind(containing: fileURL)
             guard await confirm(branch: branch, ab: ab) else { return }
 
@@ -534,10 +534,10 @@ enum GitPushConfirm {
                 switch result {
                 case .success(let note):
                     let done = NSAlert()
-                    done.messageText = "Push completed"
+                    done.messageText = String(localized: "Push completed")
                     done.informativeText = note
                     done.alertStyle = .informational
-                    done.addButton(withTitle: "OK")
+                    done.addButton(withTitle: String(localized: "OK"))
                     done.runModal()
                 case .failure(let err):
                     presentError(err.message)
@@ -548,32 +548,32 @@ enum GitPushConfirm {
 
     private static func confirm(branch: String, ab: (ahead: Int, behind: Int)?) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Push to remote?"
-        var info = "Branch: \(branch)\nRuns `git push` with system credentials (Keychain / SSH)."
+        alert.messageText = String(localized: "Push to remote?")
+        var info = String(localized: "Branch: \(branch)\nRuns `git push` with system credentials (Keychain / SSH).")
         if let ab {
             if ab.ahead == 0 {
-                info += "\n\nNothing to push (0 commits ahead of upstream)."
+                info += String(localized: "\n\nNothing to push (0 commits ahead of upstream).")
             } else {
-                info += "\n\n\(ab.ahead) commit(s) ahead"
-                if ab.behind > 0 { info += ", \(ab.behind) behind" }
+                info += String(localized: "\n\n\(ab.ahead) commit(s) ahead")
+                if ab.behind > 0 { info += String(localized: ", \(ab.behind) behind") }
                 info += "."
             }
         } else {
-            info += "\n\nNo upstream configured — git will report the error if push cannot proceed."
+            info += String(localized: "\n\nNo upstream configured — git will report the error if push cannot proceed.")
         }
         alert.informativeText = info
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Push")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Push"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private static func presentError(_ message: String) {
         let alert = NSAlert()
-        alert.messageText = "Push failed"
+        alert.messageText = String(localized: "Push failed")
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 }

@@ -119,7 +119,7 @@ func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
                     file: source,
                     line: nil,
                     utf16Offset: nil,
-                    message: "Никто не ссылается на «\(source.lastPathComponent)»",
+                    message: String(localized: "Nothing links to “\(source.lastPathComponent)”"),
                     targetSuggestion: nil
                 ))
             }
@@ -154,7 +154,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "«\(link.rawTarget)» неоднозначен (\(link.candidates.count) файла)",
+                message: String(localized: "“\(link.rawTarget)” is ambiguous (\(link.candidates.count) files)"),
                 targetSuggestion: link.candidates.first
             ))
         } else if link.resolved == nil, link.candidates.isEmpty {
@@ -165,8 +165,9 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "Вики-ссылка «\(link.rawTarget)» не найдена"
-                    + (suggestion.map { " — возможно, «\($0.lastPathComponent)»" } ?? ""),
+                message: suggestion.map {
+                    String(localized: "Wiki link “\(link.rawTarget)” not found — maybe “\($0.lastPathComponent)”")
+                } ?? String(localized: "Wiki link “\(link.rawTarget)” not found"),
                 targetSuggestion: suggestion
             ))
         } else if let target = link.resolved?.standardizedFileURL, target == src {
@@ -176,7 +177,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "Ссылка на этот же файл",
+                message: String(localized: "Link points to this same file"),
                 targetSuggestion: nil
             ))
         }
@@ -194,7 +195,7 @@ private func findingsForLink(
                     file: src,
                     line: link.line,
                     utf16Offset: link.utf16Offset,
-                    message: "Заголовок «\(heading)» не найден в «\(target.lastPathComponent)»",
+                    message: String(localized: "Heading “\(heading)” not found in “\(target.lastPathComponent)”"),
                     targetSuggestion: target
                 ))
             }
@@ -208,7 +209,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "Ссылка «\(link.rawTarget)» не существует",
+                message: String(localized: "Link “\(link.rawTarget)” does not exist"),
                 targetSuggestion: suggestWikiTarget(raw: link.rawTarget, catalog: catalog)
             ))
         } else if let target = link.resolved,
@@ -220,7 +221,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "Ссылка «\(link.rawTarget)» ведёт за пределы workspace",
+                message: String(localized: "Link “\(link.rawTarget)” points outside the workspace"),
                 targetSuggestion: nil
             ))
         }
@@ -233,7 +234,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: "Изображение «\(link.rawTarget)» не найдено",
+                message: String(localized: "Image “\(link.rawTarget)” not found"),
                 targetSuggestion: nil
             ))
         }

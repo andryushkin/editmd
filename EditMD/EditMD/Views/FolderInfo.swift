@@ -17,35 +17,35 @@ struct FolderContextMenu: View {
 
     var body: some View {
         if showsOpen {
-            Button("Открыть") { AppState.shared.openInMainWindow(folder) }
+            Button("Open") { AppState.shared.openInMainWindow(folder) }
             Divider()
         }
-        Button("Новый файл…") {
+        Button("New File…") {
             promptCreateMarkdownFile(in: folder, workspace: workspace)
         }
-        Button("Новая папка…") {
+        Button("New Folder…") {
             promptCreateSubfolder(in: folder, workspace: workspace)
         }
         Divider()
         if let rootWorkspace {
-            Button("Изменить отображаемое имя…") {
+            Button("Change Display Name…") {
                 promptForWorkspaceDisplayName(rootWorkspace, workspace: workspace)
             }
-            Button("Переименовать папку на диске…") {
+            Button("Rename Folder on Disk…") {
                 promptForWorkspaceFolderRename(rootWorkspace, workspace: workspace)
             }
             Divider()
         }
-        Button("Скопировать путь") {
+        Button("Copy Path") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(folder.path, forType: .string)
         }
-        Button("Показать в Finder") {
+        Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([folder])
         }
         if let rootWorkspace {
             Divider()
-            Button("Убрать из сайдбара") {
+            Button("Remove from Sidebar") {
                 workspace.removeWorkspace(rootWorkspace)
             }
         }
@@ -304,11 +304,11 @@ struct FolderInfoCard: View {
     private var actionStrip: some View {
         HStack(alignment: .center, spacing: 6) {
             HStack(spacing: 0) {
-                iconButton("doc.badge.plus", "Новый файл", action: newFile)
+                iconButton("doc.badge.plus", String(localized: "New File"), action: newFile)
                 pillSeparator
-                iconButton("folder.badge.plus", "Новая папка", action: newFolder)
+                iconButton("folder.badge.plus", String(localized: "New Folder"), action: newFolder)
                 pillSeparator
-                iconButton("arrow.up.right.square", "Показать в Finder") {
+                iconButton("arrow.up.right.square", String(localized: "Show in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting([folderURL])
                 }
                 if let rootWorkspace {
@@ -318,7 +318,9 @@ struct FolderInfoCard: View {
                 if let home = homeDoc {
                     let isReadme = home.lastPathComponent.lowercased().hasPrefix("readme")
                     pillSeparator
-                    iconButton("book", isReadme ? "Открыть README" : "Открыть index") {
+                    iconButton("book", isReadme
+                               ? String(localized: "Open README")
+                               : String(localized: "Open index")) {
                         AppState.shared.openInMainWindow(home)
                     }
                 }
@@ -373,8 +375,8 @@ struct FolderInfoCard: View {
         .minimumScaleFactor(0.8)
         .fixedSize(horizontal: true, vertical: false)
         .editMDHelp(statsLoading
-                    ? "Подсчитывается…"
-                    : "Во всём дереве: \(treeStats?.markdownCount ?? 0) файлов, \(treeStats?.subfolderCount ?? 0) подпапок")
+                    ? String(localized: "Counting…")
+                    : String(localized: "Whole tree: \(treeStats?.markdownCount ?? 0) files, \(treeStats?.subfolderCount ?? 0) subfolders"))
     }
 
     private func compactStat(systemImage: String, value: String) -> some View {
@@ -412,10 +414,10 @@ struct FolderInfoCard: View {
 
     private func folderIdentityMenu(_ ws: WorkspaceModel.Workspace) -> some View {
         Menu {
-            Button("Изменить отображаемое имя…") {
+            Button("Change Display Name…") {
                 promptForWorkspaceDisplayName(ws, workspace: workspace)
             }
-            Button("Переименовать папку на диске…") {
+            Button("Rename Folder on Disk…") {
                 promptForWorkspaceFolderRename(ws, workspace: workspace)
             }
         } label: {
@@ -429,7 +431,7 @@ struct FolderInfoCard: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .editMDHelp("Имя папки")
+        .editMDHelp(String(localized: "Folder name"))
     }
 
     // MARK: Header
@@ -450,7 +452,7 @@ struct FolderInfoCard: View {
             if let ws = rootWorkspace,
                let displayName = ws.displayName,
                displayName != ws.folderName {
-                Text("Папка: \(ws.folderName)")
+                Text("Folder: \(ws.folderName)")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -466,7 +468,7 @@ struct FolderInfoCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .editMDHelp("Скопировать путь")
+            .editMDHelp(String(localized: "Copy Path"))
         }
         .padding(.leading, contentIconRail)
     }
@@ -478,7 +480,7 @@ struct FolderInfoCard: View {
         let nodes = treeStats?.folderTree ?? []
         if !nodes.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                sectionHeader("ПОДПАПКИ")
+                sectionHeader(String(localized: "SUBFOLDERS"))
                 ForEach(nodes) { node in
                     FolderTreeRowView(workspace: workspace, node: node, depth: 0)
                 }
@@ -503,7 +505,7 @@ struct FolderInfoCard: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             if empty {
-                Text("Нет файлов")
+                Text("No files")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 4)
@@ -526,7 +528,7 @@ struct FolderInfoCard: View {
                     }
                 }
                 if !emptyFolders.isEmpty {
-                    sectionHeader("ПУСТЫЕ ПАПКИ")
+                    sectionHeader(String(localized: "EMPTY FOLDERS"))
                     LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
                         ForEach(emptyFolders, id: \.self) { sub in
                             folderTile(sub, dimmed: true)
@@ -534,7 +536,7 @@ struct FolderInfoCard: View {
                     }
                 }
                 if !hidden.isEmpty {
-                    sectionHeader("СКРЫТЫЕ")
+                    sectionHeader(String(localized: "HIDDEN"))
                     LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
                         ForEach(hidden, id: \.self) { file in
                             FolderGridTile(kind: .file, name: file.lastPathComponent,
@@ -589,7 +591,7 @@ struct FolderInfoCard: View {
 
     @ViewBuilder private var copiedToast: some View {
         if showCopiedToast {
-            Text("Путь скопирован")
+            Text("Path copied")
                 .font(.system(size: 12, weight: .medium))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -621,21 +623,21 @@ private struct FolderInfoFileContextMenu: View {
     let hidden: Bool
 
     var body: some View {
-        Button("Открыть в отдельном окне") {
+        Button("Open in Separate Window") {
             AppState.shared.openInSeparateWindow(file)
         }
         Divider()
-        Button("Переместить…") {
+        Button("Move…") {
             promptForFileMove(file, workspace: workspace)
         }
-        Button(hidden ? "Вернуть в список" : "Скрыть из списка") {
+        Button(hidden ? "Return to List" : "Hide from List") {
             if hidden { workspace.unhide(file) } else { workspace.hide(file) }
         }
-        Button("Скопировать путь") {
+        Button("Copy Path") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(file.path, forType: .string)
         }
-        Button("Показать в Finder") {
+        Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([file])
         }
     }
@@ -696,7 +698,9 @@ private struct FolderGridTile: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .editMDHelp(showUnhide ? "Вернуть в список" : "Скрыть из списка")
+                    .editMDHelp(showUnhide
+                        ? String(localized: "Return to List")
+                        : String(localized: "Hide from List"))
                     .padding(2)
                 }
             }
