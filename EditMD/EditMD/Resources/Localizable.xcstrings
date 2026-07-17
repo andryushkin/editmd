@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Reloaded from disk: %@ · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перечитано с диска: %@ · %@"
+          }
+        }
+      }
+    },
+    "Show a toast when a clean buffer reloads from disk" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать тост, когда чистый буфер перечитывается с диска"
+          }
+        }
+      }
+    },
+    "A buffer with no unsaved edits always follows the disk. Dirty buffers still show the conflict chip." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Буфер без несохранённых правок всегда следует за диском. Для изменённого буфера остаётся чип конфликта."
+          }
+        }
+      }
+    },
     "Empty agent command — check Settings ▸ Integrations" : {
       "localizations" : {
         "ru" : {

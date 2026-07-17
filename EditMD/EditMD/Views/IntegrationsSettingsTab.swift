@@ -112,9 +112,11 @@ struct IntegrationsSettingsTab: View {
             }
 
             Section("External files") {
-                Toggle(String(localized: "Auto-reload clean buffer when disk changes"),
+                // A clean buffer ALWAYS follows the disk (v34 invariant); this
+                // toggle only controls the notification, and must say so.
+                Toggle(String(localized: "Show a toast when a clean buffer reloads from disk"),
                        isOn: $settings.general.autoReloadCleanExternal)
-                Text(String(localized: "When the buffer has no unsaved edits, silently reload and show a short toast. Dirty buffers still show the conflict chip."))
+                Text(String(localized: "A buffer with no unsaved edits always follows the disk. Dirty buffers still show the conflict chip."))
                     .font(.caption).foregroundStyle(.secondary)
             }
 

@@ -144,6 +144,13 @@ struct AgentActivityPopover: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+            // Stage 7 event line: the last quiet auto-reload from disk.
+            if let file = activity.lastDiskReloadFile,
+               let at = activity.lastDiskReloadAt {
+                Text(String(localized: "Reloaded from disk: \(file) · \(at.formatted(date: .omitted, time: .shortened))"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
