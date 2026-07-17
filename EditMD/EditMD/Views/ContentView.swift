@@ -99,6 +99,16 @@ struct ContentView: View {
             stripActions.insertBlockFormula = nil
         }
         storedMode = newMode.rawValue
+        // Remember this file's mode so it reopens the way it was left.
+        EditorModeStore.setMode(newMode, for: fileURL)
+    }
+
+    /// Restore a file's remembered mode on open (FSNotes' per-note previewState).
+    /// Files never seen keep the current/global mode; untitled buffers too.
+    private func restoreModeForCurrentFile() {
+        if let saved = EditorModeStore.mode(for: fileURL) {
+            setEditorMode(saved)
+        }
     }
 
     var body: some View {
@@ -235,6 +245,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            restoreModeForCurrentFile()
             refreshGitSnapshot(mode: .full, delayMs: 0)
             if isMain {
                 ClaudeIDEBridge.shared.setActiveURL(fileURL)
@@ -243,6 +254,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: fileURL) { _ in
+            restoreModeForCurrentFile()
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
             if isMain {
