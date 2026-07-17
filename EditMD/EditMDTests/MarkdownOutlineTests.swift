@@ -55,6 +55,21 @@ final class MarkdownOutlineTests: XCTestCase {
         XCTAssertEqual(items[0].markdownOffset, 2)
     }
 
+    func testFrontmatterNotAHeadingAndOffsetsRebased() {
+        // Without stripping, the closing `---` turns the YAML into a setext
+        // h2 ("title: x") — the outline must contain only real headings, with
+        // offsets valid in the ORIGINAL text (frontmatter included).
+        let md = "---\ntitle: x\nicon: \"🎯\"\n---\n\n# Real\n\n## Sub\n"
+        let items = markdownOutline(md)
+        XCTAssertEqual(items.map(\.title), ["Real", "Sub"])
+        XCTAssertEqual(items[0].markdownOffset,
+                       ("---\ntitle: x\nicon: \"🎯\"\n---\n\n" as NSString).length)
+    }
+
+    func testFrontmatterOnlyDocumentYieldsNoItems() {
+        XCTAssertEqual(markdownOutline("---\ntitle: x\n---"), [])
+    }
+
     func testIDIsStablePerOffset() {
         let items = markdownOutline("# A\n\n# A\n")
         XCTAssertEqual(items.count, 2)

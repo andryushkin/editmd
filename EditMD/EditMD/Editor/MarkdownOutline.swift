@@ -21,10 +21,24 @@ struct OutlineItem: Equatable, Identifiable {
 /// 1-based UTF-8 bytes, see the cmark notes in CLAUDE.md).
 func markdownOutline(_ text: String) -> [OutlineItem] {
     guard !text.isEmpty else { return [] }
-    let document = Document(parsing: text)
-    var collector = OutlineCollector(lineIdx: LineIndex(text))
+    // YAML frontmatter isn't part of the markdown grammar — strip it before
+    // parsing, so its closing `---` doesn't turn the YAML into a setext
+    // heading (same as Preview/Visual). Offsets rebase past the block.
+    var source = text
+    var baseOffset = 0
+    if let fm = frontmatterRange(in: text) {
+        baseOffset = NSMaxRange(fm.full)
+        source = (text as NSString).substring(from: baseOffset)
+    }
+    guard !source.isEmpty else { return [] }
+    let document = Document(parsing: source)
+    var collector = OutlineCollector(lineIdx: LineIndex(source))
     collector.visit(document)
-    return collector.items
+    guard baseOffset > 0 else { return collector.items }
+    return collector.items.map {
+        OutlineItem(level: $0.level, title: $0.title,
+                    markdownOffset: $0.markdownOffset + baseOffset)
+    }
 }
 
 private struct OutlineCollector: MarkupWalker {
