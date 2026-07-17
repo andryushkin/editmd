@@ -86,6 +86,11 @@ struct SourceTextView: NSViewRepresentable {
         textView.textColor = EditorSettings.shared.effectiveTheme.textColor
         textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
         textView.backgroundColor = NSColor.textBackgroundColor
+        // Accept image drops (file URLs + bitmap flavors) on top of the text
+        // view's own drag types, so a non-image drop still falls through to
+        // the default handling.
+        textView.registerForDraggedTypes(
+            Array(Set(textView.registeredDraggedTypes + imageDragPasteboardTypes)))
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -897,6 +902,23 @@ struct SourceTextView: NSViewRepresentable {
         /// filename/binary representation as text).
         func pasteImageFromPasteboard() -> Bool {
             guard let candidate = imageCandidate(from: .general) else { return false }
+            do {
+                let asset = try storeImageAsset(candidate, document: parent.document,
+                                                fileURL: parent.fileURL)
+                insertImage(asset)
+            } catch {
+                presentImageInsertionError(error)
+                return false
+            }
+            return true
+        }
+
+        /// Drop of an image file / bitmap onto the Source view: same store +
+        /// insert path as paste, at the already-positioned caret. False when the
+        /// caret is inside a fence or the image can't be stored (the view then
+        /// leaves the drop to the default text handling).
+        func insertDraggedImage(_ candidate: ImageAssetCandidate) -> Bool {
+            guard let textView, !textView.caretInsideFence() else { return false }
             do {
                 let asset = try storeImageAsset(candidate, document: parent.document,
                                                 fileURL: parent.fileURL)

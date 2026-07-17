@@ -150,6 +150,36 @@ final class VisualNSTextView: NSTextView {
     }
     var editorSettings: VisualTableEditorSettings { EditorSettings.shared.visualTableEditor }
 
+    // MARK: - Image drag-and-drop
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if imageCandidate(from: sender.draggingPasteboard) != nil { return .copy }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard imageCandidate(from: sender.draggingPasteboard) != nil else {
+            return super.draggingUpdated(sender)
+        }
+        let point = convert(sender.draggingLocation, from: nil)
+        setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
+        return .copy
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if imageCandidate(from: sender.draggingPasteboard) != nil { return true }
+        return super.prepareForDragOperation(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let candidate = imageCandidate(from: sender.draggingPasteboard) else {
+            return super.performDragOperation(sender)
+        }
+        let point = convert(sender.draggingLocation, from: nil)
+        setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
+        return visualCoordinator?.insertDraggedImage(candidate) ?? false
+    }
+
     // Clipboard rich-text attributes are never accepted. Recognizable Markdown
     // is rebuilt through our own semantic renderer; everything else remains
     // plain text.

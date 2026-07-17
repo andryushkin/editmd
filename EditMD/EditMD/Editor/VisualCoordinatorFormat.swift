@@ -142,6 +142,23 @@ extension VisualMarkdownView.Coordinator {
         return true
     }
 
+    /// Drop of an image file / bitmap onto the Visual view: same store +
+    /// render path as paste, at the already-positioned caret. False when the
+    /// drop context forbids images or the image can't be stored (the view then
+    /// leaves the drop to the default handling).
+    func insertDraggedImage(_ candidate: ImageAssetCandidate) -> Bool {
+        guard allowsImageInsertionAtSelection() else { return false }
+        do {
+            let asset = try storeImageAsset(candidate, document: parent.document,
+                                            fileURL: parent.fileURL)
+            insertImage(asset)
+        } catch {
+            presentImageInsertionError(error)
+            return false
+        }
+        return true
+    }
+
     /// Images are structural attributed runs. Literal/raw islands serialize
     /// their original `.raw` payload and table cells are single-line, so none
     /// of those contexts may accept an image attachment.

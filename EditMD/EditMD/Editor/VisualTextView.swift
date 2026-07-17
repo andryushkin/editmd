@@ -57,6 +57,10 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.backgroundColor = NSColor.textBackgroundColor
+        // Accept image drops on top of the view's own drag types; non-image
+        // drops still fall through to the default handling.
+        textView.registerForDraggedTypes(
+            Array(Set(textView.registeredDraggedTypes + imageDragPasteboardTypes)))
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]

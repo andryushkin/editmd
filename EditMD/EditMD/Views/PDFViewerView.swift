@@ -12,6 +12,18 @@ let supportedImageMIMETypes: [String: String] = [
 ]
 let supportedImageFileExtensions = Set(supportedImageMIMETypes.keys)
 
+/// Pasteboard types an image drag can carry — used to register the editor text
+/// views for drops. `imageCandidate(from:)` decides which one actually yields an
+/// image (a Finder file URL, a native bitmap flavor, or a TIFF fallback).
+let imageDragPasteboardTypes: [NSPasteboard.PasteboardType] = [
+    .fileURL, .png, .tiff,
+    NSPasteboard.PasteboardType("public.jpeg"),
+    NSPasteboard.PasteboardType("com.compuserve.gif"),
+    NSPasteboard.PasteboardType("org.webmproject.webp"),
+    NSPasteboard.PasteboardType("public.svg-image"),
+    NSPasteboard.PasteboardType("public.heic"),
+]
+
 /// True for an image the native viewer knows how to open.
 func isImageFile(_ url: URL) -> Bool {
     supportedImageFileExtensions.contains(url.pathExtension.lowercased())

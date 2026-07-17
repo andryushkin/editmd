@@ -260,6 +260,33 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertNil(imageCandidate(from: board))
     }
 
+    /// The drag path shares `imageCandidate(from:)`: a Finder drag exposes the
+    /// dropped file as a file-URL, which must resolve to a `.file` candidate for
+    /// an image extension and be ignored for a non-image one.
+    @MainActor
+    func testFileURLPasteboardBecomesImageCandidate() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-drag-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let image = dir.appendingPathComponent("photo.png")
+        try Data([1, 2, 3]).write(to: image)
+        let board = NSPasteboard(name: NSPasteboard.Name("editmd-drag-\(UUID().uuidString)"))
+        board.clearContents()
+        board.setString(image.absoluteString, forType: .fileURL)
+        guard case .file(let url)? = imageCandidate(from: board) else {
+            return XCTFail("image file URL was not recognized")
+        }
+        XCTAssertEqual(url.lastPathComponent, "photo.png")
+
+        let text = dir.appendingPathComponent("notes.txt")
+        try Data([0]).write(to: text)
+        board.clearContents()
+        board.setString(text.absoluteString, forType: .fileURL)
+        XCTAssertNil(imageCandidate(from: board), "non-image file must not be an image drop")
+    }
+
     func testSourcePasteConsumesTableBeforeImageFlavor() {
         var calls: [String] = []
         let handled = handleSourceSpecialPaste(
