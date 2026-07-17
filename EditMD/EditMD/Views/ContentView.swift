@@ -59,10 +59,8 @@ struct ContentView: View {
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
 
-    /// The active theme: the Settings window's preset plus its color
-    /// overrides. Single source of truth — the toolbar's Theme menu and the
-    /// General settings tab both write `editorSettings.general.themePreset`,
-    /// so neither can drift from the other.
+    /// The active Source/Visual look: the single fixed editor theme plus
+    /// General's base color overrides. (Preview has its own `PreviewTheme`.)
     private var theme: EditorTheme { editorSettings.effectiveTheme }
 
     /// Whether the window currently renders dark — resolves `.system` against

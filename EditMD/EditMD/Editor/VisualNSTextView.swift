@@ -97,7 +97,7 @@ struct VisualQuoteEntry {
 }
 
 final class VisualNSTextView: NSTextView {
-    var theme: EditorTheme = .system
+    var theme: EditorTheme = .editorDefault
     /// Line numbers / dirty marks, drawn in the left inset (no NSRulerView —
     /// AppKit would pin it to the pane edge, far from a centred column).
     var gutterState = GutterState()

@@ -6023,6 +6023,16 @@
     "Source" : {
 
     },
+    "Source and Visual use one fixed editor look; per-mode fonts, margins and element styles are on their own tabs. Preview themes are chosen from the Preview toolbar." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source и Visual используют один фиксированный облик редактора; шрифты, поля и стили элементов для каждого режима — на своих вкладках. Темы Preview выбираются на панели Preview."
+          }
+        }
+      }
+    },
     "Source highlighting · green + added · red − removed" : {
       "localizations" : {
         "ru" : {

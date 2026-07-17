@@ -16,7 +16,7 @@ import SwiftUI
 struct VisualMarkdownView: NSViewRepresentable {
 
     let document: MarkdownDocument
-    var theme: EditorTheme = .system
+    var theme: EditorTheme = .editorDefault
     var fileURL: URL? = nil
     var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void

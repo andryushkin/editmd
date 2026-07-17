@@ -71,7 +71,7 @@ private struct GeneralTab: View {
     @ObservedObject var settings: EditorSettings
     @State private var language: AppLanguageChoice = .current
 
-    private var preset: EditorTheme { EditorTheme.preset(named: settings.general.themePreset) }
+    private var preset: EditorTheme { EditorTheme.editorDefault }
 
     var body: some View {
         Form {
@@ -83,16 +83,13 @@ private struct GeneralTab: View {
                 Text("Automatic follows the macOS language. A manual choice takes effect after EditMD restarts.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Theme") {
-                Picker("Preset", selection: $settings.general.themePreset) {
-                    ForEach(EditorTheme.allPresets, id: \.id) { preset in
-                        Text(preset.title).tag(preset.id)
-                    }
-                }
+            Section("Appearance") {
                 Picker("Appearance", selection: $settings.general.appearance) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                Text("Source and Visual use one fixed editor look; per-mode fonts, margins and element styles are on their own tabs. Preview themes are chosen from the Preview toolbar.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Code highlighting") {
                 Toggle("Syntax highlighting in fenced code blocks",

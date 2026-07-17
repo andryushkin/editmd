@@ -435,7 +435,7 @@ extension VisualMarkdownView.Coordinator {
         let isQuote = block.quoteDepth > 0
         // Colors are honest here: theme (preset + General overrides) plus
         // per-element overrides — no hardcoded system colors.
-        let theme = textView?.theme ?? .system
+        let theme = textView?.theme ?? .editorDefault
         let elements = EditorSettings.shared.visual.elements
 
         storage.enumerateAttributes(in: paragraph) { attrs, range, _ in

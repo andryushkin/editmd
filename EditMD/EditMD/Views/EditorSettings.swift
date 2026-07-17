@@ -386,7 +386,6 @@ enum AgentCommandPreset: String, Codable, CaseIterable, Identifiable {
 }
 
 struct GeneralSettings: Codable, Equatable {
-    var themePreset: String
     var appearance: AppearanceMode
     var textColorHex: String?
     var accentColorHex: String?
@@ -411,14 +410,13 @@ struct GeneralSettings: Codable, Equatable {
     /// Stage 7: silent reload when buffer is clean (default on).
     var autoReloadCleanExternal: Bool
 
-    init(themePreset: String, appearance: AppearanceMode = .system,
+    init(appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
          liteMode: Bool = true, claudeIDEEnabled: Bool = true,
          claudeReviewAutoSpawn: Bool = false, syntaxHighlighting: Bool = true,
          agentCommandPreset: AgentCommandPreset = .claude,
          agentCustomCommand: String = "",
          autoReloadCleanExternal: Bool = true) {
-        self.themePreset = themePreset
         self.appearance = appearance
         self.textColorHex = textColorHex
         self.accentColorHex = accentColorHex
@@ -433,7 +431,6 @@ struct GeneralSettings: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        themePreset = try c.decodeIfPresent(String.self, forKey: .themePreset) ?? "github"
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
         textColorHex = try c.decodeIfPresent(String.self, forKey: .textColorHex)
         accentColorHex = try c.decodeIfPresent(String.self, forKey: .accentColorHex)
@@ -530,7 +527,7 @@ final class EditorSettings: ObservableObject {
     }
 
     private init() {
-        general = Self.load(Keys.general) ?? GeneralSettings(themePreset: "github")
+        general = Self.load(Keys.general) ?? GeneralSettings()
         gutter = Self.load(Keys.gutter) ?? GutterSettings()
         source = Self.load(Keys.source) ?? ModeSettings(
             fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0)
@@ -543,10 +540,11 @@ final class EditorSettings: ObservableObject {
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
     }
 
-    /// The active theme: the chosen preset plus General's color overrides.
-    /// Element-level colors are applied at draw time, not baked in here.
+    /// The active Source/Visual look: the single fixed editor theme plus
+    /// General's base color overrides. Element-level colors are applied at draw
+    /// time, not baked in here. (Preview has its own themes via `PreviewTheme`.)
     var effectiveTheme: EditorTheme {
-        EditorTheme.preset(named: general.themePreset).applyingOverrides(general)
+        EditorTheme.editorDefault.applyingOverrides(general)
     }
 
     /// Bumps one mode's font size by `delta`, clamped. Used by ⌘=/⌘−, which
@@ -558,7 +556,7 @@ final class EditorSettings: ObservableObject {
         self[keyPath: mode] = settings
     }
 
-    func resetGeneral() { general = GeneralSettings(themePreset: general.themePreset) }
+    func resetGeneral() { general = GeneralSettings() }
     func resetGutter() { gutter = GutterSettings() }
     func resetSource() { source = ModeSettings(fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0) }
     func resetVisual() {
@@ -572,7 +570,7 @@ final class EditorSettings: ObservableObject {
     }
 
     func resetToDefaults() {
-        general = GeneralSettings(themePreset: "github")
+        general = GeneralSettings()
         resetGutter()
         resetSource(); resetVisual(); resetPreview()
     }
