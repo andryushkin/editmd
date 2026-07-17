@@ -344,6 +344,32 @@ struct PreviewTypographySettings: Codable, Equatable {
 
 /// Cross-mode look: theme preset, window appearance, and base color overrides.
 /// A nil hex means "use the preset's own color".
+/// Preset for the Review ✈️ agent launch line (plan 09 stage 4).
+enum AgentCommandPreset: String, Codable, CaseIterable, Identifiable {
+    case claude
+    case codex
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .claude: return "Claude (`claude -p \"/smotr -pr\"`)"
+        case .codex: return "Codex (`codex …`)"
+        case .custom: return "Custom command"
+        }
+    }
+
+    /// Default argv when not using Custom / EDITMD_AGENT_CMD.
+    var defaultArgv: [String] {
+        switch self {
+        case .claude: return ["claude", "-p", "/smotr -pr"]
+        case .codex: return ["codex", "exec", "Process EditMD review queue (.smotr-queue.json)"]
+        case .custom: return []
+        }
+    }
+}
+
 struct GeneralSettings: Codable, Equatable {
     var themePreset: String
     var appearance: AppearanceMode
@@ -363,11 +389,20 @@ struct GeneralSettings: Codable, Equatable {
     /// Applies language-aware colors to fenced code blocks in Source, Visual,
     /// Preview and PDF. Turning it off preserves code panels and fonts.
     var syntaxHighlighting: Bool
+    /// Which command ✈️ runs when auto-spawn is on (EDITMD_AGENT_CMD still wins).
+    var agentCommandPreset: AgentCommandPreset
+    /// Custom shell command when preset is `.custom`.
+    var agentCustomCommand: String
+    /// Stage 7: silent reload when buffer is clean (default on).
+    var autoReloadCleanExternal: Bool
 
     init(themePreset: String, appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
          liteMode: Bool = true, claudeIDEEnabled: Bool = true,
-         claudeReviewAutoSpawn: Bool = false, syntaxHighlighting: Bool = true) {
+         claudeReviewAutoSpawn: Bool = false, syntaxHighlighting: Bool = true,
+         agentCommandPreset: AgentCommandPreset = .claude,
+         agentCustomCommand: String = "",
+         autoReloadCleanExternal: Bool = true) {
         self.themePreset = themePreset
         self.appearance = appearance
         self.textColorHex = textColorHex
@@ -376,6 +411,9 @@ struct GeneralSettings: Codable, Equatable {
         self.claudeIDEEnabled = claudeIDEEnabled
         self.claudeReviewAutoSpawn = claudeReviewAutoSpawn
         self.syntaxHighlighting = syntaxHighlighting
+        self.agentCommandPreset = agentCommandPreset
+        self.agentCustomCommand = agentCustomCommand
+        self.autoReloadCleanExternal = autoReloadCleanExternal
     }
 
     init(from decoder: Decoder) throws {
@@ -389,6 +427,9 @@ struct GeneralSettings: Codable, Equatable {
         claudeIDEEnabled = try c.decodeIfPresent(Bool.self, forKey: .claudeIDEEnabled) ?? true
         claudeReviewAutoSpawn = try c.decodeIfPresent(Bool.self, forKey: .claudeReviewAutoSpawn) ?? false
         syntaxHighlighting = try c.decodeIfPresent(Bool.self, forKey: .syntaxHighlighting) ?? true
+        agentCommandPreset = try c.decodeIfPresent(AgentCommandPreset.self, forKey: .agentCommandPreset) ?? .claude
+        agentCustomCommand = try c.decodeIfPresent(String.self, forKey: .agentCustomCommand) ?? ""
+        autoReloadCleanExternal = try c.decodeIfPresent(Bool.self, forKey: .autoReloadCleanExternal) ?? true
     }
 }
 

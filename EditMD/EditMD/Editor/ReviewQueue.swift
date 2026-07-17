@@ -175,8 +175,12 @@ enum ReviewQueue {
     }
 
     /// Shell command the user can paste when auto-spawn is off.
+    @MainActor
     static func manualCommand(for root: URL) -> String {
-        "cd \(shellEscape(root.path)) && claude -p \"/smotr -pr\""
+        let g = EditorSettings.shared.general
+        let argv = agentArgvSnapshot(preset: g.agentCommandPreset, custom: g.agentCustomCommand)
+        let body = argv.map { shellEscapeIfNeeded($0) }.joined(separator: " ")
+        return "cd \(shellEscape(root.path)) && \(body)"
     }
 
     private static func shellEscape(_ path: String) -> String {
@@ -184,13 +188,49 @@ enum ReviewQueue {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Resolve argv: `EDITMD_AGENT_CMD` env (test hook) or the default.
+    private static func shellEscapeIfNeeded(_ s: String) -> String {
+        if s.contains(" ") || s.contains("\"") || s.contains("'") {
+            return shellEscape(s)
+        }
+        return s
+    }
+
+    /// Resolve argv: `EDITMD_AGENT_CMD` env (test hook) wins; else Settings preset.
+    @MainActor
     static func agentArgv() -> [String] {
         if let env = ProcessInfo.processInfo.environment["EDITMD_AGENT_CMD"],
            !env.isEmpty {
             return shellSplit(env)
         }
-        return defaultAgentCommand
+        let g = EditorSettings.shared.general
+        switch g.agentCommandPreset {
+        case .claude:
+            return defaultAgentCommand
+        case .codex:
+            return AgentCommandPreset.codex.defaultArgv
+        case .custom:
+            let custom = g.agentCustomCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            if custom.isEmpty { return defaultAgentCommand }
+            return shellSplit(custom)
+        }
+    }
+
+    /// Non-MainActor argv for Process (snapshot settings first on main).
+    static func agentArgvSnapshot(
+        preset: AgentCommandPreset,
+        custom: String
+    ) -> [String] {
+        if let env = ProcessInfo.processInfo.environment["EDITMD_AGENT_CMD"],
+           !env.isEmpty {
+            return shellSplit(env)
+        }
+        switch preset {
+        case .claude: return defaultAgentCommand
+        case .codex: return AgentCommandPreset.codex.defaultArgv
+        case .custom:
+            let t = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? defaultAgentCommand : shellSplit(t)
+        }
     }
 
     /// Minimal shell-ish split for the env override (no nested quotes needed
@@ -260,25 +300,36 @@ final class ReviewAgentRunner: ObservableObject {
         return false
     }
 
-    /// Starts `claude -p "/smotr -pr"` in `directory`. No-op if already running.
+    /// Starts the configured agent command in `directory`. No-op if already running.
     func start(in directory: URL) {
         if isRunning { return }
         root = directory
         state = .running
         logTail = ""
-        let argv = ReviewQueue.agentArgv()
+        let g = EditorSettings.shared.general
+        let argv = ReviewQueue.agentArgvSnapshot(
+            preset: g.agentCommandPreset, custom: g.agentCustomCommand)
         guard let exe = argv.first else {
             state = .failed("empty agent command")
             return
         }
         let args = Array(argv.dropFirst())
         let logURL = ReviewQueue.agentLogURL(in: directory)
+        let queueURL = ReviewQueue.queueURL(in: directory)
+        let socketPath = ControlService.shared.socketPath.path
 
         waitTask?.cancel()
         waitTask = Task.detached(priority: .utility) { [weak self] in
             let prepared = Self.prepareProcess(
                 executable: exe, arguments: args,
-                directory: directory, logURL: logURL)
+                directory: directory, logURL: logURL,
+                environment: [
+                    "EDITMD_ENABLED": "1",
+                    "EDITMD_SOCKET": socketPath,
+                    "EDITMD_CONTROL_SOCK": socketPath,
+                    "EDITMD_WORKSPACE": directory.path,
+                    "EDITMD_QUEUE": queueURL.path,
+                ])
             switch prepared {
             case .failure(let msg):
                 await MainActor.run {
@@ -342,7 +393,8 @@ final class ReviewAgentRunner: ObservableObject {
 
     nonisolated private static func prepareProcess(
         executable: String, arguments: [String],
-        directory: URL, logURL: URL
+        directory: URL, logURL: URL,
+        environment: [String: String] = [:]
     ) -> PrepareOutcome {
         let exeURL: URL
         if executable.hasPrefix("/") {
@@ -358,6 +410,9 @@ final class ReviewAgentRunner: ObservableObject {
         process.arguments = arguments
         process.currentDirectoryURL = directory
         process.standardInput = FileHandle.nullDevice
+        var env = ProcessInfo.processInfo.environment
+        for (k, v) in environment { env[k] = v }
+        process.environment = env
 
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         guard let logHandle = try? FileHandle(forWritingTo: logURL) else {

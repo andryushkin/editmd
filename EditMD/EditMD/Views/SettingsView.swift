@@ -26,6 +26,8 @@ struct SettingsView: View {
                 .tabItem { Label("Preview", systemImage: "eye") }
             BuiltInPluginsTab()
                 .tabItem { Label("Plugins", systemImage: "puzzlepiece.extension") }
+            IntegrationsSettingsTab(settings: settings)
+                .tabItem { Label("Integrations", systemImage: "sparkles") }
         }
         .frame(width: 720, height: 720)
         // The Settings window is its own scene — follow the appearance
@@ -113,12 +115,7 @@ private struct GeneralTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Claude Code") {
-                Toggle("Claude Code integration", isOn: $settings.general.claudeIDEEnabled)
-                Text("Runs a local server on 127.0.0.1 so `claude` in your terminal can attach with /ide: it then sees the current file, your selection and the workspace, and proposes edits as a diff you accept or reject. No API key is stored and nothing leaves your machine.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Toggle("Auto-run Claude for Review queue",
-                       isOn: $settings.general.claudeReviewAutoSpawn)
-                Text("When on, the Review sidebar ➤ button writes `.smotr-queue.json` and spawns `claude -p \"/smotr -pr\"` in the workspace root (opt-in; off by default). When off, ➤ only prepares the queue and copies the terminal command.")
+                Text("Moved to Settings ▸ Integrations (skill, hooks, ✈️ command, auto-spawn).")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Line gutter") {
