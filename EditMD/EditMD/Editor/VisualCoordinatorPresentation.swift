@@ -535,22 +535,72 @@ extension VisualMarkdownView.Coordinator {
     private func attachment(forSource src: String) -> NSTextAttachment {
         if let cached = imageAttachments[src] { return cached }
         let result = NSTextAttachment()
-        if let url = resolveImageURL(src), let image = NSImage(contentsOf: url),
-           image.size.width > 0 {
-            result.image = image
-            let maxWidth: CGFloat = 420
-            let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
-            result.bounds = CGRect(x: 0, y: 0,
-                                   width: image.size.width * scale,
-                                   height: image.size.height * scale)
+        if let remote = remoteImageURL(src) {
+            // Remote images load off-main; show a placeholder now and fill the
+            // same attachment in when the download lands (or a cached copy).
+            if let cachedImage = RemoteImageCache.shared.cached(remote) {
+                setAttachmentImage(cachedImage, on: result)
+            } else {
+                setPlaceholder(on: result, src: src)
+                loadRemoteImage(remote, into: result, src: src)
+            }
+        } else if let url = resolveImageURL(src), let image = NSImage(contentsOf: url),
+                  image.size.width > 0 {
+            setAttachmentImage(image, on: result)
         } else {
-            // Missing/remote file: visible placeholder instead of nothing.
-            result.image = NSImage(systemSymbolName: "photo",
-                                   accessibilityDescription: src)
-            result.bounds = CGRect(x: 0, y: -3, width: 18, height: 15)
+            // Missing local file: visible placeholder instead of nothing.
+            setPlaceholder(on: result, src: src)
         }
         imageAttachments[src] = result
         return result
+    }
+
+    /// Sizes the attachment to the image, capped at a comfortable reading width.
+    private func setAttachmentImage(_ image: NSImage, on attachment: NSTextAttachment) {
+        attachment.image = image
+        let maxWidth: CGFloat = 420
+        let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
+        attachment.bounds = CGRect(x: 0, y: 0,
+                                   width: image.size.width * scale,
+                                   height: image.size.height * scale)
+    }
+
+    private func setPlaceholder(on attachment: NSTextAttachment, src: String) {
+        attachment.image = NSImage(systemSymbolName: "photo", accessibilityDescription: src)
+        attachment.bounds = CGRect(x: 0, y: -3, width: 18, height: 15)
+    }
+
+    /// Kicks off an async download and, on completion, swaps the placeholder for
+    /// the real image and reflows just that image's runs. Guarded so a late
+    /// callback after a re-render (which reuses the cached attachment) or an
+    /// evicted src does nothing.
+    private func loadRemoteImage(_ url: URL, into attachment: NSTextAttachment, src: String) {
+        RemoteImageCache.shared.load(url) { [weak self, weak attachment] image in
+            guard let self, let attachment, let image, image.size.width > 0 else { return }
+            guard self.imageAttachments[src] === attachment else { return }
+            self.setAttachmentImage(image, on: attachment)
+            self.invalidateImageLayout(src: src)
+        }
+    }
+
+    /// Reflows the runs carrying image `src` after its attachment resized from
+    /// placeholder to full image (per-image, not a whole-document relayout).
+    private func invalidateImageLayout(src: String) {
+        guard let textView, let storage = textView.textStorage,
+              let layoutManager = textView.layoutManager else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(.mdImage, in: full) { value, range, _ in
+            guard (value as? [String: String])?["src"] == src else { return }
+            layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+            layoutManager.invalidateDisplay(forCharacterRange: range)
+        }
+    }
+
+    /// A remote (`http(s)`) image source, or nil for a document-relative path.
+    private func remoteImageURL(_ src: String) -> URL? {
+        guard let url = URL(string: src), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return nil }
+        return url
     }
 
     private func resolveImageURL(_ src: String) -> URL? {
