@@ -43,8 +43,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.app
         PRODUCT_NAME: EditMD
-        MARKETING_VERSION: "0.44.0"
-        CURRENT_PROJECT_VERSION: "415"
+        MARKETING_VERSION: "0.45.0"
+        CURRENT_PROJECT_VERSION: "416"
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
         # App icon: EditMD/Resources/AppIcon.icns (from docs/img/icon.png master)

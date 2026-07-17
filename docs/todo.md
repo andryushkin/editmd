@@ -38,11 +38,10 @@
 - [x] Многострочный `$$…$$` внутри blockquote — **зафиксировано как известное ограничение** (маска затёрла бы `>`; фикс требует инвазивной переработки masking-инварианта). Деградирует в литерал без потери контента, идемпотентно; pin-тест + однострочная математика в цитате работает
 - [ ] (наблюдение, НЕ баг-фикс) «Preview не перерендерился после удаления строки» — не воспроизведено; при повторении вернуть NSLog-цепочку `syncToDocument → updateNSView → render`. Перенесено в спринт-хвосты.
 
-### 3. Темы, этап 2 — унификация (после проверки глазами этапа 1)
-- [ ] `ThemeSpec` (семантические токены: палитра light/dark, типографика, декорации) + три проекции: Preview CSS (уже есть как `PreviewTheme`), Visual (`EditorTheme` становится производным), Source (только фон+палитра, шрифт всегда mono)
-- [ ] Снос Nord/Solarized/Dracula с миграцией id (решение пользователя 2026-07-17); High Contrast остаётся
-- [ ] Единый пикер темы (сейчас два: Settings ▸ General для Source/Visual и палитра Preview)
-- [ ] Precedence: fallback'и `ElementStyles`/`fontFamily` ведут в тему; кнопка «Reset to theme»
+### 3. Темы, этап 2 — чистка **ЗАВЕРШЁН 2026-07-18** (app 0.45.0)
+Пользователь (2026-07-18): «старую удали, потом сделаем пресеты для source и visual». Полная унификация через ThemeSpec отложена — сделана чистка.
+- [x] Удалена старая система выбора темы `EditorTheme`: пикер Settings ▸ General ▸ Preset + скины System/Sepia/Nord/Solarized/High Contrast/Dracula (8991aeb). Source/Visual теперь на одном фиксированном облике `EditorTheme.editorDefault` (бывший GitHub); секция стала «Appearance» (только light/dark). Base-цвета остались.
+- [ ] **Позже:** полноценные пресеты для Source и Visual поверх этого baseline (возможно ThemeSpec + проекции). Единый пикер, `ElementStyles`/`fontFamily` fallback'и в тему, «Reset to theme».
 
 ### 4. Изображения
 - [ ] Drag-and-drop изображений в Source/Visual (тот же guard и сериализатор `markdownImageSyntax`, что у paste/кнопки)
