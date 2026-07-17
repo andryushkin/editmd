@@ -465,12 +465,21 @@ private func codeSpan(_ text: String) -> String {
 /// becomes the backslash form, re-applying the quote/indent prefix.
 private func escapeInline(_ text: String, continuationPrefix: String,
                           escapePipes: Bool = false) -> String {
+    // A `$` reaching here is literal text — real math lives in separate
+    // `.mdMath` runs and never round-trips through here. But the math scanner
+    // would re-consume a `$…$` pair on reparse (turning an escaped `\$x\$` back
+    // into a formula), so escape only the delimiters of spans it WOULD form.
+    // Plain/currency dollars ($5, $20 and $30) are left untouched.
+    let mathDollarLocs = mathDelimiterLocations(text)
     var out = ""
+    var loc = 0
     for ch in text {
         switch ch {
         case "\\", "`", "*", "_", "[", "]", "<", "~":
             out.append("\\")
             out.append(ch)
+        case "$" where mathDollarLocs.contains(loc):
+            out += "\\$"
         case "|" where escapePipes:
             out += "\\|"
         case Character(mdHardBreak) where escapePipes:
@@ -480,6 +489,22 @@ private func escapeInline(_ text: String, continuationPrefix: String,
         default:
             out.append(ch)
         }
+        loc += ch.utf16.count
     }
     return out
+}
+
+/// UTF-16 locations of `$` characters that the math scanner would read as span
+/// delimiters in `text` (inner TeX contains no bare `$`, so covering the whole
+/// span range only ever flags delimiters). Empty when the run has no `$` or no
+/// would-be math — the common currency case.
+private func mathDelimiterLocations(_ text: String) -> Set<Int> {
+    guard text.contains("$") else { return [] }
+    let spans = scanMathSpans(in: text)
+    guard !spans.isEmpty else { return [] }
+    var locs = Set<Int>()
+    for span in spans {
+        for loc in span.range.location..<NSMaxRange(span.range) { locs.insert(loc) }
+    }
+    return locs
 }

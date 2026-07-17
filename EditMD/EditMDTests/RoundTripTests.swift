@@ -248,6 +248,12 @@ final class RoundTripTests: XCTestCase {
     func testUnderscoreInWordSurvives() { assertRoundTrip("snake_case_name here") }
     func testLeadingHashEscaped() { assertRoundTrip("\\#not a heading") }
     func testLiteralBrackets() { assertRoundTrip("see \\[citation\\] here") }
+    // An escaped `\$x\$` must not turn back into a formula on the Visual
+    // round-trip (cmark unescapes it, so the serializer must re-escape).
+    func testEscapedDollarPairStaysLiteral() { assertStable("literal \\$x\\$ here") }
+    // Currency and single dollars are NOT over-escaped.
+    func testCurrencyDollarSurvives() { assertStable("it costs $5 today") }
+    func testTwoCurrencyDollarsSurvive() { assertStable("$20 and $30 total") }
 
     // MARK: - Semantic round-trips on tricky inputs
 
