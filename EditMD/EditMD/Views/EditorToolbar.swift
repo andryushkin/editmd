@@ -72,5 +72,9 @@ struct EditorToolbar: ToolbarContent {
             }
             .help(appearanceIsDark ? "Switch to light appearance" : "Switch to dark appearance")
         }
+        // Plan 09: unified AI face (agent activity + prompt palette).
+        ToolbarItem(placement: .primaryAction) {
+            AgentActivityButton()
+        }
     }
 }

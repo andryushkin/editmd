@@ -170,6 +170,7 @@ struct ContentView: View {
                 appearanceIsDark: appearanceIsDark
             )
         }
+        .agentActivityToast()
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)

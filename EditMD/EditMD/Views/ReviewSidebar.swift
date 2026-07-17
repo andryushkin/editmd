@@ -9,6 +9,7 @@ struct ReviewSidebar: View {
     @ObservedObject var review: ReviewModel
     @ObservedObject private var workspace = WorkspaceModel.shared
     @ObservedObject private var agent = ReviewAgentRunner.shared
+    @ObservedObject private var activity = AgentActivityModel.shared
     /// Bottom filter field text — matches note / quote substrings.
     var filter: String = ""
     /// Jump the editor caret to a markdown offset (reuses the outline plumbing).
@@ -39,6 +40,9 @@ struct ReviewSidebar: View {
             header
             if let status = queueBannerText {
                 queueBanner(status)
+            }
+            if let hint = activity.nextStepHint {
+                nextStepBanner(hint)
             }
             Divider()
             if composing { composeForm }
@@ -93,6 +97,37 @@ struct ReviewSidebar: View {
         .background(Color(nsColor: .textBackgroundColor).opacity(0.45))
     }
 
+    private func nextStepBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "paperplane")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.accentColor)
+            Text(text)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                AgentActivityModel.shared.clearNextStepHint()
+                review.sendQueue(workspace: workspace)
+            } label: {
+                Text(String(localized: "Send"))
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            Button {
+                AgentActivityModel.shared.clearNextStepHint()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.accentColor.opacity(0.08))
+    }
+
     // MARK: Header
 
     private var header: some View {
@@ -101,6 +136,7 @@ struct ReviewSidebar: View {
             typeFilterMenu
             Spacer(minLength: 0)
             Button {
+                AgentActivityModel.shared.clearNextStepHint()
                 review.sendQueue(workspace: workspace)
             } label: {
                 Image(systemName: agent.isRunning
@@ -260,6 +296,7 @@ struct ReviewSidebar: View {
         guard let anchor = pendingAnchor else { return }
         review.addMark(anchor: anchor, type: composeType, note: composeNote)
         cancelCompose()
+        AgentActivityModel.shared.noteMarkPlaced()
     }
 
     private func cancelCompose() {
@@ -274,9 +311,11 @@ struct ReviewSidebar: View {
         if review.fileURL == nil {
             placeholder(String(localized: "No active file"))
         } else if marks.isEmpty {
-            placeholder(review.openCount == 0
-                        ? String(localized: "No marks yet.\nSelect text and press +")
-                        : String(localized: "No marks match the filter"))
+            if review.openCount == 0 && filterQuery.isEmpty {
+                reviewOnboarding
+            } else {
+                placeholder(String(localized: "No marks match the filter"))
+            }
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
@@ -308,6 +347,38 @@ struct ReviewSidebar: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 24)
             .padding(.horizontal, 12)
+    }
+
+    /// Empty Review tab: three-step cycle (plan 09 discoverability).
+    private var reviewOnboarding: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "Review cycle"))
+                .font(.system(size: 12, weight: .semibold))
+            onboardingStep(1, String(localized: "Select text in Preview or the editor"))
+            onboardingStep(2, String(localized: "Press + to place a mark"))
+            onboardingStep(3, String(localized: "Send the queue ✈️ to your agent"))
+            Text(String(localized: "Or click ✨ in the toolbar for ready-made prompts."))
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 20)
+        .padding(.horizontal, 12)
+    }
+
+    private func onboardingStep(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(n)")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(Color.accentColor.opacity(0.85)))
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

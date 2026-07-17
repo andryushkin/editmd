@@ -252,6 +252,8 @@ final class ReviewAgentRunner: ObservableObject {
     @Published private(set) var root: URL?
 
     private var waitTask: Task<Void, Never>?
+    /// Live process for Stop (stage 1 AI ready).
+    private var runningProcess: Process?
 
     var isRunning: Bool {
         if case .running = state { return true }
@@ -274,23 +276,51 @@ final class ReviewAgentRunner: ObservableObject {
 
         waitTask?.cancel()
         waitTask = Task.detached(priority: .utility) { [weak self] in
-            let result = Self.runProcess(
+            let prepared = Self.prepareProcess(
                 executable: exe, arguments: args,
                 directory: directory, logURL: logURL)
-            let tail = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
-            let clipped = String(tail.suffix(2000))
-            await MainActor.run {
-                guard let self else { return }
-                self.logTail = clipped
-                switch result {
-                case .success(let code):
-                    self.state = .finished(exitCode: code)
-                    // Sidecar may have new replies / suggests — reload active.
-                    ReviewModel.shared.reload()
-                case .failure(let msg):
+            switch prepared {
+            case .failure(let msg):
+                await MainActor.run {
+                    guard let self else { return }
+                    self.runningProcess = nil
                     self.state = .failed(msg)
                 }
+                return
+            case .success(let process, let logHandle):
+                await MainActor.run { self?.runningProcess = process }
+                let result = Self.waitProcess(process, logHandle: logHandle)
+                let tail = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+                let clipped = String(tail.suffix(2000))
+                await MainActor.run {
+                    guard let self else { return }
+                    self.runningProcess = nil
+                    self.logTail = clipped
+                    switch result {
+                    case .success(let code):
+                        self.state = .finished(exitCode: code)
+                        ReviewModel.shared.reload()
+                    case .failure(let msg):
+                        self.state = .failed(msg)
+                    }
+                }
             }
+        }
+    }
+
+    /// Terminates a running agent process (popover Stop).
+    func stop() {
+        guard isRunning else { return }
+        if let process = runningProcess, process.isRunning {
+            process.terminate()
+        }
+        waitTask?.cancel()
+        waitTask = nil
+        runningProcess = nil
+        state = .failed("stopped by user")
+        let logURL = root.map { ReviewQueue.agentLogURL(in: $0) }
+        if let logURL, let tail = try? String(contentsOf: logURL, encoding: .utf8) {
+            logTail = String(tail.suffix(2000))
         }
     }
 
@@ -305,11 +335,15 @@ final class ReviewAgentRunner: ObservableObject {
         case failure(String)
     }
 
-    nonisolated private static func runProcess(
+    private enum PrepareOutcome {
+        case success(Process, FileHandle)
+        case failure(String)
+    }
+
+    nonisolated private static func prepareProcess(
         executable: String, arguments: [String],
         directory: URL, logURL: URL
-    ) -> RunOutcome {
-        // Resolve `claude` via PATH when not absolute.
+    ) -> PrepareOutcome {
         let exeURL: URL
         if executable.hasPrefix("/") {
             exeURL = URL(fileURLWithPath: executable)
@@ -325,7 +359,6 @@ final class ReviewAgentRunner: ObservableObject {
         process.currentDirectoryURL = directory
         process.standardInput = FileHandle.nullDevice
 
-        // Truncate/create the log file and stream both stdout and stderr into it.
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         guard let logHandle = try? FileHandle(forWritingTo: logURL) else {
             return .failure("cannot open agent log")
@@ -335,13 +368,19 @@ final class ReviewAgentRunner: ObservableObject {
 
         do {
             try process.run()
-            process.waitUntilExit()
-            try? logHandle.close()
-            return .success(process.terminationStatus)
+            return .success(process, logHandle)
         } catch {
             try? logHandle.close()
             return .failure(error.localizedDescription)
         }
+    }
+
+    nonisolated private static func waitProcess(
+        _ process: Process, logHandle: FileHandle
+    ) -> RunOutcome {
+        process.waitUntilExit()
+        try? logHandle.close()
+        return .success(process.terminationStatus)
     }
 
     nonisolated private static func resolveOnPATH(_ name: String) -> URL? {
