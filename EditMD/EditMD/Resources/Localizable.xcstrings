@@ -500,6 +500,16 @@
         }
       }
     },
+    "Academic" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Академическая"
+          }
+        }
+      }
+    },
     "Accent / links" : {
       "localizations" : {
         "ru" : {
@@ -3598,6 +3608,16 @@
         }
       }
     },
+    "Literary" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Литературная"
+          }
+        }
+      }
+    },
     "Live harness" : {
       "localizations" : {
         "ru" : {
@@ -3774,6 +3794,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "изменён"
+          }
+        }
+      }
+    },
+    "Minimal" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Минимальная"
           }
         }
       }
@@ -5749,6 +5779,16 @@
         }
       }
     },
+    "Sets the typography, colors and decorations of the rendered page. Preview only — Source and Visual are not affected. Your font and element settings below still override the theme." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Задаёт типографику, цвета и оформление отрендеренной страницы. Только для Preview — Source и Visual не затрагиваются. Ваши настройки шрифта и элементов ниже по-прежнему переопределяют тему."
+          }
+        }
+      }
+    },
     "Settings…" : {
       "localizations" : {
         "ru" : {
@@ -6279,6 +6319,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Задачи"
+          }
+        }
+      }
+    },
+    "Technical" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Техническая"
           }
         }
       }

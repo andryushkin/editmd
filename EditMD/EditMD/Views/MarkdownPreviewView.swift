@@ -376,6 +376,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let baseDir = assetBaseDir
         let settings = EditorSettings.shared.preview
         let general = EditorSettings.shared.general
+        let theme = PreviewTheme.preset(named: EditorSettings.shared.previewTypography.theme)
         return previewHTMLPageRender(
             markdown: content,
             fontSize: settings.fontSize,
@@ -383,11 +384,12 @@ struct MarkdownPreviewView: NSViewRepresentable {
             insetV: settings.insetV,
             lineHeight: EditorSettings.shared.previewTypography.lineHeight,
             columnWidth: settings.columnWidth,
-            fontFamily: settings.cssFontFamily,
+            fontFamily: theme.cssFontFamily(userFamily: settings.fontFamily),
             fontWeight: settings.fontWeight.cssValue,
             elements: settings.elements,
             textColorHex: general.textColorHex,
             accentColorHex: general.accentColorHex,
+            themeCSS: theme.css,
             gutter: gutterOptions(),
             syntaxHighlighting: general.syntaxHighlighting,
             imageResolver: { Self.dataURI(for: $0, baseDir: baseDir) }

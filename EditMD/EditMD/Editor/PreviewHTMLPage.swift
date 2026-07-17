@@ -36,6 +36,7 @@ func previewHTMLPage(markdown: String,
                      elements: ElementStyles = ElementStyles(),
                      textColorHex: String? = nil,
                      accentColorHex: String? = nil,
+                     themeCSS: String = "",
                      gutter: PreviewGutterOptions = .off,
                      syntaxHighlighting: Bool = true,
                      imageResolver: ((String) -> String?)? = nil) -> String {
@@ -43,7 +44,7 @@ func previewHTMLPage(markdown: String,
         markdown: markdown, fontSize: fontSize, insetH: insetH, insetV: insetV,
         lineHeight: lineHeight, columnWidth: columnWidth, fontFamily: fontFamily,
         fontWeight: fontWeight, elements: elements, textColorHex: textColorHex,
-        accentColorHex: accentColorHex, gutter: gutter,
+        accentColorHex: accentColorHex, themeCSS: themeCSS, gutter: gutter,
         syntaxHighlighting: syntaxHighlighting, imageResolver: imageResolver).html
 }
 
@@ -65,6 +66,9 @@ func previewHTMLPageRender(markdown: String,
                            /// adaptive system colors (Canvas/CanvasText/LinkText).
                            textColorHex: String? = nil,
                            accentColorHex: String? = nil,
+                           /// `PreviewTheme.css` — a rules layer between the base
+                           /// CSS and the user's element CSS (base < theme < user).
+                           themeCSS: String = "",
                            gutter: PreviewGutterOptions = .off,
                            syntaxHighlighting: Bool = true,
                            imageResolver: ((String) -> String?)? = nil) -> PreviewPageRender {
@@ -119,21 +123,33 @@ func previewHTMLPageRender(markdown: String,
     let padHLeft = padH + Int(PreviewGutterMetrics.railPx(for: gutter))
 
     // Per-element rules generated from ElementStyles — appended after the base
-    // rules so they win. Heading size uses `em` (= the scale), matching how
-    // Visual multiplies its base size, so the two modes stay consistent.
+    // rules AND the theme layer so they win. Heading size uses `em` (= the
+    // scale), matching how Visual multiplies its base size, so the two modes
+    // stay consistent. Values still at their defaults emit nothing: the base
+    // rules below carry the same numbers, and staying silent is what lets a
+    // theme restyle an element the user never touched.
     func numstr(_ v: CGFloat) -> String { String(format: "%.4g", v) }
+    let defaultElements = ElementStyles()
     var elementCSS = ""
     for level in 1...6 {
         let e = elements.heading(level)
-        var decl = "font-size: \(numstr(e.sizeScale))em;"
-        if let w = e.weight { decl += " font-weight: \(w.cssValue);" }
+        let d = defaultElements.heading(level)
+        var decl = ""
+        if e.sizeScale != d.sizeScale { decl += "font-size: \(numstr(e.sizeScale))em;" }
+        if let w = e.weight, w != d.weight { decl += " font-weight: \(w.cssValue);" }
         if let c = e.colorHex { decl += " color: \(c);" }
-        elementCSS += "h\(level) { \(decl) }\n"
+        if !decl.isEmpty {
+            elementCSS += "h\(level) { \(decl.trimmingCharacters(in: .whitespaces)) }\n"
+        }
     }
     var boldDecl = ""
-    if let w = elements.bold.weight { boldDecl += "font-weight: \(w.cssValue);" }
+    if let w = elements.bold.weight, w != defaultElements.bold.weight {
+        boldDecl += "font-weight: \(w.cssValue);"
+    }
     if let c = elements.bold.colorHex { boldDecl += " color: \(c);" }
-    if !boldDecl.isEmpty { elementCSS += "strong, b { \(boldDecl) }\n" }
+    if !boldDecl.isEmpty {
+        elementCSS += "strong, b { \(boldDecl.trimmingCharacters(in: .whitespaces)) }\n"
+    }
     if let c = elements.inlineCode.colorHex { elementCSS += "code { color: \(c); }\n" }
     if let c = elements.link.colorHex ?? accentColorHex { elementCSS += "a { color: \(c); }\n" }
     if let c = elements.quote.colorHex { elementCSS += "blockquote { color: \(c); opacity: 1; }\n" }
@@ -208,9 +224,11 @@ func previewHTMLPageRender(markdown: String,
     /* First block must not add extra top margin on top of body padding —
        otherwise Settings ▸ Vertical never reaches zero under the action strip. */
     #preview-content > :first-child { margin-top: 0; }
+    /* Sizes/weights mirror the ElementStyles defaults — the element CSS layer
+       below only emits what the user changed, so these ARE the defaults. */
     h1, h2, h3, h4, h5, h6 { font-weight: 600; line-height: 1.25; margin: 1.4em 0 0.5em; }
-    h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
-    h4 { font-size: 1em; } h5 { font-size: 0.875em; } h6 { font-size: 0.85em; opacity: 0.7; }
+    h1 { font-size: 1.8em; font-weight: 700; } h2 { font-size: 1.5em; } h3 { font-size: 1.3em; }
+    h4 { font-size: 1.1em; } h5 { font-size: 1em; } h6 { font-size: 0.9em; opacity: 0.7; }
     h1, h2 { border-bottom: 1px solid rgba(128,128,128,0.3); padding-bottom: 0.3em; }
     p { margin: 0.6em 0; }
     a { color: LinkText; text-decoration: none; }
@@ -369,6 +387,7 @@ func previewHTMLPageRender(markdown: String,
     /* Code tokens carry both palettes (--tl / --td); the page picks one, so a
        Dark Mode switch needs no re-render. */
     \(CodeSyntaxHighlighter.tokenCSS)
+    \(themeCSS)
     \(elementCSS)</style>
     \(mathHead)
     </head>

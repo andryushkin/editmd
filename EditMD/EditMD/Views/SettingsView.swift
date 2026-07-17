@@ -230,6 +230,15 @@ private struct ModeTab: View {
                                 range: VisualTableEditorSettings.cellInsetRange, format: "%.0f")
                 }
             case .lineHeight:
+                Section("Theme") {
+                    Picker("Theme", selection: $settings.previewTypography.theme) {
+                        ForEach(PreviewTheme.allPresets, id: \.id) { preset in
+                            Text(preset.title).tag(preset.id)
+                        }
+                    }
+                    Text("Sets the typography, colors and decorations of the rendered page. Preview only — Source and Visual are not affected. Your font and element settings below still override the theme.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Typography") {
                     ValueSlider(title: "Line height", value: $settings.previewTypography.lineHeight,
                                 range: PreviewTypographySettings.range, format: "%.2f×")

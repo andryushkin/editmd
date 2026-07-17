@@ -334,9 +334,24 @@ struct VisualTableEditorSettings: Codable, Equatable {
 }
 
 /// Preview-only: CSS line-height (editor views use AppKit paragraph spacing
-/// instead, which isn't comparable to a line-height multiplier).
+/// instead, which isn't comparable to a line-height multiplier) and the
+/// Preview theme — a compiled-in look from `PreviewTheme.allPresets`.
 struct PreviewTypographySettings: Codable, Equatable {
     var lineHeight: CGFloat
+    /// `PreviewTheme` id; unknown/legacy ids resolve to the default look.
+    var theme: String
+
+    init(lineHeight: CGFloat, theme: String = "default") {
+        self.lineHeight = lineHeight
+        self.theme = theme
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lineHeight = try c.decode(CGFloat.self, forKey: .lineHeight)
+        theme = try c.decodeIfPresent(String.self, forKey: .theme) ?? "default"
+    }
+
     static let range: ClosedRange<CGFloat> = 1.2...2.2
 }
 
