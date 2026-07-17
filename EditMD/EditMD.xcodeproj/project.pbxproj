@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = C751A146F893A369A160F144 /* Markdown */; };
 		02811E67FB1A8BD988BC7F49 /* MathEditorPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DB449237D5DA643A8E1339 /* MathEditorPopover.swift */; };
+		0696C42344B4309772ADE9A0 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B6DEAB91BC3E1995F37434 /* main.swift */; };
 		0701B0140BBD62012D50453D /* EditorPositionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */; };
 		07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A6510639C139A366128A045 /* WorkspaceModel.swift */; };
 		083C1DB0AA424C13903004D3 /* VisualNSTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */; };
@@ -24,6 +25,7 @@
 		103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */; };
 		1336942C491650E720695632 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD07144B2A6466FF2484C /* SettingsView.swift */; };
 		14ED5ADB6BEDC0C18FCB9231 /* GitSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4840BC0DD8B410D784453BC /* GitSidebar.swift */; };
+		155D2DD4FEB70FF922B71D87 /* ControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9917191640BDEC49A4A21EBD /* ControlProtocol.swift */; };
 		16A09F6624873FD33471F396 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 3502DDBEA215B3B26B719677 /* SwiftMath */; };
 		173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */; };
 		175865854FE20802B678A99A /* LinkIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5095045B9037F0630921FB05 /* LinkIndexTests.swift */; };
@@ -48,6 +50,7 @@
 		33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */; };
 		35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD84F80960334B09CB707FA /* OutlineSidebar.swift */; };
 		36EC931E76830B6AD1B1C4D5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */; };
+		38638AF7341BF41B0953E365 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */; };
 		38A47C74B7F33C780835BC54 /* SidebarRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8507D994F9CAE5DEB23B585 /* SidebarRows.swift */; };
 		39FF4B376A819DEDA3A8491A /* DiffApprovalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D536FE582904D531A04E7431 /* DiffApprovalController.swift */; };
 		3BC7EACE8DFAB72C9F7CD374 /* FrontmatterEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */; };
@@ -81,6 +84,7 @@
 		60A193229E401053BB8F70BF /* LinkIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666BC06A474E4D37C8EA0265 /* LinkIndex.swift */; };
 		670C9265FFA4B3E3A4D2A55F /* FileHistoryGit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13598AA74E2E20FB7CA24E0D /* FileHistoryGit.swift */; };
 		675B09B9DA5B92C62A81242C /* ReviewHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40997DF47CAB5708DEA3B75A /* ReviewHighlight.swift */; };
+		67619EC701156B09166789B6 /* AIProposalChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		69D19F4C81153AC64E116CE2 /* FileMoveActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C803DB18A964AA7724C35CE /* FileMoveActions.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
@@ -278,6 +282,7 @@
 		801219633BD7829B2F8376CD /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		801C9AFE83EDECE7C97BC89A /* BuiltInPluginsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPluginsTests.swift; sourceTree = "<group>"; };
 		826B3718B5967A1074331A2A /* WikiCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiCompletionTests.swift; sourceTree = "<group>"; };
+		829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProposalChrome.swift; sourceTree = "<group>"; };
 		82D8BF400E9D538C51E10B8F /* EditMD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EditMD.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		83986ED9BC2FF6060A1254F2 /* FileTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTemplates.swift; sourceTree = "<group>"; };
 		84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Frontmatter.swift; sourceTree = "<group>"; };
@@ -303,6 +308,7 @@
 		A13117B53A0709929BE14082 /* SkillInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillInstaller.swift; sourceTree = "<group>"; };
 		A14742851ED5AEE37BAF1419 /* ReviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewModel.swift; sourceTree = "<group>"; };
 		A26D9A42761B8A66313BBE3C /* VisualCoordinatorTables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorTables.swift; sourceTree = "<group>"; };
+		A3B6DEAB91BC3E1995F37434 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A4840BC0DD8B410D784453BC /* GitSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSidebar.swift; sourceTree = "<group>"; };
 		A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebarTests.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
@@ -339,6 +345,7 @@
 		CF009B9BF4E810D4E4326786 /* ControlService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlService.swift; sourceTree = "<group>"; };
 		CF24B8D60ECFF50F6C9CEB16 /* PropertiesPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertiesPanel.swift; sourceTree = "<group>"; };
 		CFAB2E84EB730567221C4320 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		D1948CF2D3D64487B7092897 /* editmd-mcp */ = {isa = PBXFileReference; includeInIndex = 0; path = "editmd-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D244CCE350BF9AEF4155563C /* AgentPromptCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptCatalog.swift; sourceTree = "<group>"; };
 		D43FDE14678AC0C05027F7AA /* FolderInfoActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfoActions.swift; sourceTree = "<group>"; };
 		D45090939E587BA5C57087E3 /* LinkScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkScanTests.swift; sourceTree = "<group>"; };
@@ -430,6 +437,14 @@
 			path = editmdctl;
 			sourceTree = "<group>";
 		};
+		2984DE20EB9E70C34D0B4767 /* editmd-mcp */ = {
+			isa = PBXGroup;
+			children = (
+				A3B6DEAB91BC3E1995F37434 /* main.swift */,
+			);
+			path = "editmd-mcp";
+			sourceTree = "<group>";
+		};
 		2A44F91CD35864B76B661F7F /* EditMD */ = {
 			isa = PBXGroup;
 			children = (
@@ -511,6 +526,7 @@
 			isa = PBXGroup;
 			children = (
 				2A44F91CD35864B76B661F7F /* EditMD */,
+				2984DE20EB9E70C34D0B4767 /* editmd-mcp */,
 				21EBB9C51F3D8A62862143F5 /* editmdctl */,
 				BB2D9D688B6394A586DDEF3F /* EditMDTests */,
 				A1087D93804719B777F561BA /* Products */,
@@ -521,6 +537,7 @@
 			isa = PBXGroup;
 			children = (
 				05BD6FEE37D46DDCB2327414 /* AgentActivityUI.swift */,
+				829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */,
 				1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */,
 				92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */,
 				92161BAEF22CB4D7970B98F1 /* ContentView.swift */,
@@ -625,6 +642,7 @@
 		A1087D93804719B777F561BA /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				D1948CF2D3D64487B7092897 /* editmd-mcp */,
 				82D8BF400E9D538C51E10B8F /* EditMD.app */,
 				6CD98340498DA61A5DE1B2C9 /* editmdctl */,
 				B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */,
@@ -779,6 +797,23 @@
 			productReference = B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		F9B5CE2532B8236CDC895E66 /* editmd-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FBC67B624F7FD7D51C06968 /* Build configuration list for PBXNativeTarget "editmd-mcp" */;
+			buildPhases = (
+				FB67BA7A06D7E9D886D0CB33 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "editmd-mcp";
+			packageProductDependencies = (
+			);
+			productName = "editmd-mcp";
+			productReference = D1948CF2D3D64487B7092897 /* editmd-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -816,6 +851,7 @@
 			targets = (
 				A83F4158108B6E92D2C81AB7 /* EditMD */,
 				F633B8F3635FA091ACD8CA76 /* EditMDTests */,
+				F9B5CE2532B8236CDC895E66 /* editmd-mcp */,
 				EF945607E0482C672E8FC2F9 /* editmdctl */,
 			);
 		};
@@ -901,6 +937,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				67619EC701156B09166789B6 /* AIProposalChrome.swift in Sources */,
 				AE63AA9462C8A9C0070EA515 /* AgentActivityModel.swift in Sources */,
 				B8CAF95FD16B223634751E50 /* AgentActivityUI.swift in Sources */,
 				959F2DEF3ADC7D1773FE3D70 /* AgentHooksInstaller.swift in Sources */,
@@ -1027,6 +1064,16 @@
 				C6F637E34B80A58ECDDF7D7F /* ControlProtocol.swift in Sources */,
 				6E924C83797D274F0524C204 /* MCPProtocol.swift in Sources */,
 				F3B77F354F484E4A6F73901D /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FB67BA7A06D7E9D886D0CB33 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				155D2DD4FEB70FF922B71D87 /* ControlProtocol.swift in Sources */,
+				38638AF7341BF41B0953E365 /* MCPProtocol.swift in Sources */,
+				0696C42344B4309772ADE9A0 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1288,6 +1335,42 @@
 			};
 			name = Release;
 		};
+		91886B32A8D63DD58E13C1F5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.mcp;
+				PRODUCT_NAME = "editmd-mcp";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.2;
+			};
+			name = Debug;
+		};
+		9ED6ADB0B7202E0BA849CD1F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.mcp;
+				PRODUCT_NAME = "editmd-mcp";
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1296,6 +1379,15 @@
 			buildConfigurations = (
 				0A458C6E7A33DE5429F00502 /* Debug */,
 				2AC91C2CA096F7DB5AE880EB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7FBC67B624F7FD7D51C06968 /* Build configuration list for PBXNativeTarget "editmd-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91886B32A8D63DD58E13C1F5 /* Debug */,
+				9ED6ADB0B7202E0BA849CD1F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

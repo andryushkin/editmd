@@ -29,6 +29,20 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F9B5CE2532B8236CDC895E66"
+               BuildableName = "editmd-mcp"
+               BlueprintName = "editmd-mcp"
+               ReferencedContainer = "container:EditMD.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "EF945607E0482C672E8FC2F9"
                BuildableName = "editmdctl"
                BlueprintName = "editmdctl"
