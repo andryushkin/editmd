@@ -43,9 +43,9 @@
 - [x] Удалена старая система выбора темы `EditorTheme`: пикер Settings ▸ General ▸ Preset + скины System/Sepia/Nord/Solarized/High Contrast/Dracula (8991aeb). Source/Visual теперь на одном фиксированном облике `EditorTheme.editorDefault` (бывший GitHub); секция стала «Appearance» (только light/dark). Base-цвета остались.
 - [ ] **Позже:** полноценные пресеты для Source и Visual поверх этого baseline (возможно ThemeSpec + проекции). Единый пикер, `ElementStyles`/`fontFamily` fallback'и в тему, «Reset to theme».
 
-### 4. Изображения
-- [ ] Drag-and-drop изображений в Source/Visual (тот же guard и сериализатор `markdownImageSyntax`, что у paste/кнопки)
-- [ ] Remote images (`http(s)`) в Visual — рендер с async-загрузкой и кэшем, без блокировки layout
+### 4. Изображения — **ЗАВЕРШЁН 2026-07-18** (app 0.46.0)
+- [x] Drag-and-drop изображений в Source/Visual (8d6df89) — тот же store+insert путь, что у paste/кнопки; NSTextView override drag-методов → `insertDraggedImage`, fence/context guard'ы соблюдены
+- [x] Remote images (`http(s)`) в Visual (e4a2e9a) — `RemoteImageCache` (сессионный in-memory кэш, shared in-flight, 20MB cap), async off-main, placeholder → картинка с per-image reflow. Совпадает с Preview
 
 ### 5. Поиск внутри Preview
 - [ ] ⌘F в режиме Preview: подсветка совпадений в WKWebView (JS-слой), навигация next/prev; связать с существующей моделью поиска Source/Visual
