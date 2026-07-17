@@ -66,6 +66,7 @@ struct EditorActionStrip: View {
                                     showReviewAction: Bool) -> [String] {
         if mode == .preview {
             return ["strike", "highlight"] + (showReviewAction ? ["review"] : [])
+                + StripGroup.theme.toolIDs
         }
         let extras = mode == .visual && showVisualExtras ? visualExtraToolIDs : []
         let review = mode == .split && showReviewAction ? StripGroup.review.toolIDs : []
@@ -259,6 +260,12 @@ struct EditorActionStrip: View {
                 sep
                 formulaMenu
             }
+        } else if group == .theme {
+            // One palette button; the presets live in its menu (and flatten
+            // into plain items inside "…").
+            pill {
+                themeMenu
+            }
         } else {
             pill {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -426,6 +433,18 @@ struct EditorActionStrip: View {
                           active: activeFormats.quote,
                           action: { actions.run(actions.toggleQuote) }),
             ]
+        case .theme:
+            // Feeds the "…" overflow menu; the strip itself renders the group
+            // as `themeMenu`, not from these items.
+            let current = PreviewTheme.preset(
+                named: EditorSettings.shared.previewTypography.theme).id
+            items = PreviewTheme.allPresets.map { preset in
+                StripItem(id: "theme.\(preset.id)", glyph: .symbol("paintpalette"),
+                          title: preset.title, help: preset.title,
+                          menuIcon: current == preset.id ? "checkmark" : "paintpalette",
+                          active: current == preset.id,
+                          action: { EditorSettings.shared.previewTypography.theme = preset.id })
+            }
         case .extras:
             items = [
                 StripItem(id: "table", glyph: .symbol("tablecells"),
@@ -509,6 +528,32 @@ struct EditorActionStrip: View {
         .editMDHelp(String(localized: "Formula"))
     }
 
+    // MARK: Preview theme menu (Preview)
+
+    private var themeMenu: some View {
+        Menu {
+            Picker("Theme", selection: Binding(
+                get: { EditorSettings.shared.previewTypography.theme },
+                set: { EditorSettings.shared.previewTypography.theme = $0 })) {
+                ForEach(PreviewTheme.allPresets, id: \.id) { preset in
+                    Text(preset.title).tag(preset.id)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.primary)
+                .frame(width: SidebarChrome.iconButtonWidth,
+                       height: SidebarChrome.iconButtonHeight)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
+        .editMDHelp(String(localized: "Preview theme"))
+    }
+
     // MARK: Chrome
 
     private var stripHeight: CGFloat {
@@ -583,7 +628,7 @@ struct EditorActionStrip: View {
 
 /// Tool groups, in strip order. The trailing ones collapse into "…" first.
 private enum StripGroup: String, CaseIterable, Identifiable {
-    case inline, paragraph, lists, review, extras
+    case inline, paragraph, lists, review, extras, theme
 
     var id: String { rawValue }
 
@@ -595,6 +640,7 @@ private enum StripGroup: String, CaseIterable, Identifiable {
         case .paragraph: return String(localized: "Paragraph")
         case .lists:     return String(localized: "Lists")
         case .extras:    return String(localized: "Tables & Formulas")
+        case .theme:     return String(localized: "Theme")
         }
     }
 
@@ -607,6 +653,8 @@ private enum StripGroup: String, CaseIterable, Identifiable {
         case .lists: return ["bullet", "checklist", "numbered", "quote"]
         case .extras:
             return ["table", "table.addRow", "table.delRow", "math.inline", "math.block"]
+        case .theme:
+            return PreviewTheme.allPresets.map { "theme.\($0.id)" }
         }
     }
 }

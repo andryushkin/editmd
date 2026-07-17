@@ -24,46 +24,6 @@ struct EditorToolbar: ToolbarContent {
                 .help("Toggle Sidebar (⌃⌘S)")
             }
         }
-        ToolbarItemGroup {
-            Button {
-                NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
-            } label: {
-                Label("Cut", systemImage: "scissors")
-            }
-            .help("Cut (⌘X)")
-            Button {
-                NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .help("Copy (⌘C)")
-            Button {
-                NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
-            } label: {
-                Label("Paste", systemImage: "doc.on.clipboard")
-            }
-            .help("Paste (⌘V)")
-        }
-        ToolbarItem {
-            Menu {
-                Picker("Theme", selection: $editorSettings.general.themePreset) {
-                    ForEach(EditorTheme.allPresets, id: \.id) { preset in
-                        Text(preset.title).tag(preset.id)
-                    }
-                }
-                Divider()
-                Button("Settings…") {
-                    // macOS 14+ uses showSettingsWindow:; 13 uses the older
-                    // showPreferencesWindow:.
-                    if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-                    }
-                }
-            } label: {
-                Label("Theme", systemImage: "paintpalette")
-            }
-            .help("Editor theme & settings")
-        }
         ToolbarItem {
             Button {
                 editorSettings.general.appearance = appearanceIsDark ? .light : .dark

@@ -40,11 +40,12 @@ final class VisualEditingTests: XCTestCase {
             stripWidth: 500, editingPaneWidth: 700), 500)
     }
 
-    func testPreviewActionStripContainsOnlyReviewSelectionTools() {
+    func testPreviewActionStripContainsOnlyReviewSelectionToolsAndThemes() {
         let ids = EditorActionStrip.toolIDs(
             for: .preview, showVisualExtras: false, showReviewAction: true)
 
-        XCTAssertEqual(ids, ["strike", "highlight", "review"])
+        let themeIDs = PreviewTheme.allPresets.map { "theme.\($0.id)" }
+        XCTAssertEqual(ids, ["strike", "highlight", "review"] + themeIDs)
         XCTAssertFalse(ids.contains("checklist"),
                        "Preview toggles existing task boxes in-page; it must not create lists")
         XCTAssertFalse(ids.contains("bold"))
@@ -52,9 +53,19 @@ final class VisualEditingTests: XCTestCase {
     }
 
     func testPreviewWithoutSidebarOmitsReviewAction() {
-        XCTAssertEqual(EditorActionStrip.toolIDs(
-            for: .preview, showVisualExtras: false, showReviewAction: false),
-                       ["strike", "highlight"])
+        let ids = EditorActionStrip.toolIDs(
+            for: .preview, showVisualExtras: false, showReviewAction: false)
+        XCTAssertEqual(Array(ids.prefix(2)), ["strike", "highlight"])
+        XCTAssertFalse(ids.contains("review"))
+        XCTAssertTrue(ids.contains("theme.default"))
+    }
+
+    func testThemeGroupStaysOutOfEditingModes() {
+        for mode in [EditorMode.source, .visual, .split] {
+            XCTAssertFalse(EditorActionStrip.toolIDs(
+                for: mode, showVisualExtras: true, showReviewAction: true)
+                .contains { $0.hasPrefix("theme.") }, "\(mode)")
+        }
     }
 
     func testSourceAndVisualKeepTheirEditingProfilesWithoutCopy() {

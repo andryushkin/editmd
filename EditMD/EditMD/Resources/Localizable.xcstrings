@@ -4889,6 +4889,16 @@
     "Preview" : {
 
     },
+    "Preview theme" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тема Preview"
+          }
+        }
+      }
+    },
     "Process review queue" : {
       "localizations" : {
         "ru" : {
