@@ -291,8 +291,37 @@ extension VisualMarkdownView.Coordinator {
                     style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 4 * spacingScale)
                 }
                 if nextScan?.isQuote != true {
-                    style.paragraphSpacing = max(style.paragraphSpacing, 6 * spacingScale)
+                    style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
                 }
+                // The entry for this paragraph was appended above; keep its
+                // painted panel off the edge spacing (see VisualQuoteEntry).
+                if !quotes.isEmpty {
+                    if prevScan?.isQuote != true {
+                        quotes[quotes.count - 1].topTrim = style.paragraphSpacingBefore
+                    }
+                    if nextScan?.isQuote != true {
+                        quotes[quotes.count - 1].bottomTrim = style.paragraphSpacing
+                    }
+                }
+            }
+            // Display-math block ($$…$$ paragraph): the tall attachment glyph
+            // eats the visual gap, so give it table-like margins. Preview
+            // already spaces display math this way.
+            var isDisplayMath = false
+            if case .paragraph = blockValue.kind, paragraph.length > 0,
+               storage.attribute(.mdMath, at: paragraph.location, effectiveRange: nil) != nil {
+                if let tex = storage.attribute(.mdMathTex, at: paragraph.location,
+                                               effectiveRange: nil) as? String {
+                    isDisplayMath = tex.hasPrefix("$$")
+                } else {
+                    isDisplayMath = nsText.substring(with: paragraph).hasPrefix("$$")
+                }
+            }
+            if isDisplayMath {
+                if !isDocumentStart {
+                    style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 8 * spacingScale)
+                }
+                style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
             }
 
             style.firstLineHeadIndent = markerIndent

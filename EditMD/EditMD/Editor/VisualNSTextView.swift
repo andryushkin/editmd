@@ -83,6 +83,11 @@ struct VisualQuoteEntry {
     let depth: Int
     let calloutType: String?
     let showsCalloutIcon: Bool
+    /// Paragraph spacing at the quote run's edges. Line fragment rects include
+    /// paragraph spacing, so without this trim the background panel would
+    /// swallow the inter-block gap the spacing was meant to create.
+    var topTrim: CGFloat = 0
+    var bottomTrim: CGFloat = 0
 }
 
 final class VisualNSTextView: NSTextView {

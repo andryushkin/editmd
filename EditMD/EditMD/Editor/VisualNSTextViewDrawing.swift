@@ -153,7 +153,9 @@ extension VisualNSTextView {
 
         // Quote bars
         for entry in quoteEntries {
-            guard let rectUnion = unionRect(for: entry.range), rectUnion.intersects(rect) else { continue }
+            guard var rectUnion = unionRect(for: entry.range), rectUnion.intersects(rect) else { continue }
+            rectUnion.origin.y += entry.topTrim
+            rectUnion.size.height = max(0, rectUnion.height - entry.topTrim - entry.bottomTrim)
             let quoteBox = rectUnion.insetBy(dx: 0, dy: -3)
             let callout: MarkdownCallout? = entry.calloutType.map { type in
                 let style = MarkdownCalloutStyle(rawValue: type.lowercased()) ?? .note
