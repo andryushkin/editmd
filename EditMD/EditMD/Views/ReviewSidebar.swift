@@ -182,13 +182,7 @@ struct ReviewSidebar: View {
     @ViewBuilder private var composeForm: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let anchor = pendingAnchor {
-                HStack(spacing: 4) {
-                    Rectangle().fill(Color.accentColor.opacity(0.5)).frame(width: 2)
-                    Text(anchor.quote)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+                ReviewQuoteLabel(quote: anchor.quote)
 
                 Menu {
                     ForEach(ReviewMarkType.allCases.filter { $0 != .suggest }, id: \.self) { t in
@@ -317,6 +311,39 @@ struct ReviewSidebar: View {
     }
 }
 
+// MARK: - Quote excerpt
+
+/// Two-line quote excerpt with the 2pt accent bar sized by the text. A bare
+/// `Rectangle` sibling in an HStack is height-flexible: outside a ScrollView
+/// (the compose form) it accepted the whole proposed height and blew the row
+/// up to the full sidebar. The overlay is proposed exactly the text's size.
+private struct ReviewQuoteLabel: View {
+    let quote: String
+
+    /// Multi-paragraph selections start with blank lines often enough that a
+    /// two-line excerpt showed nothing — collapse runs of whitespace for
+    /// display only (the mark keeps the verbatim quote).
+    private var excerpt: String {
+        quote.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    var body: some View {
+        Text(excerpt)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .multilineTextAlignment(.leading)
+            .padding(.leading, 6)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(Color.accentColor.opacity(0.5)).frame(width: 2)
+            }
+    }
+}
+
 // MARK: - Mark card
 
 private struct MarkCard: View {
@@ -379,13 +406,7 @@ private struct MarkCard: View {
     private func quoteRow(_ quote: String) -> some View {
         Button(action: onJump) {
             HStack(spacing: 4) {
-                Rectangle().fill(Color.accentColor.opacity(0.5)).frame(width: 2)
-                Text(quote)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
+                ReviewQuoteLabel(quote: quote)
                 Spacer(minLength: 0)
                 if !hasAnchor {
                     Image(systemName: "exclamationmark.triangle")
