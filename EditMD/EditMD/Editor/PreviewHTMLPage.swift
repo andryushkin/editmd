@@ -806,6 +806,11 @@ func previewHTMLPageRender(markdown: String,
                 if (p.classList && p.classList.contains('copy-block-btn')) {
                     return NodeFilter.FILTER_REJECT;
                 }
+                // KaTeX output duplicates every formula (visible HTML + hidden
+                // MathML with the raw TeX annotation): matching inside it
+                // double-counts, can select an invisible node, and wrapping
+                // spans there breaks formula layout.
+                if (p.closest && p.closest('.katex')) return NodeFilter.FILTER_REJECT;
                 return NodeFilter.FILTER_ACCEPT;
             }
         });
@@ -816,22 +821,26 @@ func previewHTMLPageRender(markdown: String,
     // Split one text node around each match and wrap the hits. Matches never
     // cross a node boundary (an inline element between two words is a gap), the
     // same limitation the native find bar has on rendered rich text.
-    function highlightFindInNode(node, needleLower, qlen, out) {
+    // A case-insensitive regex over the ORIGINAL text keeps offsets exact —
+    // indexing into the original with toLowerCase() offsets drifted on
+    // characters whose lowercase form has a different length (Turkish İ).
+    function highlightFindInNode(node, findRegex, out) {
         var text = node.nodeValue;
-        var hay = text.toLowerCase();
-        var idx = hay.indexOf(needleLower);
-        if (idx < 0) return;
+        findRegex.lastIndex = 0;
+        var m = findRegex.exec(text);
+        if (!m) return;
         var frag = document.createDocumentFragment();
         var last = 0;
-        while (idx >= 0) {
-            if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
+        while (m) {
+            if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
             var span = document.createElement('span');
             span.className = 'editmd-find';
-            span.textContent = text.slice(idx, idx + qlen);
+            span.textContent = m[0];
             frag.appendChild(span);
             out.push(span);
-            last = idx + qlen;
-            idx = hay.indexOf(needleLower, last);
+            last = m.index + m[0].length;
+            if (m[0].length === 0) { findRegex.lastIndex += 1; }
+            m = findRegex.exec(text);
         }
         if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
         node.parentNode.replaceChild(frag, node);
@@ -856,11 +865,11 @@ func previewHTMLPageRender(markdown: String,
         if (!q) return { count: 0, index: 0 };
         var root = document.getElementById('preview-content');
         if (!root) return { count: 0, index: 0 };
-        var needleLower = q.toLowerCase();
-        var qlen = q.length;
+        var escaped = q.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+        var findRegex = new RegExp(escaped, 'gi');
         var nodes = collectFindTextNodes(root);
         for (var i = 0; i < nodes.length; i++) {
-            highlightFindInNode(nodes[i], needleLower, qlen, findMatches);
+            highlightFindInNode(nodes[i], findRegex, findMatches);
         }
         if (!findMatches.length) { findCurrent = -1; return { count: 0, index: 0 }; }
         var target = (prevCurrent >= 0 && prevCurrent < findMatches.length) ? prevCurrent : 0;

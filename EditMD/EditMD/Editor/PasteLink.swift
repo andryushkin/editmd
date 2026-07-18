@@ -27,6 +27,14 @@ func bareWebURLForPaste(_ pasteboardString: String?) -> String? {
     return trimmed
 }
 
+/// True when the selection can serve as a link label. A newline inside the
+/// label breaks the `[label](url)` syntax outright when a blank line follows,
+/// and reads as an accident either way — multi-line selections keep the
+/// normal plain-text paste path instead of linkifying.
+func selectionUsableAsLinkLabel(_ text: String) -> Bool {
+    !text.contains(where: \.isNewline)
+}
+
 /// Canonical inline-link serializer: `[text](url)`. The label escapes `\`, `[`
 /// and `]`; a destination carrying spaces or parens is angle-bracketed so the
 /// link can't be broken by the URL (mirrors the image serializer's

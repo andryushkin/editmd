@@ -311,15 +311,20 @@ final class LinkIndex: ObservableObject {
             await WikiLinkResolver.shared.setRoots(capturedRoots)
             let wikiIndex = await WikiLinkResolver.shared.indexedMatches()
             var resolvedMap: [URL: [OutgoingLink]] = [:]
+            var cancelled = false
             for (source, links) in scanned.outgoing {
-                if Task.isCancelled { return }
+                // On cancellation fall through to MainActor.run WITHOUT
+                // applying data: an early `return` here would leave
+                // scanInFlight stuck true and freeze the index for the
+                // rest of the session.
+                if Task.isCancelled { cancelled = true; break }
                 resolvedMap[source] = LinkIndex.resolveScannedLinks(
                     links, source: source, roots: capturedRoots,
                     vaultFallback: nil, wikiIndex: wikiIndex
                 )
             }
 
-            let projected = LinkIndex.projectBacklinks(from: resolvedMap)
+            let projected = cancelled ? [:] : LinkIndex.projectBacklinks(from: resolvedMap)
             guard let self else { return }
             await MainActor.run {
                 self.scanInFlight = false
@@ -327,9 +332,9 @@ final class LinkIndex: ObservableObject {
                 // Parsed data is valid even when a rescan is queued — keep it
                 // so the follow-up scan reuses unchanged files.
                 self.scanCache = scanned.newCache
-                // Accept result unless a newer ensureIndex queued a rescan
-                // (it re-reads live workspace state below).
-                if !self.scanPending {
+                // Accept result unless cancelled or a newer ensureIndex queued
+                // a rescan (it re-reads live workspace state below).
+                if !cancelled, !self.scanPending {
                     self.outgoing = resolvedMap
                     // Invalidate any in-flight single-file projection so it
                     // cannot overwrite the fresher full-scan result.

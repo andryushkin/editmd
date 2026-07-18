@@ -13,15 +13,28 @@ final class RemoteImageCache {
 
     private var cache: [URL: NSImage] = [:]
     private var inFlight: [URL: [(NSImage?) -> Void]] = [:]
+    /// Failures remembered for `failureRetryInterval`: a presentation rebuild
+    /// re-requests every visible src, and without negative caching a dead URL
+    /// re-downloads (with its full timeout) on every theme/mode switch.
+    private var failedAt: [URL: Date] = [:]
+    private let failureRetryInterval: TimeInterval = 300
 
     /// Cached image for `url`, if already downloaded this session.
     func cached(_ url: URL) -> NSImage? { cache[url] }
 
     /// Delivers the image for `url` on the main thread — immediately from cache,
     /// or once the shared download finishes. `nil` on any failure (network,
-    /// non-2xx, undecodable, oversized).
+    /// non-2xx, undecodable, oversized). Failures are answered from a cooldown
+    /// map without hitting the network again for a few minutes.
     func load(_ url: URL, completion: @escaping (NSImage?) -> Void) {
         if let image = cache[url] { completion(image); return }
+        if let failed = failedAt[url] {
+            if Date().timeIntervalSince(failed) < failureRetryInterval {
+                completion(nil)
+                return
+            }
+            failedAt.removeValue(forKey: url)
+        }
         if inFlight[url] != nil { inFlight[url]?.append(completion); return }
         inFlight[url] = [completion]
         Task { [weak self] in
@@ -29,9 +42,13 @@ final class RemoteImageCache {
             // Decode on main (NSImage isn't Sendable); Data crosses the boundary.
             let image = data.flatMap { NSImage(data: $0) }
             guard let self else { return }
-            if let image, image.size.width > 0 { self.cache[url] = image }
-            let waiters = self.inFlight.removeValue(forKey: url) ?? []
             let delivered = (image?.size.width ?? 0) > 0 ? image : nil
+            if let delivered {
+                self.cache[url] = delivered
+            } else {
+                self.failedAt[url] = Date()
+            }
+            let waiters = self.inFlight.removeValue(forKey: url) ?? []
             for waiter in waiters { waiter(delivered) }
         }
     }

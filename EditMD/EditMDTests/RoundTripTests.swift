@@ -111,6 +111,14 @@ final class RoundTripTests: XCTestCase {
     func testLooseBulletListKeepsBlankLines() { assertStable("- one\n\n- two\n\n- three") }
     func testLooseOrderedListKeepsBlankLines() { assertStable("1. first\n\n2. second") }
     func testLooseTaskListKeepsBlankLines() { assertStable("- [ ] todo\n\n- [x] done") }
+    // The blank belongs to the OUTER list: an item ending with a tight nested
+    // sublist must still keep the blank before the next outer sibling.
+    func testLooseListKeepsBlankAfterNestedSublist() {
+        assertStable("- one\n\n- two\n    - b1\n\n- three")
+    }
+    func testLooseOrderedListKeepsBlankAfterNestedSublist() {
+        assertStable("1. first\n    - sub\n\n2. second")
+    }
     func testTightListStaysTight() { assertStable("- one\n- two") }
     // A loose top list whose nested sublist is tight: siblings keep their blank,
     // the parent→child step stays tight.

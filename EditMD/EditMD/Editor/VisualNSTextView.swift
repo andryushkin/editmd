@@ -152,8 +152,15 @@ final class VisualNSTextView: NSTextView {
 
     // MARK: - Image drag-and-drop
 
+    /// Selection as it was before an image drag started moving the caret —
+    /// restored when the drag leaves or is cancelled without a drop.
+    private var selectionBeforeImageDrag: NSRange?
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if imageCandidate(from: sender.draggingPasteboard) != nil { return .copy }
+        if imageCandidate(from: sender.draggingPasteboard) != nil {
+            selectionBeforeImageDrag = selectedRange()
+            return .copy
+        }
         return super.draggingEntered(sender)
     }
 
@@ -166,6 +173,24 @@ final class VisualNSTextView: NSTextView {
         return .copy
     }
 
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        restoreSelectionAfterAbandonedImageDrag()
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        // Reached without a drop (Esc / released outside): undo the caret moves.
+        restoreSelectionAfterAbandonedImageDrag()
+        super.draggingEnded(sender)
+    }
+
+    private func restoreSelectionAfterAbandonedImageDrag() {
+        if let saved = selectionBeforeImageDrag {
+            setSelectedRange(saved)
+            selectionBeforeImageDrag = nil
+        }
+    }
+
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
         if imageCandidate(from: sender.draggingPasteboard) != nil { return true }
         return super.prepareForDragOperation(sender)
@@ -175,9 +200,14 @@ final class VisualNSTextView: NSTextView {
         guard let candidate = imageCandidate(from: sender.draggingPasteboard) else {
             return super.performDragOperation(sender)
         }
+        // A drop is happening — the pre-drag selection is gone for good.
+        selectionBeforeImageDrag = nil
         let point = convert(sender.draggingLocation, from: nil)
         setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
-        return visualCoordinator?.insertDraggedImage(candidate) ?? false
+        if visualCoordinator?.insertDraggedImage(candidate) == true { return true }
+        // Refused context (code block / cell / raw island) or failed store:
+        // hand the drop to the default text handling, like the paste funnel.
+        return super.performDragOperation(sender)
     }
 
     // Clipboard rich-text attributes are never accepted. Recognizable Markdown

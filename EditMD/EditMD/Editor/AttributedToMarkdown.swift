@@ -207,8 +207,13 @@ private func separator(_ a: MDBlock, _ b: MDBlock) -> String {
             // Quote-nested lists stay tight (a blank line would break quote
             // reconstruction). A loose list keeps its blank line between
             // SAME-LEVEL siblings; a parent→nested-child step stays tight.
-            if a.quoteDepth == 0, a.loose, b.loose, listDepth(a.kind) == listDepth(b.kind) {
-                return "\n\n"
+            // Closing a nested run (deeper → shallower) re-enters b's list,
+            // so the blank belongs to b's level: b's looseness decides —
+            // a there is the last nested item, whose own list may be tight.
+            if a.quoteDepth == 0,
+               let da = listDepth(a.kind), let db = listDepth(b.kind) {
+                if da == db, a.loose, b.loose { return "\n\n" }
+                if da > db, b.loose { return "\n\n" }
             }
             return "\n"
         }

@@ -498,8 +498,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             if !reloaded { applyPresentation() }
             parent.document.noteContentEdited()
             DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-            LineChangeTracker.shared.noteContent(url: parent.fileURL,
-                                                 content: parent.document.content)
+            // The caret's markdown offset disambiguates a duplicate-line
+            // insertion (same as Source) — without it the dirty mark can land
+            // on an identical untouched neighbour. Paragraph-start precision is
+            // enough: the tracker only needs the caret's source LINE.
+            LineChangeTracker.shared.noteContent(
+                url: parent.fileURL, content: parent.document.content,
+                caretUTF16Offset: caretMarkdownOffset())
             updateStats()
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke quote search here.
@@ -825,6 +830,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             let markdown: String
             if selection.length > 0 {
                 let selected = (storage.string as NSString).substring(with: selection)
+                guard selectionUsableAsLinkLabel(selected) else { return false }
                 markdown = markdownLinkSyntax(text: selected, url: url)
             } else {
                 markdown = markdownAutolinkSyntax(url: url)
@@ -840,6 +846,27 @@ struct VisualMarkdownView: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: caret, length: 0))
             afterMutation()
             return true
+        }
+
+        /// Markdown offset (paragraph start) for the display caret, via the
+        /// display-paragraph → markdown-range map refreshed by the sync that
+        /// just ran. Nil when the map is out of step — the tracker then simply
+        /// skips caret disambiguation (old behavior).
+        private func caretMarkdownOffset() -> Int? {
+            guard let textView else { return nil }
+            let ns = textView.string as NSString
+            let caret = min(textView.selectedRange().location, ns.length)
+            var index = 0
+            var location = 0
+            while location < ns.length {
+                let para = ns.paragraphRange(for: NSRange(location: location, length: 0))
+                if caret < NSMaxRange(para) { break }
+                guard NSMaxRange(para) > location else { break }
+                location = NSMaxRange(para)
+                index += 1
+            }
+            guard index < lastParagraphRanges.count else { return nil }
+            return lastParagraphRanges[index].location
         }
 
         /// Semantic block under the Visual selection, shared by every paste

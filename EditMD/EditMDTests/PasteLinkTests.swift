@@ -35,6 +35,15 @@ final class PasteLinkTests: XCTestCase {
         XCTAssertNil(bareWebURLForPaste("https://a.com\nhttps://b.com"))
     }
 
+    // MARK: - selectionUsableAsLinkLabel
+
+    func testMultilineSelectionRefusesLinkLabel() {
+        XCTAssertTrue(selectionUsableAsLinkLabel("one line"))
+        XCTAssertFalse(selectionUsableAsLinkLabel("two\nlines"))
+        XCTAssertFalse(selectionUsableAsLinkLabel("para\n\npara"))
+        XCTAssertFalse(selectionUsableAsLinkLabel("crlf\r\nline"))
+    }
+
     // MARK: - markdownLinkSyntax
 
     func testWrapsSelectionAsLink() {

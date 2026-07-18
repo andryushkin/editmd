@@ -68,9 +68,9 @@ private struct InlineLinkRangeCollector: MarkupWalker {
     }
 
     mutating func visitLink(_ link: Link) {
-        // An autolink `<url>` parses to a Link whose label equals its
-        // destination and whose source starts with '<' — skip it (no label to
-        // edit). Everything else is a real `[text](dest)`.
+        // Autolinks (`<url>`) are collected too: their label prefills with the
+        // URL, so ⌘K on one edits it into a regular `[text](url)` link (see
+        // the doc comment on `inlineLinkMatch`).
         if let dest = link.destination, let src = link.range,
            let r = nsRange(for: src), r.length >= 2 {
             matches.append(InlineLinkMatch(range: r, text: link.plainText, url: dest))

@@ -87,6 +87,7 @@ final class SourceNSTextView: NSTextView {
         let replacement: String
         if selection.length > 0 {
             let selected = (string as NSString).substring(with: selection)
+            guard selectionUsableAsLinkLabel(selected) else { return false }
             replacement = markdownLinkSyntax(text: selected, url: url)
         } else {
             replacement = markdownAutolinkSyntax(url: url)
@@ -106,8 +107,15 @@ final class SourceNSTextView: NSTextView {
         delegate as? SourceTextView.Coordinator
     }
 
+    /// Selection as it was before an image drag started moving the caret —
+    /// restored when the drag leaves or is cancelled without a drop.
+    private var selectionBeforeImageDrag: NSRange?
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if imageCandidate(from: sender.draggingPasteboard) != nil { return .copy }
+        if imageCandidate(from: sender.draggingPasteboard) != nil {
+            selectionBeforeImageDrag = selectedRange()
+            return .copy
+        }
         return super.draggingEntered(sender)
     }
 
@@ -121,6 +129,24 @@ final class SourceNSTextView: NSTextView {
         return .copy
     }
 
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        restoreSelectionAfterAbandonedImageDrag()
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        // Reached without a drop (Esc / released outside): undo the caret moves.
+        restoreSelectionAfterAbandonedImageDrag()
+        super.draggingEnded(sender)
+    }
+
+    private func restoreSelectionAfterAbandonedImageDrag() {
+        if let saved = selectionBeforeImageDrag {
+            setSelectedRange(saved)
+            selectionBeforeImageDrag = nil
+        }
+    }
+
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
         if imageCandidate(from: sender.draggingPasteboard) != nil { return true }
         return super.prepareForDragOperation(sender)
@@ -130,9 +156,14 @@ final class SourceNSTextView: NSTextView {
         guard let candidate = imageCandidate(from: sender.draggingPasteboard) else {
             return super.performDragOperation(sender)
         }
+        // A drop is happening — the pre-drag selection is gone for good.
+        selectionBeforeImageDrag = nil
         let point = convert(sender.draggingLocation, from: nil)
         setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
-        return imageDropCoordinator?.insertDraggedImage(candidate) ?? false
+        if imageDropCoordinator?.insertDraggedImage(candidate) == true { return true }
+        // Refused context (fence) / failed store: hand the drop to the default
+        // text handling so it degrades like paste does.
+        return super.performDragOperation(sender)
     }
 
     /// Fenced code blocks are literal — TSV pasted there must stay TSV.
