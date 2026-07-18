@@ -20,7 +20,13 @@ final class VaultLintModel: ObservableObject {
 
     /// True while the report panel is visible. Index updates re-run the full
     /// lint only then; otherwise only tracked per-file entries refresh.
-    var reportActive = false
+    var reportActive = false {
+        didSet {
+            if !reportActive {
+                cancelFullRun()
+            }
+        }
+    }
 
     private var cancellables = Set<AnyCancellable>()
     private var runTask: Task<Void, Never>?
@@ -36,8 +42,14 @@ final class VaultLintModel: ObservableObject {
     private var fileCache: [URL: FileCacheEntry] = [:]
     private var fileTasks: [URL: Task<Void, Never>] = [:]
     private var indexRevision = 0
-    /// Suggestion catalog shared by per-file runs against one index revision.
-    private var catalogCache: (revision: Int, catalog: WikiRankCatalog)?
+    /// The catalog depends only on the set of indexed files, not link contents.
+    /// Keep one completed or in-flight build so an index publication cannot
+    /// fan out into one O(vault) build per tracked editor.
+    private var catalogCache: (files: [URL], catalog: WikiRankCatalog)?
+    private var catalogBuild: (
+        id: Int, files: [URL], task: Task<WikiRankCatalog, Never>
+    )?
+    private var nextCatalogBuildID = 0
     private static let maxTrackedFiles = 32
 
     private init() {
@@ -46,6 +58,13 @@ final class VaultLintModel: ObservableObject {
 
     /// Test / alternate index injection.
     func bind(to index: LinkIndex) {
+        cancelFullRun()
+        for task in fileTasks.values {
+            task.cancel()
+        }
+        fileTasks = [:]
+        catalogBuild?.task.cancel()
+        catalogBuild = nil
         cancellables.removeAll()
         self.index = index
         indexRevision += 1
@@ -115,42 +134,87 @@ final class VaultLintModel: ObservableObject {
     // MARK: - Per-file path
 
     private func refreshTrackedFiles() {
-        for url in fileCache.keys where fileCache[url]?.revision != indexRevision {
-            scheduleFileRun(url)
+        let stale = fileCache.keys.filter {
+            fileCache[$0]?.revision != indexRevision
         }
+        scheduleFileRuns(stale)
     }
 
     private func scheduleFileRun(_ std: URL) {
-        guard let index, fileTasks[std] == nil else { return }
+        scheduleFileRuns([std])
+    }
+
+    private enum CatalogSource: Sendable {
+        case ready(WikiRankCatalog)
+        case building(id: Int, task: Task<WikiRankCatalog, Never>)
+    }
+
+    private func catalogSource(for files: [URL]) -> CatalogSource {
+        if let cached = catalogCache, cached.files == files {
+            return .ready(cached.catalog)
+        }
+        if let build = catalogBuild, build.files == files {
+            return .building(id: build.id, task: build.task)
+        }
+        nextCatalogBuildID += 1
+        let id = nextCatalogBuildID
+        let task = Task.detached(priority: .utility) {
+            vaultLintCatalog(files: files)
+        }
+        catalogBuild = (id, files, task)
+        return .building(id: id, task: task)
+    }
+
+    private func scheduleFileRuns<S: Sequence>(_ urls: S) where S.Element == URL {
+        guard let index else { return }
+        let pending = urls.filter { fileTasks[$0] == nil }
+        guard !pending.isEmpty else { return }
         let revision = indexRevision
         let snap = index.snapshot()
-        let sharedCatalog = catalogCache?.revision == revision
-            ? catalogCache?.catalog : nil
-        let task = Task.detached(priority: .utility) { [weak self] in
-            let catalog = sharedCatalog ?? vaultLintCatalog(files: snap.allFiles)
-            let result = vaultLintFindings(for: std, index: snap, catalog: catalog)
-            await MainActor.run {
-                guard let self else { return }
-                self.fileTasks[std] = nil
-                guard revision == self.indexRevision else {
-                    // The graph moved while we ran — redo against the new one.
-                    self.scheduleFileRun(std)
-                    return
+        let files = snap.allFiles
+        let catalogSource = catalogSource(for: files)
+        for std in pending {
+            let task = Task.detached(priority: .utility) { [weak self] in
+                let catalog: WikiRankCatalog
+                let catalogBuildID: Int?
+                switch catalogSource {
+                case let .ready(value):
+                    catalog = value
+                    catalogBuildID = nil
+                case let .building(id, task):
+                    catalog = await task.value
+                    catalogBuildID = id
                 }
-                if self.catalogCache?.revision != revision {
-                    self.catalogCache = (revision, catalog)
-                }
-                let previous = self.fileCache[std]?.findings
-                self.fileCache[std] = FileCacheEntry(
-                    revision: revision, findings: result, lastAccess: Date())
-                self.evictStaleTrackedFiles()
-                if previous != result {
-                    NotificationCenter.default.post(
-                        name: .vaultLintDidUpdate, object: nil)
+                guard !Task.isCancelled else { return }
+                let result = vaultLintFindings(
+                    for: std, index: snap, catalog: catalog)
+                await MainActor.run {
+                    guard let self else { return }
+                    guard !Task.isCancelled else { return }
+                    self.fileTasks[std] = nil
+                    guard revision == self.indexRevision else {
+                        // The graph moved while we ran — redo against the new one.
+                        self.scheduleFileRun(std)
+                        return
+                    }
+                    if self.catalogCache?.files != files {
+                        self.catalogCache = (files, catalog)
+                    }
+                    if self.catalogBuild?.id == catalogBuildID {
+                        self.catalogBuild = nil
+                    }
+                    let previous = self.fileCache[std]?.findings
+                    self.fileCache[std] = FileCacheEntry(
+                        revision: revision, findings: result, lastAccess: Date())
+                    self.evictStaleTrackedFiles()
+                    if previous != result {
+                        NotificationCenter.default.post(
+                            name: .vaultLintDidUpdate, object: nil)
+                    }
                 }
             }
+            fileTasks[std] = task
         }
-        fileTasks[std] = task
     }
 
     private func evictStaleTrackedFiles() {
@@ -164,6 +228,12 @@ final class VaultLintModel: ObservableObject {
 
     // MARK: - Full run (report panel)
 
+    private func cancelFullRun() {
+        runTask?.cancel()
+        runTask = nil
+        isRunning = false
+    }
+
     private func scheduleRun(force: Bool = false) {
         runTask?.cancel()
         guard let index else { return }
@@ -176,7 +246,20 @@ final class VaultLintModel: ObservableObject {
         }
         isRunning = true
         let snap = index.snapshot()
+        let files = snap.allFiles
+        let catalogSource = catalogSource(for: files)
         runTask = Task.detached(priority: .utility) {
+            let catalog: WikiRankCatalog
+            let catalogBuildID: Int?
+            switch catalogSource {
+            case let .ready(value):
+                catalog = value
+                catalogBuildID = nil
+            case let .building(id, task):
+                catalog = await task.value
+                catalogBuildID = id
+            }
+            guard !Task.isCancelled else { return }
             // Home documents need a directory listing per root — do the disk
             // work here, not in `LinkIndex.snapshot()` on the main actor.
             let homes = Set(snap.roots.compactMap {
@@ -190,7 +273,7 @@ final class VaultLintModel: ObservableObject {
                 roots: snap.roots,
                 homeDocuments: homes
             )
-            let result = vaultLintFindings(index: full)
+            let result = vaultLintFindings(index: full, catalog: catalog)
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 self.findings = result
@@ -198,6 +281,13 @@ final class VaultLintModel: ObservableObject {
                 self.isRunning = false
                 self.lastRun = Date()
                 self.revision += 1
+                if self.catalogCache?.files != files {
+                    self.catalogCache = (files, catalog)
+                }
+                if self.catalogBuild?.id == catalogBuildID {
+                    self.catalogBuild = nil
+                }
+                self.runTask = nil
                 NotificationCenter.default.post(name: .vaultLintDidUpdate, object: nil)
             }
         }

@@ -1059,6 +1059,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - `LinkIndex` хранит `headings` из outline при scan; `snapshot()` + `homeDocument` для orphan-исключений.
 - `VaultLintModel` пересчитывает off-main после обновления индекса; View → «Проверить ссылки workspace» и Info → «Проблем в workspace: N».
 - Per-file: Source lint merge + `vaultLintDidUpdate` notification. Vault-находки отстают до save/index (осознанно). Без автоправок.
+- On-demand vault-lint отменяет текущий full run при закрытии report-панели. Per-file refresh делит один in-flight `WikiRankCatalog`, ключованный набором файлов, а byte-wise ranking работает по заранее canonical-normalized ключам для composed/decomposed Unicode filenames.
 
 ## История файла (план 05)
 

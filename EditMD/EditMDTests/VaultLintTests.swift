@@ -348,6 +348,32 @@ final class VaultLintTests: XCTestCase {
     }
 
     @MainActor
+    func testDeactivatingReportCancelsCurrentFullRun() async throws {
+        let index = LinkIndex()
+        index.seedForTesting(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Missing", offset: 3)],
+            ],
+            roots: [root],
+            key: "vault-cancel"
+        )
+        let model = VaultLintModel.shared
+        model.reportActive = false
+        model.bind(to: index)
+        let previousLastRun = model.lastRun
+
+        model.reportActive = true
+        model.runNow()
+        XCTAssertTrue(model.isRunning)
+        model.reportActive = false
+        XCTAssertFalse(model.isRunning)
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(model.lastRun, previousLastRun)
+        model.bind(to: LinkIndex.shared)
+    }
+
+    @MainActor
     func testVaultLintModelPublishesFromSeededIndex() async throws {
         let index = LinkIndex()
         index.seedForTesting(

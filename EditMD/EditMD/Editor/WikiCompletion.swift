@@ -140,9 +140,9 @@ struct WikiRankCatalog: Sendable {
                 item: item,
                 names: ([item.basename, item.title].compactMap { $0 } + item.aliases)
                     .filter { !$0.isEmpty }
-                    .map { ($0.lowercased(), $0 == item.basename) },
-                loweredBasename: item.basename.lowercased(),
-                loweredPath: item.relativePath.lowercased()
+                    .map { (wikiRankKey($0), $0 == item.basename) },
+                loweredBasename: wikiRankKey(item.basename),
+                loweredPath: wikiRankKey(item.relativePath)
             )
         }
         entries = mapped.sorted {
@@ -152,9 +152,16 @@ struct WikiRankCatalog: Sendable {
     }
 }
 
-/// Byte-wise substring test for pre-lowercased strings. Plain `contains`
+/// Lowercased, canonically normalized key used by byte-wise ranking. Normalize
+/// once when building the catalog / query so composed and decomposed filenames
+/// remain equivalent without paying ICU substring-search cost per candidate.
+func wikiRankKey(_ value: String) -> String {
+    value.lowercased().precomposedStringWithCanonicalMapping
+}
+
+/// Byte-wise substring test for pre-normalized ranking keys. Plain `contains`
 /// resolves to Foundation's locale-aware ICU search, which dominated vault-lint
-/// profiles on multi-thousand-file vaults; ranking needs exact bytes only.
+/// profiles on multi-thousand-file vaults.
 func utf8Contains(_ haystack: String, bytes needle: [UInt8]) -> Bool {
     let n = needle.count
     if n == 0 { return true }
@@ -197,7 +204,7 @@ func rankWikiFileCandidates(
     if q.isEmpty {
         return catalog.entries.prefix(limit).map(\.item)
     }
-    let qLower = q.lowercased()
+    let qLower = wikiRankKey(q)
     let qBytes = Array(qLower.utf8)
 
     struct Scored {

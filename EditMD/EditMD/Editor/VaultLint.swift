@@ -186,10 +186,14 @@ func vaultLintCatalog(files: [URL]) -> WikiRankCatalog {
 /// Pure vault-lint over an index snapshot. Never reads disk. Returns `[]`
 /// when the surrounding task is cancelled mid-run (a superseded run must not
 /// burn cores to completion on a stale snapshot).
-func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
+func vaultLintFindings(
+    index: LinkIndexSnapshot,
+    catalog: WikiRankCatalog? = nil
+) -> [VaultLintFinding] {
     var findings: [VaultLintFinding] = []
     let files = index.allFiles
-    var scratch = VaultLintScratch(catalog: vaultLintCatalog(files: files))
+    var scratch = VaultLintScratch(
+        catalog: catalog ?? vaultLintCatalog(files: files))
 
     for source in files {
         if Task.isCancelled { return [] }
@@ -383,10 +387,10 @@ func suggestWikiTarget(raw: String, catalog: WikiRankCatalog) -> URL? {
     let ranked = rankWikiFileCandidates(query: q, catalog: catalog, limit: 1)
     guard let best = ranked.first else { return nil }
     // Require a real name signal (not empty-query dump of entire vault).
-    let qKey = q.lowercased()
+    let qKey = wikiRankKey(q)
     let qKeyBytes = Array(qKey.utf8)
     let names = ([best.basename, best.title].compactMap { $0 } + best.aliases)
-        .map { $0.lowercased() }
+        .map(wikiRankKey)
     let related = names.contains {
         $0 == qKey || $0.hasPrefix(qKey)
             || utf8Contains($0, bytes: qKeyBytes)

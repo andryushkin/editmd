@@ -187,4 +187,29 @@ final class WikiCompletionTests: XCTestCase {
         let needle = "по ошибкам".lowercased()
         XCTAssertTrue(utf8Contains(hay, bytes: Array(needle.utf8)))
     }
+
+    func testRankingPreservesCanonicalUnicodeEquivalence() {
+        let composed = "Résumé"
+        let decomposed = "Re\u{301}sume\u{301}"
+        let candidate = WikiFileCandidate(
+            url: URL(fileURLWithPath: "/vault/Team \(composed).md"),
+            basename: "Team \(composed)",
+            title: nil,
+            aliases: [],
+            relativePath: "Team \(composed).md"
+        )
+
+        XCTAssertEqual(
+            rankWikiFileCandidates(
+                query: decomposed, catalog: [candidate], limit: 1
+            ).first?.url,
+            candidate.url
+        )
+        XCTAssertTrue(
+            utf8Contains(
+                wikiRankKey(candidate.basename),
+                bytes: Array(wikiRankKey(decomposed).utf8)
+            )
+        )
+    }
 }
