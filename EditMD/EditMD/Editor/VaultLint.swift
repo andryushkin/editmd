@@ -84,26 +84,53 @@ struct LinkIndexSnapshot: Equatable, Sendable {
 
 // MARK: - Engine
 
-/// Pure vault-lint over an index snapshot. Never reads disk.
+/// Per-run caches. Fuzzy suggestions repeat heavily across a vault (the same
+/// dead target is usually referenced from many files) and heading titles must
+/// not be re-normalized per link.
+private struct VaultLintScratch {
+    let catalog: WikiRankCatalog
+    var suggestions: [String: URL?] = [:]
+    var headingKeys: [URL: Set<String>] = [:]
+
+    mutating func suggestion(for raw: String) -> URL? {
+        if let cached = suggestions[raw] { return cached }
+        let s = suggestWikiTarget(raw: raw, catalog: catalog)
+        suggestions[raw] = s
+        return s
+    }
+
+    mutating func headingKeySet(for target: URL, titles: [String]) -> Set<String> {
+        if let cached = headingKeys[target] { return cached }
+        let s = Set(titles.map(normalizeHeadingKey))
+        headingKeys[target] = s
+        return s
+    }
+}
+
+/// Pure vault-lint over an index snapshot. Never reads disk. Returns `[]`
+/// when the surrounding task is cancelled mid-run (a superseded run must not
+/// burn cores to completion on a stale snapshot).
 func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
     var findings: [VaultLintFinding] = []
     let files = index.allFiles
-    let catalog = files.map { url -> WikiFileCandidate in
-        let base = (url.deletingPathExtension().lastPathComponent)
-        return WikiFileCandidate(
-            url: url,
-            basename: base,
-            title: nil,
-            aliases: [],
-            relativePath: url.lastPathComponent
-        )
-    }
+    var scratch = VaultLintScratch(catalog: WikiRankCatalog(
+        files.map { url -> WikiFileCandidate in
+            WikiFileCandidate(
+                url: url,
+                basename: url.deletingPathExtension().lastPathComponent,
+                title: nil,
+                aliases: [],
+                relativePath: url.lastPathComponent
+            )
+        }
+    ))
 
     for source in files {
+        if Task.isCancelled { return [] }
         let links = index.outgoing[source] ?? []
         for link in links {
             findings.append(contentsOf: findingsForLink(
-                link, source: source, index: index, catalog: catalog
+                link, source: source, index: index, scratch: &scratch
             ))
         }
         // Orphans: no *external* backlinks. A file that only links to itself
@@ -140,7 +167,7 @@ private func findingsForLink(
     _ link: OutgoingLink,
     source: URL,
     index: LinkIndexSnapshot,
-    catalog: [WikiFileCandidate]
+    scratch: inout VaultLintScratch
 ) -> [VaultLintFinding] {
     var out: [VaultLintFinding] = []
     let src = source.standardizedFileURL
@@ -158,7 +185,7 @@ private func findingsForLink(
                 targetSuggestion: link.candidates.first
             ))
         } else if link.resolved == nil, link.candidates.isEmpty {
-            let suggestion = suggestWikiTarget(raw: link.rawTarget, catalog: catalog)
+            let suggestion = scratch.suggestion(for: link.rawTarget)
             out.append(VaultLintFinding(
                 rule: .deadWikiLink,
                 severity: .error,
@@ -187,7 +214,7 @@ private func findingsForLink(
            let target = link.resolved?.standardizedFileURL,
            let titles = index.headings[target], !titles.isEmpty {
             let key = normalizeHeadingKey(heading)
-            let hit = titles.contains { normalizeHeadingKey($0) == key }
+            let hit = scratch.headingKeySet(for: target, titles: titles).contains(key)
             if !hit {
                 out.append(VaultLintFinding(
                     rule: .deadHeadingAnchor,
@@ -210,7 +237,7 @@ private func findingsForLink(
                 line: link.line,
                 utf16Offset: link.utf16Offset,
                 message: String(localized: "Link “\(link.rawTarget)” does not exist"),
-                targetSuggestion: suggestWikiTarget(raw: link.rawTarget, catalog: catalog)
+                targetSuggestion: scratch.suggestion(for: link.rawTarget)
             ))
         } else if let target = link.resolved,
                   !index.roots.isEmpty,
@@ -243,7 +270,7 @@ private func findingsForLink(
     return out
 }
 
-func suggestWikiTarget(raw: String, catalog: [WikiFileCandidate]) -> URL? {
+func suggestWikiTarget(raw: String, catalog: WikiRankCatalog) -> URL? {
     // Strip path noise for ranking: take last path component without extension.
     var q = raw
     if let slash = q.lastIndex(of: "/") {

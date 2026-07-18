@@ -118,15 +118,53 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
 
 // MARK: - Ranking
 
+/// Catalog with candidate names lowercased once. Ranking over thousands of
+/// files must not re-lowercase every candidate for every query (vault-lint
+/// asks for a suggestion per dead link; completion asks per keystroke).
+struct WikiRankCatalog {
+    struct Entry {
+        let item: WikiFileCandidate
+        /// Non-empty names (basename / title / aliases), lowercased, with a
+        /// "was the basename" flag for score tiers.
+        let names: [(lowered: String, isBasename: Bool)]
+        let loweredBasename: String
+        let loweredPath: String
+    }
+
+    let entries: [Entry]
+    var isEmpty: Bool { entries.isEmpty }
+
+    init(_ catalog: [WikiFileCandidate]) {
+        entries = catalog.map { item in
+            Entry(
+                item: item,
+                names: ([item.basename, item.title].compactMap { $0 } + item.aliases)
+                    .filter { !$0.isEmpty }
+                    .map { ($0.lowercased(), $0 == item.basename) },
+                loweredBasename: item.basename.lowercased(),
+                loweredPath: item.relativePath.lowercased()
+            )
+        }
+    }
+}
+
 /// Rank file candidates for `query`. Prefix basename > prefix title/alias > substring.
 func rankWikiFileCandidates(
     query: String,
     catalog: [WikiFileCandidate],
     limit: Int = 20
 ) -> [WikiFileCandidate] {
+    rankWikiFileCandidates(query: query, catalog: WikiRankCatalog(catalog), limit: limit)
+}
+
+func rankWikiFileCandidates(
+    query: String,
+    catalog: WikiRankCatalog,
+    limit: Int = 20
+) -> [WikiFileCandidate] {
     let q = query.trimmingCharacters(in: .whitespaces)
     if q.isEmpty {
-        return Array(catalog.sorted {
+        return Array(catalog.entries.map(\.item).sorted {
             $0.basename.localizedCaseInsensitiveCompare($1.basename) == .orderedAscending
         }.prefix(limit))
     }
@@ -138,29 +176,26 @@ func rankWikiFileCandidates(
         let key: String
     }
     var scored: [Scored] = []
-    for item in catalog {
-        let names = ([item.basename, item.title].compactMap { $0 } + item.aliases)
-            .filter { !$0.isEmpty }
+    for entry in catalog.entries {
         var best: Int?
-        for name in names {
-            let n = name.lowercased()
+        for (n, isBasename) in entry.names {
             let s: Int?
             if n == qLower { s = 0 }
             else if n.hasPrefix(qLower) {
-                s = name == item.basename ? 1 : 2
+                s = isBasename ? 1 : 2
             } else if n.contains(qLower) {
-                s = name == item.basename ? 3 : 4
+                s = isBasename ? 3 : 4
             } else {
                 s = nil
             }
             if let s { best = min(best ?? s, s) }
         }
         // Also match relative path substring lightly.
-        if best == nil, item.relativePath.lowercased().contains(qLower) {
+        if best == nil, entry.loweredPath.contains(qLower) {
             best = 5
         }
         if let best {
-            scored.append(Scored(item: item, score: best, key: item.basename.lowercased()))
+            scored.append(Scored(item: entry.item, score: best, key: entry.loweredBasename))
         }
     }
     scored.sort {

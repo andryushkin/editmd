@@ -153,8 +153,14 @@ enum GitFileStatus {
         let sess = sessionDirty
         let dirty = bufferDirty
 
-        return await Task.detached(priority: .utility) {
-            guard GitCLI.repositoryRoot(containing: path) != nil else {
+        // Detached tasks do not inherit cancellation: without the explicit
+        // handler a superseded refresh keeps spawning git subprocesses to
+        // completion, and refresh storms pile up concurrent git chains.
+        // The checks between subprocess steps make cancel take effect fast;
+        // the caller discards the result of a cancelled refresh.
+        let work = Task.detached(priority: .utility) { () -> GitFileSnapshot in
+            guard !Task.isCancelled,
+                  GitCLI.repositoryRoot(containing: path) != nil else {
                 return GitFileSnapshot(
                     inRepo: false, pathStatus: .notInRepo, branch: nil,
                     ahead: nil, behind: nil,
@@ -163,8 +169,11 @@ enum GitFileStatus {
                 )
             }
             let status = GitCLI.pathStatus(of: path)
+            if Task.isCancelled { return .empty }
             let branch = GitCLI.currentBranch(containing: path)
+            if Task.isCancelled { return .empty }
             let ab = GitCLI.aheadBehind(containing: path)
+            if Task.isCancelled { return .empty }
             let delta: (Int, Int)
             if status == .clean && !dirty && sess == 0 {
                 delta = (0, 0)
@@ -182,15 +191,26 @@ enum GitFileStatus {
                 added: delta.0,
                 removed: delta.1
             )
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     private static func lineDeltaAsync(file: URL, after: String?) async -> (Int, Int) {
         let path = file
         let afterCopy = after
-        return await Task.detached(priority: .utility) {
-            lineDeltaSync(file: path, after: afterCopy)
-        }.value
+        let work = Task.detached(priority: .utility) { () -> (Int, Int) in
+            if Task.isCancelled { return (0, 0) }
+            return lineDeltaSync(file: path, after: afterCopy)
+        }
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     /// `+` / `−` vs cached HEAD (or empty for untracked). Pure CPU + optional one `git show`.
