@@ -39,15 +39,30 @@ final class VaultLintModel: ObservableObject {
         var findings: [VaultLintFinding]
         var lastAccess: Date
     }
+    private struct FileTaskEntry {
+        let id: Int
+        let task: Task<Void, Never>
+    }
+    private struct RevisionSnapshot {
+        let indexRevision: Int
+        let snapshot: LinkIndexSnapshot
+        let files: [URL]
+        let fileSetGeneration: Int
+    }
     private var fileCache: [URL: FileCacheEntry] = [:]
-    private var fileTasks: [URL: Task<Void, Never>] = [:]
+    private var fileTasks: [URL: FileTaskEntry] = [:]
+    private var nextFileTaskID = 0
     private var indexRevision = 0
+    private var revisionSnapshot: RevisionSnapshot?
+    private var nextFileSetGeneration = 0
     /// The catalog depends only on the set of indexed files, not link contents.
     /// Keep one completed or in-flight build so an index publication cannot
     /// fan out into one O(vault) build per tracked editor.
-    private var catalogCache: (files: [URL], catalog: WikiRankCatalog)?
+    private var catalogCache: (
+        fileSetGeneration: Int, catalog: WikiRankCatalog
+    )?
     private var catalogBuild: (
-        id: Int, files: [URL], task: Task<WikiRankCatalog, Never>
+        id: Int, fileSetGeneration: Int, task: Task<WikiRankCatalog, Never>
     )?
     private var nextCatalogBuildID = 0
     private static let maxTrackedFiles = 32
@@ -59,8 +74,8 @@ final class VaultLintModel: ObservableObject {
     /// Test / alternate index injection.
     func bind(to index: LinkIndex) {
         cancelFullRun()
-        for task in fileTasks.values {
-            task.cancel()
+        for entry in fileTasks.values {
+            entry.task.cancel()
         }
         fileTasks = [:]
         catalogBuild?.task.cancel()
@@ -69,6 +84,7 @@ final class VaultLintModel: ObservableObject {
         self.index = index
         indexRevision += 1
         fileCache = [:]
+        revisionSnapshot = nil
         catalogCache = nil
         // Recompute when the published graph changes (full scan or single-file).
         index.$outgoing
@@ -149,19 +165,52 @@ final class VaultLintModel: ObservableObject {
         case building(id: Int, task: Task<WikiRankCatalog, Never>)
     }
 
-    private func catalogSource(for files: [URL]) -> CatalogSource {
-        if let cached = catalogCache, cached.files == files {
+    /// Snapshot and sorted file list are O(vault), so compute them at most once
+    /// per published index revision. The separate file-set generation changes
+    /// only when files are added/removed and gives catalog lookup an O(1) key.
+    private func currentRevisionSnapshot(
+        for index: LinkIndex,
+        refresh: Bool = false
+    ) -> RevisionSnapshot {
+        if !refresh, let cached = revisionSnapshot,
+           cached.indexRevision == indexRevision {
+            return cached
+        }
+        let snap = index.snapshot()
+        let files = snap.allFiles
+        let fileSetGeneration: Int
+        if let previous = revisionSnapshot, previous.files == files {
+            fileSetGeneration = previous.fileSetGeneration
+        } else {
+            nextFileSetGeneration += 1
+            fileSetGeneration = nextFileSetGeneration
+        }
+        let value = RevisionSnapshot(
+            indexRevision: indexRevision,
+            snapshot: snap,
+            files: files,
+            fileSetGeneration: fileSetGeneration
+        )
+        revisionSnapshot = value
+        return value
+    }
+
+    private func catalogSource(for state: RevisionSnapshot) -> CatalogSource {
+        if let cached = catalogCache,
+           cached.fileSetGeneration == state.fileSetGeneration {
             return .ready(cached.catalog)
         }
-        if let build = catalogBuild, build.files == files {
+        if let build = catalogBuild,
+           build.fileSetGeneration == state.fileSetGeneration {
             return .building(id: build.id, task: build.task)
         }
         nextCatalogBuildID += 1
         let id = nextCatalogBuildID
+        let files = state.files
         let task = Task.detached(priority: .utility) {
             vaultLintCatalog(files: files)
         }
-        catalogBuild = (id, files, task)
+        catalogBuild = (id, state.fileSetGeneration, task)
         return .building(id: id, task: task)
     }
 
@@ -170,10 +219,13 @@ final class VaultLintModel: ObservableObject {
         let pending = urls.filter { fileTasks[$0] == nil }
         guard !pending.isEmpty else { return }
         let revision = indexRevision
-        let snap = index.snapshot()
-        let files = snap.allFiles
-        let catalogSource = catalogSource(for: files)
+        let state = currentRevisionSnapshot(for: index)
+        let snap = state.snapshot
+        let fileSetGeneration = state.fileSetGeneration
+        let catalogSource = catalogSource(for: state)
         for std in pending {
+            nextFileTaskID += 1
+            let fileTaskID = nextFileTaskID
             let task = Task.detached(priority: .utility) { [weak self] in
                 let catalog: WikiRankCatalog
                 let catalogBuildID: Int?
@@ -185,20 +237,26 @@ final class VaultLintModel: ObservableObject {
                     catalog = await task.value
                     catalogBuildID = id
                 }
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    await MainActor.run {
+                        self?.clearFileTask(for: std, id: fileTaskID)
+                    }
+                    return
+                }
                 let result = vaultLintFindings(
                     for: std, index: snap, catalog: catalog)
                 await MainActor.run {
                     guard let self else { return }
-                    guard !Task.isCancelled else { return }
+                    guard self.fileTasks[std]?.id == fileTaskID else { return }
                     self.fileTasks[std] = nil
+                    guard !Task.isCancelled else { return }
                     guard revision == self.indexRevision else {
                         // The graph moved while we ran — redo against the new one.
                         self.scheduleFileRun(std)
                         return
                     }
-                    if self.catalogCache?.files != files {
-                        self.catalogCache = (files, catalog)
+                    if self.catalogCache?.fileSetGeneration != fileSetGeneration {
+                        self.catalogCache = (fileSetGeneration, catalog)
                     }
                     if self.catalogBuild?.id == catalogBuildID {
                         self.catalogBuild = nil
@@ -207,14 +265,19 @@ final class VaultLintModel: ObservableObject {
                     self.fileCache[std] = FileCacheEntry(
                         revision: revision, findings: result, lastAccess: Date())
                     self.evictStaleTrackedFiles()
-                    if previous != result {
+                    if (previous ?? []) != result {
                         NotificationCenter.default.post(
                             name: .vaultLintDidUpdate, object: nil)
                     }
                 }
             }
-            fileTasks[std] = task
+            fileTasks[std] = FileTaskEntry(id: fileTaskID, task: task)
         }
+    }
+
+    private func clearFileTask(for file: URL, id: Int) {
+        guard fileTasks[file]?.id == id else { return }
+        fileTasks[file] = nil
     }
 
     private func evictStaleTrackedFiles() {
@@ -245,9 +308,10 @@ final class VaultLintModel: ObservableObject {
             return
         }
         isRunning = true
-        let snap = index.snapshot()
-        let files = snap.allFiles
-        let catalogSource = catalogSource(for: files)
+        let state = currentRevisionSnapshot(for: index, refresh: force)
+        let snap = state.snapshot
+        let fileSetGeneration = state.fileSetGeneration
+        let catalogSource = catalogSource(for: state)
         runTask = Task.detached(priority: .utility) {
             let catalog: WikiRankCatalog
             let catalogBuildID: Int?
@@ -281,8 +345,8 @@ final class VaultLintModel: ObservableObject {
                 self.isRunning = false
                 self.lastRun = Date()
                 self.revision += 1
-                if self.catalogCache?.files != files {
-                    self.catalogCache = (files, catalog)
+                if self.catalogCache?.fileSetGeneration != fileSetGeneration {
+                    self.catalogCache = (fileSetGeneration, catalog)
                 }
                 if self.catalogBuild?.id == catalogBuildID {
                     self.catalogBuild = nil

@@ -374,6 +374,27 @@ final class VaultLintTests: XCTestCase {
     }
 
     @MainActor
+    func testFirstEmptyPerFileResultDoesNotNotify() async {
+        let index = LinkIndex()
+        index.seedForTesting(
+            outgoing: [noteA: []],
+            roots: [root],
+            key: "vault-empty-file"
+        )
+        let model = VaultLintModel.shared
+        model.reportActive = false
+        model.bind(to: index)
+        let notification = XCTNSNotificationExpectation(
+            name: .vaultLintDidUpdate
+        )
+        notification.isInverted = true
+
+        _ = model.findings(for: noteA)
+        await fulfillment(of: [notification], timeout: 0.3)
+        model.bind(to: LinkIndex.shared)
+    }
+
+    @MainActor
     func testVaultLintModelPublishesFromSeededIndex() async throws {
         let index = LinkIndex()
         index.seedForTesting(
