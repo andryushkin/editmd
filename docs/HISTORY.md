@@ -956,6 +956,7 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - `HighlighterSwift` запускает highlight.js через JavaScriptCore. `CodeSyntaxHighlighter` — общий источник токенов для Source/Visual и HTML-спанов Preview/PDF; aliases языков нормализуются, блоки без языка не автодетектятся.
 - Каждый токен несёт light+dark palette. Source/Visual получают dynamic `NSColor`, HTML — CSS variables; appearance выбирается на отрисовке.
 - Editor path работает cache-first и прогревает промахи off-main (`stale-while-revalidate`). Blocking разрешён только для разового HTML/export. Frontmatter YAML использует тот же pipeline.
+- Performance guard: code blocks длиннее 8192 UTF-16 units остаются plain, потому что regex worst cases highlight.js могут надолго занять JavaScriptCore и его parallel GC. Фоновые промахи прогреваются ограниченными пакетами; Source/Visual получают одно repaint-уведомление после опустошения пакета, а не полный presentation pass после каждого блока.
 
 ## Формулы и appearance — app **0.39.2**
 
@@ -1060,6 +1061,13 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - `VaultLintModel` пересчитывает off-main после обновления индекса; View → «Проверить ссылки workspace» и Info → «Проблем в workspace: N».
 - Per-file: Source lint merge + `vaultLintDidUpdate` notification. Vault-находки отстают до save/index (осознанно). Без автоправок.
 - On-demand vault-lint отменяет текущий full run при закрытии report-панели. Per-file refresh делит один in-flight `WikiRankCatalog`, ключованный поколением набора файлов; snapshot и сортированный список строятся один раз на ревизию индекса. Per-file task очищается только по собственному generation-token, а первый пустой результат не шлёт лишний merge. Byte-wise ranking работает по заранее canonical-normalized ключам для composed/decomposed Unicode filenames.
+
+### Performance hardening link/git paths (2026-07-18)
+
+- Link scan больше не вычисляет line/context полным проходом от начала для каждой ссылки; `LineIndex` даёт бинарный поиск. Full `LinkIndex` хранит parse-cache по `(mtime, size)`, а его task теперь имеет владельца: новый epoch отменяет устаревший walk/resolution, частичный cache не публикуется, cancellation проверяется и внутри link-dense файла.
+- Vault-lint строит lowercased `WikiRankCatalog` один раз за run и memoize-ит suggestion по target. Wiki completion хранит такой же prebuilt catalog, созданный off-main вместе с файловым каталогом; per-keystroke ranking держит только top-N вместо сортировки всех совпадений.
+- Git status-bar refreshes сериализованы actor’ом. `CollectionDifference` синхронный и не умеет остановиться в середине, поэтому отмена старого refresh не должна запускать параллельно новый Myers diff или вторую цепочку git-процессов.
+- Visual serializer возвращает paired display/markdown paragraph ranges. Dirty-line caret lookup делает бинарный поиск по готовой карте вместо прохода всех display paragraphs от начала на каждом keystroke.
 
 ## История файла (план 05)
 

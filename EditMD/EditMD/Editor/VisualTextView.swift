@@ -186,6 +186,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         var isProgrammaticTableEdit = false
         /// Display-paragraph → markdown-range map from the last serialization.
         private var lastParagraphRanges: [NSRange] = []
+        /// Display-buffer ranges paired by index with `lastParagraphRanges`.
+        private var lastDisplayParagraphRanges: [NSRange] = []
         /// Gutter source lines from the load-time render (exact for documents
         /// not in normal form); nil once the document adopts the serialized
         /// normal form — from then on the serialize-based map is exact.
@@ -267,7 +269,9 @@ struct VisualMarkdownView: NSViewRepresentable {
                 source, style: visualStyle, pluginSnapshot: pluginSnapshot)
             storage.setAttributedString(rendered.attributed)
             lastSerialized = parent.document.content
-            lastParagraphRanges = serializeStorageWithFrontmatter(storage).paragraphRanges
+            let serialized = serializeStorageWithFrontmatter(storage)
+            lastParagraphRanges = serialized.paragraphRanges
+            lastDisplayParagraphRanges = serialized.displayParagraphRanges
             // Serialize-based ranges live in the buffer's NORMAL form; a fresh
             // file may not be in it (lazy quotes, …), which skews the gutter's
             // source lines. Until the first sync rewrites the document, map
@@ -299,7 +303,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             let ranges = detailed.paragraphRanges.map {
                 NSRange(location: $0.location + shift, length: $0.length)
             }
-            return MarkdownSerialization(markdown: markdown, paragraphRanges: ranges)
+            return MarkdownSerialization(
+                markdown: markdown,
+                paragraphRanges: ranges,
+                displayParagraphRanges: detailed.displayParagraphRanges
+            )
         }
 
         // MARK: Review-mark anchors (v37)
@@ -853,20 +861,22 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// just ran. Nil when the map is out of step — the tracker then simply
         /// skips caret disambiguation (old behavior).
         private func caretMarkdownOffset() -> Int? {
-            guard let textView else { return nil }
-            let ns = textView.string as NSString
-            let caret = min(textView.selectedRange().location, ns.length)
-            var index = 0
-            var location = 0
-            while location < ns.length {
-                let para = ns.paragraphRange(for: NSRange(location: location, length: 0))
-                if caret < NSMaxRange(para) { break }
-                guard NSMaxRange(para) > location else { break }
-                location = NSMaxRange(para)
-                index += 1
+            guard let textView,
+                  lastDisplayParagraphRanges.count == lastParagraphRanges.count,
+                  !lastDisplayParagraphRanges.isEmpty else { return nil }
+            let caret = min(textView.selectedRange().location,
+                            (textView.string as NSString).length)
+            var lo = 0
+            var hi = lastDisplayParagraphRanges.count - 1
+            while lo < hi {
+                let mid = (lo + hi + 1) / 2
+                if lastDisplayParagraphRanges[mid].location <= caret {
+                    lo = mid
+                } else {
+                    hi = mid - 1
+                }
             }
-            guard index < lastParagraphRanges.count else { return nil }
-            return lastParagraphRanges[index].location
+            return lastParagraphRanges[lo].location
         }
 
         /// Semantic block under the Visual selection, shared by every paste
@@ -1117,6 +1127,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard let storage = textView?.textStorage else { return false }
             let detailed = serializeStorageWithFrontmatter(storage)
             lastParagraphRanges = detailed.paragraphRanges
+            lastDisplayParagraphRanges = detailed.displayParagraphRanges
             gutterSourceLinesFromRender = nil
             var serialized = detailed.markdown
             // Single trailing newline (POSIX text files). Do not append a second

@@ -201,9 +201,13 @@ final class RoundTripTests: XCTestCase {
         let detailed = serializeAttributedToMarkdownDetailed(attr)
         // display paragraphs: heading, body, item a, item b
         XCTAssertEqual(detailed.paragraphRanges.count, 4)
+        XCTAssertEqual(detailed.displayParagraphRanges.count, 4)
         let md = detailed.markdown as NSString
+        let display = attr.string as NSString
         XCTAssertEqual(md.substring(with: detailed.paragraphRanges[0]), "# T")
         XCTAssertEqual(md.substring(with: detailed.paragraphRanges[2]), "- a")
+        XCTAssertEqual(display.substring(with: detailed.displayParagraphRanges[0]), "T")
+        XCTAssertEqual(display.substring(with: detailed.displayParagraphRanges[2]), "a")
     }
 
     func testMixedDocument() {

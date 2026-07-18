@@ -3,6 +3,23 @@ import XCTest
 @testable import EditMD
 
 final class CodeSyntaxHighlighterTests: XCTestCase {
+    private final class NotificationCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+
+        func increment() {
+            lock.lock()
+            count += 1
+            lock.unlock()
+        }
+
+        func snapshot() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return count
+        }
+    }
+
     func testLanguageAliasesAndInfoStringParameters() {
         XCTAssertEqual(CodeLanguageRegistry.language(from: " sh "), "bash")
         XCTAssertEqual(CodeLanguageRegistry.language(from: "swift title=\"App.swift\""), "swift")
@@ -89,6 +106,45 @@ final class CodeSyntaxHighlighterTests: XCTestCase {
 
         let runs = CodeSyntaxHighlighter.shared.tokenRuns(for: source, language: "swift")
         XCTAssertFalse(runs?.isEmpty ?? true, "the warmed cache must serve the next pass")
+    }
+
+    /// Warming several code blocks is one presentation transaction. Posting
+    /// after every block makes Source and Visual repaint the whole document
+    /// repeatedly and was observed as sustained multi-core load.
+    func testMultipleBigBlocksPostOneBatchNotification() {
+        let sources = (0..<3).map { index in
+            "// batch-\(UUID().uuidString)-\(index)\n"
+                + String(repeating: "let value\(index) = \(index)\n", count: 180)
+        }
+        for source in sources {
+            XCTAssertGreaterThan((source as NSString).length, CodeSyntaxHighlighter.inlineLimit)
+            XCTAssertLessThanOrEqual((source as NSString).length,
+                                     CodeSyntaxHighlighter.maximumCodeLength)
+        }
+
+        let warmed = expectation(description: "batched code highlighting completed")
+        let notificationCounter = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .codeHighlightingDidWarm,
+            object: CodeSyntaxHighlighter.shared,
+            queue: .main
+        ) { _ in
+            notificationCounter.increment()
+            warmed.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        for source in sources {
+            XCTAssertNil(CodeSyntaxHighlighter.shared.tokenRuns(for: source, language: "swift"))
+        }
+        wait(for: [warmed], timeout: 10)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertEqual(notificationCounter.snapshot(), 1)
+        for source in sources {
+            XCTAssertFalse(
+                CodeSyntaxHighlighter.shared.tokenRuns(for: source, language: "swift")?.isEmpty ?? true)
+        }
     }
 
     private func unescapedText(of html: String) -> String {

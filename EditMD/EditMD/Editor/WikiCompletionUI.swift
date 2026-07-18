@@ -68,6 +68,8 @@ final class WikiCompletionController: NSObject, NSTableViewDataSource, NSTableVi
     private var session: WikiCompletionSession?
 
     private var catalog: [WikiFileCandidate] = []
+    /// Lowercased/sorted once with the catalog build, then reused per keystroke.
+    private var rankCatalog = WikiRankCatalog([])
     private var catalogKey = ""
     private var catalogTask: Task<Void, Never>?
     private var headingCache: [String: (mtime: TimeInterval, headings: [String])] = [:]
@@ -138,7 +140,8 @@ final class WikiCompletionController: NSObject, NSTableViewDataSource, NSTableVi
 
         switch session.mode {
         case .file:
-            let ranked = rankWikiFileCandidates(query: session.query, catalog: catalog)
+            let ranked = rankWikiFileCandidates(
+                query: session.query, catalog: rankCatalog)
             picks = ranked.map(wikiFilePick(for:))
             selectedIndex = 0
             showOrUpdate(over: tv, caret: caret)
@@ -173,11 +176,13 @@ final class WikiCompletionController: NSObject, NSTableViewDataSource, NSTableVi
         let captured = roots
         catalogTask = Task {
             let built = await Task.detached(priority: .utility) {
-                buildWikiCompletionCatalog(roots: captured)
+                let items = buildWikiCompletionCatalog(roots: captured)
+                return (items, WikiRankCatalog(items))
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                self.catalog = built
+                self.catalog = built.0
+                self.rankCatalog = built.1
                 // Refresh open session with new catalog.
                 if self.isVisible, let tv = self.textView {
                     self.rebuild(fileURL: nil)

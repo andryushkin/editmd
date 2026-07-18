@@ -56,14 +56,21 @@ struct CodeTokenRun {
 /// attributes into their existing NSTextStorage.
 final class CodeSyntaxHighlighter: @unchecked Sendable {
     static let shared = CodeSyntaxHighlighter()
-    static let maximumCodeLength = 100_000
+    /// Highlight.js has regex-heavy worst cases that can keep JavaScriptCore and
+    /// its parallel GC workers busy for seconds. Large blocks stay readable as
+    /// plain code instead of turning a presentation-only feature into sustained
+    /// multi-core work.
+    static let maximumCodeLength = 8_192
     /// Highlight.js is expensive — measured on this project's own test host, one
     /// pass over both palettes costs ~4 ms at 256 chars, ~18 ms at 1 KB and
     /// ~58 ms at 4 KB. So only a tiny snippet runs inline (it paints on the very
     /// first pass, no flash); everything else warms off the main thread and
     /// repaints via `.codeHighlightingDidWarm`, and typing never waits on JS.
     static let inlineLimit = 256
-    private static let maxWarmsInFlight = 2
+    /// The serial worker stays bounded when typing produces obsolete keys, while
+    /// a normal document can warm several blocks before asking the editors for
+    /// one consolidated repaint.
+    private static let maxWarmsInFlight = 8
     /// Cap on remembered previous runs (one per code block of the open files).
     private static let maxStaleKeys = 256
 
@@ -183,9 +190,17 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
             self.compute(code, language: language, key: key)
             self.lock.lock()
             self.warmsInFlight.remove(key)
+            let batchFinished = self.warmsInFlight.isEmpty
             self.lock.unlock()
+            guard batchFinished else { return }
             DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .codeHighlightingDidWarm, object: nil)
+                // A new batch may have started while this main-queue hop was
+                // pending. Its own final job will request the repaint.
+                self.lock.lock()
+                let stillFinished = self.warmsInFlight.isEmpty
+                self.lock.unlock()
+                guard stillFinished else { return }
+                NotificationCenter.default.post(name: .codeHighlightingDidWarm, object: self)
             }
         }
     }

@@ -107,6 +107,60 @@ enum GitHeadContentCache: Sendable {
     }
 }
 
+/// Serializes status-bar git probes and Myers deltas. Cancellation is
+/// cooperative, so a synchronous `CollectionDifference` already in progress
+/// cannot stop midway; keeping all refreshes behind one actor prevents a typing
+/// storm from running several stale diffs or subprocess chains concurrently.
+private actor GitSnapshotCoordinator {
+    static let shared = GitSnapshotCoordinator()
+
+    func lineDelta(file: URL, after: String?) -> (Int, Int) {
+        guard !Task.isCancelled else { return (0, 0) }
+        return GitFileStatus.lineDeltaSync(file: file, after: after)
+    }
+
+    func fullSnapshot(
+        path: URL,
+        after: String?,
+        sessionDirty: Int,
+        bufferDirty: Bool
+    ) -> GitFileSnapshot {
+        guard !Task.isCancelled,
+              GitCLI.repositoryRoot(containing: path) != nil else {
+            return GitFileSnapshot(
+                inRepo: false, pathStatus: .notInRepo, branch: nil,
+                ahead: nil, behind: nil,
+                sessionDirtyLines: sessionDirty, bufferDirty: bufferDirty,
+                added: 0, removed: 0
+            )
+        }
+        let status = GitCLI.pathStatus(of: path)
+        if Task.isCancelled { return .empty }
+        let branch = GitCLI.currentBranch(containing: path)
+        if Task.isCancelled { return .empty }
+        let ab = GitCLI.aheadBehind(containing: path)
+        if Task.isCancelled { return .empty }
+        let delta: (Int, Int)
+        if status == .clean && !bufferDirty && sessionDirty == 0 {
+            delta = (0, 0)
+        } else {
+            delta = GitFileStatus.lineDeltaSync(file: path, after: after)
+        }
+        if Task.isCancelled { return .empty }
+        return GitFileSnapshot(
+            inRepo: true,
+            pathStatus: status,
+            branch: branch,
+            ahead: ab?.ahead,
+            behind: ab?.behind,
+            sessionDirtyLines: sessionDirty,
+            bufferDirty: bufferDirty,
+            added: delta.0,
+            removed: delta.1
+        )
+    }
+}
+
 @MainActor
 enum GitFileStatus {
     /// Async snapshot: git Process work + Myers lineDiff never run on the main actor.
@@ -128,7 +182,8 @@ enum GitFileStatus {
         // Typing path: never spawn git status/branch — only +/− from cached HEAD.
         // If we have no prior in-repo meta yet, do one full snapshot instead.
         if mode == .deltaOnly, previous.inRepo {
-            let (added, removed) = await lineDeltaAsync(file: key, after: afterText)
+            let (added, removed) = await GitSnapshotCoordinator.shared.lineDelta(
+                file: key, after: afterText)
             var next = previous
             next.sessionDirtyLines = sessionDirty
             next.bufferDirty = bufferDirty
@@ -147,71 +202,12 @@ enum GitFileStatus {
         sessionDirty: Int,
         bufferDirty: Bool
     ) async -> GitFileSnapshot {
-        // Capture for Sendable hop.
-        let path = key
-        let afterCopy = after
-        let sess = sessionDirty
-        let dirty = bufferDirty
-
-        return await cancellableDetached { () -> GitFileSnapshot in
-            guard !Task.isCancelled,
-                  GitCLI.repositoryRoot(containing: path) != nil else {
-                return GitFileSnapshot(
-                    inRepo: false, pathStatus: .notInRepo, branch: nil,
-                    ahead: nil, behind: nil,
-                    sessionDirtyLines: sess, bufferDirty: dirty,
-                    added: 0, removed: 0
-                )
-            }
-            let status = GitCLI.pathStatus(of: path)
-            if Task.isCancelled { return .empty }
-            let branch = GitCLI.currentBranch(containing: path)
-            if Task.isCancelled { return .empty }
-            let ab = GitCLI.aheadBehind(containing: path)
-            if Task.isCancelled { return .empty }
-            let delta: (Int, Int)
-            if status == .clean && !dirty && sess == 0 {
-                delta = (0, 0)
-            } else {
-                delta = lineDeltaSync(file: path, after: afterCopy)
-            }
-            return GitFileSnapshot(
-                inRepo: true,
-                pathStatus: status,
-                branch: branch,
-                ahead: ab?.ahead,
-                behind: ab?.behind,
-                sessionDirtyLines: sess,
-                bufferDirty: dirty,
-                added: delta.0,
-                removed: delta.1
-            )
-        }
-    }
-
-    private static func lineDeltaAsync(file: URL, after: String?) async -> (Int, Int) {
-        let path = file
-        let afterCopy = after
-        return await cancellableDetached { () -> (Int, Int) in
-            if Task.isCancelled { return (0, 0) }
-            return lineDeltaSync(file: path, after: afterCopy)
-        }
-    }
-
-    /// Detached git work with cancellation propagated in: detached tasks do
-    /// not inherit it, so without the handler a superseded refresh keeps
-    /// spawning git subprocesses to completion and refresh storms pile up
-    /// concurrent chains. Bodies check `Task.isCancelled` between subprocess
-    /// steps; the caller discards the result of a cancelled refresh.
-    private static func cancellableDetached<T: Sendable>(
-        _ body: @escaping @Sendable () -> T
-    ) async -> T {
-        let work = Task.detached(priority: .utility, operation: body)
-        return await withTaskCancellationHandler {
-            await work.value
-        } onCancel: {
-            work.cancel()
-        }
+        await GitSnapshotCoordinator.shared.fullSnapshot(
+            path: key,
+            after: after,
+            sessionDirty: sessionDirty,
+            bufferDirty: bufferDirty
+        )
     }
 
     /// `+` / `−` vs cached HEAD (or empty for untracked). Pure CPU + optional one `git show`.

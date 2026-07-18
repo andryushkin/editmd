@@ -12,6 +12,10 @@ struct MarkdownSerialization {
     /// For each display paragraph (index = paragraph order in the attributed
     /// string) the UTF-16 range of its emitted piece in `markdown`.
     let paragraphRanges: [NSRange]
+    /// UTF-16 ranges of the corresponding paragraphs in the Visual buffer.
+    /// Keeping these beside `paragraphRanges` avoids rescanning the whole
+    /// display string to locate the caret after every keystroke.
+    let displayParagraphRanges: [NSRange]
 }
 
 func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
@@ -20,7 +24,10 @@ func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
 
 func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> MarkdownSerialization {
     let nsText = attr.string as NSString
-    guard nsText.length > 0 else { return MarkdownSerialization(markdown: "", paragraphRanges: []) }
+    guard nsText.length > 0 else {
+        return MarkdownSerialization(
+            markdown: "", paragraphRanges: [], displayParagraphRanges: [])
+    }
 
     // Split into display paragraphs; each carries MDBlock (stamped through \n).
     var paragraphs: [(range: NSRange, block: MDBlock)] = []
@@ -89,7 +96,10 @@ func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> Markdo
         }
     }
 
-    guard !pieces.isEmpty else { return MarkdownSerialization(markdown: "", paragraphRanges: []) }
+    guard !pieces.isEmpty else {
+        return MarkdownSerialization(
+            markdown: "", paragraphRanges: [], displayParagraphRanges: [])
+    }
     var result = ""
     var ranges = [NSRange](repeating: NSRange(location: 0, length: 0), count: paragraphs.count)
     for (index, piece) in pieces.enumerated() {
@@ -103,7 +113,11 @@ func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> Markdo
         }
         result += piece.text
     }
-    return MarkdownSerialization(markdown: result, paragraphRanges: ranges)
+    return MarkdownSerialization(
+        markdown: result,
+        paragraphRanges: ranges,
+        displayParagraphRanges: paragraphs.map(\.range)
+    )
 }
 
 /// GFM table from collected cells. Missing cells render empty.
