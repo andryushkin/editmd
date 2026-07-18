@@ -887,8 +887,8 @@
 			targets = (
 				A83F4158108B6E92D2C81AB7 /* EditMD */,
 				F633B8F3635FA091ACD8CA76 /* EditMDTests */,
-				F9B5CE2532B8236CDC895E66 /* editmd-mcp */,
 				EF945607E0482C672E8FC2F9 /* editmdctl */,
+				F9B5CE2532B8236CDC895E66 /* editmd-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -1329,7 +1329,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.47.2;
+				MARKETING_VERSION = 0.47.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -1373,7 +1373,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.47.2;
+				MARKETING_VERSION = 0.47.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
