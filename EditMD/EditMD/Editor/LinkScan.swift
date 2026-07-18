@@ -105,19 +105,6 @@ func stripLinkFragment(_ destination: String) -> (path: String, fragment: String
 
 // MARK: - Context / line helpers
 
-/// 1-based line number for a UTF-16 offset (CRLF / LF safe via unicodeScalars of `\n`).
-func lineNumber(utf16Offset: Int, in text: String) -> Int {
-    let ns = text as NSString
-    let limit = min(max(0, utf16Offset), ns.length)
-    var line = 1
-    var i = 0
-    while i < limit {
-        if ns.character(at: i) == 0x0A { line += 1 }
-        i += 1
-    }
-    return line
-}
-
 /// Full source line containing `utf16Offset`, clipped to `maxLen` characters.
 func linkContextLine(utf16Offset: Int, in text: String, maxLen: Int = 160) -> String {
     let ns = text as NSString
@@ -176,7 +163,7 @@ private struct OutgoingLinkCollector: MarkupWalker {
             rawTarget: rawTarget,
             heading: heading,
             label: label,
-            line: lineNumber(utf16Offset: utf16Offset, in: text),
+            line: lineIdx.lineNumber(utf16Offset: utf16Offset),
             utf16Offset: utf16Offset,
             context: linkContextLine(utf16Offset: utf16Offset, in: text)
         )

@@ -33,6 +33,17 @@ struct LineIndex {
 
     var lineCount: Int { lineU8.count }
 
+    /// 1-based line number containing a UTF-16 offset (binary search over
+    /// line starts — the link scan calls this per link, it must not be O(n)).
+    func lineNumber(utf16Offset: Int) -> Int {
+        var lo = 0, hi = lineU16.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if lineU16[mid] <= utf16Offset { lo = mid } else { hi = mid - 1 }
+        }
+        return lo + 1
+    }
+
     /// 1-based line + 1-based UTF-8 byte column → UTF-16 unit offset.
     func offset(_ line: Int, _ col: Int) -> Int {
         guard line >= 1, line <= lineU8.count else { return utf8To16.count - 1 }
