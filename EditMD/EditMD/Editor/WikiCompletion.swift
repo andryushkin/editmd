@@ -121,8 +121,8 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
 /// Catalog with candidate names lowercased once. Ranking over thousands of
 /// files must not re-lowercase every candidate for every query (vault-lint
 /// asks for a suggestion per dead link; completion asks per keystroke).
-struct WikiRankCatalog {
-    struct Entry {
+struct WikiRankCatalog: Sendable {
+    struct Entry: Sendable {
         let item: WikiFileCandidate
         /// Non-empty names (basename / title / aliases), lowercased, with a
         /// "was the basename" flag for score tiers.
@@ -135,7 +135,7 @@ struct WikiRankCatalog {
     var isEmpty: Bool { entries.isEmpty }
 
     init(_ catalog: [WikiFileCandidate]) {
-        entries = catalog.map { item in
+        let mapped = catalog.map { item in
             Entry(
                 item: item,
                 names: ([item.basename, item.title].compactMap { $0 } + item.aliases)
@@ -145,6 +145,36 @@ struct WikiRankCatalog {
                 loweredPath: item.relativePath.lowercased()
             )
         }
+        entries = mapped.sorted {
+            $0.item.basename.localizedCaseInsensitiveCompare($1.item.basename)
+                == .orderedAscending
+        }
+    }
+}
+
+/// Byte-wise substring test for pre-lowercased strings. Plain `contains`
+/// resolves to Foundation's locale-aware ICU search, which dominated vault-lint
+/// profiles on multi-thousand-file vaults; ranking needs exact bytes only.
+func utf8Contains(_ haystack: String, bytes needle: [UInt8]) -> Bool {
+    let n = needle.count
+    if n == 0 { return true }
+    var s = haystack
+    return s.withUTF8 { h in
+        let hc = h.count
+        if n > hc { return false }
+        let first = needle[0]
+        var i = 0
+        let limit = hc - n
+        outer: while i <= limit {
+            if h[i] != first { i += 1; continue }
+            var j = 1
+            while j < n {
+                if h[i + j] != needle[j] { i += 1; continue outer }
+                j += 1
+            }
+            return true
+        }
+        return false
     }
 }
 
@@ -162,20 +192,29 @@ func rankWikiFileCandidates(
     catalog: WikiRankCatalog,
     limit: Int = 20
 ) -> [WikiFileCandidate] {
+    guard limit > 0 else { return [] }
     let q = query.trimmingCharacters(in: .whitespaces)
     if q.isEmpty {
-        return Array(catalog.entries.map(\.item).sorted {
-            $0.basename.localizedCaseInsensitiveCompare($1.basename) == .orderedAscending
-        }.prefix(limit))
+        return catalog.entries.prefix(limit).map(\.item)
     }
     let qLower = q.lowercased()
+    let qBytes = Array(qLower.utf8)
 
     struct Scored {
         let item: WikiFileCandidate
         let score: Int // lower is better
         let key: String
     }
+    func precedes(_ lhs: Scored, _ rhs: Scored) -> Bool {
+        if lhs.score != rhs.score { return lhs.score < rhs.score }
+        return lhs.key < rhs.key
+    }
+
+    // Keep only the requested prefix. Completion needs 20 items and vault-lint
+    // needs one; sorting every matching file for every query wastes O(n log n)
+    // work and was visible on multi-thousand-file vaults.
     var scored: [Scored] = []
+    scored.reserveCapacity(min(limit, catalog.entries.count))
     for entry in catalog.entries {
         var best: Int?
         for (n, isBasename) in entry.names {
@@ -183,7 +222,7 @@ func rankWikiFileCandidates(
             if n == qLower { s = 0 }
             else if n.hasPrefix(qLower) {
                 s = isBasename ? 1 : 2
-            } else if n.contains(qLower) {
+            } else if utf8Contains(n, bytes: qBytes) {
                 s = isBasename ? 3 : 4
             } else {
                 s = nil
@@ -191,18 +230,22 @@ func rankWikiFileCandidates(
             if let s { best = min(best ?? s, s) }
         }
         // Also match relative path substring lightly.
-        if best == nil, entry.loweredPath.contains(qLower) {
+        if best == nil, utf8Contains(entry.loweredPath, bytes: qBytes) {
             best = 5
         }
         if let best {
-            scored.append(Scored(item: entry.item, score: best, key: entry.loweredBasename))
+            let candidate = Scored(
+                item: entry.item, score: best, key: entry.loweredBasename)
+            let insertion = scored.firstIndex {
+                precedes(candidate, $0)
+            } ?? scored.endIndex
+            if insertion < limit {
+                scored.insert(candidate, at: insertion)
+                if scored.count > limit { scored.removeLast() }
+            }
         }
     }
-    scored.sort {
-        if $0.score != $1.score { return $0.score < $1.score }
-        return $0.key < $1.key
-    }
-    return scored.prefix(limit).map(\.item)
+    return scored.map(\.item)
 }
 
 func rankWikiHeadingCandidates(

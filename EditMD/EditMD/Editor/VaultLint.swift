@@ -20,6 +20,44 @@ enum VaultLintSeverity: String, Equatable, Sendable {
     case info
 }
 
+/// Payload for a finding's user-facing text. Localization happens only in
+/// `text` at display time — a full-vault run builds thousands of findings and
+/// must not pay CFString/ICU formatting for rows that are never rendered.
+enum VaultLintMessage: Equatable, Sendable {
+    case deadWiki(target: String, suggestion: String?)
+    case ambiguousWiki(target: String, count: Int)
+    case selfLink
+    case deadRelative(target: String)
+    case outsideWorkspace(target: String)
+    case deadImage(target: String)
+    case deadHeading(heading: String, target: String)
+    case orphan(name: String)
+
+    var text: String {
+        switch self {
+        case let .deadWiki(target, suggestion):
+            if let suggestion {
+                return String(localized: "Wiki link “\(target)” not found — maybe “\(suggestion)”")
+            }
+            return String(localized: "Wiki link “\(target)” not found")
+        case let .ambiguousWiki(target, count):
+            return String(localized: "“\(target)” is ambiguous (\(count) files)")
+        case .selfLink:
+            return String(localized: "Link points to this same file")
+        case let .deadRelative(target):
+            return String(localized: "Link “\(target)” does not exist")
+        case let .outsideWorkspace(target):
+            return String(localized: "Link “\(target)” points outside the workspace")
+        case let .deadImage(target):
+            return String(localized: "Image “\(target)” not found")
+        case let .deadHeading(heading, target):
+            return String(localized: "Heading “\(heading)” not found in “\(target)”")
+        case let .orphan(name):
+            return String(localized: "Nothing links to “\(name)”")
+        }
+    }
+}
+
 struct VaultLintFinding: Equatable, Sendable, Identifiable {
     let rule: VaultLintRule
     let severity: VaultLintSeverity
@@ -28,12 +66,14 @@ struct VaultLintFinding: Equatable, Sendable, Identifiable {
     let line: Int?
     /// UTF-16 offset for jump (orphan has nil).
     let utf16Offset: Int?
-    let message: String
+    let messagePayload: VaultLintMessage
     /// Best-guess target for dead links (basename ranking).
     let targetSuggestion: URL?
 
+    var message: String { messagePayload.text }
+
     var id: String {
-        "\(rule.rawValue)|\(file.path)|\(line ?? -1)|\(utf16Offset ?? -1)|\(message)"
+        "\(rule.rawValue)|\(file.path)|\(line ?? -1)|\(utf16Offset ?? -1)|\(messagePayload)"
     }
 }
 
@@ -80,6 +120,26 @@ struct LinkIndexSnapshot: Equatable, Sendable {
         self.roots = roots.map(\.standardizedFileURL)
         self.homeDocuments = Set(homeDocuments.map(\.standardizedFileURL))
     }
+
+    /// Trusted variant: the caller guarantees every URL is already
+    /// standardized (`LinkIndex` stores standardized keys). The plain init's
+    /// per-URL `standardizedFileURL` pays a reachability stat per entry, which
+    /// is disk I/O — never do that from the main actor for thousands of files.
+    init(
+        standardizedOutgoing outgoing: [URL: [OutgoingLink]],
+        backlinks: [URL: [BacklinkEdge]],
+        headings: [URL: [String]],
+        skippedOversizedCount: Int,
+        roots: [URL],
+        homeDocuments: Set<URL>
+    ) {
+        self.outgoing = outgoing
+        self.backlinks = backlinks
+        self.headings = headings
+        self.skippedOversizedCount = skippedOversizedCount
+        self.roots = roots
+        self.homeDocuments = homeDocuments
+    }
 }
 
 // MARK: - Engine
@@ -107,13 +167,10 @@ private struct VaultLintScratch {
     }
 }
 
-/// Pure vault-lint over an index snapshot. Never reads disk. Returns `[]`
-/// when the surrounding task is cancelled mid-run (a superseded run must not
-/// burn cores to completion on a stale snapshot).
-func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
-    var findings: [VaultLintFinding] = []
-    let files = index.allFiles
-    var scratch = VaultLintScratch(catalog: WikiRankCatalog(
+/// Suggestion catalog over the vault's files. O(n) lowercasing — build once
+/// per index revision and share between the full run and per-file runs.
+func vaultLintCatalog(files: [URL]) -> WikiRankCatalog {
+    WikiRankCatalog(
         files.map { url -> WikiFileCandidate in
             WikiFileCandidate(
                 url: url,
@@ -123,7 +180,16 @@ func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
                 relativePath: url.lastPathComponent
             )
         }
-    ))
+    )
+}
+
+/// Pure vault-lint over an index snapshot. Never reads disk. Returns `[]`
+/// when the surrounding task is cancelled mid-run (a superseded run must not
+/// burn cores to completion on a stale snapshot).
+func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
+    var findings: [VaultLintFinding] = []
+    let files = index.allFiles
+    var scratch = VaultLintScratch(catalog: vaultLintCatalog(files: files))
 
     for source in files {
         if Task.isCancelled { return [] }
@@ -149,7 +215,7 @@ func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
                     file: source,
                     line: nil,
                     utf16Offset: nil,
-                    message: String(localized: "Nothing links to “\(source.lastPathComponent)”"),
+                    messagePayload: .orphan(name: source.lastPathComponent),
                     targetSuggestion: nil
                 ))
             }
@@ -158,6 +224,34 @@ func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
 
     findings.sort {
         if $0.file.path != $1.file.path { return $0.file.path < $1.file.path }
+        let l0 = $0.line ?? Int.max
+        let l1 = $1.line ?? Int.max
+        if l0 != l1 { return l0 < l1 }
+        return $0.rule.rawValue < $1.rule.rawValue
+    }
+    return findings
+}
+
+/// Findings for a single file's links (the editor-underline path). Orphan is
+/// a workspace-level rule and intentionally excluded here. Cheap relative to
+/// the full run: suggestions rank only this file's dead links. Pass a shared
+/// `catalog` when linting several files against one snapshot.
+func vaultLintFindings(
+    for file: URL,
+    index: LinkIndexSnapshot,
+    catalog: WikiRankCatalog? = nil
+) -> [VaultLintFinding] {
+    guard let links = index.outgoing[file], !links.isEmpty else { return [] }
+    var scratch = VaultLintScratch(
+        catalog: catalog ?? vaultLintCatalog(files: index.allFiles))
+    var findings: [VaultLintFinding] = []
+    for (i, link) in links.enumerated() {
+        if i % 64 == 0, Task.isCancelled { return [] }
+        findings.append(contentsOf: findingsForLink(
+            link, source: file, index: index, scratch: &scratch
+        ))
+    }
+    findings.sort {
         let l0 = $0.line ?? Int.max
         let l1 = $1.line ?? Int.max
         if l0 != l1 { return l0 < l1 }
@@ -184,7 +278,8 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: String(localized: "“\(link.rawTarget)” is ambiguous (\(link.candidates.count) files)"),
+                messagePayload: .ambiguousWiki(
+                    target: link.rawTarget, count: link.candidates.count),
                 targetSuggestion: link.candidates.first
             ))
         } else if link.resolved == nil, link.candidates.isEmpty {
@@ -195,9 +290,9 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: suggestion.map {
-                    String(localized: "Wiki link “\(link.rawTarget)” not found — maybe “\($0.lastPathComponent)”")
-                } ?? String(localized: "Wiki link “\(link.rawTarget)” not found"),
+                messagePayload: .deadWiki(
+                    target: link.rawTarget,
+                    suggestion: suggestion?.lastPathComponent),
                 targetSuggestion: suggestion
             ))
         } else if let target = link.resolved?.standardizedFileURL, target == src {
@@ -207,7 +302,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: String(localized: "Link points to this same file"),
+                messagePayload: .selfLink,
                 targetSuggestion: nil
             ))
         }
@@ -225,7 +320,8 @@ private func findingsForLink(
                     file: src,
                     line: link.line,
                     utf16Offset: link.utf16Offset,
-                    message: String(localized: "Heading “\(heading)” not found in “\(target.lastPathComponent)”"),
+                    messagePayload: .deadHeading(
+                        heading: heading, target: target.lastPathComponent),
                     targetSuggestion: target
                 ))
             }
@@ -239,7 +335,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: String(localized: "Link “\(link.rawTarget)” does not exist"),
+                messagePayload: .deadRelative(target: link.rawTarget),
                 targetSuggestion: scratch.suggestion(for: link.rawTarget)
             ))
         } else if let target = link.resolved,
@@ -251,7 +347,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: String(localized: "Link “\(link.rawTarget)” points outside the workspace"),
+                messagePayload: .outsideWorkspace(target: link.rawTarget),
                 targetSuggestion: nil
             ))
         }
@@ -264,7 +360,7 @@ private func findingsForLink(
                 file: src,
                 line: link.line,
                 utf16Offset: link.utf16Offset,
-                message: String(localized: "Image “\(link.rawTarget)” not found"),
+                messagePayload: .deadImage(target: link.rawTarget),
                 targetSuggestion: nil
             ))
         }
@@ -288,10 +384,13 @@ func suggestWikiTarget(raw: String, catalog: WikiRankCatalog) -> URL? {
     guard let best = ranked.first else { return nil }
     // Require a real name signal (not empty-query dump of entire vault).
     let qKey = q.lowercased()
+    let qKeyBytes = Array(qKey.utf8)
     let names = ([best.basename, best.title].compactMap { $0 } + best.aliases)
         .map { $0.lowercased() }
     let related = names.contains {
-        $0 == qKey || $0.hasPrefix(qKey) || $0.contains(qKey) || qKey.contains($0)
+        $0 == qKey || $0.hasPrefix(qKey)
+            || utf8Contains($0, bytes: qKeyBytes)
+            || utf8Contains(qKey, bytes: Array($0.utf8))
     }
     return related ? best.url : nil
 }

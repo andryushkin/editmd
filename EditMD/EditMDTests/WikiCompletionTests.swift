@@ -104,6 +104,32 @@ final class WikiCompletionTests: XCTestCase {
         XCTAssertEqual(rankWikiFileCandidates(query: "N", catalog: catalog, limit: 20).count, 20)
     }
 
+    func testPrebuiltRankCatalogMatchesArrayRanking() {
+        let catalog = [
+            cand("Zulu", aliases: ["Note"]),
+            cand("NoteBook"),
+            cand("Note"),
+            cand("Alpha", title: "Notebook"),
+        ]
+        let built = WikiRankCatalog(catalog)
+        XCTAssertEqual(
+            rankWikiFileCandidates(query: "Note", catalog: built, limit: 3)
+                .map(\.basename),
+            ["Note", "Zulu", "NoteBook"]
+        )
+        XCTAssertEqual(
+            rankWikiFileCandidates(query: "", catalog: built, limit: 2)
+                .map(\.basename),
+            ["Alpha", "Note"]
+        )
+    }
+
+    func testRankZeroLimitIsEmpty() {
+        XCTAssertTrue(rankWikiFileCandidates(
+            query: "N", catalog: WikiRankCatalog([cand("Note")]), limit: 0
+        ).isEmpty)
+    }
+
     func testHeadingRank() {
         let heads = ["Introduction", "Intro notes", "Appendix"]
         XCTAssertEqual(rankWikiHeadingCandidates(query: "Intro", headings: heads).first,
@@ -135,5 +161,30 @@ final class WikiCompletionTests: XCTestCase {
 
     func testFindHeadingMissing() {
         XCTAssertNil(findHeadingOffset(matching: "Nope", in: "# Yes\n"))
+    }
+
+    // MARK: - utf8Contains (ICU-free ranking substring test)
+
+    func testUTF8ContainsBasics() {
+        XCTAssertTrue(utf8Contains("hello world", bytes: Array("lo wo".utf8)))
+        XCTAssertTrue(utf8Contains("hello", bytes: Array("hello".utf8)))
+        XCTAssertTrue(utf8Contains("hello", bytes: []))
+        XCTAssertFalse(utf8Contains("hello", bytes: Array("world".utf8)))
+        XCTAssertFalse(utf8Contains("he", bytes: Array("hello".utf8)))
+        XCTAssertFalse(utf8Contains("", bytes: Array("x".utf8)))
+    }
+
+    func testUTF8ContainsCyrillicAndEmoji() {
+        XCTAssertTrue(utf8Contains("заметка про кофе", bytes: Array("про".utf8)))
+        XCTAssertFalse(utf8Contains("заметка", bytes: Array("кофе".utf8)))
+        XCTAssertTrue(utf8Contains("note 📝 file", bytes: Array("📝".utf8)))
+    }
+
+    func testUTF8ContainsMatchesLoweredRanking() {
+        // Ranking compares pre-lowercased strings; parity with the old
+        // `String.contains` path on the lowered forms.
+        let hay = "справочник ПО Ошибкам".lowercased()
+        let needle = "по ошибкам".lowercased()
+        XCTAssertTrue(utf8Contains(hay, bytes: Array(needle.utf8)))
     }
 }

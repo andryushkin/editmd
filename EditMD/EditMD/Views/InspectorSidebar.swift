@@ -674,7 +674,18 @@ private struct FileInfoPanel: View {
     @ViewBuilder private var vaultLintSection: some View {
         sectionHeader("WORKSPACE")
         let n = vaultLint.issueCount
-        if n == 0, !vaultLint.isRunning {
+        if vaultLint.lastRun == nil, !vaultLint.isRunning {
+            // Full-vault lint runs on demand now — offer it instead of
+            // implying a clean workspace that was never checked.
+            Button {
+                VaultLintReportPresenter.present()
+            } label: {
+                Text("Check workspace…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+        } else if n == 0, !vaultLint.isRunning {
             Text("Workspace problems: 0")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

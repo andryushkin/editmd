@@ -173,9 +173,11 @@ struct VaultLintReportView: View {
 @MainActor
 enum VaultLintReportPresenter {
     private static var panel: NSPanel?
+    private static var closeObserver: NSObjectProtocol?
 
     static func present() {
         if let existing = panel, existing.isVisible {
+            VaultLintModel.shared.reportActive = true
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -202,6 +204,18 @@ enum VaultLintReportPresenter {
         panel.center()
         panel.makeKeyAndOrderFront(nil)
         self.panel = panel
+        // Full-vault lint auto-reruns only while the report is on screen.
+        // willClose also covers the titlebar close button, which never goes
+        // through dismiss().
+        VaultLintModel.shared.reportActive = true
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: panel, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                VaultLintModel.shared.reportActive = false
+            }
+        }
     }
 
     static func dismiss() {

@@ -277,6 +277,76 @@ final class VaultLintTests: XCTestCase {
         XCTAssertTrue(orphanOnly.isEmpty)
     }
 
+    // MARK: - per-file path
+
+    func testPerFileFindingsOnlyForThatFile() {
+        let snap = LinkIndexSnapshot(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Missing", offset: 10)],
+                noteB: [link(kind: .image, target: "gone.png", offset: 0)],
+                orphan: [],
+            ],
+            roots: [root]
+        )
+        let f = vaultLintFindings(for: noteA.standardizedFileURL, index: snap)
+        XCTAssertTrue(f.contains { $0.rule == .deadWikiLink })
+        XCTAssertTrue(f.allSatisfy { $0.file == noteA.standardizedFileURL })
+        // Orphan is workspace-level — excluded from the per-file path.
+        XCTAssertFalse(f.contains { $0.rule == .orphanFile })
+        let g = vaultLintFindings(for: noteB.standardizedFileURL, index: snap)
+        XCTAssertTrue(g.contains { $0.rule == .deadImageLink })
+    }
+
+    func testPerFileFindingsSharedCatalogMatchesOwnCatalog() {
+        let noteNote = root.appendingPathComponent("Note.md")
+        let snap = LinkIndexSnapshot(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Not", offset: 0)],
+                noteNote: [],
+            ],
+            roots: [root]
+        )
+        let shared = vaultLintCatalog(files: snap.allFiles)
+        let own = vaultLintFindings(for: noteA.standardizedFileURL, index: snap)
+        let with = vaultLintFindings(
+            for: noteA.standardizedFileURL, index: snap, catalog: shared)
+        XCTAssertEqual(own, with)
+        XCTAssertEqual(
+            with.first { $0.rule == .deadWikiLink }?
+                .targetSuggestion?.lastPathComponent,
+            "Note.md")
+    }
+
+    @MainActor
+    func testModelIndexUpdateDoesNotRunFullLint() async throws {
+        let index = LinkIndex()
+        let model = VaultLintModel.shared
+        model.bind(to: index)
+        model.reportActive = false
+        // Seeding publishes the graph → debounced sink fires. Without the
+        // report panel open it must NOT start a full-vault run.
+        index.seedForTesting(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Missing", offset: 3)],
+            ],
+            roots: [root],
+            key: "vault-lazy"
+        )
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(model.lastRun)
+        XCTAssertTrue(model.findings.isEmpty)
+
+        // Per-file path still works: first call schedules, then cache fills.
+        _ = model.findings(for: noteA)
+        let deadline = Date().addingTimeInterval(2)
+        while model.findings(for: noteA).isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertFalse(model.findings(for: noteA).isEmpty)
+        XCTAssertTrue(model.findings.isEmpty, "per-file path must not publish full-vault findings")
+        model.bind(to: LinkIndex.shared)
+    }
+
     @MainActor
     func testVaultLintModelPublishesFromSeededIndex() async throws {
         let index = LinkIndex()

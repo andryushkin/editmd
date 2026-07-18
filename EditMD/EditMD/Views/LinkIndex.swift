@@ -34,6 +34,7 @@ final class LinkIndex: ObservableObject {
     private var indexKey = ""
     private var scanInFlight = false
     private var scanPending = false
+    private var fullScanTask: Task<Void, Never>?
     private var roots: [URL] = []
     /// Per-file results of the last full scan; survives `invalidate()` so the
     /// next scan re-parses only files whose (mtime, size) changed.
@@ -100,8 +101,10 @@ final class LinkIndex: ObservableObject {
         roots: [URL] = [],
         key: String = "test"
     ) {
-        outgoing = map
-        backlinks = Self.projectBacklinks(from: map)
+        // Standardize keys like the real scan does — snapshot() trusts them.
+        outgoing = Dictionary(uniqueKeysWithValues:
+            map.map { ($0.key.standardizedFileURL, $0.value) })
+        backlinks = Self.projectBacklinks(from: outgoing)
         headings = Dictionary(uniqueKeysWithValues:
             heads.map { ($0.key.standardizedFileURL, $0.value) })
         self.roots = roots.map(\.standardizedFileURL)
@@ -113,8 +116,11 @@ final class LinkIndex: ObservableObject {
     /// `homeDocuments` stays empty: it needs a directory listing per root, so
     /// the consumer fills it off-main (see `VaultLintModel.scheduleRun`).
     func snapshot() -> LinkIndexSnapshot {
+        // Trusted init: the index stores standardized URLs, and the plain
+        // init's re-standardization stats the disk per URL — on the main actor
+        // that froze the run loop for multi-thousand-file vaults.
         LinkIndexSnapshot(
-            outgoing: outgoing,
+            standardizedOutgoing: outgoing,
             backlinks: backlinks,
             headings: headings,
             skippedOversizedCount: skippedOversizedCount,
@@ -152,7 +158,10 @@ final class LinkIndex: ObservableObject {
 
         // Wiki (and pathless image embeds `![[img.png]]` already handled as
         // path-like when they have an extension; still try wiki index).
-        let matches = wikiMatches.map(\.standardizedFileURL)
+        // `wikiMatches` come standardized from WikiLinkResolver — do not
+        // re-standardize: it stats the disk per URL, and the full scan calls
+        // this for every link in the vault.
+        let matches = wikiMatches
         if matches.isEmpty {
             out.resolved = nil
             out.candidates = []
@@ -292,6 +301,9 @@ final class LinkIndex: ObservableObject {
     private func scheduleFullScan(roots: [URL], key: String) {
         guard !scanInFlight else {
             scanPending = true
+            // The current result is stale. Stop its cooperative walk/resolution
+            // before the pending scan starts against the newest workspace key.
+            fullScanTask?.cancel()
             return
         }
         scanInFlight = true
@@ -302,17 +314,21 @@ final class LinkIndex: ObservableObject {
 
         // Scan AND resolution run detached: resolveLocalLinkDestination stats
         // the disk per link — never on the main actor.
-        Task.detached(priority: .utility) { [weak self] in
+        let task = Task.detached(priority: .utility) { [weak self] in
             let scanned = LinkIndex.scanWorkspaceOutgoing(
                 roots: capturedRoots, cache: capturedCache)
 
             // Resolve against WikiLinkResolver with current roots. The whole
             // basename index is captured once — no actor hop per link.
-            await WikiLinkResolver.shared.setRoots(capturedRoots)
-            let wikiIndex = await WikiLinkResolver.shared.indexedMatches()
+            var cancelled = Task.isCancelled
+            var wikiIndex: [String: [URL]] = [:]
+            if !cancelled {
+                await WikiLinkResolver.shared.setRoots(capturedRoots)
+                wikiIndex = await WikiLinkResolver.shared.indexedMatches()
+                cancelled = Task.isCancelled
+            }
             var resolvedMap: [URL: [OutgoingLink]] = [:]
-            var cancelled = false
-            for (source, links) in scanned.outgoing {
+            for (source, links) in scanned.outgoing where !cancelled {
                 // On cancellation fall through to MainActor.run WITHOUT
                 // applying data: an early `return` here would leave
                 // scanInFlight stuck true and freeze the index for the
@@ -322,6 +338,7 @@ final class LinkIndex: ObservableObject {
                     links, source: source, roots: capturedRoots,
                     vaultFallback: nil, wikiIndex: wikiIndex
                 )
+                if Task.isCancelled { cancelled = true; break }
             }
 
             let projected = cancelled ? [:] : LinkIndex.projectBacklinks(from: resolvedMap)
@@ -329,9 +346,12 @@ final class LinkIndex: ObservableObject {
             await MainActor.run {
                 self.scanInFlight = false
                 self.isScanning = false
-                // Parsed data is valid even when a rescan is queued — keep it
-                // so the follow-up scan reuses unchanged files.
-                self.scanCache = scanned.newCache
+                self.fullScanTask = nil
+                // A cancelled walk can hold only a partial cache; never replace
+                // the last complete cache with it.
+                if !cancelled {
+                    self.scanCache = scanned.newCache
+                }
                 // Accept result unless cancelled or a newer ensureIndex queued
                 // a rescan (it re-reads live workspace state below).
                 if !cancelled, !self.scanPending {
@@ -355,6 +375,7 @@ final class LinkIndex: ObservableObject {
                 }
             }
         }
+        fullScanTask = task
     }
 
     /// Resolve one file's scanned links (wiki index + local path rules).
@@ -376,6 +397,7 @@ final class LinkIndex: ObservableObject {
         var resolvedLinks: [OutgoingLink] = []
         resolvedLinks.reserveCapacity(links.count)
         for link in links {
+            if Task.isCancelled { return [] }
             let wikiHits: [URL]
             if link.kind == .wiki
                 || (link.kind == .image && !link.rawTarget.contains("/")) {
@@ -448,7 +470,7 @@ final class LinkIndex: ObservableObject {
            indexKey != key {
             return
         }
-        outgoing[url] = resolvedLinks
+        outgoing[url.standardizedFileURL] = resolvedLinks
         headings[url.standardizedFileURL] = fileHeadings
         fileScanCount += 1
         await refreshBacklinksOffMain()

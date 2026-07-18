@@ -1082,6 +1082,16 @@
         }
       }
     },
+    "Check workspace…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить workspace…"
+          }
+        }
+      }
+    },
     "Checking…": {
       "localizations": {
         "ru": {
@@ -1513,6 +1523,7 @@
       }
     },
     "Copy (⌘C)": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -1713,6 +1724,7 @@
       }
     },
     "Cut (⌘X)": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -1994,6 +2006,7 @@
     },
     "EditMD": {},
     "Editor theme & settings": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -2631,6 +2644,7 @@
       }
     },
     "High Contrast": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -4288,6 +4302,7 @@
       }
     },
     "Paste (⌘V)": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -4418,6 +4433,7 @@
       }
     },
     "Preset": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -5315,6 +5331,7 @@
       }
     },
     "Settings…": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
