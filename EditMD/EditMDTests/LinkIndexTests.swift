@@ -181,6 +181,37 @@ final class LinkIndexTests: XCTestCase {
         XCTAssertEqual(scanned.filesScanned, 1)
     }
 
+    func testScanCacheReparsesOnlyChangedFiles() throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = try write("a.md", "[[B]]\n", in: root)
+        _ = try write("b.md", "# Head\n", in: root)
+
+        let first = LinkIndex.scanWorkspaceOutgoing(roots: [root])
+        XCTAssertEqual(first.filesScanned, 2)
+        XCTAssertEqual(first.newCache.count, 2)
+
+        // Unchanged workspace: everything comes from the cache.
+        let second = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: first.newCache)
+        XCTAssertEqual(second.filesScanned, 0)
+        XCTAssertEqual(second.outgoing[a]?.first?.rawTarget, "B")
+        XCTAssertEqual(second.headings[root.appendingPathComponent("b.md")
+            .standardizedFileURL], ["Head"])
+
+        // Touch one file (content + mtime change) → only it re-parses.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: a.path)
+        let third = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: second.newCache)
+        XCTAssertEqual(third.filesScanned, 1)
+
+        // Deleted file drops out of the fresh cache.
+        try FileManager.default.removeItem(at: a)
+        let fourth = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: third.newCache)
+        XCTAssertEqual(fourth.newCache.count, 1)
+        XCTAssertNil(fourth.outgoing[a])
+    }
+
     func testPerfSmoke500Files() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -9,7 +9,8 @@ struct BacklinkEdge: Equatable, Sendable {
 
 /// Workspace-scoped link graph (plan 02). Full scans run off-main; results
 /// publish on the main actor. Own-document flush updates a single file
-/// incrementally; filesystem / workspace mutations force a full rebuild.
+/// incrementally; filesystem / workspace mutations force a full rebuild that
+/// re-parses only files whose (mtime, size) changed since the last scan.
 @MainActor
 final class LinkIndex: ObservableObject {
     static let shared = LinkIndex()
@@ -34,6 +35,9 @@ final class LinkIndex: ObservableObject {
     private var scanInFlight = false
     private var scanPending = false
     private var roots: [URL] = []
+    /// Per-file results of the last full scan; survives `invalidate()` so the
+    /// next scan re-parses only files whose (mtime, size) changed.
+    private var scanCache: [URL: FileScanEntry] = [:]
 
     // MARK: - Public API
 
@@ -196,16 +200,28 @@ final class LinkIndex: ObservableObject {
         return result
     }
 
+    /// One file's parsed scan result keyed by (mtime, size). Full scans reuse
+    /// entries for unchanged files, so an epoch bump re-parses only what
+    /// actually changed instead of the whole workspace.
+    struct FileScanEntry: Sendable {
+        let mtime: Date
+        let size: Int64
+        let links: [OutgoingLink]
+        let headings: [String]
+    }
+
     /// Scan all markdown files under `roots` (no resolution). Off-main only.
     nonisolated static func scanWorkspaceOutgoing(
         roots: [URL],
-        maxBytes: Int64 = LinkIndex.maxFileBytes
+        maxBytes: Int64 = LinkIndex.maxFileBytes,
+        cache: [URL: FileScanEntry] = [:]
     ) -> (outgoing: [URL: [OutgoingLink]], headings: [URL: [String]],
-          skipped: Int, filesScanned: Int) {
+          skipped: Int, filesScanned: Int, newCache: [URL: FileScanEntry]) {
         var outgoing: [URL: [OutgoingLink]] = [:]
         var headings: [URL: [String]] = [:]
         var skipped = 0
         var filesScanned = 0
+        var newCache: [URL: FileScanEntry] = [:]
         let mdExt: Set<String> = ["md", "markdown"]
         let fm = FileManager.default
 
@@ -213,12 +229,16 @@ final class LinkIndex: ObservableObject {
             if Task.isCancelled { return }
             let items = (try? fm.contentsOfDirectory(
                 at: dir,
-                includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey, .fileSizeKey],
+                includingPropertiesForKeys: [
+                    .isDirectoryKey, .isPackageKey, .fileSizeKey,
+                    .contentModificationDateKey
+                ],
                 options: [.skipsHiddenFiles])) ?? []
             for url in items {
                 if Task.isCancelled { return }
                 let vals = try? url.resourceValues(forKeys: [
-                    .isDirectoryKey, .isPackageKey, .fileSizeKey
+                    .isDirectoryKey, .isPackageKey, .fileSizeKey,
+                    .contentModificationDateKey
                 ])
                 let isDir = vals?.isDirectory ?? false
                 let isPackage = vals?.isPackage ?? false
@@ -232,21 +252,35 @@ final class LinkIndex: ObservableObject {
                     skipped += 1
                     continue
                 }
+                let key = url.standardizedFileURL
+                let mtime = vals?.contentModificationDate
+                if let mtime, let hit = cache[key],
+                   hit.mtime == mtime, hit.size == size {
+                    outgoing[key] = hit.links
+                    headings[key] = hit.headings
+                    newCache[key] = hit
+                    continue
+                }
                 guard let data = try? Data(contentsOf: url),
                       let text = String(data: data, encoding: .utf8)
                         ?? String(data: data, encoding: .isoLatin1)
                 else { continue }
                 filesScanned += 1
-                let key = url.standardizedFileURL
-                outgoing[key] = scanOutgoingLinks(text: text)
-                headings[key] = markdownOutline(text).map(\.title)
+                let links = scanOutgoingLinks(text: text)
+                let titles = markdownOutline(text).map(\.title)
+                outgoing[key] = links
+                headings[key] = titles
+                if let mtime {
+                    newCache[key] = FileScanEntry(
+                        mtime: mtime, size: size, links: links, headings: titles)
+                }
             }
         }
 
         for root in roots {
             walk(root.standardizedFileURL)
         }
-        return (outgoing, headings, skipped, filesScanned)
+        return (outgoing, headings, skipped, filesScanned, newCache)
     }
 
     // MARK: - Internals
@@ -264,11 +298,13 @@ final class LinkIndex: ObservableObject {
         isScanning = true
         self.roots = roots.map(\.standardizedFileURL)
         let capturedRoots = self.roots
+        let capturedCache = scanCache
 
         // Scan AND resolution run detached: resolveLocalLinkDestination stats
         // the disk per link — never on the main actor.
         Task.detached(priority: .utility) { [weak self] in
-            let scanned = LinkIndex.scanWorkspaceOutgoing(roots: capturedRoots)
+            let scanned = LinkIndex.scanWorkspaceOutgoing(
+                roots: capturedRoots, cache: capturedCache)
 
             // Resolve against WikiLinkResolver with current roots. The whole
             // basename index is captured once — no actor hop per link.
@@ -288,6 +324,9 @@ final class LinkIndex: ObservableObject {
             await MainActor.run {
                 self.scanInFlight = false
                 self.isScanning = false
+                // Parsed data is valid even when a rescan is queued — keep it
+                // so the follow-up scan reuses unchanged files.
+                self.scanCache = scanned.newCache
                 // Accept result unless a newer ensureIndex queued a rescan
                 // (it re-reads live workspace state below).
                 if !self.scanPending {

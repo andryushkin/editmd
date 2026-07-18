@@ -15,6 +15,7 @@ struct LineIndex {
     init(_ string: String) {
         var u8 = [0], u16 = [0]
         var map = [Int]()
+        map.reserveCapacity(string.utf8.count + 1)
         var c16 = 0
         for scalar in string.unicodeScalars {
             let nb = scalar.utf8.count
