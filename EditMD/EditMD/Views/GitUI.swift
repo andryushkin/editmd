@@ -153,12 +153,7 @@ enum GitFileStatus {
         let sess = sessionDirty
         let dirty = bufferDirty
 
-        // Detached tasks do not inherit cancellation: without the explicit
-        // handler a superseded refresh keeps spawning git subprocesses to
-        // completion, and refresh storms pile up concurrent git chains.
-        // The checks between subprocess steps make cancel take effect fast;
-        // the caller discards the result of a cancelled refresh.
-        let work = Task.detached(priority: .utility) { () -> GitFileSnapshot in
+        return await cancellableDetached { () -> GitFileSnapshot in
             guard !Task.isCancelled,
                   GitCLI.repositoryRoot(containing: path) != nil else {
                 return GitFileSnapshot(
@@ -192,20 +187,26 @@ enum GitFileStatus {
                 removed: delta.1
             )
         }
-        return await withTaskCancellationHandler {
-            await work.value
-        } onCancel: {
-            work.cancel()
-        }
     }
 
     private static func lineDeltaAsync(file: URL, after: String?) async -> (Int, Int) {
         let path = file
         let afterCopy = after
-        let work = Task.detached(priority: .utility) { () -> (Int, Int) in
+        return await cancellableDetached { () -> (Int, Int) in
             if Task.isCancelled { return (0, 0) }
             return lineDeltaSync(file: path, after: afterCopy)
         }
+    }
+
+    /// Detached git work with cancellation propagated in: detached tasks do
+    /// not inherit it, so without the handler a superseded refresh keeps
+    /// spawning git subprocesses to completion and refresh storms pile up
+    /// concurrent chains. Bodies check `Task.isCancelled` between subprocess
+    /// steps; the caller discards the result of a cancelled refresh.
+    private static func cancellableDetached<T: Sendable>(
+        _ body: @escaping @Sendable () -> T
+    ) async -> T {
+        let work = Task.detached(priority: .utility, operation: body)
         return await withTaskCancellationHandler {
             await work.value
         } onCancel: {

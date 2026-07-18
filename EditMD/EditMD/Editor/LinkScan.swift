@@ -106,19 +106,20 @@ func stripLinkFragment(_ destination: String) -> (path: String, fragment: String
 // MARK: - Context / line helpers
 
 /// Full source line containing `utf16Offset`, clipped to `maxLen` characters.
-func linkContextLine(utf16Offset: Int, in text: String, maxLen: Int = 160) -> String {
-    let ns = text as NSString
+/// Line bounds come from `lineIdx` — walking char-by-char to the line start
+/// made link-dense long-line files quadratic (same class as the lineNumber fix).
+func linkContextLine(
+    utf16Offset: Int,
+    in ns: NSString,
+    lineIdx: LineIndex,
+    maxLen: Int = 160
+) -> String {
     let n = ns.length
     guard n > 0 else { return "" }
     let loc = min(max(0, utf16Offset), n)
-    var start = loc
-    while start > 0, ns.character(at: start - 1) != 0x0A {
-        start -= 1
-    }
-    var end = loc
-    while end < n, ns.character(at: end) != 0x0A {
-        end += 1
-    }
+    let bounds = lineIdx.lineBounds(utf16Offset: loc)
+    let start = min(bounds.start, n)
+    let end = min(bounds.end, n)
     var line = ns.substring(with: NSRange(location: start, length: end - start))
     // Drop trailing CR from CRLF lines.
     if line.hasSuffix("\r") { line = String(line.dropLast()) }
@@ -165,7 +166,7 @@ private struct OutgoingLinkCollector: MarkupWalker {
             label: label,
             line: lineIdx.lineNumber(utf16Offset: utf16Offset),
             utf16Offset: utf16Offset,
-            context: linkContextLine(utf16Offset: utf16Offset, in: text)
+            context: linkContextLine(utf16Offset: utf16Offset, in: nsText, lineIdx: lineIdx)
         )
     }
 

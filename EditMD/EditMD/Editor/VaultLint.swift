@@ -128,7 +128,10 @@ func vaultLintFindings(index: LinkIndexSnapshot) -> [VaultLintFinding] {
     for source in files {
         if Task.isCancelled { return [] }
         let links = index.outgoing[source] ?? []
-        for link in links {
+        for (i, link) in links.enumerated() {
+            // One file can carry thousands of links — a superseded run must
+            // not finish it before noticing the cancel.
+            if i % 64 == 0, Task.isCancelled { return [] }
             findings.append(contentsOf: findingsForLink(
                 link, source: source, index: index, scratch: &scratch
             ))

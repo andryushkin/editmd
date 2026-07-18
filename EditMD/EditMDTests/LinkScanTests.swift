@@ -132,6 +132,16 @@ final class LinkScanTests: XCTestCase {
         XCTAssertTrue(scanOutgoingLinks(text: "").isEmpty)
     }
 
+    func testContextLineBoundsMiddleCRLFAndLastLineWithoutNewline() {
+        let text = "first\r\nsee [[A]] here\r\nlast [[B]] tail"
+        let links = scanOutgoingLinks(text: text)
+        XCTAssertEqual(links.count, 2)
+        XCTAssertEqual(links[0].line, 2)
+        XCTAssertEqual(links[0].context, "see [[A]] here")
+        XCTAssertEqual(links[1].line, 3)
+        XCTAssertEqual(links[1].context, "last [[B]] tail")
+    }
+
     // MARK: - Destination filter unit
 
     func testShouldIndexDestination() {

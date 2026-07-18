@@ -45,6 +45,15 @@ struct LineIndex {
         return lo + 1
     }
 
+    /// UTF-16 bounds of the line containing `utf16Offset`, excluding the
+    /// trailing `\n` (a `\r` of a CRLF ending stays — callers trim it).
+    func lineBounds(utf16Offset: Int) -> (start: Int, end: Int) {
+        let line = lineNumber(utf16Offset: utf16Offset)
+        let start = lineU16[line - 1]
+        let end = line < lineU16.count ? lineU16[line] - 1 : (utf8To16.last ?? start)
+        return (start, max(start, end))
+    }
+
     /// 1-based line + 1-based UTF-8 byte column → UTF-16 unit offset.
     func offset(_ line: Int, _ col: Int) -> Int {
         guard line >= 1, line <= lineU8.count else { return utf8To16.count - 1 }
