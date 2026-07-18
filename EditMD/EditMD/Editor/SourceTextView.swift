@@ -349,7 +349,13 @@ struct SourceTextView: NSViewRepresentable {
             isInternalUpdate = false
             parent.document.noteContentEdited()
             DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-            LineChangeTracker.shared.noteContent(url: parent.fileURL, content: tv.string)
+            // The caret sits where the user just typed — it disambiguates a
+            // duplicate-line insertion so the mark lands on the edited line, not
+            // an identical untouched neighbour. Pass the raw offset (O(1)); the
+            // tracker resolves it to a line off-main for large buffers.
+            LineChangeTracker.shared.noteContent(
+                url: parent.fileURL, content: tv.string,
+                caretUTF16Offset: tv.selectedRange().location)
             updateStats()
             highlightSource()
             scheduleLint()

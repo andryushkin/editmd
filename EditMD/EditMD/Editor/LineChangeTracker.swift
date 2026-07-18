@@ -53,7 +53,17 @@ final class LineChangeTracker: ObservableObject {
     /// User typed or paste: recompute dirty vs baseline. Small buffers diff
     /// inline; large ones are debounced and diffed off the main actor — a full
     /// Myers line diff per keystroke on main hitched typing in big files.
-    func noteContent(url: URL?, content: String) {
+    ///
+    /// `caretUTF16Offset` (into `content`) breaks the tie when an inserted line
+    /// is a duplicate of a neighbour: a pure line diff can't tell which of the
+    /// equal lines is the new one, so it would mark an untouched line. The caret
+    /// is where the user actually typed, so we snap the mark there.
+    ///
+    /// The offset is passed instead of a resolved line so the O(n) offset→line
+    /// scan happens where the diff already runs — inline for small buffers, but
+    /// off the main actor for large ones (converting on main per keystroke would
+    /// undo the very hitch-avoidance the debounced path exists for).
+    func noteContent(url: URL?, content: String, caretUTF16Offset: Int? = nil) {
         guard let url else { return }
         let key = url.standardizedFileURL
         guard let base = baseline[key] else {
@@ -65,14 +75,18 @@ final class LineChangeTracker: ObservableObject {
         }
         cancelRecompute(key)
         if base.utf16.count + content.utf16.count <= Self.inlineDiffLimit {
-            applyDirty(Self.dirtyLineNumbers(baseline: base, current: content), for: key)
+            let caretLine = caretUTF16Offset.map { sourceLineNumber(at: $0, in: content) }
+            applyDirty(Self.dirtyLineNumbers(baseline: base, current: content,
+                                             caretLine: caretLine), for: key)
             return
         }
         recomputeTasks[key] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             let next = await Task.detached(priority: .utility) {
-                LineChangeTracker.dirtyLineNumbers(baseline: base, current: content)
+                let caretLine = caretUTF16Offset.map { sourceLineNumber(at: $0, in: content) }
+                return LineChangeTracker.dirtyLineNumbers(baseline: base, current: content,
+                                                          caretLine: caretLine)
             }.value
             guard let self, !Task.isCancelled else { return }
             // Baseline moved while diffing (external reload / commit) — stale.
@@ -120,7 +134,13 @@ final class LineChangeTracker: ObservableObject {
 
     /// Current-document line numbers (1-based) that are inserts or replacements
     /// relative to baseline (LCS line diff). Pure — callable off the main actor.
-    nonisolated static func dirtyLineNumbers(baseline: String, current: String) -> Set<Int> {
+    ///
+    /// `caretLine`, when given, disambiguates a duplicate-line insertion (see
+    /// `noteContent`): the line diff is free to attribute a new line to any of
+    /// several equal lines in a run, so it may light up an untouched one. The
+    /// caret pins the mark to the line the user is actually editing.
+    nonisolated static func dirtyLineNumbers(baseline: String, current: String,
+                                             caretLine: Int? = nil) -> Set<Int> {
         if baseline == current { return [] }
         let result = lineDiff(before: baseline, after: current)
         var dirty = Set<Int>()
@@ -131,7 +151,44 @@ final class LineChangeTracker: ObservableObject {
             // Replacements appear as delete+insert; inserts cover the new side.
             // Pure deletes leave no current line to mark.
         }
+        if let caretLine {
+            dirty = snapMarksToCaret(dirty, caretLine: caretLine, current: current)
+        }
         return dirty
+    }
+
+    /// A pure line-diff can attribute a duplicate insertion to any equal line in
+    /// a contiguous run. When the caret isn't on one of the marked lines but its
+    /// line is content-identical to a marked line — with only equal lines in
+    /// between — the run is ambiguous, so move that mark onto the caret line.
+    /// Keeps the mark count identical; never fires for real (distinct-content)
+    /// changes, so multi-region edits are untouched.
+    nonisolated static func snapMarksToCaret(_ marks: Set<Int>, caretLine caret: Int,
+                                             current: String) -> Set<Int> {
+        guard !marks.isEmpty, !marks.contains(caret) else { return marks }
+        let lines = splitDiffLines(current)
+        guard caret >= 1, caret <= lines.count else { return marks }
+        let caretText = lines[caret - 1]
+        var best: Int?
+        for d in marks {
+            guard d >= 1, d <= lines.count, lines[d - 1] == caretText else { continue }
+            let lo = min(caret, d), hi = max(caret, d)
+            var contiguous = true
+            if hi - lo > 1 {
+                for i in (lo + 1)..<hi where lines[i - 1] != caretText {
+                    contiguous = false
+                    break
+                }
+            }
+            if contiguous, best == nil || abs(d - caret) < abs(best! - caret) {
+                best = d
+            }
+        }
+        guard let d = best else { return marks }
+        var next = marks
+        next.remove(d)
+        next.insert(caret)
+        return next
     }
 
     /// Never publish during an in-flight SwiftUI body / AppKit layout pass
