@@ -337,81 +337,25 @@ struct PDFKitView: NSViewRepresentable {
     }
 }
 
-/// Shared workspace/sidebar chrome for read-only PDF and image viewers.
-private let mediaSidebarWidthRange = 150.0...400.0
-
+/// Read-only PDF / image viewer body. The workspace sidebar is provided by
+/// `MainChrome` in the main window (lite windows have none), so this host only
+/// renders the viewer and keeps the window's represented URL / title current.
 private struct MediaViewerHost<Viewer: View>: View {
     let fileURL: URL
-    let allowsSidebar: Bool
     let viewer: Viewer
 
-    @ObservedObject private var workspace = WorkspaceModel.shared
-    @AppStorage("sidebarVisible") private var sidebarVisible = false
-    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
-
-    init(fileURL: URL, allowsSidebar: Bool,
-         @ViewBuilder viewer: () -> Viewer) {
+    init(fileURL: URL, @ViewBuilder viewer: () -> Viewer) {
         self.fileURL = fileURL
-        self.allowsSidebar = allowsSidebar
         self.viewer = viewer()
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if allowsSidebar && sidebarVisible {
-                WorkspaceSidebar(
-                    workspace: workspace,
-                    activeURL: fileURL,
-                    onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) }
-                )
-                .frame(width: sidebarWidth)
-                paneDivider { x in
-                    sidebarWidth = min(mediaSidebarWidthRange.upperBound,
-                                       max(mediaSidebarWidthRange.lowerBound, Double(x)))
-                }
-                .zIndex(1)
-            }
-            viewer
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
-        .background(WindowAccessor { window in
-            window.representedURL = fileURL
-            window.title = fileURL.lastPathComponent
-        })
-        .toolbar {
-            if allowsSidebar {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        sidebarVisible.toggle()
-                    } label: {
-                        Label("Toggle Sidebar", systemImage: "sidebar.left")
-                    }
-                    .help("Toggle Sidebar (⌃⌘S)")
-                }
-            }
-        }
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-    }
-
-    private func paneDivider(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
+        viewer
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(WindowAccessor { window in
+                window.representedURL = fileURL
+                window.title = fileURL.lastPathComponent
+            })
     }
 }
 
@@ -422,7 +366,7 @@ struct PDFViewerHost: View {
     var allowsSidebar: Bool = true
 
     var body: some View {
-        MediaViewerHost(fileURL: fileURL, allowsSidebar: allowsSidebar) {
+        MediaViewerHost(fileURL: fileURL) {
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 PDFKitView(url: fileURL)
             } else {
@@ -630,7 +574,7 @@ struct ImageViewerHost: View {
     var allowsSidebar: Bool = true
 
     var body: some View {
-        MediaViewerHost(fileURL: fileURL, allowsSidebar: allowsSidebar) {
+        MediaViewerHost(fileURL: fileURL) {
             NativeImageView(url: fileURL)
         }
     }

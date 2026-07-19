@@ -122,33 +122,39 @@ struct MainWindowView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if appState.isWelcome {
-                    WelcomeHost()
-                        .id("·welcome·")
-                } else if let url = appState.currentURL, isPDFFile(url) {
-                    // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
-                    PDFViewerHost(fileURL: url, allowsSidebar: true)
-                        .id("pdf:" + url.absoluteString)
-                } else if let url = appState.currentURL, isImageFile(url) {
-                    // Images are read-only and never enter the Markdown document path.
-                    ImageViewerHost(fileURL: url, allowsSidebar: true)
-                        .id("image:" + url.absoluteString)
-                } else if let url = appState.currentURL, AppState.isFolder(url) {
-                    FolderInfoHost(folderURL: url)
-                        .id("folder:" + url.absoluteString)
-                } else {
-                    // File URL, or nil + isUntitled → scratch editor.
-                    FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
-                        .id(appState.currentURL?.absoluteString ?? "·untitled·")
+        // The workspace sidebar lives in `MainChrome`, a stable parent that is
+        // NOT `.id`-swapped per file. Only the CENTER (welcome / pdf / folder /
+        // editor) is `.id`-recreated on navigation, so the sidebar survives file
+        // switches — its scroll offset, selection and filter persist (A1).
+        MainChrome(activeURL: appState.currentURL) {
+            VStack(spacing: 0) {
+                Group {
+                    if appState.isWelcome {
+                        WelcomeHost()
+                            .id("·welcome·")
+                    } else if let url = appState.currentURL, isPDFFile(url) {
+                        // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
+                        PDFViewerHost(fileURL: url, allowsSidebar: true)
+                            .id("pdf:" + url.absoluteString)
+                    } else if let url = appState.currentURL, isImageFile(url) {
+                        // Images are read-only and never enter the Markdown document path.
+                        ImageViewerHost(fileURL: url, allowsSidebar: true)
+                            .id("image:" + url.absoluteString)
+                    } else if let url = appState.currentURL, AppState.isFolder(url) {
+                        FolderInfoHost(folderURL: url)
+                            .id("folder:" + url.absoluteString)
+                    } else {
+                        // File URL, or nil + isUntitled → scratch editor.
+                        FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
+                            .id(appState.currentURL?.absoluteString ?? "·untitled·")
+                    }
                 }
-            }
-            // Panes without an editor status bar still surface background
-            // workspace work (index scan / vault-lint) — the editor branch
-            // shows the same chip inside its own status bar.
-            if !isEditorBranch {
-                StandaloneActivityBar()
+                // Panes without an editor status bar still surface background
+                // workspace work (index scan / vault-lint) — the editor branch
+                // shows the same chip inside its own status bar.
+                if !isEditorBranch {
+                    StandaloneActivityBar()
+                }
             }
         }
         .frame(minWidth: mainWindowMinWidth, minHeight: mainWindowMinHeight)
@@ -164,6 +170,91 @@ struct MainWindowView: View {
         // Claude's `openDiff` can target any file, not just the one on screen —
         // the sheet belongs to the window, not to the current document view.
         .claudeDiffApproval()
+    }
+}
+
+/// Stable left workspace chrome for the MAIN window. The `content` (the center
+/// pane) is `.id`-swapped per file, but the sidebar lives here so it survives
+/// file switches — no teardown, so its scroll position, multi-selection and
+/// filter text persist (A1). Owns the sidebar show/hide + width, the divider,
+/// the toolbar toggle and the `sidebarVisible` focused value, so those exist
+/// once for the whole window instead of once per center branch. Lite windows
+/// have no workspace sidebar and never mount this.
+private struct MainChrome<Content: View>: View {
+    /// The file/folder currently on screen — highlights the active row.
+    let activeURL: URL?
+    @ViewBuilder var content: Content
+
+    @ObservedObject private var workspace = WorkspaceModel.shared
+    @AppStorage("sidebarVisible") private var sidebarVisible = false
+    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
+
+    private static var widthRange: ClosedRange<Double> { 150.0...400.0 }
+
+    var body: some View {
+        GeometryReader { geo in
+            // Single-side clamp: keep the editor its floor as the window narrows.
+            // The inspector (right, in ContentView) clamps in its own scope; with
+            // the enforced window minimum the two never actually collide.
+            let panes = resolveSidePaneWidths(
+                available: geo.size.width,
+                sidebarWidth: sidebarWidth,
+                inspectorWidth: 0,
+                sidebarVisible: sidebarVisible,
+                inspectorVisible: false)
+            HStack(spacing: 0) {
+                if sidebarVisible {
+                    WorkspaceSidebar(
+                        workspace: workspace,
+                        activeURL: activeURL,
+                        onOpen: { openFileFromWorkspaceSidebar($0, currentURL: activeURL) },
+                        onOpenFolder: { AppState.shared.openInMainWindow($0) }
+                    )
+                    .frame(width: panes.sidebar)
+                    paneDivider(scale: panes.scale)
+                        .zIndex(1)
+                }
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { sidebarVisible.toggle() } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.left")
+                }
+                .help("Toggle Sidebar (⌃⌘S)")
+            }
+        }
+        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
+    }
+
+    /// agterm-style divider: 1px separator + a wider invisible grab strip. The
+    /// stored width comes from the absolute cursor x (window-relative `.global`,
+    /// so x is the sidebar's display width), inverted through the clamp scale so
+    /// a resize in a clamped window keeps the preferred width.
+    private func paneDivider(scale: CGFloat) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: 12)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                sidebarWidth = preferredPaneWidthFromDrag(
+                                    displayWidth: value.location.x, scale: scale,
+                                    range: Self.widthRange)
+                            }
+                    )
+            }
     }
 }
 

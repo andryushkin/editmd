@@ -107,9 +107,9 @@ struct ContentView: View {
     var onSaveAs: () -> Void = {}
 
     @AppStorage("editorMode") private var storedMode: String = EditorMode.preview.rawValue
-    /// Left workspace sidebar show/hide + width, persisted like the mode.
+    /// Left workspace sidebar show/hide (the sidebar itself + its width live in
+    /// `MainChrome`; this window still flips visibility, e.g. the Git chip).
     @AppStorage("sidebarVisible") private var sidebarVisible = false
-    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
     @AppStorage("sidebarTab") private var sidebarTab = "files"
     /// Right document-scope inspector (Outline / Info / …).
     @AppStorage("inspectorVisible") private var inspectorVisible = false
@@ -143,7 +143,6 @@ struct ContentView: View {
     @State private var gitSnapshot = GitFileSnapshot.empty
     @State private var gitRefreshTask: Task<Void, Never>?
 
-    private static let sidebarWidthRange = 150.0...400.0
     private static let inspectorWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
 
@@ -215,37 +214,22 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
+                // The left workspace sidebar lives in `MainChrome` (a stable
+                // parent that is NOT `.id`-swapped per file), so it survives file
+                // switches — no teardown, so its scroll / selection / filter
+                // persist (A1). Here we only lay out the editor + right inspector,
+                // and clamp the inspector against the editor's floor.
                 let panes = resolveSidePaneWidths(
                     available: geo.size.width,
-                    sidebarWidth: sidebarWidth,
+                    sidebarWidth: 0,
                     inspectorWidth: inspectorWidth,
-                    sidebarVisible: sidebarVisible && allowsSidebar,
+                    sidebarVisible: false,
                     inspectorVisible: inspectorVisible)
                 HStack(spacing: 0) {
-                    if sidebarVisible && allowsSidebar {
-                        WorkspaceSidebar(
-                            workspace: workspace,
-                            activeURL: fileURL,
-                            onOpen: openFromSidebar,
-                            onOpenFolder: { AppState.shared.openInMainWindow($0) }
-                        )
-                        .frame(width: panes.sidebar)
-                        paneDivider(space: .named("mainPanes")) { x in
-                            // Sidebar starts at x=0, so its display edge x IS its
-                            // display width. Invert the clamp to keep preferred.
-                            sidebarWidth = preferredPaneWidthFromDrag(
-                                displayWidth: x, scale: panes.scale,
-                                range: Self.sidebarWidthRange)
-                        }
-                        // draw/hit above the editor column: without this the
-                        // editor (drawn last) shadows the right half of the
-                        // 12pt grab strip (agterm's sidebar-divider lesson).
-                        .zIndex(1)
-                    }
                     editorArea
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if inspectorVisible {
-                        // Grab strip LEFT of the right panel (mirror of left sidebar).
+                        // Grab strip LEFT of the right panel.
                         paneDivider(space: .named("mainPanes")) { x in
                             // Inspector is last: its display width is the span from
                             // the divider to the right edge. Invert the clamp too.
@@ -277,19 +261,15 @@ struct ContentView: View {
                     }
                 }
                 .coordinateSpace(name: "mainPanes")
-                // animate collapse/expand uniformly, whatever flips the flag
-                // (toolbar button, View menu ⌃⌘S / ⌥⌘0).
-                .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
                 .animation(.easeInOut(duration: 0.15), value: inspectorVisible)
             }
             statusBar
         }
         // Appearance override lives on the window root (MainWindowView /
-        // LiteWindowContent) so non-editor panes follow it too.
+        // LiteWindowContent) so non-editor panes follow it too. The sidebar
+        // toggle is provided once by `MainChrome`, not here.
         .toolbar {
             EditorToolbar(
-                allowsSidebar: allowsSidebar,
-                sidebarVisible: $sidebarVisible,
                 editorSettings: editorSettings,
                 appearanceIsDark: appearanceIsDark
             )
@@ -298,7 +278,6 @@ struct ContentView: View {
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
         .focusedSceneValue(\.previewFind, mode == .preview ? previewFindActions : nil)
         .focusedSceneValue(\.editorMode, modeBinding)
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
         .focusedSceneValue(\.inspectorVisible, $inspectorVisible)
         .focusedSceneValue(\.documentUndoActions, DocumentUndoActions(
             undo: { document.performUndo() },
@@ -876,38 +855,50 @@ struct ContentView: View {
 
     // MARK: - Sidebar open
 
-    /// Left-click a file in the sidebar. If it's already open in another window,
-    /// ask whether to jump there or move it here (closing the other); otherwise
-    /// replace the main window's file in place.
+    /// Inspector's onOpen reuses the shared workspace-sidebar open routing,
+    /// anchored on the file currently on screen.
     private func openFromSidebar(_ url: URL) {
-        let std = url.standardizedFileURL
-        if std == fileURL?.standardizedFileURL { return }
-        if let other = NSApp.windows.first(where: {
-            $0 !== NSApp.keyWindow && $0.isVisible
-                && $0.representedURL?.standardizedFileURL == std
-        }) {
-            presentAlreadyOpenModal(url: std, other: other)
-        } else {
-            AppState.shared.openInMainWindow(std)
-        }
+        openFileFromWorkspaceSidebar(url, currentURL: fileURL)
     }
+}
 
-    private func presentAlreadyOpenModal(url: URL, other: NSWindow) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "“\(url.lastPathComponent)” is already open in another window")
-        alert.informativeText = String(localized: "Switch to that window, or open here and close it?")
-        alert.addButton(withTitle: String(localized: "Switch to It"))
-        alert.addButton(withTitle: String(localized: "Open Here"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            other.makeKeyAndOrderFront(nil)
-        case .alertSecondButtonReturn:
-            AppState.shared.openInMainWindow(url)
-            other.close()
-        default:
-            break
-        }
+// MARK: - Shared workspace-sidebar open routing
+
+/// Left-click a file in the workspace sidebar (or inspector). If it's already
+/// open in another window, ask whether to jump there or move it here (closing
+/// the other); otherwise replace the main window's file in place. Free function
+/// so `MainChrome` (which owns the hoisted sidebar) and `ContentView` (the
+/// inspector) share one behaviour.
+@MainActor
+func openFileFromWorkspaceSidebar(_ url: URL, currentURL: URL?) {
+    let std = url.standardizedFileURL
+    if std == currentURL?.standardizedFileURL { return }
+    if let other = NSApp.windows.first(where: {
+        $0 !== NSApp.keyWindow && $0.isVisible
+            && $0.representedURL?.standardizedFileURL == std
+    }) {
+        presentAlreadyOpenModal(url: std, other: other)
+    } else {
+        AppState.shared.openInMainWindow(std)
+    }
+}
+
+@MainActor
+private func presentAlreadyOpenModal(url: URL, other: NSWindow) {
+    let alert = NSAlert()
+    alert.messageText = String(localized: "“\(url.lastPathComponent)” is already open in another window")
+    alert.informativeText = String(localized: "Switch to that window, or open here and close it?")
+    alert.addButton(withTitle: String(localized: "Switch to It"))
+    alert.addButton(withTitle: String(localized: "Open Here"))
+    alert.addButton(withTitle: String(localized: "Cancel"))
+    switch alert.runModal() {
+    case .alertFirstButtonReturn:
+        other.makeKeyAndOrderFront(nil)
+    case .alertSecondButtonReturn:
+        AppState.shared.openInMainWindow(url)
+        other.close()
+    default:
+        break
     }
 }
 

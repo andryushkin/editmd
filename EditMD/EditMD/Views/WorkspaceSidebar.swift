@@ -488,14 +488,17 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// Bring the active file's row back into view after a sidebar rebuild (A1).
-    /// Deferred one run-loop turn so the freshly-mounted lazy rows exist as
-    /// scroll targets. Anchored by the standardized URL, which the file rows tag
-    /// with a matching `.id`.
+    /// Reveal the active file's row (A1 safety net). Since the sidebar now lives
+    /// in `MainChrome` and is no longer torn down on file open, its scroll offset
+    /// is preserved on its own; this only nudges a newly-active file that is
+    /// off-screen (opened via wiki-link, search, editmdctl…) into view. `nil`
+    /// anchor = minimal scroll, so a row already visible does not move. Deferred
+    /// one run-loop turn so lazy rows exist as scroll targets; anchored by the
+    /// standardized URL that the tree rows tag with a matching `.id`.
     private func scrollActiveFileIntoView(_ proxy: ScrollViewProxy) {
         guard let active = activeURL?.standardizedFileURL else { return }
         DispatchQueue.main.async {
-            proxy.scrollTo(active, anchor: .center)
+            proxy.scrollTo(active)
         }
     }
 

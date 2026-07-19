@@ -8,22 +8,12 @@ import AppKit
 /// The mode switcher is NOT here — it lives pinned to the trailing edge of
 /// `EditorActionStrip`, on the same line as the format tools.
 struct EditorToolbar: ToolbarContent {
-    let allowsSidebar: Bool
-    @Binding var sidebarVisible: Bool
     @ObservedObject var editorSettings: EditorSettings
     let appearanceIsDark: Bool
 
+    // The workspace sidebar toggle is provided once by `MainChrome` (main
+    // window); it no longer lives per-editor here.
     var body: some ToolbarContent {
-        if allowsSidebar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    sidebarVisible.toggle()
-                } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .help("Toggle Sidebar (⌃⌘S)")
-            }
-        }
         ToolbarItem {
             Button {
                 editorSettings.general.appearance = appearanceIsDark ? .light : .dark

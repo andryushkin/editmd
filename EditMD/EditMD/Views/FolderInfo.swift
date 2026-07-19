@@ -61,70 +61,21 @@ struct FolderInfoHost: View {
     let folderURL: URL
 
     @ObservedObject private var workspace = WorkspaceModel.shared
-    @AppStorage("sidebarVisible") private var sidebarVisible = false
-    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
-
-    private static let sidebarWidthRange = 150.0...400.0
 
     private var windowTitle: String {
         workspace.workspaceRoot(at: folderURL)?.name ?? folderURL.lastPathComponent
     }
 
+    // The workspace sidebar + its toggle are provided by `MainChrome`; this
+    // host renders only the folder card. No document / editor — File▸Save and
+    // Format stay disabled via nil focus.
     var body: some View {
-        HStack(spacing: 0) {
-            if sidebarVisible {
-                WorkspaceSidebar(
-                    workspace: workspace,
-                    activeURL: folderURL,
-                    onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) }
-                )
-                .frame(width: sidebarWidth)
-                paneDivider { x in
-                    sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                       max(Self.sidebarWidthRange.lowerBound, Double(x)))
-                }
-                .zIndex(1)
-            }
-            FolderInfoCard(folderURL: folderURL)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
-        .background(WindowAccessor { window in
-            window.representedURL = folderURL
-            window.title = windowTitle
-        })
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    sidebarVisible.toggle()
-                } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .help("Toggle Sidebar (⌃⌘S)")
-            }
-        }
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-        // No document / editor — File▸Save and Format stay disabled via nil focus.
-    }
-
-    private func paneDivider(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
+        FolderInfoCard(folderURL: folderURL)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(WindowAccessor { window in
+                window.representedURL = folderURL
+                window.title = windowTitle
+            })
     }
 }
 

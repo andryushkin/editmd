@@ -2,71 +2,19 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-// MARK: - Main-window host (sidebar + welcome)
+// MARK: - Main-window host (welcome)
 
-/// Main-window content when nothing is open: same workspace sidebar chrome as
-/// the folder card / editor, center pane = app welcome (Zed-style home).
+/// Main-window content when nothing is open: center pane = app welcome
+/// (Zed-style home). The workspace sidebar + its toggle are provided by
+/// `MainChrome`, so this host renders only the welcome card.
 struct WelcomeHost: View {
-    @ObservedObject private var workspace = WorkspaceModel.shared
-    @AppStorage("sidebarVisible") private var sidebarVisible = false
-    @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
-
-    private static let sidebarWidthRange = 150.0...400.0
-
     var body: some View {
-        HStack(spacing: 0) {
-            if sidebarVisible {
-                WorkspaceSidebar(
-                    workspace: workspace,
-                    activeURL: nil,
-                    onOpen: { AppState.shared.openInMainWindow($0) },
-                    onOpenFolder: { AppState.shared.openInMainWindow($0) }
-                )
-                .frame(width: sidebarWidth)
-                paneDivider { x in
-                    sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                       max(Self.sidebarWidthRange.lowerBound, Double(x)))
-                }
-                .zIndex(1)
-            }
-            WelcomeCard()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
-        .background(WindowAccessor { window in
-            window.representedURL = nil
-            window.title = "EditMD"
-        })
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    sidebarVisible.toggle()
-                } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-                .help("Toggle Sidebar (⌃⌘S)")
-            }
-        }
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-    }
-
-    private func paneDivider(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
+        WelcomeCard()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(WindowAccessor { window in
+                window.representedURL = nil
+                window.title = "EditMD"
+            })
     }
 }
 
