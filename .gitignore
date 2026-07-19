@@ -10,3 +10,6 @@ DerivedData/
 __pycache__/
 *.py[cod]
 EditMD/build/
+
+# graphify knowledge-graph output (generated, local-only)
+graphify-out/
