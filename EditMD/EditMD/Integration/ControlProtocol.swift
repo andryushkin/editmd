@@ -174,6 +174,31 @@ func parseAgentStatusArgs(_ args: [String: JSONValue]?) -> (
     return (status, label, harness)
 }
 
+// MARK: - Firmlink-safe path containment
+
+/// Canonicalizes the macOS firmlink prefix (`/private/tmp`→`/tmp`, and the
+/// same for `/var`, `/etc`) in pure string space. `standardizedFileURL`
+/// collapses `/private/…` for paths that EXIST but leaves it for missing
+/// ones, so a workspace-containment check on a not-yet-created in-vault file
+/// (`vault/ghost.md`) could otherwise mismatch a `/tmp`-rooted vault and be
+/// wrongly rejected as outside-workspace. No disk I/O. Shared by the socket
+/// scope check and the offline `pathArg` containment so both agree.
+func canonicalFirmlinkPath(_ path: String) -> String {
+    for name in ["/tmp", "/var", "/etc"] {
+        let priv = "/private" + name
+        if path == priv { return name }
+        if path.hasPrefix(priv + "/") { return name + String(path.dropFirst(priv.count)) }
+    }
+    return path
+}
+
+/// True when `path` lies at or under `root` (both firmlink-canonicalized).
+func pathIsContained(_ path: String, in root: String) -> Bool {
+    let p = canonicalFirmlinkPath(path)
+    let r = canonicalFirmlinkPath(root)
+    return p == r || p.hasPrefix(r + "/")
+}
+
 // MARK: - Socket path
 
 enum ControlSocket {

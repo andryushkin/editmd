@@ -293,8 +293,13 @@ enum OfflineVault {
         }
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let r = root.standardizedFileURL.path
-        guard url.path == r || url.path.hasPrefix(r + "/") else {
-            throw CLIError("outside-workspace: \(url.path) is not under \(r)")
+        // Firmlink-canonicalized containment: a missing in-vault file keeps
+        // its `/private/…` prefix while the root collapses to `/tmp`, so a raw
+        // prefix check would wrongly reject it. Same helper the socket uses.
+        guard pathIsContained(url.path, in: r) else {
+            // Same error token as the socket's `checkScope`, so agents that
+            // branch on it behave identically online and offline.
+            throw CLIError("outside-active-workspace: \(url.path) is not under \(r)")
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw CLIError("file not found: \(url.path)")

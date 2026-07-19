@@ -27,24 +27,51 @@ extension ControlRouter {
         throw ControlError("link index not ready (indexing \(pct)%) — retry shortly")
     }
 
-    /// Enforces the active-workspace scope on a file path. Any path outside
-    /// the workspace the index actually covers is rejected — not only paths in
-    /// another adopted workspace — so every path-based vault-graph command
-    /// keeps the documented `outside-active-workspace` contract. Scoped to the
-    /// index's own roots (what it answers for); a no-op only when nothing is
-    /// indexed yet (loose files legitimately live in the single-file map).
-    /// Main-safe: pure path math over published state, no disk I/O.
+    /// Roots that define the active-workspace scope: what the index actually
+    /// covers, falling back to the adopted active workspace when the index has
+    /// not published roots yet (cold app — a workspace is adopted but the scan
+    /// never ran). Empty only in true loose / no-workspace mode.
+    static func activeScopeRoots() -> [URL] {
+        let indexRoots = LinkIndex.shared.snapshot().roots
+        if !indexRoots.isEmpty { return indexRoots }
+        return WorkspaceModel.shared.linkIndexRoots.map(\.standardizedFileURL)
+    }
+
+    /// Pure scope predicate: is `path` outside EVERY root? Empty roots → not
+    /// outside (loose mode). Testable without touching any singleton.
+    nonisolated static func isOutsideScope(_ path: String, roots: [URL]) -> Bool {
+        guard !roots.isEmpty else { return false }
+        return !roots.contains { pathIsContained(path, in: $0.path) }
+    }
+
+    /// Enforces the active-workspace scope on a file path — any path outside
+    /// the active workspace is rejected (not only paths in another adopted
+    /// workspace), so every path-based vault-graph command keeps the
+    /// documented `outside-active-workspace` contract even before the index
+    /// has warmed. Main-safe: pure path math over live state, no disk I/O.
     private static func checkScope(_ url: URL) throws {
-        let roots = LinkIndex.shared.snapshot().roots
-        guard !roots.isEmpty else { return }
-        let path = url.standardizedFileURL.path
-        let insideActive = roots.contains {
-            path == $0.path || path.hasPrefix($0.path + "/")
+        if isOutsideScope(url.standardizedFileURL.path, roots: activeScopeRoots()) {
+            throw ControlError(
+                "outside-active-workspace: the index covers one workspace at a "
+                + "time — open a file from that workspace first")
         }
-        guard !insideActive else { return }
-        throw ControlError(
-            "outside-active-workspace: the index covers one workspace at a "
-            + "time — open a file from that workspace first")
+    }
+
+    /// Main-phase snapshot of "this file is known to exist without a disk
+    /// stat": open in a buffer, or mid path-mutation. The deferred phase stats
+    /// the disk only when this is false — so `fileExists` never runs on main
+    /// (two-phase contract) yet a genuinely missing in-scope file still gets a
+    /// `file not found` reply instead of a misleading empty payload.
+    static func knownPresentOnMain(_ url: URL) -> Bool {
+        DocumentRegistry.shared.contentIfOpen(url) != nil
+            || AppState.shared.isPathMutationInProgress(at: url)
+    }
+
+    /// Deferred-phase existence gate. `knownPresent` is captured on main.
+    /// `nonisolated`: runs on the socket thread, stats disk only, no main state.
+    nonisolated static func existsInDeferred(_ url: URL, knownPresent: Bool) -> Bool {
+        knownPresent
+            || FileManager.default.fileExists(atPath: url.standardizedFileURL.path)
     }
 
     // MARK: - links.outgoing / links.backlinks
@@ -53,26 +80,45 @@ extension ControlRouter {
         let url = try targetURL(for: request)
         try checkScope(url)
         let index = try readyLinkIndex()
+        let std = url.standardizedFileURL
         let links = index.outgoingLinks(for: url)
-        return .data(.object([
-            "path": .string(url.standardizedFileURL.path),
-            "count": .int(links.count),
-            "links": .array(links.map(controlLinkJSON)),
-        ]))
+        // A file scanned into the graph provably exists (a graph KEY, even with
+        // zero links). Stat the disk only when it is not a key.
+        let present = index.outgoing[std] != nil || knownPresentOnMain(url)
+        let requestID = request.id
+        return .deferred {
+            guard existsInDeferred(std, knownPresent: present) else {
+                return .failure(id: requestID, error: "file not found: \(std.path)")
+            }
+            return .success(id: requestID, data: .object([
+                "path": .string(std.path),
+                "count": .int(links.count),
+                "links": .array(links.map(controlLinkJSON)),
+            ]))
+        }
     }
 
     static func linksBacklinks(_ request: ControlRequest) throws -> Dispatched {
         let url = try targetURL(for: request)
         try checkScope(url)
         let index = try readyLinkIndex()
+        let std = url.standardizedFileURL
         let edges = index.backlinkEdges(for: url)
-        return .data(.object([
-            "path": .string(url.standardizedFileURL.path),
-            "count": .int(edges.count),
-            "backlinks": .array(edges.map(controlBacklinkJSON)),
-        ]))
+        // A page with no inbound links is a valid target; the graph KEY proves
+        // existence, backlinks do not. Stat only when it is not a key.
+        let present = index.outgoing[std] != nil || knownPresentOnMain(url)
+        let requestID = request.id
+        return .deferred {
+            guard existsInDeferred(std, knownPresent: present) else {
+                return .failure(id: requestID, error: "file not found: \(std.path)")
+            }
+            return .success(id: requestID, data: .object([
+                "path": .string(std.path),
+                "count": .int(edges.count),
+                "backlinks": .array(edges.map(controlBacklinkJSON)),
+            ]))
+        }
     }
-
 
     // MARK: - links.resolve
 
@@ -118,13 +164,26 @@ extension ControlRouter {
         let url = try targetURL(for: request)
         try checkScope(url)
         let buffered = DocumentRegistry.shared.contentIfOpen(url)
+        let mutating = AppState.shared.isPathMutationInProgress(at: url)
+        let std = url.standardizedFileURL
         let requestID = request.id
         return .deferred {
-            let text = buffered
-                ?? ((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+            guard let text = fileText(buffered: buffered, mutating: mutating, url: std) else {
+                return .failure(id: requestID, error: "file not found: \(std.path)")
+            }
             return .success(id: requestID,
-                            data: controlOutlinePayload(path: url.path, text: text))
+                            data: controlOutlinePayload(path: std.path, text: text))
         }
+    }
+
+    /// Deferred-phase file text: the open buffer, else disk. `nil` (→ caller
+    /// replies `file not found`) only when the file is neither open, nor
+    /// mid-mutation, nor on disk — never a silent empty payload for a missing
+    /// file. Off-main: `String(contentsOf:)` must not run on the main actor.
+    nonisolated private static func fileText(buffered: String?, mutating: Bool, url: URL) -> String? {
+        if let buffered { return buffered }
+        if let disk = try? String(contentsOf: url, encoding: .utf8) { return disk }
+        return mutating ? "" : nil
     }
 
     // MARK: - lint
@@ -160,13 +219,17 @@ extension ControlRouter {
         let url = try targetURL(for: request)
         try checkScope(url)
         let index = try readyLinkIndex()
+        let std = url.standardizedFileURL
+        let present = index.outgoing[std] != nil || knownPresentOnMain(url)
         let snapshot = index.snapshot()
         let requestID = request.id
         return .deferred {
-            let findings = vaultLintFindings(for: url.standardizedFileURL,
-                                             index: snapshot)
+            guard existsInDeferred(std, knownPresent: present) else {
+                return .failure(id: requestID, error: "file not found: \(std.path)")
+            }
+            let findings = vaultLintFindings(for: std, index: snapshot)
             return .success(id: requestID, data: .object([
-                "path": .string(url.standardizedFileURL.path),
+                "path": .string(std.path),
                 "count": .int(findings.count),
                 "findings": .array(findings.map(controlFindingJSON)),
             ]))
@@ -218,6 +281,8 @@ extension ControlRouter {
     /// cold `tags list` would honestly answer count:0 while the scan runs) and
     /// covers all adopted workspaces, not the active one. `scanWorkspaceTags`
     /// is the same pure walk the app uses — synchronous and correctly scoped.
+    /// Cost note: this is a full vault walk PER CALL (no cache); acceptable for
+    /// an occasional agent query, unlike the UI path which caches by epoch.
     static func tagsList(_ request: ControlRequest) -> Dispatched {
         let roots = WorkspaceModel.shared.linkIndexRoots
         let requestID = request.id
@@ -255,12 +320,15 @@ extension ControlRouter {
         let url = try targetURL(for: request)
         try checkScope(url)
         let buffered = DocumentRegistry.shared.contentIfOpen(url)
+        let mutating = AppState.shared.isPathMutationInProgress(at: url)
+        let std = url.standardizedFileURL
         let requestID = request.id
         return .deferred {
-            let text = buffered
-                ?? ((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+            guard let text = fileText(buffered: buffered, mutating: mutating, url: std) else {
+                return .failure(id: requestID, error: "file not found: \(std.path)")
+            }
             return .success(id: requestID,
-                            data: controlFrontmatterPayload(path: url.path, text: text))
+                            data: controlFrontmatterPayload(path: std.path, text: text))
         }
     }
 
@@ -281,11 +349,13 @@ extension ControlRouter {
         let limit = max(1, request.argInt("limit") ?? 50)
         let requestID = request.id
         return .deferred {
-            // Scan tags fresh over the active root so `#tag` filters are
-            // correct on the first call (not the async, all-workspace
-            // WorkspaceModel.tagIndex).
-            let tags = scanWorkspaceTags(roots: roots)
             let query = parseSearchQuery(raw)
+            // A tag walk (up to 2 KB per file) is a second vault pass — run it
+            // ONLY when the query actually filters by `tag:`. A plain text
+            // search stays one walk (metas). Fresh over the active root so the
+            // filter is correct on the first call (not the async, all-workspace
+            // WorkspaceModel.tagIndex).
+            let tags = query.tags.isEmpty ? [:] : scanWorkspaceTags(roots: roots)
             let metas = collectSearchFileMetas(roots: roots, tagIndex: tags)
             var options = SearchRunOptions.default
             options.maxResultFiles = limit

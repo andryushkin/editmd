@@ -79,6 +79,37 @@ final class ControlChannelTests: XCTestCase {
             key: "ctl-test")
     }
 
+    func testScopePredicate() {
+        let vault = URL(fileURLWithPath: "/vault")
+        // Non-empty roots reject an outside path — this is the cold-app case
+        // too (roots come from linkIndexRoots when the index is empty).
+        XCTAssertTrue(ControlRouter.isOutsideScope("/other/x.md", roots: [vault]))
+        XCTAssertFalse(ControlRouter.isOutsideScope("/vault/a.md", roots: [vault]))
+        XCTAssertFalse(ControlRouter.isOutsideScope("/vault", roots: [vault]))
+        // Empty roots = true loose mode → never outside.
+        XCTAssertFalse(ControlRouter.isOutsideScope("/anywhere.md", roots: []))
+    }
+
+    @MainActor
+    func testControlMissingInScopeFileReportsNotFound() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        seedSharedIndex(root: root, a: a, b: b)
+
+        // A path INSIDE the active workspace that is not on disk and not in the
+        // graph must report file-not-found, not "succeed empty" (contract
+        // parity with the offline engine).
+        let ghost = root.appendingPathComponent("ghost.md").path
+        for cmd in ["links.outgoing", "links.backlinks", "outline",
+                    "lint.file", "frontmatter.get"] {
+            let resp = ControlRouter.process(ControlRequest(
+                id: "1", cmd: cmd, args: ["path": .string(ghost)]))
+            XCTAssertFalse(resp.ok, "\(cmd) must 404 a missing in-scope file")
+            XCTAssertEqual(resp.error?.contains("file not found"), true,
+                           "\(cmd): \(resp.error ?? "")")
+        }
+    }
+
     @MainActor
     func testControlVaultGraphRejectsOutsideActiveWorkspace() throws {
         let (root, a, b) = try makeVault()

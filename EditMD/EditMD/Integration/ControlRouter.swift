@@ -521,15 +521,18 @@ enum ControlRouter {
     }
 
     /// Main-phase-safe URL: normalize the `path` argument (or fall back to the
-    /// active file) WITHOUT touching disk — `resolvePath` is pure path math.
-    /// Existence checks and reads belong to the deferred phase (the two-phase
-    /// contract: a blocked `fileExists` on a network vault must not stall the
-    /// main actor). Vault-graph commands use this instead of `fileURL`.
+    /// active file) WITHOUT touching disk. `resolvePath` is pure path math, and
+    /// the no-path fallback trusts `AppState.currentURL` as already-validated
+    /// editor state — it does NOT call `AppState.isFolder`, which stats the
+    /// disk (+ package resource values) and would reintroduce the main-phase
+    /// stall this helper exists to avoid. A folder active URL is a rare edge
+    /// (a folder card is focused); the deferred read then reports it honestly
+    /// rather than blocking main. Vault-graph commands use this over `fileURL`.
     static func targetURL(for request: ControlRequest) throws -> URL {
         if let path = request.argString("path"), !path.isEmpty {
             return try resolvePath(path)
         }
-        guard let url = AppState.shared.currentURL, !AppState.isFolder(url) else {
+        guard let url = AppState.shared.currentURL else {
             throw ControlError("no active file (pass args.path)")
         }
         return url

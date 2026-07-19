@@ -54,8 +54,10 @@ Response:
 
 Vault-graph commands answer for the ACTIVE workspace when EditMD runs
 (`outside-active-workspace` otherwise; `link index not ready (indexing N%)`
-while it builds — retry). Without EditMD the offline engine serves the same
-commands from disk (see SKILL.md). Global flags: `--json`, `--socket PATH`,
+while it builds — retry). A path-based command on a file that does not exist
+returns `file not found: …` (same token online and offline — never an empty
+success payload). Without EditMD the offline engine serves the same commands
+from disk (see SKILL.md). Global flags: `--json`, `--socket PATH`,
 `--root PATH` (offline root override).
 
 ## Persisted index: `.editmd/link-index.json`
