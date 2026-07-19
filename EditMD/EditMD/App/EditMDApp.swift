@@ -456,9 +456,9 @@ private struct LiteWindowContent: View {
         VStack(spacing: 0) {
             Group {
                 if let url, isPDFFile(url) {
-                    PDFViewerHost(fileURL: url, allowsSidebar: false)
+                    PDFViewerHost(fileURL: url)
                 } else if let url, isImageFile(url) {
-                    ImageViewerHost(fileURL: url, allowsSidebar: false)
+                    ImageViewerHost(fileURL: url)
                 } else {
                     FileEditor(url: url, allowsSidebar: false, isMain: false)
                 }

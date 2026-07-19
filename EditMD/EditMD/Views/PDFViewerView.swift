@@ -359,11 +359,10 @@ private struct MediaViewerHost<Viewer: View>: View {
     }
 }
 
-/// Window content for a PDF: main window gets the workspace sidebar; lite
-/// windows show only the read-only PDFKit viewer.
+/// Window content for a PDF viewer. The workspace sidebar (main window only) is
+/// provided by `MainChrome`, so this host is the same for main and lite windows.
 struct PDFViewerHost: View {
     let fileURL: URL
-    var allowsSidebar: Bool = true
 
     var body: some View {
         MediaViewerHost(fileURL: fileURL) {
@@ -567,11 +566,10 @@ private struct NativeImageView: NSViewRepresentable {
     }
 }
 
-/// Read-only image viewer. It mirrors `PDFViewerHost`: the main window keeps
-/// the workspace sidebar, while Finder/Lite windows show only the image.
+/// Read-only image viewer. Mirrors `PDFViewerHost`: the workspace sidebar
+/// (main window only) comes from `MainChrome`, so this host is window-agnostic.
 struct ImageViewerHost: View {
     let fileURL: URL
-    var allowsSidebar: Bool = true
 
     var body: some View {
         MediaViewerHost(fileURL: fileURL) {

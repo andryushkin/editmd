@@ -134,11 +134,11 @@ struct MainWindowView: View {
                             .id("·welcome·")
                     } else if let url = appState.currentURL, isPDFFile(url) {
                         // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
-                        PDFViewerHost(fileURL: url, allowsSidebar: true)
+                        PDFViewerHost(fileURL: url)
                             .id("pdf:" + url.absoluteString)
                     } else if let url = appState.currentURL, isImageFile(url) {
                         // Images are read-only and never enter the Markdown document path.
-                        ImageViewerHost(fileURL: url, allowsSidebar: true)
+                        ImageViewerHost(fileURL: url)
                             .id("image:" + url.absoluteString)
                     } else if let url = appState.currentURL, AppState.isFolder(url) {
                         FolderInfoHost(folderURL: url)
@@ -190,12 +190,18 @@ private struct MainChrome<Content: View>: View {
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
 
     private static var widthRange: ClosedRange<Double> { 150.0...400.0 }
+    private static var paneSpace: String { "mainChromePanes" }
 
     var body: some View {
         GeometryReader { geo in
             // Single-side clamp: keep the editor its floor as the window narrows.
             // The inspector (right, in ContentView) clamps in its own scope; with
-            // the enforced window minimum the two never actually collide.
+            // the enforced window minimum the two never overlap. Trade-off vs the
+            // old joint clamp: when both panels are near-max in a near-min window
+            // the squeeze is not shared 50/50 — the sidebar (clamped first here,
+            // against the full width) keeps its width and the inspector absorbs
+            // the deficit. No overlap, defaults fit; only the split of an extreme
+            // squeeze differs. Kept split to avoid hoisting inspector state up.
             let panes = resolveSidePaneWidths(
                 available: geo.size.width,
                 sidebarWidth: sidebarWidth,
@@ -217,6 +223,10 @@ private struct MainChrome<Content: View>: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // Named space so the divider drag reads x from the chrome's own left
+            // edge. `.global` is screen-relative — on a window not flush to the
+            // screen's left it would inflate the width toward the max.
+            .coordinateSpace(name: Self.paneSpace)
             .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
         }
         .toolbar {
@@ -231,9 +241,9 @@ private struct MainChrome<Content: View>: View {
     }
 
     /// agterm-style divider: 1px separator + a wider invisible grab strip. The
-    /// stored width comes from the absolute cursor x (window-relative `.global`,
-    /// so x is the sidebar's display width), inverted through the clamp scale so
-    /// a resize in a clamped window keeps the preferred width.
+    /// sidebar starts at x=0 of the chrome's coordinate space, so the cursor x
+    /// IS the sidebar's display width — inverted through the clamp scale so a
+    /// resize in a clamped window keeps the preferred width.
     private func paneDivider(scale: CGFloat) -> some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
@@ -247,7 +257,7 @@ private struct MainChrome<Content: View>: View {
                         if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
                     }
                     .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.paneSpace))
                             .onChanged { value in
                                 sidebarWidth = preferredPaneWidthFromDrag(
                                     displayWidth: value.location.x, scale: scale,
