@@ -472,13 +472,18 @@ struct GitCommitSheet: View {
         }
         isBusy = true
         errorText = nil
-        // 1) Flush buffer so git sees current text.
-        do {
-            try DocumentRegistry.shared.saveNow(fileURL)
-        } catch {
-            isBusy = false
-            errorText = String(localized: "Save failed: \(error.localizedDescription)")
-            return
+        // 1) Flush buffer so git sees current text — but ONLY if the file still
+        // exists. A deleted file has no buffer worth writing: saving would
+        // recreate it on disk and turn the staged deletion into a modification
+        // (or fail if the parent folder is gone). Let git stage the deletion.
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                try DocumentRegistry.shared.saveNow(fileURL)
+            } catch {
+                isBusy = false
+                errorText = String(localized: "Save failed: \(error.localizedDescription)")
+                return
+            }
         }
         // 2) Stage + commit on a utility queue (Process is blocking).
         let url = fileURL
