@@ -293,8 +293,16 @@ struct GitSidebar: View {
                       : (hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
         )
         .padding(.horizontal, 4)
-        .contentShape(Rectangle())
-        .onTapGesture { onOpen(file.url) }
+        // Row-open is a full-row Button BEHIND the content so the inner Diff /
+        // Commit buttons win the click. With `.onTapGesture` on the row the
+        // container gesture stole the first tap (opening the file), so Commit
+        // only fired on the second click ("commit нажимать два раза").
+        .background(
+            Button { onOpen(file.url) } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        )
         .onHover { hoverCommitURL = $0 ? file.url : nil }
         .contextMenu {
             Button("Open") { onOpen(file.url) }

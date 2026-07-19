@@ -441,14 +441,15 @@ struct GitCommitSheet: View {
 
             HStack {
                 Spacer()
-                Button("Done") { onClose() }
-                    .keyboardShortcut(.cancelAction)
-                    .disabled(isBusy)
+                // Push is the secondary action (grey, left); Done is primary
+                // (blue / default, right) — finishing is the common path here.
                 Button(isBusy ? "Pushing…" : "Push…") {
                     performPush()
                 }
-                .keyboardShortcut(.defaultAction)
                 .disabled(isBusy)
+                Button("Done") { onClose() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(isBusy)
             }
         }
     }
