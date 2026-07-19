@@ -227,38 +227,47 @@ struct GitSidebar: View {
         let active = file.url.standardizedFileURL == activeURL?.standardizedFileURL
         let hovering = hoverCommitURL == file.url
         return HStack(spacing: 6) {
-            Text(file.statusBadge)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(badgeColor(file.pathStatus))
-                .frame(width: 14, alignment: .center)
+            // Open region — its OWN tap target that does NOT overlap the Diff /
+            // Commit buttons. Overlapping interactive elements (row tap gesture
+            // OR a full-row button behind the content) each swallow the first
+            // click, so Commit needed two clicks. Keeping the open gesture on
+            // just this sub-area lets the sibling buttons win their clicks.
+            HStack(spacing: 6) {
+                Text(file.statusBadge)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(badgeColor(file.pathStatus))
+                    .frame(width: 14, alignment: .center)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(file.url.lastPathComponent)
-                    .font(.system(size: 12.5, weight: active ? .semibold : .regular))
-                    .foregroundStyle(active ? Color.accentColor : Color.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if file.displayPath != file.url.lastPathComponent {
-                    Text(file.displayPath)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(file.url.lastPathComponent)
+                        .font(.system(size: 12.5, weight: active ? .semibold : .regular))
+                        .foregroundStyle(active ? Color.accentColor : Color.primary)
                         .lineLimit(1)
-                        .truncationMode(.head)
+                        .truncationMode(.middle)
+                    if file.displayPath != file.url.lastPathComponent {
+                        Text(file.displayPath)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if file.bufferDirty {
+                    Text("unsaved")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                } else if file.sessionDirtyLines > 0 {
+                    Text("\(file.sessionDirtyLines)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .help("Session dirty lines")
                 }
             }
-
-            Spacer(minLength: 0)
-
-            if file.bufferDirty {
-                Text("unsaved")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-            } else if file.sessionDirtyLines > 0 {
-                Text("\(file.sessionDirtyLines)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .help("Session dirty lines")
-            }
+            .contentShape(Rectangle())
+            .onTapGesture { onOpen(file.url) }
 
             // Diff always available for porcelain / open-dirty rows.
             Button {
@@ -293,16 +302,6 @@ struct GitSidebar: View {
                       : (hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear)))
         )
         .padding(.horizontal, 4)
-        // Row-open is a full-row Button BEHIND the content so the inner Diff /
-        // Commit buttons win the click. With `.onTapGesture` on the row the
-        // container gesture stole the first tap (opening the file), so Commit
-        // only fired on the second click ("commit нажимать два раза").
-        .background(
-            Button { onOpen(file.url) } label: {
-                Color.clear.contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        )
         .onHover { hoverCommitURL = $0 ? file.url : nil }
         .contextMenu {
             Button("Open") { onOpen(file.url) }
