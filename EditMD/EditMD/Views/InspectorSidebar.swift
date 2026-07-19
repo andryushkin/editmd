@@ -308,7 +308,7 @@ private struct OutgoingLinksPanel: View {
                         : []
                 }
                 if let url {
-                    resolved.append(LinkIndex.resolveLink(
+                    resolved.append(LinkGraphEngine.resolveLink(
                         link, from: url, vaultRoot: vault, wikiMatches: wikiHits))
                 } else {
                     var copy = link

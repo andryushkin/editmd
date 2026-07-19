@@ -3,14 +3,9 @@ import PDFKit
 import AppKit
 import UniformTypeIdentifiers
 
-/// One source of truth for viewer routing, picker types and Preview data URIs.
-let supportedImageMIMETypes: [String: String] = [
-    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-    "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp",
-    "heic": "image/heic", "tiff": "image/tiff", "tif": "image/tiff",
-    "bmp": "image/bmp",
-]
-let supportedImageFileExtensions = Set(supportedImageMIMETypes.keys)
+// `supportedImageMIMETypes` / `supportedImageFileExtensions` / `isImageFile`
+// live in Editor/ImageFileTypes.swift (pure Foundation — shared with the
+// offline editmdctl engine).
 
 /// Pasteboard types an image drag can carry — used to register the editor text
 /// views for drops. `imageCandidate(from:)` decides which one actually yields an
@@ -23,11 +18,6 @@ let imageDragPasteboardTypes: [NSPasteboard.PasteboardType] = [
     NSPasteboard.PasteboardType("public.svg-image"),
     NSPasteboard.PasteboardType("public.heic"),
 ]
-
-/// True for an image the native viewer knows how to open.
-func isImageFile(_ url: URL) -> Bool {
-    supportedImageFileExtensions.contains(url.pathExtension.lowercased())
-}
 
 /// Concrete open-panel types rather than broad `public.image`: a file selected
 /// in the panel must also pass `isImageFile` and reach the image viewer.

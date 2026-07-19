@@ -75,20 +75,8 @@ enum FolderRenameError: LocalizedError, Equatable {
     }
 }
 
-/// Prefer `README.md` over `index.md` (case-insensitive), only direct children.
-func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
-    let items = (try? fileManager.contentsOfDirectory(
-        at: folder,
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles])) ?? []
-    // Case-sensitive volumes can hold README.md and readme.md side by side —
-    // uniqueKeysWithValues would trap on the duplicate lowercased key.
-    let names = Dictionary(items.map { ($0.lastPathComponent.lowercased(), $0) },
-                           uniquingKeysWith: { first, _ in first })
-    if let readme = names["readme.md"] { return readme }
-    if let index = names["index.md"] { return index }
-    return nil
-}
+// `homeDocument(in:)` moved to Editor/VaultLint.swift (pure — shared
+// with the offline editmdctl engine).
 
 // MARK: - Recursive tree stats
 

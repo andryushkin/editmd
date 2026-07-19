@@ -119,6 +119,9 @@ enum ControlRouter {
 
         case .frontmatterGet:
             return try frontmatterGet(request)
+
+        case .search:
+            return try searchCommand(request)
         }
     }
 

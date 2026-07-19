@@ -74,7 +74,9 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
 
-  # Thin CLI for the control socket (v38). Shares pure protocol sources with the app.
+  # CLI for the control socket (v38) + the offline vault engine (plan 10).
+  # Shares the pure protocol and link-graph engine sources with the app —
+  # everything listed here must stay AppKit-free.
   editmdctl:
     type: tool
     platform: macOS
@@ -83,6 +85,25 @@ targets:
       - editmdctl
       - path: EditMD/Integration/ControlProtocol.swift
       - path: EditMD/Integration/MCPProtocol.swift
+      - path: EditMD/Integration/ControlGraphPayload.swift
+      - path: EditMD/Editor/LinkGraphEngine.swift
+      - path: EditMD/Editor/WikiLinkCore.swift
+      - path: EditMD/Editor/LinkIndexPersistence.swift
+      - path: EditMD/Editor/LinkScan.swift
+      - path: EditMD/Editor/WikiLink.swift
+      - path: EditMD/Editor/LineIndex.swift
+      - path: EditMD/Editor/MathScan.swift
+      - path: EditMD/Editor/MarkdownOutline.swift
+      - path: EditMD/Editor/VaultLint.swift
+      - path: EditMD/Editor/WikiCompletion.swift
+      - path: EditMD/Editor/Frontmatter.swift
+      - path: EditMD/Editor/TagScan.swift
+      - path: EditMD/Editor/SearchQuery.swift
+      - path: EditMD/Editor/SearchMatch.swift
+      - path: EditMD/Editor/ImageFileTypes.swift
+    dependencies:
+      - package: swift-markdown
+        product: Markdown
     settings:
       base:
         PRODUCT_NAME: editmdctl

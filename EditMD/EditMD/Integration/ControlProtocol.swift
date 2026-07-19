@@ -123,6 +123,7 @@ enum ControlCommandName: String, CaseIterable, Sendable {
     case tagsList = "tags.list"
     case tagsFiles = "tags.files"
     case frontmatterGet = "frontmatter.get"
+    case search
 
     var help: String {
         switch self {
@@ -146,6 +147,7 @@ enum ControlCommandName: String, CaseIterable, Sendable {
         case .tagsList: return "workspace tags with file counts"
         case .tagsFiles: return "files carrying --tag T"
         case .frontmatterGet: return "frontmatter properties of active (or --path) file"
+        case .search: return "workspace full-text search: search <query> [--limit N]"
         }
     }
 }

@@ -113,7 +113,7 @@ struct LinkIndexSnapshot: Equatable, Sendable {
             Dictionary(uniqueKeysWithValues: $0.map {
                 ($0.key.standardizedFileURL, $0.value)
             })
-        } ?? LinkIndex.projectBacklinks(from: stdOut)
+        } ?? LinkGraphEngine.projectBacklinks(from: stdOut)
         self.headings = Dictionary(uniqueKeysWithValues:
             headings.map { ($0.key.standardizedFileURL, $0.value) })
         self.skippedOversizedCount = skippedOversizedCount
@@ -413,41 +413,18 @@ func urlIsUnderRoots(_ url: URL, roots: [URL]) -> Bool {
     return false
 }
 
-/// Convert vault findings for one file into Source-compatible diagnostics
-/// (no auto-fixes). Ranges: zero-length at link offset when known.
-func vaultFindingsAsLintDiagnostics(
-    _ findings: [VaultLintFinding],
-    for file: URL
-) -> [LintDiagnostic] {
-    let std = file.standardizedFileURL
-    return findings.compactMap { f -> LintDiagnostic? in
-        guard f.file.standardizedFileURL == std else { return nil }
-        // Orphans have no range — skip Source underline (still in report).
-        guard let offset = f.utf16Offset else { return nil }
-        guard let rule = lintRule(for: f.rule) else { return nil }
-        let severity: LintSeverity
-        switch f.severity {
-        case .error: severity = .error
-        case .warning, .info: severity = .warning
-        }
-        return LintDiagnostic(
-            range: NSRange(location: max(0, offset), length: 0),
-            severity: severity,
-            rule: rule,
-            message: f.message,
-            fixes: []
-        )
-    }
-}
 
-private func lintRule(for rule: VaultLintRule) -> LintRule? {
-    switch rule {
-    case .deadWikiLink: return .vaultDeadWikiLink
-    case .ambiguousWikiLink: return .vaultAmbiguousWikiLink
-    case .selfWikiLink: return .vaultSelfWikiLink
-    case .deadRelativeLink: return .vaultDeadRelativeLink
-    case .deadImageLink: return .vaultDeadImageLink
-    case .deadHeadingAnchor: return .vaultDeadHeadingAnchor
-    case .orphanFile: return nil
-    }
+/// Prefer `README.md` over `index.md` (case-insensitive), only direct children.
+func homeDocument(in folder: URL, fileManager: FileManager = .default) -> URL? {
+    let items = (try? fileManager.contentsOfDirectory(
+        at: folder,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles])) ?? []
+    // Case-sensitive volumes can hold README.md and readme.md side by side —
+    // uniqueKeysWithValues would trap on the duplicate lowercased key.
+    let names = Dictionary(items.map { ($0.lastPathComponent.lowercased(), $0) },
+                           uniquingKeysWith: { first, _ in first })
+    if let readme = names["readme.md"] { return readme }
+    if let index = names["index.md"] { return index }
+    return nil
 }

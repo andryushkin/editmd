@@ -25,6 +25,7 @@ if args.isEmpty || args.contains("-h") || args.contains("--help") {
 }
 
 var jsonOut = false
+var rootOverride: String?
 var rest: [String] = []
 var i = 0
 while i < args.count {
@@ -35,6 +36,11 @@ while i < args.count {
         i += 2
         continue
     }
+    if a == "--root", i + 1 < args.count {
+        rootOverride = EditMDCtl.absolutePath(args[i + 1])
+        i += 2
+        continue
+    }
     rest.append(a)
     i += 1
 }
@@ -42,7 +48,21 @@ guard !rest.isEmpty else { EditMDCtl.printHelp(); exit(1) }
 
 do {
     let request = try EditMDCtl.buildRequest(rest)
-    let response = try EditMDCtl.send(request)
+    let response: ControlResponse
+    if request.cmd == "index.rebuild" {
+        // Rebuild is offline-only: a running EditMD maintains the index
+        // itself, and racing its atomic writes would be pointless.
+        guard !EditMDCtl.socketReachable() else {
+            fputs("editmdctl: EditMD is running — it maintains the index; use `index status`\n", stderr)
+            exit(2)
+        }
+        response = OfflineVault.run(request, rootOverride: rootOverride)
+    } else if !EditMDCtl.socketReachable(), OfflineVault.canHandle(request.cmd) {
+        fputs("editmdctl: EditMD is not running — answering from the offline engine\n", stderr)
+        response = OfflineVault.run(request, rootOverride: rootOverride)
+    } else {
+        response = try EditMDCtl.send(request)
+    }
     if jsonOut {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -303,10 +323,17 @@ enum EditMDCtl {
             throw CLIError("lint requires workspace|file")
 
         case "index":
-            guard rest.first == "status" else {
-                throw CLIError("index requires status")
+            if rest.first == "status" {
+                return ControlRequest(id: "1", cmd: "index.status")
             }
-            return ControlRequest(id: "1", cmd: "index.status")
+            if rest.first == "rebuild" {
+                var argsMap: [String: JSONValue]? = nil
+                if rest.count > 1, !rest[1].hasPrefix("-") {
+                    argsMap = ["root": .string(absolutePath(rest[1]))]
+                }
+                return ControlRequest(id: "1", cmd: "index.rebuild", args: argsMap)
+            }
+            throw CLIError("index requires status|rebuild")
 
         case "tags":
             guard let sub = rest.first else {
@@ -339,6 +366,23 @@ enum EditMDCtl {
             if let path { argsMap = ["path": .string(absolutePath(path))] }
             return ControlRequest(id: "1", cmd: "frontmatter.get", args: argsMap)
 
+        case "search":
+            var query: String?
+            var limit: Int?
+            var j = 0
+            while j < rest.count {
+                let a = rest[j]
+                if a == "--limit", j + 1 < rest.count {
+                    limit = Int(rest[j + 1]); j += 2; continue
+                }
+                if query == nil { query = a; j += 1; continue }
+                throw CLIError("unexpected argument: \(a)")
+            }
+            guard let query else { throw CLIError("search requires a query") }
+            var argsMap: [String: JSONValue] = ["query": .string(query)]
+            if let limit { argsMap["limit"] = .int(limit) }
+            return ControlRequest(id: "1", cmd: "search", args: argsMap)
+
         case "agent-status":
             // editmdctl agent-status <idle|active|completed|blocked> [--label T] [--harness N]
             guard let state = rest.first, !state.hasPrefix("-") else {
@@ -365,6 +409,19 @@ enum EditMDCtl {
         default:
             throw CLIError("unknown command: \(cmd)")
         }
+    }
+
+    /// True when a control socket file exists — the cheap "is EditMD running"
+    /// probe the offline fallback keys off.
+    static func socketReachable() -> Bool {
+        let path: String
+        if let env = ProcessInfo.processInfo.environment[ControlSocket.envOverride],
+           !env.isEmpty {
+            path = env
+        } else {
+            path = ControlSocket.defaultPath().path
+        }
+        return FileManager.default.fileExists(atPath: path)
     }
 
     static func send(_ request: ControlRequest) throws -> ControlResponse {
@@ -520,8 +577,12 @@ enum EditMDCtl {
           marks add [--path P] --type TYPE --note TEXT [--quote Q]
           diff show [--path P]
 
-        Vault graph (wikillm; answers cover the ACTIVE workspace):
+        Vault graph (wikillm; via app socket, or offline when EditMD
+        is not running — then --root or an .editmd/.obsidian marker
+        locates the workspace):
           index status
+          index rebuild [root]      (offline only)
+          search <query> [--limit N]
           links outgoing [path]
           links backlinks [path]
           links resolve <target> [--from PATH]
@@ -534,6 +595,7 @@ enum EditMDCtl {
 
         Socket: \(sock)
         Override: --socket PATH  or  $EDITMD_CONTROL_SOCK
+        Offline workspace root: --root PATH
         """)
     }
 }

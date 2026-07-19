@@ -150,7 +150,27 @@ workspace (контракт `linkIndexRoots`); path вне активного wo
 готов; two-phase инвариант роутера (нет disk I/O в main-фазе) — по образцу
 существующих control-тестов.
 
-## Этап 4 — offline-движок: wikillm без запущенного EditMD
+## Этап 4 — offline-движок: wikillm без запущенного EditMD — **СДЕЛАНО (+ `search` в socket)**
+
+Реализация: чистое ядро вынесено в Editor/ (`LinkGraphEngine` из LinkIndex,
+`WikiLinkCore` + free-функции путей из WikiLinkResolver, `LineIndex` из
+MarkdownHighlighter, `ImageFileTypes` из PDFViewerView, `TagScan` из
+TagsSidebar, `homeDocument` в VaultLint, мост findings→LintDiagnostic — в
+app-only `VaultLintSourceBridge`); wire-шейпы — общий
+`Integration/ControlGraphPayload.swift` (socket и offline не дрейфуют).
+`editmdctl`: `OfflineVault` + автофоллбэк в main (`socketReachable()`;
+`index rebuild` offline-only и отказывается при живом сокете; `--root` /
+маркеры `.editmd`|`.obsidian` вверх от path/cwd; явный root авторитетен —
+свежий вольт без маркера). Offline-запросы = текущая правда диска: seed из
+персиста → walk+stat → re-parse изменённых → resolve с fingerprint-кэшем →
+save. Попутно пойман общий баг: `contentsOfDirectory(at:)` отдаёт детей с
+резолвнутым `/private/...`-префиксом — сырые пути в ResolveEnvironment
+делали ссылки в подкаталоги «непокрытыми» и молча выключали resolve-кэш для
+них И В ПРИЛОЖЕНИИ; окружение теперь стандартизуется при сборе
+(`testCoverageForSubdirectoryRelativeLink`). `search` доехал и в socket
+(`ControlRouter.searchCommand` — то же чистое ядро runWorkspaceSearch).
+
+### Исходный план этапа
 
 Вопрос пользователя: «если editmd не запущен — сможет ли скилл запустить
 editmd в фоновом режиме без gui и делать всё что надо по wikillm?»

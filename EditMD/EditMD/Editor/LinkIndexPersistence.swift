@@ -39,7 +39,7 @@ enum LinkIndexPersistence {
         var headings: [String]
         var links: [Link]
         /// Present only when the resolution was environment-covered (see
-        /// `LinkIndex.localResolutionCovered`); its links carry
+        /// `LinkGraphEngine.localResolutionCovered`); its links carry
         /// `resolvedPath`/`candidatePaths`.
         var resolveFingerprint: UInt64?
     }
@@ -66,7 +66,7 @@ enum LinkIndexPersistence {
     /// Serializes the cache entries that live under `root`. Entries whose
     /// resolve info references paths outside the root are persisted without
     /// it (defensively — covered resolutions always stay inside the root).
-    static func encode(cache: [URL: LinkIndex.FileScanEntry], root: URL) -> Data? {
+    static func encode(cache: [URL: LinkGraphEngine.FileScanEntry], root: URL) -> Data? {
         let rootPath = root.standardizedFileURL.path
         var entries: [Entry] = []
         for (url, entry) in cache {
@@ -144,13 +144,13 @@ enum LinkIndexPersistence {
     /// for corrupt data or a version mismatch — the caller scans without a
     /// seed. Validity against the live filesystem is NOT checked here: the
     /// scan itself compares (mtime, size) per file.
-    static func decode(_ data: Data, root: URL) -> [URL: LinkIndex.FileScanEntry] {
+    static func decode(_ data: Data, root: URL) -> [URL: LinkGraphEngine.FileScanEntry] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let payload = try? decoder.decode(FilePayload.self, from: data),
               payload.version == formatVersion else { return [:] }
         let std = root.standardizedFileURL
-        var cache: [URL: LinkIndex.FileScanEntry] = [:]
+        var cache: [URL: LinkGraphEngine.FileScanEntry] = [:]
         for entry in payload.files {
             // Reject entries that escape the root — the file is a cache, but
             // it is also untrusted input from disk.
@@ -185,7 +185,7 @@ enum LinkIndexPersistence {
                         std.appendingPathComponent($0).standardizedFileURL
                     }))
             }
-            var scanEntry = LinkIndex.FileScanEntry(
+            var scanEntry = LinkGraphEngine.FileScanEntry(
                 mtime: Date(timeIntervalSinceReferenceDate:
                     Double(bitPattern: entry.mtimeBits)),
                 size: entry.size,
@@ -204,7 +204,7 @@ enum LinkIndexPersistence {
 
     /// Atomic save (`tmp` + rename) plus the self-ignoring `.gitignore`.
     /// Call off the main actor only.
-    static func save(cache: [URL: LinkIndex.FileScanEntry], root: URL) {
+    static func save(cache: [URL: LinkGraphEngine.FileScanEntry], root: URL) {
         guard let data = encode(cache: cache, root: root) else { return }
         let fm = FileManager.default
         let dir = root.appendingPathComponent(directoryName)
@@ -225,7 +225,7 @@ enum LinkIndexPersistence {
 
     /// Loads the persisted seed for `root`; [:] when absent or unusable.
     /// Call off the main actor only.
-    static func load(root: URL) -> [URL: LinkIndex.FileScanEntry] {
+    static func load(root: URL) -> [URL: LinkGraphEngine.FileScanEntry] {
         guard let data = try? Data(contentsOf: indexFileURL(root: root)) else {
             return [:]
         }

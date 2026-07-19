@@ -16,15 +16,6 @@ actor WikiLinkResolver {
     private var built = false
     private var roots: [URL] = []
 
-    /// Every file EditMD can display directly may be a `[[target]]`.
-    private static let indexedExtensions: Set<String> =
-        Set(["md", "markdown", "textbundle", "pdf"]).union(supportedImageFileExtensions)
-
-    /// Extensions the user may type explicitly in a target (`[[doc.pdf]]`).
-    /// An explicit extension filters matches to that file type.
-    private static let explicitExtensions = ["md", "markdown", "textbundle", "pdf"]
-        + supportedImageFileExtensions.sorted()
-
     init() {}
 
     /// Sets the folders to index. A no-op (keeps the cache) when the set is
@@ -60,64 +51,16 @@ actor WikiLinkResolver {
     }
 
     /// Same lookup rules as `resolve`, over a captured index snapshot.
+    /// (Delegates to `WikiLinkCore` — the pure engine shared with editmdctl.)
     nonisolated static func matches(for target: String,
                                     in index: [String: [URL]]) -> [URL] {
-        let (key, ext) = normalizeTarget(target)
-        var matches = index[key] ?? []
-        if let ext {
-            matches = matches.filter { $0.pathExtension.lowercased() == ext }
-        }
-        return matches
+        WikiLinkCore.matches(for: target, in: index)
     }
 
     private func buildIfNeeded() {
         guard !built else { return }
-        var newIndex: [String: [URL]] = [:]
-        let fm = FileManager.default
-        for root in roots {
-            guard let enumerator = fm.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
-            for case let url as URL in enumerator
-            where Self.indexedExtensions.contains(url.pathExtension.lowercased()) {
-                let key = url.deletingPathExtension().lastPathComponent.lowercased()
-                // Standardized once here — per-match standardization during
-                // link resolution was the hot spot of the workspace scan.
-                newIndex[key, default: []].append(url.standardizedFileURL)
-            }
-        }
-        for key in newIndex.keys {
-            newIndex[key]?.sort {
-                // A bare [[Name]] shared by a note and media opens the editable note.
-                let aRank = Self.targetRank($0)
-                let bRank = Self.targetRank($1)
-                if aRank != bRank { return aRank < bRank }
-                return $0.path < $1.path
-            }
-        }
-        index = newIndex
+        index = WikiLinkCore.buildIndex(roots: roots)
         built = true
-    }
-
-    private static func targetRank(_ url: URL) -> Int {
-        let ext = url.pathExtension.lowercased()
-        if ["md", "markdown", "textbundle"].contains(ext) { return 0 }
-        if ext == "pdf" { return 1 }
-        return 2
-    }
-
-    private static func normalizeTarget(_ target: String) -> (key: String, ext: String?) {
-        var t = target
-        if let slash = t.lastIndex(of: "/") { t = String(t[t.index(after: slash)...]) }
-        t = t.trimmingCharacters(in: .whitespaces)
-        var ext: String?
-        for candidate in explicitExtensions where t.lowercased().hasSuffix("." + candidate) {
-            ext = candidate
-            t = String(t.dropLast(candidate.count + 1))
-            break
-        }
-        return (t.trimmingCharacters(in: .whitespaces).lowercased(), ext)
     }
 }
 
@@ -197,59 +140,6 @@ func openMarkdownLink(destination: String, from currentURL: URL?) {
     }
 }
 
-/// Candidate URLs `resolveLocalLinkDestination` probes, in probe order.
-/// Drops a `#…` fragment and undoes percent-encoding (`%20`); leading `/` →
-/// vault root + path, then the literal absolute path; otherwise file's
-/// folder + path, then vault root + path (Obsidian resolves both).
-/// Split out so the link-graph resolve cache can reason about which paths a
-/// destination's resolution depends on (`LinkIndex.localResolutionCovered`).
-func localLinkDestinationCandidates(_ destination: String,
-                                    fileDir: URL?,
-                                    vaultRoot: URL?) -> [URL] {
-    var path = destination
-    if let hash = path.firstIndex(of: "#") { path = String(path[..<hash]) }
-    path = (path.removingPercentEncoding ?? path).trimmingCharacters(in: .whitespaces)
-    guard !path.isEmpty else { return [] }
-
-    var candidates: [URL] = []
-    if path.hasPrefix("/") {
-        let rel = String(path.dropFirst())
-        if let vaultRoot { candidates.append(vaultRoot.appendingPathComponent(rel)) }
-        candidates.append(URL(fileURLWithPath: path))
-    } else {
-        if let fileDir { candidates.append(fileDir.appendingPathComponent(path)) }
-        if let vaultRoot { candidates.append(vaultRoot.appendingPathComponent(path)) }
-    }
-    return candidates
-}
-
-/// Filesystem resolution for a schemeless link destination: probes
-/// `localLinkDestinationCandidates` in order and returns the first existing
-/// file, nil when nothing matches.
-func resolveLocalLinkDestination(_ destination: String,
-                                 fileDir: URL?,
-                                 vaultRoot: URL?) -> URL? {
-    for candidate in localLinkDestinationCandidates(
-        destination, fileDir: fileDir, vaultRoot: vaultRoot) {
-        let std = candidate.standardizedFileURL
-        if FileManager.default.fileExists(atPath: std.path) { return std }
-    }
-    return nil
-}
-
-/// Nearest ancestor of `dir` (inclusive) containing an `.obsidian` folder —
-/// the vault marker, so `/vault/absolute` links work for files opened outside
-/// any adopted workspace. Bounded walk to filesystem root.
-func nearestVaultRoot(startingAt dir: URL) -> URL? {
-    var probe = dir.standardizedFileURL
-    for _ in 0..<64 {
-        if FileManager.default.fileExists(
-            atPath: probe.appendingPathComponent(".obsidian").path) {
-            return probe
-        }
-        let parent = probe.deletingLastPathComponent()
-        if parent.path == probe.path { return nil }
-        probe = parent
-    }
-    return nil
-}
+// `localLinkDestinationCandidates` / `resolveLocalLinkDestination` /
+// `nearestVaultRoot` live in Editor/WikiLinkCore.swift (pure Foundation —
+// shared with the offline editmdctl engine).

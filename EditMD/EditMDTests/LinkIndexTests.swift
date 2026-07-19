@@ -24,7 +24,7 @@ final class LinkIndexTests: XCTestCase {
         let a = try write("a.md", "[b](b.md)\n", in: root)
         let b = try write("b.md", "hi\n", in: root)
         let raw = scanOutgoingLinks(text: "see [b](b.md)\n")[0]
-        let resolved = LinkIndex.resolveLink(raw, from: a, vaultRoot: root, wikiMatches: [])
+        let resolved = LinkGraphEngine.resolveLink(raw, from: a, vaultRoot: root, wikiMatches: [])
         XCTAssertEqual(resolved.resolved, b)
         XCTAssertEqual(resolved.candidates, [b])
     }
@@ -35,7 +35,7 @@ final class LinkIndexTests: XCTestCase {
         let a = try write("a.md", "[[Target]]\n", in: root)
         let t = try write("Target.md", "x\n", in: root)
         let raw = scanOutgoingLinks(text: "[[Target]]\n")[0]
-        let resolved = LinkIndex.resolveLink(
+        let resolved = LinkGraphEngine.resolveLink(
             raw, from: a, vaultRoot: root, wikiMatches: [t])
         XCTAssertEqual(resolved.resolved, t)
     }
@@ -51,7 +51,7 @@ final class LinkIndexTests: XCTestCase {
         let d1 = try write("Dup.md", "1\n", in: subA)
         let d2 = try write("Dup.md", "2\n", in: subB)
         let raw = scanOutgoingLinks(text: "[[Dup]]\n")[0]
-        let resolved = LinkIndex.resolveLink(
+        let resolved = LinkGraphEngine.resolveLink(
             raw, from: source, vaultRoot: root, wikiMatches: [d1, d2])
         XCTAssertNil(resolved.resolved)
         XCTAssertEqual(Set(resolved.candidates.map(\.path)), Set([d1.path, d2.path]))
@@ -66,7 +66,7 @@ final class LinkIndexTests: XCTestCase {
         let sibling = try write("Dup.md", "near\n", in: sub)
         let other = try write("Dup.md", "far\n", in: root)
         let raw = scanOutgoingLinks(text: "[[Dup]]\n")[0]
-        let resolved = LinkIndex.resolveLink(
+        let resolved = LinkGraphEngine.resolveLink(
             raw, from: source, vaultRoot: root, wikiMatches: [other, sibling])
         XCTAssertEqual(resolved.resolved, sibling)
         XCTAssertEqual(resolved.candidates.count, 2)
@@ -77,7 +77,7 @@ final class LinkIndexTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let a = try write("a.md", "[[Nope]]\n", in: root)
         let raw = scanOutgoingLinks(text: "[[Nope]]\n")[0]
-        let resolved = LinkIndex.resolveLink(
+        let resolved = LinkGraphEngine.resolveLink(
             raw, from: a, vaultRoot: root, wikiMatches: [])
         XCTAssertNil(resolved.resolved)
         XCTAssertTrue(resolved.candidates.isEmpty)
@@ -90,7 +90,7 @@ final class LinkIndexTests: XCTestCase {
         let t = try write("T.md", "# Head\n", in: root)
         let raw = scanOutgoingLinks(text: "[[T#Head]]\n")[0]
         XCTAssertEqual(raw.heading, "Head")
-        let resolved = LinkIndex.resolveLink(
+        let resolved = LinkGraphEngine.resolveLink(
             raw, from: a, vaultRoot: root, wikiMatches: [t])
         XCTAssertEqual(resolved.resolved, t)
         XCTAssertEqual(resolved.heading, "Head")
@@ -106,7 +106,7 @@ final class LinkIndexTests: XCTestCase {
         var link = scanOutgoingLinks(text: "[[B]]\n")[0]
         link.resolved = b
         link.candidates = [b]
-        let bl = LinkIndex.projectBacklinks(from: [a: [link]])
+        let bl = LinkGraphEngine.projectBacklinks(from: [a: [link]])
         XCTAssertEqual(bl[b]?.count, 1)
         XCTAssertEqual(bl[b]?.first?.source, a)
     }
@@ -116,7 +116,7 @@ final class LinkIndexTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let a = try write("a.md", "[[B]]\n", in: root)
         let link = scanOutgoingLinks(text: "[[B]]\n")[0]
-        let bl = LinkIndex.projectBacklinks(from: [a: [link]])
+        let bl = LinkGraphEngine.projectBacklinks(from: [a: [link]])
         XCTAssertTrue(bl.isEmpty)
     }
 
@@ -131,7 +131,7 @@ final class LinkIndexTests: XCTestCase {
         _ = try write("c.md", "no links\n", in: root)
 
         let index = LinkIndex()
-        let scanned = LinkIndex.scanWorkspaceOutgoing(roots: [root])
+        let scanned = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root])
         XCTAssertEqual(scanned.filesScanned, 3)
         XCTAssertEqual(scanned.outgoing[a]?.first?.rawTarget, "B")
 
@@ -142,12 +142,12 @@ final class LinkIndexTests: XCTestCase {
             var resolved: [OutgoingLink] = []
             for link in links {
                 let hits = await WikiLinkResolver.shared.resolve(link.rawTarget)
-                resolved.append(LinkIndex.resolveLink(
+                resolved.append(LinkGraphEngine.resolveLink(
                     link, from: src, vaultRoot: root, wikiMatches: hits))
             }
             map[src] = resolved
         }
-        let bl = LinkIndex.projectBacklinks(from: map)
+        let bl = LinkGraphEngine.projectBacklinks(from: map)
         let bURL = root.appendingPathComponent("b.md").standardizedFileURL
         XCTAssertEqual(bl[bURL]?.count, 1)
 
@@ -176,7 +176,7 @@ final class LinkIndexTests: XCTestCase {
         // maxBytes = 10 → any larger file skipped.
         let big = root.appendingPathComponent("big.md")
         try String(repeating: "a", count: 100).write(to: big, atomically: true, encoding: .utf8)
-        let scanned = LinkIndex.scanWorkspaceOutgoing(roots: [root], maxBytes: 10)
+        let scanned = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root], maxBytes: 10)
         XCTAssertEqual(scanned.skipped, 1)
         XCTAssertEqual(scanned.filesScanned, 1)
     }
@@ -187,12 +187,12 @@ final class LinkIndexTests: XCTestCase {
         let a = try write("a.md", "[[B]]\n", in: root)
         _ = try write("b.md", "# Head\n", in: root)
 
-        let first = LinkIndex.scanWorkspaceOutgoing(roots: [root])
+        let first = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root])
         XCTAssertEqual(first.filesScanned, 2)
         XCTAssertEqual(first.newCache.count, 2)
 
         // Unchanged workspace: everything comes from the cache.
-        let second = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: first.newCache)
+        let second = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root], cache: first.newCache)
         XCTAssertEqual(second.filesScanned, 0)
         XCTAssertEqual(second.outgoing[a]?.first?.rawTarget, "B")
         XCTAssertEqual(second.headings[root.appendingPathComponent("b.md")
@@ -202,12 +202,12 @@ final class LinkIndexTests: XCTestCase {
         try FileManager.default.setAttributes(
             [.modificationDate: Date().addingTimeInterval(2)],
             ofItemAtPath: a.path)
-        let third = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: second.newCache)
+        let third = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root], cache: second.newCache)
         XCTAssertEqual(third.filesScanned, 1)
 
         // Deleted file drops out of the fresh cache.
         try FileManager.default.removeItem(at: a)
-        let fourth = LinkIndex.scanWorkspaceOutgoing(roots: [root], cache: third.newCache)
+        let fourth = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root], cache: third.newCache)
         XCTAssertEqual(fourth.newCache.count, 1)
         XCTAssertNil(fourth.outgoing[a])
     }
@@ -226,7 +226,7 @@ final class LinkIndexTests: XCTestCase {
             _ = try write("f\(i).md", body, in: root)
         }
         let start = CFAbsoluteTimeGetCurrent()
-        let scanned = LinkIndex.scanWorkspaceOutgoing(roots: [root])
+        let scanned = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root])
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         XCTAssertEqual(scanned.filesScanned, n)
         XCTAssertLessThan(elapsed, 5.0, "scan took \(elapsed)s")
@@ -372,29 +372,29 @@ final class LinkIndexTests: XCTestCase {
     func testLocalResolutionCoverage() throws {
         let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
         let fileDir = root.appendingPathComponent("notes")
-        let env = LinkIndex.ResolveEnvironment(
+        let env = LinkGraphEngine.ResolveEnvironment(
             paths: [root.appendingPathComponent("notes").path,
                     root.appendingPathComponent("notes/b.md").path],
             walkedDirs: [root.path, fileDir.path],
             symlinks: [])
         // In-root candidates, first probe hits → covered.
-        XCTAssertTrue(LinkIndex.localResolutionCovered(
+        XCTAssertTrue(LinkGraphEngine.localResolutionCovered(
             "b.md", fileDir: fileDir, vaultRoot: root, environment: env))
         // In-root miss (fingerprint would notice its creation) → covered.
-        XCTAssertTrue(LinkIndex.localResolutionCovered(
+        XCTAssertTrue(LinkGraphEngine.localResolutionCovered(
             "./missing.md", fileDir: fileDir, vaultRoot: root, environment: env))
         // Escapes the walked tree → not covered.
-        XCTAssertFalse(LinkIndex.localResolutionCovered(
+        XCTAssertFalse(LinkGraphEngine.localResolutionCovered(
             "../../outside.md", fileDir: fileDir, vaultRoot: root, environment: env))
         // Hidden name → not covered.
-        XCTAssertFalse(LinkIndex.localResolutionCovered(
+        XCTAssertFalse(LinkGraphEngine.localResolutionCovered(
             ".hidden.md", fileDir: fileDir, vaultRoot: root, environment: env))
         // Symlinked item → not covered (listing does not prove existence).
-        let symEnv = LinkIndex.ResolveEnvironment(
+        let symEnv = LinkGraphEngine.ResolveEnvironment(
             paths: [root.appendingPathComponent("notes/b.md").path],
             walkedDirs: [root.path, fileDir.path],
             symlinks: [root.appendingPathComponent("notes/b.md").path])
-        XCTAssertFalse(LinkIndex.localResolutionCovered(
+        XCTAssertFalse(LinkGraphEngine.localResolutionCovered(
             "b.md", fileDir: fileDir, vaultRoot: root, environment: symEnv))
     }
 
@@ -702,7 +702,7 @@ final class LinkIndexTests: XCTestCase {
         var resolved = link
         resolved.resolved = b
         resolved.candidates = [b]
-        var entry = LinkIndex.FileScanEntry(
+        var entry = LinkGraphEngine.FileScanEntry(
             mtime: Date(timeIntervalSinceReferenceDate: 700000000.123456),
             size: 6, links: [link], headings: ["H"])
         entry.resolvedLinks = [resolved]
@@ -763,15 +763,15 @@ final class LinkIndexTests: XCTestCase {
         let a = env(rootA)
         let b = env(rootB)
         XCTAssertEqual(
-            LinkIndex.resolveEnvironmentFingerprint(
+            LinkGraphEngine.resolveEnvironmentFingerprint(
                 roots: [rootA], wikiIndex: a.wiki, paths: a.paths),
-            LinkIndex.resolveEnvironmentFingerprint(
+            LinkGraphEngine.resolveEnvironmentFingerprint(
                 roots: [rootB], wikiIndex: b.wiki, paths: b.paths),
             "fingerprint must depend on relative structure, not vault location")
         XCTAssertNotEqual(
-            LinkIndex.resolveEnvironmentFingerprint(
+            LinkGraphEngine.resolveEnvironmentFingerprint(
                 roots: [rootA], wikiIndex: a.wiki, paths: a.paths),
-            LinkIndex.resolveEnvironmentFingerprint(
+            LinkGraphEngine.resolveEnvironmentFingerprint(
                 roots: [rootA], wikiIndex: a.wiki,
                 paths: a.paths.union([rootA.appendingPathComponent("new.md").path])),
             "adding an item must change the fingerprint")
@@ -800,6 +800,22 @@ final class LinkIndexTests: XCTestCase {
             "loose files must not build or persist a workspace index")
     }
 
+    func testCoverageForSubdirectoryRelativeLink() throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let notes = root.appendingPathComponent("notes")
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        _ = try write("gamma.md", "# G\n", in: notes)
+        _ = try write("alpha.md", "[c](notes/gamma.md)\n", in: root)
+        let scanned = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root])
+        XCTAssertTrue(LinkGraphEngine.localResolutionCovered(
+            "notes/gamma.md",
+            fileDir: root.standardizedFileURL,
+            vaultRoot: root.standardizedFileURL,
+            environment: scanned.environment),
+            "walked dirs: \(scanned.environment.walkedDirs)")
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -809,7 +825,7 @@ final class LinkIndexTests: XCTestCase {
         // onProgress is called synchronously from the scanning thread.
         final class Box: @unchecked Sendable { var reports: [(Int, Int)] = [] }
         let box = Box()
-        let scanned = LinkIndex.scanWorkspaceOutgoing(roots: [root]) { done, total in
+        let scanned = LinkGraphEngine.scanWorkspaceOutgoing(roots: [root]) { done, total in
             box.reports.append((done, total))
         }
         XCTAssertEqual(scanned.filesScanned, 5)
