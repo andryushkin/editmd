@@ -69,8 +69,8 @@ enum OfflineVault {
                 return .success(id: id, data: .object(obj))
 
             case "links.outgoing", "links.backlinks":
-                let url = try pathArg(request)
                 let root = try discoverRoot(request: request, rootOverride: rootOverride)
+                let url = try pathArg(request, root: root)
                 let graph = buildGraph(root: root)
                 if request.cmd == "links.outgoing" {
                     let links = graph.outgoing[url] ?? []
@@ -101,13 +101,15 @@ enum OfflineVault {
                     target: target, matches: matches, fromDir: fromDir))
 
             case "outline":
-                let url = try pathArg(request)
+                let root = try discoverRoot(request: request, rootOverride: rootOverride)
+                let url = try pathArg(request, root: root)
                 let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
                 return .success(id: id,
                                 data: controlOutlinePayload(path: url.path, text: text))
 
             case "frontmatter.get":
-                let url = try pathArg(request)
+                let root = try discoverRoot(request: request, rootOverride: rootOverride)
+                let url = try pathArg(request, root: root)
                 let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
                 return .success(id: id,
                                 data: controlFrontmatterPayload(path: url.path, text: text))
@@ -124,7 +126,7 @@ enum OfflineVault {
                     roots: [root],
                     homeDocuments: homes)
                 if request.cmd == "lint.file" {
-                    let url = try pathArg(request)
+                    let url = try pathArg(request, root: root)
                     let findings = vaultLintFindings(for: url, index: snapshot)
                     return .success(id: id, data: .object([
                         "path": .string(url.path),
@@ -282,11 +284,18 @@ enum OfflineVault {
             + "\(startPath)) — pass --root PATH")
     }
 
-    private static func pathArg(_ request: ControlRequest) throws -> URL {
+    /// A path argument that must exist AND lie inside `root` — the offline
+    /// counterpart of the socket's `checkScope`, so an explicit `--root` is
+    /// authoritative for path commands too (not just `index rebuild`).
+    private static func pathArg(_ request: ControlRequest, root: URL) throws -> URL {
         guard let path = request.argString("path"), !path.isEmpty else {
             throw CLIError("\(request.cmd) requires a path when EditMD is not running")
         }
         let url = URL(fileURLWithPath: path).standardizedFileURL
+        let r = root.standardizedFileURL.path
+        guard url.path == r || url.path.hasPrefix(r + "/") else {
+            throw CLIError("outside-workspace: \(url.path) is not under \(r)")
+        }
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw CLIError("file not found: \(url.path)")
         }

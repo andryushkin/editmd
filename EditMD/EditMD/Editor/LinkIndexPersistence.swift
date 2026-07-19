@@ -154,9 +154,7 @@ enum LinkIndexPersistence {
         for entry in payload.files {
             // Reject entries that escape the root — the file is a cache, but
             // it is also untrusted input from disk.
-            guard !entry.path.isEmpty, !entry.path.hasPrefix("/"),
-                  !entry.path.split(separator: "/").contains("..")
-            else { continue }
+            guard isSafeRelative(entry.path) else { continue }
             let url = std.appendingPathComponent(entry.path).standardizedFileURL
             var raw: [OutgoingLink] = []
             var resolved: [OutgoingLink] = []
@@ -169,11 +167,20 @@ enum LinkIndexPersistence {
                 links.append((link, kind))
             }
             guard links.count == entry.links.count else { continue }
+            // A single unsafe resolved/candidate path (e.g. `../outside.md`
+            // spliced into an otherwise-valid entry) taints ALL resolve-info
+            // for this entry: keep the raw links, drop the cached resolution
+            // so the scan re-resolves it inside the root.
+            var resolveTainted = false
             for (link, kind) in links {
                 raw.append(OutgoingLink(
                     kind: kind, rawTarget: link.rawTarget, heading: link.heading,
                     label: link.label, line: link.line,
                     utf16Offset: link.utf16Offset, context: link.context))
+                if let rp = link.resolvedPath, !isSafeRelative(rp) { resolveTainted = true }
+                if (link.candidatePaths ?? []).contains(where: { !isSafeRelative($0) }) {
+                    resolveTainted = true
+                }
                 resolved.append(OutgoingLink(
                     kind: kind, rawTarget: link.rawTarget, heading: link.heading,
                     label: link.label, line: link.line,
@@ -191,13 +198,21 @@ enum LinkIndexPersistence {
                 size: entry.size,
                 links: raw,
                 headings: entry.headings)
-            if let fingerprint = entry.resolveFingerprint {
+            if let fingerprint = entry.resolveFingerprint, !resolveTainted {
                 scanEntry.resolvedLinks = resolved
                 scanEntry.resolveFingerprint = fingerprint
             }
             cache[url] = scanEntry
         }
         return cache
+    }
+
+    /// A workspace-relative path that cannot escape the root: non-empty, not
+    /// absolute, no `..` component. Guards every path read out of the
+    /// untrusted index file — entry paths AND resolved/candidate paths.
+    static func isSafeRelative(_ path: String) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/")
+            && !path.split(separator: "/").contains("..")
     }
 
     // MARK: - Disk

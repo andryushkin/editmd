@@ -27,34 +27,32 @@ extension ControlRouter {
         throw ControlError("link index not ready (indexing \(pct)%) — retry shortly")
     }
 
-    /// Rejects files that belong to a different adopted workspace than the
-    /// one the index currently covers. Files outside every root pass through:
-    /// loose files legitimately appear in the single-file map.
-    private static func checkScope(_ url: URL, index: LinkIndex) throws {
-        let roots = index.snapshot().roots
+    /// Enforces the active-workspace scope on a file path. Any path outside
+    /// the workspace the index actually covers is rejected — not only paths in
+    /// another adopted workspace — so every path-based vault-graph command
+    /// keeps the documented `outside-active-workspace` contract. Scoped to the
+    /// index's own roots (what it answers for); a no-op only when nothing is
+    /// indexed yet (loose files legitimately live in the single-file map).
+    /// Main-safe: pure path math over published state, no disk I/O.
+    private static func checkScope(_ url: URL) throws {
+        let roots = LinkIndex.shared.snapshot().roots
         guard !roots.isEmpty else { return }
         let path = url.standardizedFileURL.path
         let insideActive = roots.contains {
             path == $0.path || path.hasPrefix($0.path + "/")
         }
-        if insideActive { return }
-        let owningOther = WorkspaceModel.shared.workspaces.contains {
-            let r = $0.url.standardizedFileURL.path
-            return path == r || path.hasPrefix(r + "/")
-        }
-        if owningOther {
-            throw ControlError(
-                "outside-active-workspace: the index covers one workspace at a "
-                + "time — open a file from that workspace first")
-        }
+        guard !insideActive else { return }
+        throw ControlError(
+            "outside-active-workspace: the index covers one workspace at a "
+            + "time — open a file from that workspace first")
     }
 
     // MARK: - links.outgoing / links.backlinks
 
     static func linksOutgoing(_ request: ControlRequest) throws -> Dispatched {
-        let url = try fileURL(for: request)
+        let url = try targetURL(for: request)
+        try checkScope(url)
         let index = try readyLinkIndex()
-        try checkScope(url, index: index)
         let links = index.outgoingLinks(for: url)
         return .data(.object([
             "path": .string(url.standardizedFileURL.path),
@@ -64,9 +62,9 @@ extension ControlRouter {
     }
 
     static func linksBacklinks(_ request: ControlRequest) throws -> Dispatched {
-        let url = try fileURL(for: request)
+        let url = try targetURL(for: request)
+        try checkScope(url)
         let index = try readyLinkIndex()
-        try checkScope(url, index: index)
         let edges = index.backlinkEdges(for: url)
         return .data(.object([
             "path": .string(url.standardizedFileURL.path),
@@ -117,7 +115,8 @@ extension ControlRouter {
     // MARK: - outline
 
     static func outlineCommand(_ request: ControlRequest) throws -> Dispatched {
-        let url = try fileURL(for: request)
+        let url = try targetURL(for: request)
+        try checkScope(url)
         let buffered = DocumentRegistry.shared.contentIfOpen(url)
         let requestID = request.id
         return .deferred {
@@ -158,9 +157,9 @@ extension ControlRouter {
     }
 
     static func lintFile(_ request: ControlRequest) throws -> Dispatched {
-        let url = try fileURL(for: request)
+        let url = try targetURL(for: request)
+        try checkScope(url)
         let index = try readyLinkIndex()
-        try checkScope(url, index: index)
         let snapshot = index.snapshot()
         let requestID = request.id
         return .deferred {
@@ -214,38 +213,47 @@ extension ControlRouter {
 
     // MARK: - tags
 
+    /// Tags are scanned fresh in the deferred phase over the ACTIVE root, not
+    /// read from `WorkspaceModel.tagIndex`: that index is populated async (a
+    /// cold `tags list` would honestly answer count:0 while the scan runs) and
+    /// covers all adopted workspaces, not the active one. `scanWorkspaceTags`
+    /// is the same pure walk the app uses — synchronous and correctly scoped.
     static func tagsList(_ request: ControlRequest) -> Dispatched {
-        let workspace = WorkspaceModel.shared
-        workspace.ensureTagIndex()
-        let tags = workspace.tagIndex
-        return .data(.object([
-            "count": .int(tags.count),
-            "tags": .object(Dictionary(uniqueKeysWithValues:
-                tags.map { ($0.key, JSONValue.int($0.value.count)) })),
-        ]))
+        let roots = WorkspaceModel.shared.linkIndexRoots
+        let requestID = request.id
+        return .deferred {
+            let tags = scanWorkspaceTags(roots: roots)
+            return .success(id: requestID, data: .object([
+                "count": .int(tags.count),
+                "tags": .object(Dictionary(uniqueKeysWithValues:
+                    tags.map { ($0.key, JSONValue.int($0.value.count)) })),
+            ]))
+        }
     }
 
     static func tagsFiles(_ request: ControlRequest) throws -> Dispatched {
         guard let tag = request.argString("tag"), !tag.isEmpty else {
             throw ControlError("tags.files requires args.tag")
         }
-        let workspace = WorkspaceModel.shared
-        workspace.ensureTagIndex()
+        let roots = WorkspaceModel.shared.linkIndexRoots
         let normalized = tag.hasPrefix("#") ? String(tag.dropFirst()) : tag
-        let files = workspace.tagIndex[normalized]
-            ?? workspace.tagIndex["#" + normalized]
-            ?? []
-        return .data(.object([
-            "tag": .string(normalized),
-            "count": .int(files.count),
-            "files": .array(files.map(\.path).sorted().map { .string($0) }),
-        ]))
+        let requestID = request.id
+        return .deferred {
+            let tags = scanWorkspaceTags(roots: roots)
+            let files = tags[normalized] ?? tags["#" + normalized] ?? []
+            return .success(id: requestID, data: .object([
+                "tag": .string(normalized),
+                "count": .int(files.count),
+                "files": .array(files.map(\.path).sorted().map { .string($0) }),
+            ]))
+        }
     }
 
     // MARK: - frontmatter.get
 
     static func frontmatterGet(_ request: ControlRequest) throws -> Dispatched {
-        let url = try fileURL(for: request)
+        let url = try targetURL(for: request)
+        try checkScope(url)
         let buffered = DocumentRegistry.shared.contentIfOpen(url)
         let requestID = request.id
         return .deferred {
@@ -270,12 +278,13 @@ extension ControlRouter {
         guard !roots.isEmpty else {
             throw ControlError("search: no workspace adopted")
         }
-        // Tag filters (`#tag`) work when the tag index is warm; kick it lazily.
-        WorkspaceModel.shared.ensureTagIndex()
-        let tags = WorkspaceModel.shared.tagIndex
         let limit = max(1, request.argInt("limit") ?? 50)
         let requestID = request.id
         return .deferred {
+            // Scan tags fresh over the active root so `#tag` filters are
+            // correct on the first call (not the async, all-workspace
+            // WorkspaceModel.tagIndex).
+            let tags = scanWorkspaceTags(roots: roots)
             let query = parseSearchQuery(raw)
             let metas = collectSearchFileMetas(roots: roots, tagIndex: tags)
             var options = SearchRunOptions.default

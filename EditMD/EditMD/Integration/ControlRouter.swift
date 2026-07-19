@@ -520,6 +520,21 @@ enum ControlRouter {
         return url
     }
 
+    /// Main-phase-safe URL: normalize the `path` argument (or fall back to the
+    /// active file) WITHOUT touching disk — `resolvePath` is pure path math.
+    /// Existence checks and reads belong to the deferred phase (the two-phase
+    /// contract: a blocked `fileExists` on a network vault must not stall the
+    /// main actor). Vault-graph commands use this instead of `fileURL`.
+    static func targetURL(for request: ControlRequest) throws -> URL {
+        if let path = request.argString("path"), !path.isEmpty {
+            return try resolvePath(path)
+        }
+        guard let url = AppState.shared.currentURL, !AppState.isFolder(url) else {
+            throw ControlError("no active file (pass args.path)")
+        }
+        return url
+    }
+
     /// Absolute paths only: the app's own cwd is "/" under Finder, so
     /// resolving a caller-relative path here silently targets the wrong file.
     /// `editmdctl` absolutizes against the caller's cwd before sending.

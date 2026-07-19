@@ -80,6 +80,30 @@ final class ControlChannelTests: XCTestCase {
     }
 
     @MainActor
+    func testControlVaultGraphRejectsOutsideActiveWorkspace() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        seedSharedIndex(root: root, a: a, b: b)
+
+        // A path outside the indexed workspace must fail on every path-based
+        // command — not just paths in another adopted workspace.
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ctl-outside-\(UUID().uuidString).md").path
+        for cmd in ["links.outgoing", "links.backlinks", "outline",
+                    "lint.file", "frontmatter.get"] {
+            let resp = ControlRouter.process(ControlRequest(
+                id: "1", cmd: cmd, args: ["path": .string(outside)]))
+            XCTAssertFalse(resp.ok, "\(cmd) must reject outside path")
+            XCTAssertEqual(resp.error?.contains("outside-active-workspace"), true,
+                           "\(cmd): \(resp.error ?? "")")
+        }
+        // An in-workspace path still works.
+        let ok = ControlRouter.process(ControlRequest(
+            id: "2", cmd: "outline", args: ["path": .string(b.path)]))
+        XCTAssertTrue(ok.ok, ok.error ?? "")
+    }
+
+    @MainActor
     func testControlLinksOutgoingAndBacklinks() throws {
         let (root, a, b) = try makeVault()
         defer { try? FileManager.default.removeItem(at: root) }

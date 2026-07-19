@@ -752,6 +752,45 @@ final class LinkIndexTests: XCTestCase {
         XCTAssertEqual(cache.keys.map(\.lastPathComponent), ["ok.md"])
     }
 
+    func testPersistenceDecodeRejectsEscapingResolvedPath() throws {
+        let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
+        // A valid entry whose cached resolution points OUTSIDE the root — the
+        // attack the raw appendingPathComponent path allowed. The entry must
+        // survive (raw links kept) but its resolve-info must be dropped so no
+        // out-of-root URL reaches outgoing/backlinks.
+        let payload = """
+        {"version": 1, "scannedAt": "2026-07-19T00:00:00Z", "files": [
+          {"path": "a.md", "mtimeBits": 0, "size": 1, "headings": [],
+           "resolveFingerprint": 42,
+           "links": [{"kind": "wiki", "rawTarget": "x", "label": "x",
+             "line": 1, "utf16Offset": 0, "context": "[[x]]",
+             "resolvedPath": "../outside.md"}]}
+        ]}
+        """
+        let cache = LinkIndexPersistence.decode(Data(payload.utf8), root: root)
+        let entry = try XCTUnwrap(cache[root.appendingPathComponent("a.md")])
+        XCTAssertEqual(entry.links.map(\.rawTarget), ["x"], "raw links kept")
+        XCTAssertNil(entry.resolvedLinks, "tainted resolution dropped wholesale")
+        XCTAssertNil(entry.resolveFingerprint)
+    }
+
+    func testPersistenceDecodeRejectsEscapingCandidatePath() throws {
+        let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
+        let payload = """
+        {"version": 1, "scannedAt": "2026-07-19T00:00:00Z", "files": [
+          {"path": "a.md", "mtimeBits": 0, "size": 1, "headings": [],
+           "resolveFingerprint": 42,
+           "links": [{"kind": "wiki", "rawTarget": "x", "label": "x",
+             "line": 1, "utf16Offset": 0, "context": "[[x]]",
+             "candidatePaths": ["ok.md", "/etc/passwd"]}]}
+        ]}
+        """
+        let cache = LinkIndexPersistence.decode(Data(payload.utf8), root: root)
+        let entry = try XCTUnwrap(cache[root.appendingPathComponent("a.md")])
+        XCTAssertNil(entry.resolvedLinks,
+                     "an absolute candidate taints the whole entry's resolution")
+    }
+
     func testStableFingerprintSurvivesVaultMove() {
         let rootA = URL(fileURLWithPath: "/tmp/vaultA").standardizedFileURL
         let rootB = URL(fileURLWithPath: "/tmp/moved/vaultB").standardizedFileURL
