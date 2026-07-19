@@ -150,7 +150,10 @@ final class WorkspaceModel: ObservableObject {
     }
 
     @objc private func appDidBecomeActive() {
-        noteFilesystemChange()
+        // Refresh tree listings/tags only. The link graph deliberately does
+        // NOT invalidate here — see `linkEpoch`; its (mtime, size) scan cache
+        // picks up external edits on the next real rebuild trigger.
+        contentEpoch += 1
         refreshFavoriteAvailability()
     }
 
@@ -781,8 +784,16 @@ final class WorkspaceModel: ObservableObject {
     /// list children observe the model; reading this forces a refresh pass.
     @Published private(set) var contentEpoch: Int = 0
 
+    /// Bumped only on real filesystem mutations (create/delete/rename/agent
+    /// writes of NEW files) — not on app activation. The link graph keys off
+    /// this: rebuilding it costs a full resolve pass over the vault, which
+    /// must not happen every time the app regains focus. Edits to open files
+    /// flow through `noteDocumentPersisted` (incremental single-file path).
+    private(set) var linkEpoch: Int = 0
+
     func noteFilesystemChange() {
         contentEpoch += 1
+        linkEpoch += 1
         // Link graph is presentation state over the tree — rebuild in background.
         LinkIndex.shared.invalidate(workspace: self)
     }

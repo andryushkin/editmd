@@ -36,6 +36,11 @@ final class LinkIndex: ObservableObject {
 
     private var indexKey = ""
     private var scanInFlight = false
+    /// Key the in-flight scan was started for. A repeated request for the
+    /// same key must NOT restart the scan (opening a file re-runs
+    /// `ensureIndex` via view onAppear and used to throw away minutes of
+    /// parse/resolve work on large vaults).
+    private var inFlightKey = ""
     private var scanPending = false
     private var fullScanTask: Task<Void, Never>?
     private var roots: [URL] = []
@@ -48,7 +53,7 @@ final class LinkIndex: ObservableObject {
     /// Ensure the index matches the current workspace roots + contentEpoch.
     func ensureIndex(workspace: WorkspaceModel = .shared) {
         let roots = workspace.workspaces.map(\.url)
-        let key = Self.scanKey(epoch: workspace.contentEpoch, roots: roots)
+        let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
         if indexKey == key, hasCompletedFullScan { return }
         scheduleFullScan(roots: roots, key: key)
     }
@@ -71,7 +76,7 @@ final class LinkIndex: ObservableObject {
                                workspace: WorkspaceModel = .shared) {
         let std = url.standardizedFileURL
         let roots = workspace.workspaces.map(\.url)
-        let key = Self.scanKey(epoch: workspace.contentEpoch, roots: roots)
+        let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
         // No workspace yet (lite/loose): still keep a one-file outgoing map.
         if roots.isEmpty {
             Task { await self.rescanSingleFile(std, content: content, roots: roots, key: key) }
@@ -317,6 +322,10 @@ final class LinkIndex: ObservableObject {
 
     private func scheduleFullScan(roots: [URL], key: String) {
         guard !scanInFlight else {
+            // Same key → the running scan already produces this result;
+            // let it finish. Only a genuinely different key (roots or
+            // link epoch moved) makes the in-flight result stale.
+            guard inFlightKey != key else { return }
             scanPending = true
             // The current result is stale. Stop its cooperative walk/resolution
             // before the pending scan starts against the newest workspace key.
@@ -324,6 +333,7 @@ final class LinkIndex: ObservableObject {
             return
         }
         scanInFlight = true
+        inFlightKey = key
         isScanning = true
         scanProgress = 0
         self.roots = roots.map(\.standardizedFileURL)

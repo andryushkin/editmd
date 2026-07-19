@@ -794,13 +794,19 @@ final class DocumentRegistry {
             }
             return
         }
+        let isNewFile = !FileManager.default.fileExists(atPath: key.path)
         let existingAssets = (try? loadMarkdownDocument(from: key))?.assets
         try writeMarkdownDocument(content: content, assets: existingAssets, to: key)
         LineChangeTracker.shared.noteBaseline(url: key, content: content)
         // Closed-file agent edit: same incremental index path as flush.
         LinkIndex.shared.noteDocumentPersisted(url: key, content: content)
-        // A brand-new file has to appear in the sidebar without a manual refresh.
-        WorkspaceModel.shared.noteFilesystemChange()
+        // A brand-new file has to appear in the sidebar without a manual
+        // refresh. Existing files must NOT bump the epoch: that invalidates
+        // the whole link graph, and the incremental path above already
+        // reindexed this file.
+        if isNewFile {
+            WorkspaceModel.shared.noteFilesystemChange()
+        }
     }
 
     /// Drops the session cache (tests / low-memory). Live window entries stay.

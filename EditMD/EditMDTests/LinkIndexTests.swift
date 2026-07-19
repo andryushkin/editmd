@@ -232,6 +232,34 @@ final class LinkIndexTests: XCTestCase {
         XCTAssertLessThan(elapsed, 5.0, "scan took \(elapsed)s")
     }
 
+    @MainActor
+    func testRepeatedEnsureIndexDoesNotRestartInFlightScan() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<20 {
+            _ = try write("n\(i).md", "[[n\((i + 1) % 20)]]\n", in: root)
+        }
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        // First call starts the scan; repeated calls with the same key
+        // (opening files re-runs ensureIndex via onAppear) must neither
+        // cancel it nor queue a rescan.
+        index.ensureIndex(workspace: workspace)
+        index.ensureIndex(workspace: workspace)
+        index.ensureIndex(workspace: workspace)
+        let deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(index.hasCompletedFullScan)
+        // Let any (incorrectly) queued pending rescan surface before counting.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(index.fullScanCount, 1,
+                       "same-key ensureIndex must reuse the in-flight scan")
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
