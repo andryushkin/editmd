@@ -1194,4 +1194,13 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - Кэшируется только резолюция, полностью покрытая окружением (`localResolutionCovered`): каждый кандидат probe до первого хита лежит в walked-каталоге под видимым именем. Цели вне roots, скрытые имена, содержимое package'ей, symlink'и — не кэшируются и ре-резолвятся каждый full scan (walk их не видит, fingerprint не заметит изменение). `localLinkDestinationCandidates` вынесен из `resolveLocalLinkDestination`, чтобы coverage-проверка зеркалила порядок probe.
 - Single-file путь (`rescanSingleFile`) не пишет resolve-кэш и не инвалидирует wiki-индекс (авто-сейв должен оставаться дешёвым).
 
-Осталось дорогим только: первый скан за запуск app (кэш в памяти, рычаги — персист на диск, параллелизм парсинга) и полный ре-резолв после add/remove/rename файла (корректно: новый файл может перехватить wiki-таргеты). Глазами серия 2026-07-19 не проверена.
+### Индекс скоупится на активный workspace
+
+По просьбе пользователя автоматическая индексация покрывает ОДИН workspace — владельца активного документа (`WorkspaceModel.linkIndexRoots`; fallback — первый workspace, он же стартовая ветка запуска). Раньше `ensureIndex` сканировал все adopted workspaces разом: launch/rebuild стоил сумму всех вольтов, хотя backlinks и vault-lint — вопросы «внутри вольта» (Obsidian-семантика: vault = единица резолюции; кросс-workspace wiki-таргеты и так были неоднозначны). Механика:
+
+- `noteActive` (открытие файла в главном окне) дёргает `LinkIndex.noteActiveDocumentChanged` — lazy no-op, если индекс никто не строил; смена файла внутри workspace — no-op по same-key; смена workspace меняет ключ → рескан нового workspace.
+- `scanCache` переживает переключение: публикация скана заменяет записи только ПОД отсканированными roots (отсутствие = удалённый файл), записи чужих workspaces сохраняются — возврат в workspace это walk + stat'ы, без ре-парса и ре-резолва (fingerprint для прежнего окружения совпадает).
+- Wiki-индекс full scan'а строится по активному root'у; `navigateToWikiLink` по-прежнему резолвит по всем workspaces (user-driven переход не тронут).
+- Следствие контракта: published `outgoing`/`backlinks`/vault-lint отражают только активный workspace; кросс-workspace backlinks в индексе не существуют.
+
+Осталось дорогим только: первый скан вольта за запуск app (кэш в памяти, рычаги — персист на диск, параллелизм парсинга) и полный ре-резолв после add/remove/rename файла (корректно: новый файл может перехватить wiki-таргеты). Глазами серия 2026-07-19 не проверена.

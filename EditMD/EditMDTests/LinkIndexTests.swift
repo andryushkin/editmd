@@ -535,6 +535,66 @@ final class LinkIndexTests: XCTestCase {
         XCTAssertEqual(index.fullScanCount, 2)
     }
 
+    @MainActor
+    func testIndexScopesToActiveWorkspaceAndKeepsCacheAcrossSwitch() async throws {
+        let rootA = try tempRoot()
+        let rootB = try tempRoot()
+        defer {
+            try? FileManager.default.removeItem(at: rootA)
+            try? FileManager.default.removeItem(at: rootB)
+        }
+        let a1 = try write("a1.md", "[[a2]]\n", in: rootA)
+        _ = try write("a2.md", "target\n", in: rootA)
+        let b1 = try write("b1.md", "[[b2]]\n", in: rootB)
+        _ = try write("b2.md", "target\n", in: rootB)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(rootA)
+        workspace.addWorkspace(rootB)
+        let index = LinkIndex()
+
+        // No active document → the first workspace is the indexed one.
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(index.outgoing[a1])
+        XCTAssertNil(index.outgoing[b1], "inactive workspace must not be scanned")
+
+        // Activating a document in B re-keys the index to B only.
+        workspace.noteActive(b1)
+        index.ensureIndex(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(index.outgoing[b1])
+        XCTAssertNil(index.outgoing[a1])
+
+        // Back to A: parse and resolve caches for A survived the switch —
+        // the rescan is stats-only (no files re-parsed, no fresh resolves).
+        let parsedBefore = index.fileScanCount
+        let resolvedBefore = index.freshResolveCount
+        workspace.noteActive(a1)
+        index.ensureIndex(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 3),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(index.outgoing[a1])
+        XCTAssertEqual(
+            index.outgoing[a1]?.first?.resolved,
+            rootA.appendingPathComponent("a2.md").standardizedFileURL)
+        XCTAssertEqual(index.fileScanCount, parsedBefore,
+                       "returning to a workspace must not re-parse its files")
+        XCTAssertEqual(index.freshResolveCount, resolvedBefore,
+                       "returning to a workspace must not re-resolve its files")
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

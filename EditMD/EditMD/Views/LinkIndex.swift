@@ -7,10 +7,13 @@ struct BacklinkEdge: Equatable, Sendable {
     let link: OutgoingLink
 }
 
-/// Workspace-scoped link graph (plan 02). Full scans run off-main; results
-/// publish on the main actor. Own-document flush updates a single file
-/// incrementally; filesystem / workspace mutations force a full rebuild that
-/// re-parses only files whose (mtime, size) changed since the last scan.
+/// Link graph scoped to the ACTIVE workspace (plan 02; one workspace at a
+/// time — see `WorkspaceModel.linkIndexRoots`). Full scans run off-main;
+/// results publish on the main actor. Own-document flush updates a single
+/// file incrementally; filesystem / workspace mutations force a full rebuild
+/// that re-parses only files whose (mtime, size) changed since the last scan.
+/// `scanCache` outlives workspace switches, so returning to a workspace is a
+/// stat-only walk.
 @MainActor
 final class LinkIndex: ObservableObject {
     static let shared = LinkIndex()
@@ -58,12 +61,25 @@ final class LinkIndex: ObservableObject {
 
     // MARK: - Public API
 
-    /// Ensure the index matches the current workspace roots + linkEpoch.
+    /// Ensure the index matches the active workspace root + linkEpoch.
+    /// Scoped to ONE workspace (`linkIndexRoots`): switching the active
+    /// document to another workspace changes the key and rescans that
+    /// workspace — cheaply, because `scanCache` keeps other workspaces'
+    /// per-file parse/resolve entries across the switch.
     func ensureIndex(workspace: WorkspaceModel = .shared) {
-        let roots = workspace.workspaces.map(\.url)
+        let roots = workspace.linkIndexRoots
         let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
         if indexKey == key, hasCompletedFullScan { return }
         scheduleFullScan(roots: roots, key: key)
+    }
+
+    /// The active document (and possibly its owning workspace) changed:
+    /// re-check the scan key. No-op for sessions that never built the index
+    /// (same lazy model as `invalidate`), and for same-workspace file
+    /// switches (`ensureIndex` early-returns on an unchanged key).
+    func noteActiveDocumentChanged(workspace: WorkspaceModel = .shared) {
+        guard hasCompletedFullScan || scanInFlight else { return }
+        ensureIndex(workspace: workspace)
     }
 
     /// Filesystem mutation already bumped contentEpoch: mark the index stale.
@@ -83,7 +99,7 @@ final class LinkIndex: ObservableObject {
     func noteDocumentPersisted(url: URL, content: String,
                                workspace: WorkspaceModel = .shared) {
         let std = url.standardizedFileURL
-        let roots = workspace.workspaces.map(\.url)
+        let roots = workspace.linkIndexRoots
         let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
         // No workspace yet (lite/loose): still keep a one-file outgoing map.
         if roots.isEmpty {
@@ -529,7 +545,17 @@ final class LinkIndex: ObservableObject {
                 // A cancelled walk can hold only a partial cache; never replace
                 // the last complete cache with it.
                 if !cancelled {
-                    self.scanCache = resolvedCache
+                    // Per-workspace indexing switches roots: keep entries of
+                    // files OUTSIDE the scanned roots (other workspaces) so
+                    // switching back costs stats, not a re-parse/re-resolve;
+                    // entries under the scanned roots are replaced wholesale
+                    // (absent = deleted file).
+                    let rootPaths = capturedRoots.map(\.path)
+                    self.scanCache = self.scanCache.filter { url, _ in
+                        !rootPaths.contains {
+                            url.path == $0 || url.path.hasPrefix($0 + "/")
+                        }
+                    }.merging(resolvedCache) { _, new in new }
                     self.freshResolveCount += freshResolveTotal
                 }
                 // Accept result unless cancelled or a newer ensureIndex queued

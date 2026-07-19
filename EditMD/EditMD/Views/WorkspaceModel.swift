@@ -110,6 +110,25 @@ final class WorkspaceModel: ObservableObject {
     /// Records the main window's target so the next launch reopens this branch.
     func noteActive(_ url: URL) {
         lastActivePath = url.standardizedFileURL.path
+        // The active document may live in a different workspace — the link
+        // graph is scoped to one workspace at a time (`linkIndexRoots`).
+        // Lazy: a no-op unless someone already built (or is building) it.
+        LinkIndex.shared.noteActiveDocumentChanged(workspace: self)
+    }
+
+    /// Roots automatic link indexing covers: ONE workspace — the one owning
+    /// the active document (fallback: the first workspace, which is also the
+    /// branch a fresh launch opens). Scanning every adopted workspace made
+    /// launch/rebuild cost the sum of all vaults, while backlinks and
+    /// vault-lint are per-vault questions anyway (Obsidian semantics: the
+    /// vault is the resolution unit; cross-workspace edges never resolved
+    /// reliably — wiki targets were ambiguous across vaults).
+    var linkIndexRoots: [URL] {
+        if let path = lastActivePath,
+           let owner = workspaceOwning(URL(fileURLWithPath: path)) {
+            return [owner.url]
+        }
+        return workspaces.first.map { [$0.url] } ?? []
     }
 
     /// Launch state of the tree: exactly one branch open — the one holding
