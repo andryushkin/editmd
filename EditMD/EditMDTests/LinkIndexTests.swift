@@ -438,7 +438,34 @@ final class LinkIndexTests: XCTestCase {
     }
 
     @MainActor
-    func testActivationRefreshSkippedWhileScanInFlightOrCold() async throws {
+    func testActivationRefreshWhileColdStaysLazy() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try write("a.md", "[[b]]\n", in: root)
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+
+        // Cold index (no consumer built or is building it): activation must
+        // neither bump the epoch nor leave a deferred refresh behind.
+        let epoch0 = workspace.linkEpoch
+        workspace.refreshLinkGraphAfterActivation(index: index)
+        XCTAssertEqual(workspace.linkEpoch, epoch0)
+
+        index.ensureIndex(workspace: workspace)
+        let deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(index.fullScanCount, 1,
+                       "cold activation must not schedule a deferred rescan")
+        XCTAssertEqual(workspace.linkEpoch, epoch0)
+    }
+
+    @MainActor
+    func testActivationDuringScanDefersRebuildWithoutCancelling() async throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<10 {
@@ -449,21 +476,25 @@ final class LinkIndexTests: XCTestCase {
         workspace.addWorkspace(root)
         let index = LinkIndex()
 
-        // Cold index (no consumer built it yet): activation must stay lazy.
+        // Same main-actor turn as ensureIndex → the scan is guaranteed
+        // in flight: the re-key must be deferred (no immediate bump, no
+        // cancellation), then replayed once the scan finishes.
+        index.ensureIndex(workspace: workspace)
         let epoch0 = workspace.linkEpoch
         workspace.refreshLinkGraphAfterActivation(index: index)
-        XCTAssertEqual(workspace.linkEpoch, epoch0)
-
-        // In-flight scan: activation must not cancel/re-key it.
-        index.ensureIndex(workspace: workspace)
-        workspace.refreshLinkGraphAfterActivation(index: index)
-        XCTAssertEqual(workspace.linkEpoch, epoch0)
+        XCTAssertEqual(workspace.linkEpoch, epoch0,
+                       "mid-scan activation must not re-key immediately")
         let deadline = Date().addingTimeInterval(5)
-        while !index.hasCompletedFullScan, Date() < deadline {
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
+        XCTAssertEqual(index.fullScanCount, 2,
+                       "deferred activation must rebuild exactly once after the scan")
+        XCTAssertEqual(workspace.linkEpoch, epoch0 + 1)
+        // One deferred replay only — no self-sustaining rescan loop.
         try await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(index.fullScanCount, 1)
+        XCTAssertEqual(index.fullScanCount, 2)
     }
 
     func testScanReportsMonotonicProgress() throws {

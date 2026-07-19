@@ -44,6 +44,12 @@ final class LinkIndex: ObservableObject {
     /// parse/resolve work on large vaults).
     private var inFlightKey = ""
     private var scanPending = false
+    /// App was activated while a scan was in flight: the scan may already
+    /// have read files an external editor changed afterwards, so the
+    /// activation re-key must replay once the scan finishes (a re-key NOW
+    /// would cancel the scan and drop its work). Weak — purely a callback
+    /// target for `refreshLinkGraphAfterActivation`.
+    private weak var pendingActivationWorkspace: WorkspaceModel?
     private var fullScanTask: Task<Void, Never>?
     private var roots: [URL] = []
     /// Per-file results of the last full scan; survives `invalidate()` so the
@@ -92,6 +98,13 @@ final class LinkIndex: ObservableObject {
             return
         }
         Task { await self.rescanSingleFile(std, content: content, roots: roots, key: key) }
+    }
+
+    /// Remember that an app activation arrived mid-scan; the finishing scan
+    /// replays `refreshLinkGraphAfterActivation` (which re-keys — or defers
+    /// again if yet another scan is already running by then).
+    func deferActivationRefresh(workspace: WorkspaceModel) {
+        pendingActivationWorkspace = workspace
     }
 
     func outgoingLinks(for url: URL?) -> [OutgoingLink] {
@@ -539,6 +552,14 @@ final class LinkIndex: ObservableObject {
                     self.scanPending = false
                     // Re-read live workspace state.
                     self.ensureIndex()
+                }
+                // AFTER the pending-rescan block: if that block just started
+                // a new scan, the activation refresh re-defers instead of
+                // cancelling it; otherwise it re-keys now, covering files
+                // this scan read before the external edit happened.
+                if let workspace = self.pendingActivationWorkspace {
+                    self.pendingActivationWorkspace = nil
+                    workspace.refreshLinkGraphAfterActivation(index: self)
                 }
             }
         }

@@ -159,11 +159,18 @@ final class WorkspaceModel: ObservableObject {
     /// background (open files are covered by the DocumentRegistry watcher).
     /// Re-key the link graph so its (mtime, size) parse cache and resolve
     /// cache revalidate against disk — a no-change rebuild is a walk plus
-    /// stats, not a re-parse. Skipped while a scan is in flight: a key change
-    /// would cancel it and throw away its work (cancelled scans keep no
-    /// partial cache), and the running scan reads current disk state anyway.
+    /// stats, not a re-parse. While a scan is in flight the re-key is
+    /// DEFERRED, not dropped: a key change now would cancel the scan and
+    /// throw away its work (cancelled scans keep no partial cache), but the
+    /// running scan may already have read a file the external editor changed
+    /// afterwards — LinkIndex replays the refresh once the scan finishes.
+    /// A cold index (never built, not building) stays lazy.
     func refreshLinkGraphAfterActivation(index: LinkIndex = .shared) {
-        guard index.hasCompletedFullScan, !index.isScanning else { return }
+        guard index.hasCompletedFullScan || index.isScanning else { return }
+        guard !index.isScanning else {
+            index.deferActivationRefresh(workspace: self)
+            return
+        }
         linkEpoch += 1
         index.invalidate(workspace: self)
     }
