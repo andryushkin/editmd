@@ -12,10 +12,12 @@ struct GitSidebar: View {
     @State private var snapshot = GitWorkspaceSnapshot.empty
     @State private var refreshTask: Task<Void, Never>?
     @State private var isRefreshing = false
-    @State private var commitURL: URL?
-    @State private var showCommit = false
-    @State private var diffContent: DiffSheetContent?
-    @State private var showDiff = false
+    /// Item-based sheet target (NOT `isPresented` + optional). Dual-state
+    /// `showCommit`/`commitURL` raced: sheet content could evaluate with a nil
+    /// URL, hit the "No file" fallback, and `onAppear` immediately dismissed —
+    /// first Commit click looked like a no-op (needed a second click).
+    @State private var commitTarget: GitSidebarCommitTarget?
+    @State private var diffTarget: GitSidebarDiffTarget?
     @State private var hoverCommitURL: URL?
 
     @ObservedObject private var lineChanges = LineChangeTracker.shared
@@ -69,39 +71,19 @@ struct GitSidebar: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refresh(immediate: false)
         }
-        .sheet(isPresented: $showCommit) {
-            if let url = commitURL {
-                GitCommitSheet(
-                    fileURL: url,
-                    onClose: {
-                        showCommit = false
-                        commitURL = nil
-                        refresh(immediate: true)
-                    },
-                    onCommitted: { refresh(immediate: true) }
-                )
-            } else {
-                Text("No file")
-                    .padding()
-                    .onAppear {
-                        showCommit = false
-                        commitURL = nil
-                    }
-            }
+        .sheet(item: $commitTarget) { target in
+            GitCommitSheet(
+                fileURL: target.url,
+                onClose: {
+                    commitTarget = nil
+                    refresh(immediate: true)
+                },
+                onCommitted: { refresh(immediate: true) }
+            )
         }
-        .sheet(isPresented: $showDiff) {
-            if let content = diffContent {
-                UnifiedDiffSheet(content: content) {
-                    showDiff = false
-                    diffContent = nil
-                }
-            } else {
-                Text("No diff")
-                    .padding()
-                    .onAppear {
-                        showDiff = false
-                        diffContent = nil
-                    }
+        .sheet(item: $diffTarget) { target in
+            UnifiedDiffSheet(content: target.content) {
+                diffTarget = nil
             }
         }
     }
@@ -371,16 +353,15 @@ struct GitSidebar: View {
     // MARK: - Actions
 
     private func presentCommit(_ url: URL) {
-        commitURL = url
-        showCommit = true
+        // Single assignment → sheet(item:) always receives a non-nil payload.
+        commitTarget = GitSidebarCommitTarget(url: url)
     }
 
     private func presentDiff(_ url: URL) {
         Task { @MainActor in
             // git show runs off-main; open the sheet when content is ready.
             let content = await GitWorkspaceStatus.diffSheetContent(for: url)
-            diffContent = content
-            showDiff = true
+            diffTarget = GitSidebarDiffTarget(content: content)
         }
     }
 
@@ -482,4 +463,19 @@ struct GitSidebar: View {
         // which already triggers refresh(immediate:) above.
         GitPushConfirm.run(for: root)
     }
+}
+
+// MARK: - Sheet targets (item-based presentation)
+
+/// Payload for `.sheet(item:)` so Commit always opens with a concrete URL —
+/// avoids the dual-state race of `isPresented` + optional `commitURL`.
+private struct GitSidebarCommitTarget: Identifiable {
+    let url: URL
+    var id: String { url.standardizedFileURL.path }
+}
+
+/// Fresh id per presentation so re-opening the same file's diff still animates.
+private struct GitSidebarDiffTarget: Identifiable {
+    let id = UUID()
+    let content: DiffSheetContent
 }
