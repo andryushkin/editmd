@@ -20,6 +20,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Always-on control socket for `editmdctl` (v38). Not under XCTest —
             // would clobber the developer's Application Support socket.
             ControlService.shared.activate()
+            // Warm the link graph right away when a workspace exists —
+            // otherwise the first scan starts only when an editor pane calls
+            // ensureIndex, so the welcome/folder screen sat idle and the user
+            // paid the full scan on their first opened file instead. The
+            // status-bar chip shows its progress. Skipped under XCTest: the
+            // test host must not walk the developer's real vault.
+            if !WorkspaceModel.shared.workspaces.isEmpty {
+                LinkIndex.shared.ensureIndex()
+            }
         }
     }
 
