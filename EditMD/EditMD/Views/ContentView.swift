@@ -8,6 +8,47 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
     return BuiltInPluginRegistry.configurationDiagnostics(in: markdown)
 }
 
+struct ResolvedPaneWidths: Equatable {
+    var sidebar: CGFloat
+    var inspector: CGFloat
+}
+
+/// Clamp the fixed side-panel widths to the available width so the flexible
+/// editor column keeps at least `editorMin`. SwiftUI's `HStack` will not
+/// compress a rigid `.frame(width:)`, so when the window is too narrow the
+/// panels overflow their slots and draw on top of the editor / each other
+/// (reported as the inspector overlapping neighbouring panes). Shrinking the
+/// panels proportionally into the leftover budget keeps every pane side-by-side.
+/// The stored (requested) widths are untouched, so panels restore when the
+/// window widens again.
+func resolveSidePaneWidths(
+    available: CGFloat,
+    sidebarWidth: CGFloat,
+    inspectorWidth: CGFloat,
+    sidebarVisible: Bool,
+    inspectorVisible: Bool,
+    editorMin: CGFloat = 260,
+    dividerWidth: CGFloat = 1
+) -> ResolvedPaneWidths {
+    let sidebar = sidebarVisible ? max(0, sidebarWidth) : 0
+    let inspector = inspectorVisible ? max(0, inspectorWidth) : 0
+    let requested = sidebar + inspector
+    guard requested > 0 else {
+        return ResolvedPaneWidths(sidebar: 0, inspector: 0)
+    }
+    let dividers = (sidebarVisible ? dividerWidth : 0)
+        + (inspectorVisible ? dividerWidth : 0)
+    // How much width the panels may occupy while leaving the editor its floor.
+    let budget = max(0, available - dividers - editorMin)
+    guard requested > budget else {
+        return ResolvedPaneWidths(sidebar: sidebar, inspector: inspector)
+    }
+    // Overflow: scale both panels down proportionally into the budget so their
+    // sum never exceeds what the editor can spare — no pane overlaps another.
+    let scale = budget / requested
+    return ResolvedPaneWidths(sidebar: sidebar * scale, inspector: inspector * scale)
+}
+
 struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
@@ -128,6 +169,12 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
+                let panes = resolveSidePaneWidths(
+                    available: geo.size.width,
+                    sidebarWidth: sidebarWidth,
+                    inspectorWidth: inspectorWidth,
+                    sidebarVisible: sidebarVisible && allowsSidebar,
+                    inspectorVisible: inspectorVisible)
                 HStack(spacing: 0) {
                     if sidebarVisible && allowsSidebar {
                         WorkspaceSidebar(
@@ -136,7 +183,7 @@ struct ContentView: View {
                             onOpen: openFromSidebar,
                             onOpenFolder: { AppState.shared.openInMainWindow($0) }
                         )
-                        .frame(width: sidebarWidth)
+                        .frame(width: panes.sidebar)
                         paneDivider(space: .named("mainPanes")) { x in
                             sidebarWidth = min(Self.sidebarWidthRange.upperBound,
                                                max(Self.sidebarWidthRange.lowerBound, Double(x)))
@@ -175,7 +222,7 @@ struct ContentView: View {
                                                    baseline: baseline)
                             }
                         )
-                        .frame(width: inspectorWidth)
+                        .frame(width: panes.inspector)
                     }
                 }
                 .coordinateSpace(name: "mainPanes")
