@@ -440,39 +440,62 @@ struct WorkspaceSidebar: View {
     }
 
     private var filesTab: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 1) {
-                if workspace.workspaces.isEmpty && workspace.looseFilesToShow.isEmpty {
-                    emptyState
-                }
-                if !filteredFavorites.isEmpty {
-                    sectionHeader(String(localized: "Favorites"))
-                    ForEach(filteredFavorites, id: \.self) { favorite in
-                        favoriteRow(favorite)
+        // A1: opening a file re-creates the whole editor subtree (MainWindowView
+        // tags FileEditor with `.id(url)` for document acquire/release), which
+        // tears down and rebuilds this sidebar — a plain ScrollView loses its
+        // offset and snaps to the top. We can't cheaply capture the exact prior
+        // offset across the teardown, but the just-opened file is the natural
+        // anchor: scroll it back into view so a mid-list pick no longer jumps to
+        // the top. Worst case (row not realized / not in the tree) is a no-op,
+        // i.e. today's behaviour — it never scrolls to the wrong place.
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if workspace.workspaces.isEmpty && workspace.looseFilesToShow.isEmpty {
+                        emptyState
                     }
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor))
-                        .frame(height: 1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                }
-                ForEach(workspace.workspaces) { ws in
-                    workspaceGroup(ws)
-                }
-                if !filteredLoose.isEmpty {
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor))
-                        .frame(height: 1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                    sectionHeader(String(localized: "Open Files"))
-                    ForEach(filteredLoose, id: \.self) { url in
-                        looseRow(url)
+                    if !filteredFavorites.isEmpty {
+                        sectionHeader(String(localized: "Favorites"))
+                        ForEach(filteredFavorites, id: \.self) { favorite in
+                            favoriteRow(favorite)
+                        }
+                        Rectangle()
+                            .fill(Color(nsColor: .separatorColor))
+                            .frame(height: 1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                    }
+                    ForEach(workspace.workspaces) { ws in
+                        workspaceGroup(ws)
+                    }
+                    if !filteredLoose.isEmpty {
+                        Rectangle()
+                            .fill(Color(nsColor: .separatorColor))
+                            .frame(height: 1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                        sectionHeader(String(localized: "Open Files"))
+                        ForEach(filteredLoose, id: \.self) { url in
+                            looseRow(url)
+                        }
                     }
                 }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 4)
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 4)
+            .onAppear { scrollActiveFileIntoView(proxy) }
+            .onChange(of: activeURL) { _ in scrollActiveFileIntoView(proxy) }
+        }
+    }
+
+    /// Bring the active file's row back into view after a sidebar rebuild (A1).
+    /// Deferred one run-loop turn so the freshly-mounted lazy rows exist as
+    /// scroll targets. Anchored by the standardized URL, which the file rows tag
+    /// with a matching `.id`.
+    private func scrollActiveFileIntoView(_ proxy: ScrollViewProxy) {
+        guard let active = activeURL?.standardizedFileURL else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(active, anchor: .center)
         }
     }
 
@@ -660,6 +683,8 @@ struct WorkspaceSidebar: View {
         .onDrag {
             sidebarFileItemProvider(files: moveFiles(anchoredAt: url))
         }
+        // Scroll anchor for A1 restore — matches scrollTo(active.standardized).
+        .id(url.standardizedFileURL)
     }
 
     // MARK: - Loose row
@@ -919,6 +944,8 @@ private struct SubfolderNode: View {
         .onDrag {
             sidebarFileItemProvider(files: moveFiles(anchoredAt: file))
         }
+        // Scroll anchor for A1 restore (tree rows are unique per file).
+        .id(file.standardizedFileURL)
     }
 
     private func handleFileTap(_ file: URL) {
