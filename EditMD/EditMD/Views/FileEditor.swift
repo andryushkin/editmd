@@ -151,9 +151,15 @@ struct MainWindowView: View {
                 StandaloneActivityBar()
             }
         }
+        .frame(minWidth: mainWindowMinWidth, minHeight: mainWindowMinHeight)
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)
         .longRunningOperationOverlay()
-        .background(WindowAccessor { appState.bindMainWindow($0) })
+        .background(WindowAccessor { window in
+            applyWindowContentMinimum(window,
+                                      width: mainWindowMinWidth,
+                                      height: mainWindowMinHeight)
+            appState.bindMainWindow(window)
+        })
         .onAppear { appState.bindOpenWindow(openWindow) }
         // Claude's `openDiff` can target any file, not just the one on screen —
         // the sheet belongs to the window, not to the current document view.
@@ -179,4 +185,26 @@ struct WindowAccessor: NSViewRepresentable {
             if let window = view?.window { configure(window) }
         }
     }
+}
+
+/// Real window floor for live resize. SwiftUI `.frame(minWidth:)` on `Window` /
+/// `WindowGroup` content is often ignored by AppKit's resize loop; `contentMinSize`
+/// is what actually stops the drag. If the window is already below the floor
+/// (e.g. restored frame from before the constant rose), grow once so the user
+/// is not stuck in an illegal size until they touch the edge.
+func applyWindowContentMinimum(_ window: NSWindow, width: CGFloat, height: CGFloat) {
+    let min = NSSize(width: width, height: height)
+    if window.contentMinSize != min {
+        window.contentMinSize = min
+    }
+    let content = window.contentLayoutRect.size
+    guard content.width + 0.5 < width || content.height + 0.5 < height else { return }
+    let dw = max(0, width - content.width)
+    let dh = max(0, height - content.height)
+    var frame = window.frame
+    frame.size.width += dw
+    frame.size.height += dh
+    // AppKit origin is bottom-left; grow downward so the title bar stays put.
+    frame.origin.y -= dh
+    window.setFrame(frame, display: true)
 }

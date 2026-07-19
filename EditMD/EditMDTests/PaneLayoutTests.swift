@@ -9,6 +9,22 @@ final class PaneLayoutTests: XCTestCase {
 
     private let range = 150.0...400.0
 
+    // MARK: - window floors
+
+    /// Main window min must leave a readable editor at *default* panel widths
+    /// (220+220), not only at the 150pt drag floor — 720 still mid-word-wrapped.
+    func testMainWindowMinLeavesReadableEditorAtDefaultPanelWidths() {
+        let defaultPanels: CGFloat = 220 + 220 + 2
+        let editorAtMin = mainWindowMinWidth - defaultPanels
+        XCTAssertGreaterThanOrEqual(editorAtMin, 400,
+                                    "editor should keep ≥400pt at default side panels")
+        // Still above the dual-panel clamp onset (150+150+2+editorMin).
+        let dualPanelFloor = 150 + 150 + 2 + editorColumnMinWidth
+        XCTAssertGreaterThan(mainWindowMinWidth, dualPanelFloor)
+        XCTAssertLessThan(liteWindowMinWidth, mainWindowMinWidth)
+        XCTAssertGreaterThanOrEqual(liteWindowMinWidth, editorColumnMinWidth)
+    }
+
     // MARK: - resolveSidePaneWidths
 
     func testWidePanelsKeepRequestedWidths() {

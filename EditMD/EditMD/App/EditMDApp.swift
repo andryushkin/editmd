@@ -469,7 +469,13 @@ private struct LiteWindowContent: View {
                 StandaloneActivityBar()
             }
         }
+        .frame(minWidth: liteWindowMinWidth, minHeight: liteWindowMinHeight)
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)
         .longRunningOperationOverlay()
+        .background(WindowAccessor { window in
+            applyWindowContentMinimum(window,
+                                      width: liteWindowMinWidth,
+                                      height: liteWindowMinHeight)
+        })
     }
 }

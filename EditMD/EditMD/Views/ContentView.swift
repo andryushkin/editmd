@@ -16,6 +16,21 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
 /// the editor area.
 let editorColumnMinWidth: CGFloat = 260
 
+/// Floor for the main workspace window. Pane clamp only prevents *overlap*;
+/// without a window min the user can still drag the frame until the editor is
+/// a mid-word wrapping strip while both side panels stay open. 900 leaves a
+/// readable ~450pt editor at default panel widths (220+220+2); 720 was still
+/// too tight in practice (title/body mid-word wrap, strip buttons clipped).
+/// Enforced via `NSWindow.contentMinSize` — SwiftUI `.frame(minWidth:)` alone
+/// does not reliably stop live resize on `Window` scenes.
+let mainWindowMinWidth: CGFloat = 900
+let mainWindowMinHeight: CGFloat = 420
+
+/// Lite windows have no workspace sidebar (inspector still optional), so they
+/// can be narrower than the main workspace.
+let liteWindowMinWidth: CGFloat = 560
+let liteWindowMinHeight: CGFloat = 360
+
 struct ResolvedPaneWidths: Equatable {
     var sidebar: CGFloat
     var inspector: CGFloat
