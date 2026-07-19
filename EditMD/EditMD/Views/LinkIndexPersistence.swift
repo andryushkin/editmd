@@ -1,0 +1,234 @@
+import Foundation
+
+/// On-disk form of the link index: `<workspace>/.editmd/link-index.json`
+/// (plan 10, «wikillm ready»). Written after a successful full scan of the
+/// active workspace; read once per cold start to seed `LinkIndex.scanCache`,
+/// so launching on an unchanged vault costs a walk + stats instead of a full
+/// re-parse. External tools (wikillm agents) read the same file directly.
+///
+/// Contract:
+/// - Workspace-only. Loose/lite documents never create `.editmd/`.
+/// - All paths are relative to the workspace root — the vault stays portable.
+/// - `.editmd/.gitignore` (`*`) makes the directory self-ignoring: the index
+///   is a cache, the user chose not to version it (plan 10 review).
+/// - Deterministic output (sorted files, sorted JSON keys) so repeated saves
+///   of an unchanged vault are byte-identical.
+/// - A corrupt / foreign-version file is silently ignored (the scan just
+///   runs without a seed) and overwritten by the next save.
+/// - Disk I/O only off the main actor.
+enum LinkIndexPersistence {
+
+    static let directoryName = ".editmd"
+    static let fileName = "link-index.json"
+    static let formatVersion = 1
+
+    struct FilePayload: Codable {
+        var version: Int
+        var scannedAt: Date
+        var files: [Entry]
+    }
+
+    struct Entry: Codable {
+        var path: String
+        /// Exact bit pattern of `Date.timeIntervalSinceReferenceDate`: the
+        /// seeded value must compare `==` against a future stat of the same
+        /// unchanged file, and a decimal round-trip through JSON is not
+        /// guaranteed to be bit-exact.
+        var mtimeBits: UInt64
+        var size: Int64
+        var headings: [String]
+        var links: [Link]
+        /// Present only when the resolution was environment-covered (see
+        /// `LinkIndex.localResolutionCovered`); its links carry
+        /// `resolvedPath`/`candidatePaths`.
+        var resolveFingerprint: UInt64?
+    }
+
+    struct Link: Codable {
+        var kind: String
+        var rawTarget: String
+        var heading: String?
+        var label: String
+        var line: Int
+        var utf16Offset: Int
+        var context: String
+        var resolvedPath: String?
+        var candidatePaths: [String]?
+    }
+
+    static func indexFileURL(root: URL) -> URL {
+        root.appendingPathComponent(directoryName)
+            .appendingPathComponent(fileName)
+    }
+
+    // MARK: - Encode
+
+    /// Serializes the cache entries that live under `root`. Entries whose
+    /// resolve info references paths outside the root are persisted without
+    /// it (defensively — covered resolutions always stay inside the root).
+    static func encode(cache: [URL: LinkIndex.FileScanEntry], root: URL) -> Data? {
+        let rootPath = root.standardizedFileURL.path
+        var entries: [Entry] = []
+        for (url, entry) in cache {
+            guard url.path.hasPrefix(rootPath + "/") else { continue }
+            let rel = String(url.path.dropFirst(rootPath.count + 1))
+            var links: [Link] = []
+            var fingerprint = entry.resolveFingerprint
+            let source = entry.resolvedLinks ?? entry.links
+            var resolveInsideRoot = entry.resolvedLinks != nil && fingerprint != nil
+            for link in source {
+                var resolvedPath: String?
+                var candidatePaths: [String]?
+                if resolveInsideRoot, let resolved = link.resolved {
+                    if resolved.path.hasPrefix(rootPath + "/") {
+                        resolvedPath = String(resolved.path.dropFirst(rootPath.count + 1))
+                    } else {
+                        resolveInsideRoot = false
+                    }
+                }
+                if resolveInsideRoot, !link.candidates.isEmpty {
+                    var rels: [String] = []
+                    for candidate in link.candidates {
+                        guard candidate.path.hasPrefix(rootPath + "/") else {
+                            resolveInsideRoot = false
+                            break
+                        }
+                        rels.append(String(candidate.path.dropFirst(rootPath.count + 1)))
+                    }
+                    if resolveInsideRoot { candidatePaths = rels }
+                }
+                links.append(Link(
+                    kind: link.kind.rawValue,
+                    rawTarget: link.rawTarget,
+                    heading: link.heading,
+                    label: link.label,
+                    line: link.line,
+                    utf16Offset: link.utf16Offset,
+                    context: link.context,
+                    resolvedPath: resolvedPath,
+                    candidatePaths: candidatePaths))
+            }
+            if !resolveInsideRoot {
+                fingerprint = nil
+                for i in links.indices {
+                    links[i].resolvedPath = nil
+                    links[i].candidatePaths = nil
+                }
+            }
+            entries.append(Entry(
+                path: rel,
+                mtimeBits: entry.mtime.timeIntervalSinceReferenceDate.bitPattern,
+                size: entry.size,
+                headings: entry.headings,
+                links: links,
+                resolveFingerprint: fingerprint))
+        }
+        entries.sort { $0.path < $1.path }
+        // Fixed scannedAt would break byte-determinism between saves of an
+        // unchanged vault — round to whole seconds and accept the field
+        // changing per save; determinism is asserted over `files` in tests.
+        let payload = FilePayload(
+            version: formatVersion,
+            scannedAt: Date(timeIntervalSince1970:
+                Date().timeIntervalSince1970.rounded(.down)),
+            files: entries)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(payload)
+    }
+
+    // MARK: - Decode
+
+    /// Rebuilds cache entries keyed by absolute standardized URL. Returns [:]
+    /// for corrupt data or a version mismatch — the caller scans without a
+    /// seed. Validity against the live filesystem is NOT checked here: the
+    /// scan itself compares (mtime, size) per file.
+    static func decode(_ data: Data, root: URL) -> [URL: LinkIndex.FileScanEntry] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let payload = try? decoder.decode(FilePayload.self, from: data),
+              payload.version == formatVersion else { return [:] }
+        let std = root.standardizedFileURL
+        var cache: [URL: LinkIndex.FileScanEntry] = [:]
+        for entry in payload.files {
+            // Reject entries that escape the root — the file is a cache, but
+            // it is also untrusted input from disk.
+            guard !entry.path.isEmpty, !entry.path.hasPrefix("/"),
+                  !entry.path.split(separator: "/").contains("..")
+            else { continue }
+            let url = std.appendingPathComponent(entry.path).standardizedFileURL
+            var raw: [OutgoingLink] = []
+            var resolved: [OutgoingLink] = []
+            var links: [(Link, OutgoingLink.Kind)] = []
+            for link in entry.links {
+                guard let kind = OutgoingLink.Kind(rawValue: link.kind) else {
+                    links.removeAll()
+                    break
+                }
+                links.append((link, kind))
+            }
+            guard links.count == entry.links.count else { continue }
+            for (link, kind) in links {
+                raw.append(OutgoingLink(
+                    kind: kind, rawTarget: link.rawTarget, heading: link.heading,
+                    label: link.label, line: link.line,
+                    utf16Offset: link.utf16Offset, context: link.context))
+                resolved.append(OutgoingLink(
+                    kind: kind, rawTarget: link.rawTarget, heading: link.heading,
+                    label: link.label, line: link.line,
+                    utf16Offset: link.utf16Offset, context: link.context,
+                    resolved: link.resolvedPath.map {
+                        std.appendingPathComponent($0).standardizedFileURL
+                    },
+                    candidates: (link.candidatePaths ?? []).map {
+                        std.appendingPathComponent($0).standardizedFileURL
+                    }))
+            }
+            var scanEntry = LinkIndex.FileScanEntry(
+                mtime: Date(timeIntervalSinceReferenceDate:
+                    Double(bitPattern: entry.mtimeBits)),
+                size: entry.size,
+                links: raw,
+                headings: entry.headings)
+            if let fingerprint = entry.resolveFingerprint {
+                scanEntry.resolvedLinks = resolved
+                scanEntry.resolveFingerprint = fingerprint
+            }
+            cache[url] = scanEntry
+        }
+        return cache
+    }
+
+    // MARK: - Disk
+
+    /// Atomic save (`tmp` + rename) plus the self-ignoring `.gitignore`.
+    /// Call off the main actor only.
+    static func save(cache: [URL: LinkIndex.FileScanEntry], root: URL) {
+        guard let data = encode(cache: cache, root: root) else { return }
+        let fm = FileManager.default
+        let dir = root.appendingPathComponent(directoryName)
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let gitignore = dir.appendingPathComponent(".gitignore")
+            if !fm.fileExists(atPath: gitignore.path) {
+                try? Data("*\n".utf8).write(to: gitignore)
+            }
+            let target = dir.appendingPathComponent(fileName)
+            let tmp = dir.appendingPathComponent(fileName + ".tmp")
+            try data.write(to: tmp)
+            _ = try fm.replaceItemAt(target, withItemAt: tmp)
+        } catch {
+            try? fm.removeItem(at: dir.appendingPathComponent(fileName + ".tmp"))
+        }
+    }
+
+    /// Loads the persisted seed for `root`; [:] when absent or unusable.
+    /// Call off the main actor only.
+    static func load(root: URL) -> [URL: LinkIndex.FileScanEntry] {
+        guard let data = try? Data(contentsOf: indexFileURL(root: root)) else {
+            return [:]
+        }
+        return decode(data, root: root)
+    }
+}

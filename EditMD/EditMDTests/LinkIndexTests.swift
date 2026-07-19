@@ -595,6 +595,211 @@ final class LinkIndexTests: XCTestCase {
                        "returning to a workspace must not re-resolve its files")
     }
 
+    // MARK: - Persisted index (plan 10)
+
+    @MainActor
+    func testPersistedIndexSeedsColdStart() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = try write("a.md", "[[b]] and [c](c.md)\n# Head A\n", in: root)
+        let b = try write("b.md", "text\n", in: root)
+        _ = try write("c.md", "text\n", in: root)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        // The save runs detached after publication — wait for the file.
+        let fileURL = LinkIndexPersistence.indexFileURL(root: root)
+        deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: fileURL.path),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let gitignore = root.appendingPathComponent(".editmd/.gitignore")
+        XCTAssertEqual(try String(contentsOf: gitignore, encoding: .utf8), "*\n")
+
+        // Fresh index (new "process"): the seed must make the scan stats-only
+        // and the persisted fingerprint must still match (stable hash).
+        let cold = LinkIndex()
+        cold.ensureIndex(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !cold.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(cold.fileScanCount, 0,
+                       "seeded cold start must not re-parse unchanged files")
+        XCTAssertEqual(cold.freshResolveCount, 0,
+                       "persisted fingerprint must survive a new LinkIndex")
+        XCTAssertEqual(cold.outgoing[a]?.map(\.rawTarget), ["b", "c.md"])
+        XCTAssertEqual(cold.outgoing[a]?.first?.resolved, b)
+        XCTAssertEqual(cold.headings[a], ["Head A"])
+        XCTAssertEqual(cold.backlinkEdges(for: b).map(\.source), [a])
+    }
+
+    @MainActor
+    func testPersistedIndexRevalidatesChangedAndIgnoresCorrupt() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = try write("a.md", "[[b]]\n", in: root)
+        _ = try write("b.md", "text\n", in: root)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let fileURL = LinkIndexPersistence.indexFileURL(root: root)
+        deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: fileURL.path),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        // External edit while "EditMD was closed": the stale entry must lose
+        // to the live file on the next seeded scan.
+        try Data("[[c]]\n".utf8).write(to: a)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: a.path)
+        let cold = LinkIndex()
+        cold.ensureIndex(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !cold.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(cold.fileScanCount, 1, "only the changed file re-parses")
+        XCTAssertEqual(cold.outgoing[a]?.map(\.rawTarget), ["c"])
+
+        // Corrupt file: silently ignored, scan still completes correctly.
+        try Data("not json".utf8).write(to: fileURL)
+        let corrupt = LinkIndex()
+        corrupt.ensureIndex(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !corrupt.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(corrupt.outgoing[a]?.map(\.rawTarget), ["c"])
+    }
+
+    func testPersistenceEncodeIsDeterministicAndRelative() throws {
+        let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
+        let a = root.appendingPathComponent("notes/a.md")
+        let b = root.appendingPathComponent("b.md")
+        let link = OutgoingLink(
+            kind: .wiki, rawTarget: "b", label: "b", line: 1,
+            utf16Offset: 0, context: "[[b]]")
+        var resolved = link
+        resolved.resolved = b
+        resolved.candidates = [b]
+        var entry = LinkIndex.FileScanEntry(
+            mtime: Date(timeIntervalSinceReferenceDate: 700000000.123456),
+            size: 6, links: [link], headings: ["H"])
+        entry.resolvedLinks = [resolved]
+        entry.resolveFingerprint = 42
+        let outside = URL(fileURLWithPath: "/tmp/elsewhere/x.md")
+        let cache = [a: entry, outside: entry]
+
+        let first = LinkIndexPersistence.encode(cache: cache, root: root)
+        let second = LinkIndexPersistence.encode(cache: cache, root: root)
+        let json = try XCTUnwrap(first)
+        // scannedAt differs between calls at second granularity; compare the
+        // stable part: both payloads must decode to identical entries.
+        let decodedA = LinkIndexPersistence.decode(json, root: root)
+        let decodedB = LinkIndexPersistence.decode(try XCTUnwrap(second), root: root)
+        XCTAssertEqual(decodedA.keys.sorted { $0.path < $1.path },
+                       decodedB.keys.sorted { $0.path < $1.path })
+        // Outside-root entries never persist.
+        XCTAssertEqual(decodedA.count, 1)
+        let restored = try XCTUnwrap(decodedA[a.standardizedFileURL])
+        XCTAssertEqual(restored.mtime, entry.mtime, "mtime must be bit-exact")
+        XCTAssertEqual(restored.size, 6)
+        XCTAssertEqual(restored.headings, ["H"])
+        XCTAssertEqual(restored.links.map(\.rawTarget), ["b"])
+        XCTAssertNil(restored.links.first?.resolved,
+                     "raw links must come back unresolved")
+        XCTAssertEqual(restored.resolveFingerprint, 42)
+        XCTAssertEqual(restored.resolvedLinks?.first?.resolved,
+                       b.standardizedFileURL)
+        // Relative paths only — the payload must not contain the root path.
+        XCTAssertFalse(String(decoding: json, as: UTF8.self)
+            .contains(root.path + "/"))
+    }
+
+    func testPersistenceDecodeRejectsEscapingPaths() throws {
+        let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
+        let payload = """
+        {"version": 1, "scannedAt": "2026-07-19T00:00:00Z", "files": [
+          {"path": "../escape.md", "mtimeBits": 0, "size": 1,
+           "headings": [], "links": []},
+          {"path": "/abs.md", "mtimeBits": 0, "size": 1,
+           "headings": [], "links": []},
+          {"path": "ok.md", "mtimeBits": 0, "size": 1,
+           "headings": [], "links": []}
+        ]}
+        """
+        let cache = LinkIndexPersistence.decode(Data(payload.utf8), root: root)
+        XCTAssertEqual(cache.keys.map(\.lastPathComponent), ["ok.md"])
+    }
+
+    func testStableFingerprintSurvivesVaultMove() {
+        let rootA = URL(fileURLWithPath: "/tmp/vaultA").standardizedFileURL
+        let rootB = URL(fileURLWithPath: "/tmp/moved/vaultB").standardizedFileURL
+        func env(_ root: URL) -> (wiki: [String: [URL]], paths: Set<String>) {
+            let b = root.appendingPathComponent("b.md")
+            let dir = root.appendingPathComponent("reports")
+            return (["b": [b]], [b.path, dir.path])
+        }
+        let a = env(rootA)
+        let b = env(rootB)
+        XCTAssertEqual(
+            LinkIndex.resolveEnvironmentFingerprint(
+                roots: [rootA], wikiIndex: a.wiki, paths: a.paths),
+            LinkIndex.resolveEnvironmentFingerprint(
+                roots: [rootB], wikiIndex: b.wiki, paths: b.paths),
+            "fingerprint must depend on relative structure, not vault location")
+        XCTAssertNotEqual(
+            LinkIndex.resolveEnvironmentFingerprint(
+                roots: [rootA], wikiIndex: a.wiki, paths: a.paths),
+            LinkIndex.resolveEnvironmentFingerprint(
+                roots: [rootA], wikiIndex: a.wiki,
+                paths: a.paths.union([rootA.appendingPathComponent("new.md").path])),
+            "adding an item must change the fingerprint")
+    }
+
+    @MainActor
+    func testLooseFileNeverCreatesEditmdDirectory() async throws {
+        let dir = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = try write("loose.md", "[[other]]\n", in: dir)
+
+        // No adopted workspace: single-file in-memory map only.
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let index = LinkIndex()
+        index.noteDocumentPersisted(
+            url: file, content: "[[other]]\n", workspace: workspace)
+        let deadline = Date().addingTimeInterval(2)
+        while index.fileScanCount == 0, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThan(index.fileScanCount, 0)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent(".editmd").path),
+            "loose files must not build or persist a workspace index")
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

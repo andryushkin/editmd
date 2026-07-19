@@ -262,7 +262,7 @@ final class LinkIndex: ObservableObject {
         /// not on their contents — so an unchanged file in an unchanged
         /// file set skips the (expensive) resolve pass entirely.
         var resolvedLinks: [OutgoingLink]? = nil
-        var resolveFingerprint: Int? = nil
+        var resolveFingerprint: UInt64? = nil
     }
 
     /// Filesystem facts the resolve pass depends on, captured during the walk:
@@ -277,28 +277,50 @@ final class LinkIndex: ObservableObject {
         static let empty = ResolveEnvironment(paths: [], walkedDirs: [], symlinks: [])
     }
 
-    /// Order-independent fingerprint of the resolve environment: workspace
-    /// roots + the wiki index (every indexable file's basename → paths) + the
-    /// full visible item set under the roots (plain relative links resolve to
-    /// ANY existing path, including directories and non-indexable files).
-    /// Any item added/removed/renamed changes it; content edits do not.
-    /// Process-local (Hasher seed) — the cache never persists to disk.
+    /// Stable FNV-1a over a string. The resolve fingerprint persists to disk
+    /// with the workspace index (plan 10), so it must NOT use `Hasher` (its
+    /// seed is random per process).
+    nonisolated static func stableHash(_ string: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in string.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return hash
+    }
+
+    /// `path` relative to the first root containing it; unchanged otherwise.
+    /// Keeps the fingerprint (and the persisted index) portable: moving or
+    /// renaming the vault folder must not invalidate per-file entries.
+    nonisolated static func relativePath(_ path: String, roots: [URL]) -> String {
+        for root in roots {
+            let r = root.path
+            if path == r { return "." }
+            if path.hasPrefix(r + "/") { return String(path.dropFirst(r.count + 1)) }
+        }
+        return path
+    }
+
+    /// Order-independent fingerprint of the resolve environment: the wiki
+    /// index (every indexable file's basename → paths) + the full visible
+    /// item set under the roots (plain relative links resolve to ANY existing
+    /// path, including directories and non-indexable files). Any item
+    /// added/removed/renamed changes it; content edits do not. Paths enter
+    /// relativized so the value survives a vault move; stable across
+    /// processes (FNV-1a) so it can persist with the workspace index.
     nonisolated static func resolveEnvironmentFingerprint(
         roots: [URL], wikiIndex: [String: [URL]], paths: Set<String>
-    ) -> Int {
-        var rootsHasher = Hasher()
-        for root in roots { rootsHasher.combine(root.path) }
-        var result = rootsHasher.finalize()
+    ) -> UInt64 {
+        var result: UInt64 = 0
         for (key, urls) in wikiIndex {
-            var entryHasher = Hasher()
-            entryHasher.combine(key)
-            for url in urls { entryHasher.combine(url.path) }
-            result ^= entryHasher.finalize()
+            var entry = stableHash(key)
+            for url in urls {
+                entry ^= stableHash(relativePath(url.path, roots: roots)) &* 31
+            }
+            result ^= entry
         }
         for path in paths {
-            var pathHasher = Hasher()
-            pathHasher.combine(path)
-            result ^= pathHasher.finalize()
+            result ^= stableHash(relativePath(path, roots: roots))
         }
         return result
     }
@@ -468,8 +490,20 @@ final class LinkIndex: ObservableObject {
         // Scan AND resolution run detached: resolveLocalLinkDestination stats
         // the disk per link — never on the main actor.
         let task = Task.detached(priority: .utility) { [weak self] in
+            // Cold start for this workspace (no live cache entries under its
+            // root): seed from the persisted index, so an unchanged vault is
+            // a walk + stats instead of a full re-parse. Live entries always
+            // win over the disk seed.
+            var runCache = capturedCache
+            if let root = capturedRoots.first {
+                let prefix = root.path + "/"
+                if !runCache.keys.contains(where: { $0.path.hasPrefix(prefix) }) {
+                    runCache = LinkIndexPersistence.load(root: root)
+                        .merging(runCache) { _, live in live }
+                }
+            }
             let scanned = LinkIndex.scanWorkspaceOutgoing(
-                roots: capturedRoots, cache: capturedCache,
+                roots: capturedRoots, cache: runCache,
                 onProgress: { done, total in
                     guard total > 0 else { return }
                     publishProgress(0.5 * Double(done) / Double(total))
@@ -557,6 +591,19 @@ final class LinkIndex: ObservableObject {
                         }
                     }.merging(resolvedCache) { _, new in new }
                     self.freshResolveCount += freshResolveTotal
+                    // Persist the freshly scanned workspace (plan 10):
+                    // atomic write off-main; loose/lite (no roots) never
+                    // writes, so `.editmd/` appears only in adopted
+                    // workspaces. Full scans are rare post-CPU-saga — no
+                    // debounce needed; autosaves go through the single-file
+                    // path and do not rewrite the file (their entries catch
+                    // up on the next full scan via mtime mismatch).
+                    if let root = capturedRoots.first {
+                        let snapshot = resolvedCache
+                        Task.detached(priority: .utility) {
+                            LinkIndexPersistence.save(cache: snapshot, root: root)
+                        }
+                    }
                 }
                 // Accept result unless cancelled or a newer ensureIndex queued
                 // a rescan (it re-reads live workspace state below).
