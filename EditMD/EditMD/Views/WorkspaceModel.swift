@@ -98,6 +98,11 @@ final class WorkspaceModel: ObservableObject {
             selector: #selector(appDidBecomeActive),
             name: NSApplication.didBecomeActiveNotification,
             object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil)
     }
 
     // MARK: - Startup tree
@@ -152,7 +157,30 @@ final class WorkspaceModel: ObservableObject {
     @objc private func appDidBecomeActive() {
         contentEpoch += 1
         refreshFavoriteAvailability()
-        refreshLinkGraphAfterActivation()
+        handleAppActivation()
+    }
+
+    @objc private func appDidResignActive() {
+        noteAppResignedActive()
+    }
+
+    /// External editors can only touch files while EditMD is NOT frontmost —
+    /// so an activation matters to the link graph only after a resign.
+    private var wasBackgrounded = false
+
+    func noteAppResignedActive() {
+        wasBackgrounded = true
+    }
+
+    /// The process's FIRST activation arrives moments after launch, while the
+    /// warm scan (`applicationDidFinishLaunching`) is still running — nothing
+    /// external can have changed since that scan started reading the disk,
+    /// and deferring against it made every cold launch run two consecutive
+    /// full scans. Only a real background → foreground transition re-keys.
+    func handleAppActivation(index: LinkIndex = .shared) {
+        guard wasBackgrounded else { return }
+        wasBackgrounded = false
+        refreshLinkGraphAfterActivation(index: index)
     }
 
     /// External editors can change closed files while EditMD is in the

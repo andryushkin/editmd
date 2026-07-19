@@ -465,6 +465,44 @@ final class LinkIndexTests: XCTestCase {
     }
 
     @MainActor
+    func testColdLaunchFirstActivationDoesNotDoubleScan() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<10 {
+            _ = try write("n\(i).md", "[[n\((i + 1) % 10)]]\n", in: root)
+        }
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+
+        // Launch: warm scan starts, then the process's first activation
+        // arrives with NO prior resign — it must not defer a second rebuild.
+        index.ensureIndex(workspace: workspace)
+        let epoch0 = workspace.linkEpoch
+        workspace.handleAppActivation(index: index)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(index.fullScanCount, 1,
+                       "launch activation must not queue a second full scan")
+        XCTAssertEqual(workspace.linkEpoch, epoch0)
+
+        // A real background → foreground transition still re-keys.
+        workspace.noteAppResignedActive()
+        workspace.handleAppActivation(index: index)
+        XCTAssertEqual(workspace.linkEpoch, epoch0 + 1)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.fullScanCount, 2)
+    }
+
+    @MainActor
     func testActivationDuringScanDefersRebuildWithoutCancelling() async throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
