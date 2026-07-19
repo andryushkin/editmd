@@ -303,6 +303,169 @@ final class LinkIndexTests: XCTestCase {
             files[2].standardizedFileURL)
     }
 
+    @MainActor
+    func testResolveCacheSeesNewRelativeDirectoryTarget() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = try write("a.md", "[reports](./reports)\n", in: root)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNil(index.outgoing[a]?.first?.resolved, "no reports dir yet")
+
+        // Create the directory the link points at. a.md itself is untouched
+        // (same mtime/size) — only the environment fingerprint may notice.
+        let reports = root.appendingPathComponent("reports")
+        try FileManager.default.createDirectory(
+            at: reports, withIntermediateDirectories: false)
+        index.invalidate(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.outgoing[a]?.first?.resolved,
+                       reports.standardizedFileURL,
+                       "new directory target must invalidate the resolve cache")
+    }
+
+    @MainActor
+    func testOutsideRootLinkIsNotResolveCached() async throws {
+        let parent = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let root = parent.appendingPathComponent("vault")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let a = try write("a.md", "[out](../outside.md)\n", in: root)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNil(index.outgoing[a]?.first?.resolved)
+
+        // The target appears OUTSIDE the walked roots: the fingerprint cannot
+        // see it, so such links must never be served from the resolve cache.
+        _ = try write("outside.md", "hi\n", in: parent)
+        index.invalidate(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.outgoing[a]?.first?.resolved,
+                       parent.appendingPathComponent("outside.md").standardizedFileURL,
+                       "uncovered links must re-resolve on every full scan")
+    }
+
+    func testLocalResolutionCoverage() throws {
+        let root = URL(fileURLWithPath: "/tmp/vault").standardizedFileURL
+        let fileDir = root.appendingPathComponent("notes")
+        let env = LinkIndex.ResolveEnvironment(
+            paths: [root.appendingPathComponent("notes").path,
+                    root.appendingPathComponent("notes/b.md").path],
+            walkedDirs: [root.path, fileDir.path],
+            symlinks: [])
+        // In-root candidates, first probe hits → covered.
+        XCTAssertTrue(LinkIndex.localResolutionCovered(
+            "b.md", fileDir: fileDir, vaultRoot: root, environment: env))
+        // In-root miss (fingerprint would notice its creation) → covered.
+        XCTAssertTrue(LinkIndex.localResolutionCovered(
+            "./missing.md", fileDir: fileDir, vaultRoot: root, environment: env))
+        // Escapes the walked tree → not covered.
+        XCTAssertFalse(LinkIndex.localResolutionCovered(
+            "../../outside.md", fileDir: fileDir, vaultRoot: root, environment: env))
+        // Hidden name → not covered.
+        XCTAssertFalse(LinkIndex.localResolutionCovered(
+            ".hidden.md", fileDir: fileDir, vaultRoot: root, environment: env))
+        // Symlinked item → not covered (listing does not prove existence).
+        let symEnv = LinkIndex.ResolveEnvironment(
+            paths: [root.appendingPathComponent("notes/b.md").path],
+            walkedDirs: [root.path, fileDir.path],
+            symlinks: [root.appendingPathComponent("notes/b.md").path])
+        XCTAssertFalse(LinkIndex.localResolutionCovered(
+            "b.md", fileDir: fileDir, vaultRoot: root, environment: symEnv))
+    }
+
+    @MainActor
+    func testActivationRefreshSeesExternalEditOfClosedFile() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = try write("a.md", "[[b]]\n", in: root)
+        _ = try write("b.md", "target\n", in: root)
+        _ = try write("c.md", "target\n", in: root)
+
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.outgoing[a]?.map(\.rawTarget), ["b"])
+
+        // External editor rewrites a CLOSED file while EditMD is in the
+        // background; app activation must re-key and pick it up.
+        try Data("[[c]]\n".utf8).write(to: a)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: a.path)
+        let epochBefore = workspace.linkEpoch
+        workspace.refreshLinkGraphAfterActivation(index: index)
+        XCTAssertEqual(workspace.linkEpoch, epochBefore + 1)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.outgoing[a]?.map(\.rawTarget), ["c"])
+        XCTAssertEqual(
+            index.outgoing[a]?.first?.resolved,
+            root.appendingPathComponent("c.md").standardizedFileURL)
+    }
+
+    @MainActor
+    func testActivationRefreshSkippedWhileScanInFlightOrCold() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<10 {
+            _ = try write("n\(i).md", "[[n\((i + 1) % 10)]]\n", in: root)
+        }
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+
+        // Cold index (no consumer built it yet): activation must stay lazy.
+        let epoch0 = workspace.linkEpoch
+        workspace.refreshLinkGraphAfterActivation(index: index)
+        XCTAssertEqual(workspace.linkEpoch, epoch0)
+
+        // In-flight scan: activation must not cancel/re-key it.
+        index.ensureIndex(workspace: workspace)
+        workspace.refreshLinkGraphAfterActivation(index: index)
+        XCTAssertEqual(workspace.linkEpoch, epoch0)
+        let deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(index.fullScanCount, 1)
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

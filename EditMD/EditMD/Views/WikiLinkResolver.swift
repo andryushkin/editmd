@@ -197,18 +197,19 @@ func openMarkdownLink(destination: String, from currentURL: URL?) {
     }
 }
 
-/// Filesystem resolution for a schemeless link destination. Drops a `#…`
-/// fragment, undoes percent-encoding (`%20`), then probes candidates in order:
-/// leading `/` → vault root + path, then the literal absolute path; otherwise
-/// file's folder + path, then vault root + path (Obsidian resolves both).
-/// Returns the first existing file, nil when nothing matches.
-func resolveLocalLinkDestination(_ destination: String,
-                                 fileDir: URL?,
-                                 vaultRoot: URL?) -> URL? {
+/// Candidate URLs `resolveLocalLinkDestination` probes, in probe order.
+/// Drops a `#…` fragment and undoes percent-encoding (`%20`); leading `/` →
+/// vault root + path, then the literal absolute path; otherwise file's
+/// folder + path, then vault root + path (Obsidian resolves both).
+/// Split out so the link-graph resolve cache can reason about which paths a
+/// destination's resolution depends on (`LinkIndex.localResolutionCovered`).
+func localLinkDestinationCandidates(_ destination: String,
+                                    fileDir: URL?,
+                                    vaultRoot: URL?) -> [URL] {
     var path = destination
     if let hash = path.firstIndex(of: "#") { path = String(path[..<hash]) }
     path = (path.removingPercentEncoding ?? path).trimmingCharacters(in: .whitespaces)
-    guard !path.isEmpty else { return nil }
+    guard !path.isEmpty else { return [] }
 
     var candidates: [URL] = []
     if path.hasPrefix("/") {
@@ -219,7 +220,17 @@ func resolveLocalLinkDestination(_ destination: String,
         if let fileDir { candidates.append(fileDir.appendingPathComponent(path)) }
         if let vaultRoot { candidates.append(vaultRoot.appendingPathComponent(path)) }
     }
-    for candidate in candidates {
+    return candidates
+}
+
+/// Filesystem resolution for a schemeless link destination: probes
+/// `localLinkDestinationCandidates` in order and returns the first existing
+/// file, nil when nothing matches.
+func resolveLocalLinkDestination(_ destination: String,
+                                 fileDir: URL?,
+                                 vaultRoot: URL?) -> URL? {
+    for candidate in localLinkDestinationCandidates(
+        destination, fileDir: fileDir, vaultRoot: vaultRoot) {
         let std = candidate.standardizedFileURL
         if FileManager.default.fileExists(atPath: std.path) { return std }
     }

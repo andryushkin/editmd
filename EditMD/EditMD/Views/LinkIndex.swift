@@ -52,7 +52,7 @@ final class LinkIndex: ObservableObject {
 
     // MARK: - Public API
 
-    /// Ensure the index matches the current workspace roots + contentEpoch.
+    /// Ensure the index matches the current workspace roots + linkEpoch.
     func ensureIndex(workspace: WorkspaceModel = .shared) {
         let roots = workspace.workspaces.map(\.url)
         let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
@@ -236,12 +236,26 @@ final class LinkIndex: ObservableObject {
         var resolveFingerprint: Int? = nil
     }
 
+    /// Filesystem facts the resolve pass depends on, captured during the walk:
+    /// every visible item under the roots (files of any type AND directories —
+    /// `resolveLocalLinkDestination` accepts any existing path), which
+    /// directories the walk actually enumerated, and which items are symlinks
+    /// (a listed symlink does not prove its destination exists).
+    struct ResolveEnvironment: Sendable {
+        let paths: Set<String>
+        let walkedDirs: Set<String>
+        let symlinks: Set<String>
+        static let empty = ResolveEnvironment(paths: [], walkedDirs: [], symlinks: [])
+    }
+
     /// Order-independent fingerprint of the resolve environment: workspace
-    /// roots + the wiki index (every indexable file's basename → paths).
-    /// Any file added/removed/renamed changes it; content edits do not.
+    /// roots + the wiki index (every indexable file's basename → paths) + the
+    /// full visible item set under the roots (plain relative links resolve to
+    /// ANY existing path, including directories and non-indexable files).
+    /// Any item added/removed/renamed changes it; content edits do not.
     /// Process-local (Hasher seed) — the cache never persists to disk.
     nonisolated static func resolveEnvironmentFingerprint(
-        roots: [URL], wikiIndex: [String: [URL]]
+        roots: [URL], wikiIndex: [String: [URL]], paths: Set<String>
     ) -> Int {
         var rootsHasher = Hasher()
         for root in roots { rootsHasher.combine(root.path) }
@@ -252,7 +266,39 @@ final class LinkIndex: ObservableObject {
             for url in urls { entryHasher.combine(url.path) }
             result ^= entryHasher.finalize()
         }
+        for path in paths {
+            var pathHasher = Hasher()
+            pathHasher.combine(path)
+            result ^= pathHasher.finalize()
+        }
         return result
+    }
+
+    /// True when `destination`'s local-path resolution is fully determined by
+    /// `environment`: every candidate the probe would try, up to and including
+    /// its first hit, lies in a walked directory under a visible (non-hidden,
+    /// non-symlink) name — so the environment fingerprint is guaranteed to
+    /// change whenever the resolution outcome could change. Destinations that
+    /// fail this (targets outside the roots, hidden names, package contents)
+    /// must not be resolve-cached: their existence is invisible to the walk.
+    nonisolated static func localResolutionCovered(
+        _ destination: String,
+        fileDir: URL,
+        vaultRoot: URL?,
+        environment: ResolveEnvironment
+    ) -> Bool {
+        for candidate in localLinkDestinationCandidates(
+            destination, fileDir: fileDir, vaultRoot: vaultRoot) {
+            let std = candidate.standardizedFileURL
+            guard environment.walkedDirs.contains(std.deletingLastPathComponent().path),
+                  !std.lastPathComponent.hasPrefix("."),
+                  !environment.symlinks.contains(std.path)
+            else { return false }
+            // Probe stops at the first existing candidate — later ones
+            // cannot influence the outcome.
+            if environment.paths.contains(std.path) { return true }
+        }
+        return true
     }
 
     /// Scan all markdown files under `roots` (no resolution). Off-main only.
@@ -264,7 +310,8 @@ final class LinkIndex: ObservableObject {
         cache: [URL: FileScanEntry] = [:],
         onProgress: (@Sendable (_ done: Int, _ total: Int) -> Void)? = nil
     ) -> (outgoing: [URL: [OutgoingLink]], headings: [URL: [String]],
-          skipped: Int, filesScanned: Int, newCache: [URL: FileScanEntry]) {
+          skipped: Int, filesScanned: Int, newCache: [URL: FileScanEntry],
+          environment: ResolveEnvironment) {
         var outgoing: [URL: [OutgoingLink]] = [:]
         var headings: [URL: [String]] = [:]
         var skipped = 0
@@ -274,23 +321,33 @@ final class LinkIndex: ObservableObject {
         let fm = FileManager.default
 
         // Phase 1: enumerate candidates (cheap — attributes only) so the
-        // parse phase below has a denominator for progress reporting.
+        // parse phase below has a denominator for progress reporting, and
+        // capture the resolve environment (which paths exist) along the way.
+        // Item paths are used as-is: the walk starts from standardized roots
+        // and appends clean component names, so they already match what
+        // `standardizedFileURL` produces for link candidates.
         var candidates: [(url: URL, size: Int64, mtime: Date?)] = []
+        var envPaths: Set<String> = []
+        var envWalkedDirs: Set<String> = []
+        var envSymlinks: Set<String> = []
         func walk(_ dir: URL) {
             if Task.isCancelled { return }
+            envWalkedDirs.insert(dir.path)
             let items = (try? fm.contentsOfDirectory(
                 at: dir,
                 includingPropertiesForKeys: [
                     .isDirectoryKey, .isPackageKey, .fileSizeKey,
-                    .contentModificationDateKey
+                    .contentModificationDateKey, .isSymbolicLinkKey
                 ],
                 options: [.skipsHiddenFiles])) ?? []
             for url in items {
                 if Task.isCancelled { return }
                 let vals = try? url.resourceValues(forKeys: [
                     .isDirectoryKey, .isPackageKey, .fileSizeKey,
-                    .contentModificationDateKey
+                    .contentModificationDateKey, .isSymbolicLinkKey
                 ])
+                envPaths.insert(url.path)
+                if vals?.isSymbolicLink == true { envSymlinks.insert(url.path) }
                 let isDir = vals?.isDirectory ?? false
                 let isPackage = vals?.isPackage ?? false
                 if isDir && !isPackage {
@@ -309,6 +366,8 @@ final class LinkIndex: ObservableObject {
         for root in roots {
             walk(root.standardizedFileURL)
         }
+        let environment = ResolveEnvironment(
+            paths: envPaths, walkedDirs: envWalkedDirs, symlinks: envSymlinks)
 
         // Phase 2: parse (or reuse cache) with progress.
         let total = candidates.count
@@ -339,7 +398,7 @@ final class LinkIndex: ObservableObject {
             }
         }
         onProgress?(total, total)
-        return (outgoing, headings, skipped, filesScanned, newCache)
+        return (outgoing, headings, skipped, filesScanned, newCache, environment)
     }
 
     // MARK: - Internals
@@ -388,11 +447,15 @@ final class LinkIndex: ObservableObject {
                 })
 
             // Resolve against WikiLinkResolver with current roots. The whole
-            // basename index is captured once — no actor hop per link.
+            // basename index is captured once — no actor hop per link. The
+            // resolver caches its index per root set; a full scan must see
+            // the disk as it is NOW (that is its contract, and the resolve
+            // fingerprint below is computed from it), so force a rebuild.
             var cancelled = Task.isCancelled
             var wikiIndex: [String: [URL]] = [:]
             if !cancelled {
                 await WikiLinkResolver.shared.setRoots(capturedRoots)
+                await WikiLinkResolver.shared.invalidate()
                 wikiIndex = await WikiLinkResolver.shared.indexedMatches()
                 cancelled = Task.isCancelled
             }
@@ -400,7 +463,8 @@ final class LinkIndex: ObservableObject {
             var updatedCache = scanned.newCache
             var freshResolves = 0
             let fingerprint = LinkIndex.resolveEnvironmentFingerprint(
-                roots: capturedRoots, wikiIndex: wikiIndex)
+                roots: capturedRoots, wikiIndex: wikiIndex,
+                paths: scanned.environment.paths)
             let resolveTotal = scanned.outgoing.count
             let resolveStep = max(1, resolveTotal / 100)
             var resolveDone = 0
@@ -417,14 +481,18 @@ final class LinkIndex: ObservableObject {
                     // resolution is still exact.
                     resolvedMap[source] = cached
                 } else {
-                    let resolved = LinkIndex.resolveScannedLinks(
+                    let result = LinkIndex.resolveScannedLinks(
                         links, source: source, roots: capturedRoots,
-                        vaultFallback: nil, wikiIndex: wikiIndex
+                        vaultFallback: nil, wikiIndex: wikiIndex,
+                        environment: scanned.environment
                     )
-                    resolvedMap[source] = resolved
+                    resolvedMap[source] = result.links
                     freshResolves += 1
-                    if var entry = updatedCache[source] {
-                        entry.resolvedLinks = resolved
+                    // Cache only resolutions the fingerprint fully covers —
+                    // a link probing outside the walked tree (or a hidden /
+                    // symlinked name) must re-resolve on every full scan.
+                    if result.cacheable, var entry = updatedCache[source] {
+                        entry.resolvedLinks = result.links
                         entry.resolveFingerprint = fingerprint
                         updatedCache[source] = entry
                     }
@@ -481,13 +549,17 @@ final class LinkIndex: ObservableObject {
     /// Pure over inputs; hits the disk — call off the main actor. `wikiIndex`
     /// is a captured WikiLinkResolver snapshot: batch resolution must not hop
     /// to the actor per link (the full scan resolves tens of thousands).
+    /// `cacheable` is true only when `environment` was given AND every
+    /// path-like link's resolution is covered by it (see
+    /// `localResolutionCovered`) — the single-file path passes nil.
     nonisolated private static func resolveScannedLinks(
         _ links: [OutgoingLink],
         source: URL,
         roots: [URL],
         vaultFallback: URL?,
-        wikiIndex: [String: [URL]]
-    ) -> [OutgoingLink] {
+        wikiIndex: [String: [URL]],
+        environment: ResolveEnvironment? = nil
+    ) -> (links: [OutgoingLink], cacheable: Bool) {
         let vault = roots.first { root in
             let p = source.path
             let r = root.standardizedFileURL.path
@@ -495,8 +567,18 @@ final class LinkIndex: ObservableObject {
         } ?? vaultFallback
         var resolvedLinks: [OutgoingLink] = []
         resolvedLinks.reserveCapacity(links.count)
+        var cacheable = environment != nil
         for link in links {
-            if Task.isCancelled { return [] }
+            if Task.isCancelled { return ([], false) }
+            if cacheable, let environment,
+               link.kind == .markdown || link.kind == .image,
+               !localResolutionCovered(
+                   link.rawTarget,
+                   fileDir: source.deletingLastPathComponent(),
+                   vaultRoot: vault,
+                   environment: environment) {
+                cacheable = false
+            }
             let wikiHits: [URL]
             if link.kind == .wiki
                 || (link.kind == .image && !link.rawTarget.contains("/")) {
@@ -521,7 +603,7 @@ final class LinkIndex: ObservableObject {
                 link, from: source, vaultRoot: vault, wikiMatches: wikiHits
             ))
         }
-        return resolvedLinks
+        return (resolvedLinks, cacheable)
     }
 
     private func rescanSingleFile(
@@ -556,7 +638,7 @@ final class LinkIndex: ObservableObject {
             let resolved = LinkIndex.resolveScannedLinks(
                 scanned, source: url, roots: roots, vaultFallback: fallback,
                 wikiIndex: wikiIndex
-            )
+            ).links
             return (resolved, headings)
         }.value
 

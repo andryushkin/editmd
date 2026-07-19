@@ -1170,3 +1170,28 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **⌘K редактор ссылок в Source.** Раньше `Add Link…` (⌘K) был жив только в Visual (там `editLink` через `.mdLink` на attributed). Теперь Source публикует `editLink` в `FormatActions` и правит raw markdown: `inlineLinkMatch(in:at:)` находит `[text](dest)` под кареткой через swift-markdown AST (`LineIndex.offset` → NSRange; каретка на любом крае спана считается «внутри»; автолинк `<url>` тоже матчится → ⌘K конвертит его в `[url](url)`). Apply пишет `markdownLinkSyntax`, Remove заменяет спан на его label.
 - **Общий диалог.** NSAlert с двумя полями (text + URL) и кнопками OK/Cancel/(Remove Link) вынесен в `runLinkEditPrompt(existingText:existingURL:) -> LinkEditResult` в `LinkEdit.swift`. Visual `editLink` отрефакторен на него (минус дублирование), Source использует тот же. Меню `Add Link…` остаётся `⌘K`, `editLink != nil` теперь и в Source → пункт активен в обоих редакторах; заголовок диалога сам меняется Add/Edit.
 - Тесты: `LinkEditTests` (autolink-сериализатор + `inlineLinkMatch` по кареткам/краям/автолинку/plain), `SourcePasteURLIntegrationTests` (реальный `paste`: над выделением → `[..](..)`, без выделения → `<url>`, не-URL → plain). Глазами не проверено (диалог NSAlert headless не гоняется).
+
+## CPU-сага LinkIndex/vault-lint (0.47.2–0.47.3 + продолжение 2026-07-19)
+
+Жалоба «>100% CPU минутами» на WoL-вольте (~7000 md, 47 МБ). Метод поимки — watcher-скрипт, снимающий `sample <pid> 3` при устойчиво высоком CPU. Серия фиксов:
+
+- **Квадратичный line lookup** — `lineNumber(utf16Offset:)` шёл от начала буфера на каждый линк; теперь бинарный поиск по `LineIndex` (218a5f5).
+- **Parse-кэш** — `FileScanEntry` по `(mtime, size)` переживает `invalidate()`; повторный скан перечитывает только изменённые файлы (e94fd84).
+- **Vault-lint по требованию** — полный прогон только для панели отчёта (`runNow()`/reportActive), редакторы берут per-file `vaultLintFindings(for:)` из shared-каталога на ревизию индекса; `LinkIndexSnapshot(standardizedOutgoing:)` trusted-init без re-standardize/stat на main (8e0c167 + ревью-фиксы 91aee49, 68e44be).
+- **Чип прогресса** — «Indexing links… N%» в статус-баре: `scanProgress` двухфазный (parse 0…0.5, resolve 0.5…1), `StandaloneActivityBar` для окон без документа (9a40b9f). Чип же и вскрыл, что full scan рестартовал постоянно.
+- **Ложные рестарты скана** (72300f6): same-key `ensureIndex` (onAppear каждого открытия файла) переиспользует in-flight скан через `inFlightKey`; агентская запись существующего файла не бампает epoch (инкрементальный путь и так реиндексирует файл).
+- **Прогрев на старте** (2ae0064): `applicationDidFinishLaunching` запускает первый скан, пока пользователь на welcome-странице (не под XCTest).
+
+### Контракт linkEpoch
+
+`WorkspaceModel.linkEpoch` — отдельный от `contentEpoch` ключ линк-графа. Бампается: (1) на реальные мутации ФС через `noteFilesystemChange` (create/delete/rename/агентская запись НОВОГО файла); (2) на активацию приложения через `refreshLinkGraphAfterActivation` — внешние правки ЗАКРЫТЫХ файлов иначе не попадали в индекс вовсе (ревью-фикс: 72300f6 сначала совсем убрал инвалидацию по активации, но «следующего триггера» могло не быть). Активационный бамп разрешён только при `hasCompletedFullScan && !isScanning`: смена ключа отменяет in-flight скан, а отменённый скан не публикует частичный кэш — рестарт выбрасывал бы минуты работы. Правки открытых файлов идут инкрементальным путём `noteDocumentPersisted` без бампа. Благодаря parse/resolve-кэшам rebuild по активации без изменений на диске = walk + stat'ы, не ре-парс.
+
+### Resolve-кэш и его границы
+
+`FileScanEntry.resolvedLinks` + `resolveFingerprint` (7b9685b): резолв зависит от того, какие файлы существуют, а не от их содержимого — неизменённый файл при неизменённом окружении пропускает resolve-пасс целиком. Fingerprint (XOR-хэш, process-local) покрывает roots + wiki-индекс + **полный набор видимых путей под roots из walk-фазы** (`ResolveEnvironment.paths`) — последнее добавлено ревью-фиксом: `resolveLocalLinkDestination` принимает ЛЮБОЙ существующий путь (каталог, csv…), а исходный fingerprint видел только wiki-индексируемые файлы, и `[reports](./reports)` оставался dead после создания каталога. Правила:
+
+- Full scan обязан видеть диск «сейчас»: перед снятием wiki-снапшота `WikiLinkResolver.shared.invalidate()` (его built-кэш иначе отдавал устаревший индекс при неизменных roots, и fingerprint не менялся).
+- Кэшируется только резолюция, полностью покрытая окружением (`localResolutionCovered`): каждый кандидат probe до первого хита лежит в walked-каталоге под видимым именем. Цели вне roots, скрытые имена, содержимое package'ей, symlink'и — не кэшируются и ре-резолвятся каждый full scan (walk их не видит, fingerprint не заметит изменение). `localLinkDestinationCandidates` вынесен из `resolveLocalLinkDestination`, чтобы coverage-проверка зеркалила порядок probe.
+- Single-file путь (`rescanSingleFile`) не пишет resolve-кэш и не инвалидирует wiki-индекс (авто-сейв должен оставаться дешёвым).
+
+Осталось дорогим только: первый скан за запуск app (кэш в памяти, рычаги — персист на диск, параллелизм парсинга) и полный ре-резолв после add/remove/rename файла (корректно: новый файл может перехватить wiki-таргеты). Глазами серия 2026-07-19 не проверена.

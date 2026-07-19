@@ -150,11 +150,22 @@ final class WorkspaceModel: ObservableObject {
     }
 
     @objc private func appDidBecomeActive() {
-        // Refresh tree listings/tags only. The link graph deliberately does
-        // NOT invalidate here — see `linkEpoch`; its (mtime, size) scan cache
-        // picks up external edits on the next real rebuild trigger.
         contentEpoch += 1
         refreshFavoriteAvailability()
+        refreshLinkGraphAfterActivation()
+    }
+
+    /// External editors can change closed files while EditMD is in the
+    /// background (open files are covered by the DocumentRegistry watcher).
+    /// Re-key the link graph so its (mtime, size) parse cache and resolve
+    /// cache revalidate against disk — a no-change rebuild is a walk plus
+    /// stats, not a re-parse. Skipped while a scan is in flight: a key change
+    /// would cancel it and throw away its work (cancelled scans keep no
+    /// partial cache), and the running scan reads current disk state anyway.
+    func refreshLinkGraphAfterActivation(index: LinkIndex = .shared) {
+        guard index.hasCompletedFullScan, !index.isScanning else { return }
+        linkEpoch += 1
+        index.invalidate(workspace: self)
     }
 
     // MARK: - Folder scan
@@ -784,11 +795,12 @@ final class WorkspaceModel: ObservableObject {
     /// list children observe the model; reading this forces a refresh pass.
     @Published private(set) var contentEpoch: Int = 0
 
-    /// Bumped only on real filesystem mutations (create/delete/rename/agent
-    /// writes of NEW files) — not on app activation. The link graph keys off
-    /// this: rebuilding it costs a full resolve pass over the vault, which
-    /// must not happen every time the app regains focus. Edits to open files
-    /// flow through `noteDocumentPersisted` (incremental single-file path).
+    /// Bumped on real filesystem mutations (create/delete/rename/agent writes
+    /// of NEW files) and on app activation when the index is idle and
+    /// complete (`refreshLinkGraphAfterActivation` — external edits of closed
+    /// files). Never bumped while a scan is in flight: a key change cancels
+    /// the scan and throws away its work. Edits to open files flow through
+    /// `noteDocumentPersisted` (incremental single-file path).
     private(set) var linkEpoch: Int = 0
 
     func noteFilesystemChange() {
