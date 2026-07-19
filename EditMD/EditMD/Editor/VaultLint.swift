@@ -188,15 +188,20 @@ func vaultLintCatalog(files: [URL]) -> WikiRankCatalog {
 /// burn cores to completion on a stale snapshot).
 func vaultLintFindings(
     index: LinkIndexSnapshot,
-    catalog: WikiRankCatalog? = nil
+    catalog: WikiRankCatalog? = nil,
+    onProgress: (@Sendable (_ done: Int, _ total: Int) -> Void)? = nil
 ) -> [VaultLintFinding] {
     var findings: [VaultLintFinding] = []
     let files = index.allFiles
     var scratch = VaultLintScratch(
         catalog: catalog ?? vaultLintCatalog(files: files))
 
-    for source in files {
+    let progressStep = max(1, files.count / 100)
+    for (fileIndex, source) in files.enumerated() {
         if Task.isCancelled { return [] }
+        if fileIndex % progressStep == 0 {
+            onProgress?(fileIndex, files.count)
+        }
         let links = index.outgoing[source] ?? []
         for (i, link) in links.enumerated() {
             // One file can carry thousands of links — a superseded run must

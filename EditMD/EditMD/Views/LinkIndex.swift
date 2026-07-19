@@ -23,6 +23,9 @@ final class LinkIndex: ObservableObject {
     /// Heading titles per file (plan 06 deadHeadingAnchor).
     @Published private(set) var headings: [URL: [String]] = [:]
     @Published private(set) var isScanning = false
+    /// 0…1 while a full scan runs (parse ≙ first half, resolve ≙ second);
+    /// nil when idle. Throttled — at most ~200 updates per scan.
+    @Published private(set) var scanProgress: Double?
     @Published private(set) var skippedOversizedCount = 0
     /// True after at least one full scan finished for the current key.
     @Published private(set) var hasCompletedFullScan = false
@@ -220,10 +223,13 @@ final class LinkIndex: ObservableObject {
     }
 
     /// Scan all markdown files under `roots` (no resolution). Off-main only.
+    /// `onProgress(done, total)` reports the parse phase (directory walk is
+    /// fast; parsing dominates) and is called at most ~100 times per scan.
     nonisolated static func scanWorkspaceOutgoing(
         roots: [URL],
         maxBytes: Int64 = LinkIndex.maxFileBytes,
-        cache: [URL: FileScanEntry] = [:]
+        cache: [URL: FileScanEntry] = [:],
+        onProgress: (@Sendable (_ done: Int, _ total: Int) -> Void)? = nil
     ) -> (outgoing: [URL: [OutgoingLink]], headings: [URL: [String]],
           skipped: Int, filesScanned: Int, newCache: [URL: FileScanEntry]) {
         var outgoing: [URL: [OutgoingLink]] = [:]
@@ -234,6 +240,9 @@ final class LinkIndex: ObservableObject {
         let mdExt: Set<String> = ["md", "markdown"]
         let fm = FileManager.default
 
+        // Phase 1: enumerate candidates (cheap — attributes only) so the
+        // parse phase below has a denominator for progress reporting.
+        var candidates: [(url: URL, size: Int64, mtime: Date?)] = []
         func walk(_ dir: URL) {
             if Task.isCancelled { return }
             let items = (try? fm.contentsOfDirectory(
@@ -261,34 +270,42 @@ final class LinkIndex: ObservableObject {
                     skipped += 1
                     continue
                 }
-                let key = url.standardizedFileURL
-                let mtime = vals?.contentModificationDate
-                if let mtime, let hit = cache[key],
-                   hit.mtime == mtime, hit.size == size {
-                    outgoing[key] = hit.links
-                    headings[key] = hit.headings
-                    newCache[key] = hit
-                    continue
-                }
-                guard let data = try? Data(contentsOf: url),
-                      let text = String(data: data, encoding: .utf8)
-                        ?? String(data: data, encoding: .isoLatin1)
-                else { continue }
-                filesScanned += 1
-                let links = scanOutgoingLinks(text: text)
-                let titles = markdownOutline(text).map(\.title)
-                outgoing[key] = links
-                headings[key] = titles
-                if let mtime {
-                    newCache[key] = FileScanEntry(
-                        mtime: mtime, size: size, links: links, headings: titles)
-                }
+                candidates.append((url, size, vals?.contentModificationDate))
             }
         }
-
         for root in roots {
             walk(root.standardizedFileURL)
         }
+
+        // Phase 2: parse (or reuse cache) with progress.
+        let total = candidates.count
+        let step = max(1, total / 100)
+        for (done, candidate) in candidates.enumerated() {
+            if Task.isCancelled { break }
+            if done % step == 0 { onProgress?(done, total) }
+            let key = candidate.url.standardizedFileURL
+            if let mtime = candidate.mtime, let hit = cache[key],
+               hit.mtime == mtime, hit.size == candidate.size {
+                outgoing[key] = hit.links
+                headings[key] = hit.headings
+                newCache[key] = hit
+                continue
+            }
+            guard let data = try? Data(contentsOf: candidate.url),
+                  let text = String(data: data, encoding: .utf8)
+                    ?? String(data: data, encoding: .isoLatin1)
+            else { continue }
+            filesScanned += 1
+            let links = scanOutgoingLinks(text: text)
+            let titles = markdownOutline(text).map(\.title)
+            outgoing[key] = links
+            headings[key] = titles
+            if let mtime = candidate.mtime {
+                newCache[key] = FileScanEntry(
+                    mtime: mtime, size: candidate.size, links: links, headings: titles)
+            }
+        }
+        onProgress?(total, total)
         return (outgoing, headings, skipped, filesScanned, newCache)
     }
 
@@ -308,15 +325,29 @@ final class LinkIndex: ObservableObject {
         }
         scanInFlight = true
         isScanning = true
+        scanProgress = 0
         self.roots = roots.map(\.standardizedFileURL)
         let capturedRoots = self.roots
         let capturedCache = scanCache
+
+        // Progress publisher: parse phase maps to 0…0.5, resolve to 0.5…1.
+        // Hops to main per report; callers throttle to ~100 reports per phase.
+        let publishProgress: @Sendable (Double) -> Void = { [weak self] fraction in
+            Task { @MainActor [weak self] in
+                guard let self, self.isScanning else { return }
+                self.scanProgress = fraction
+            }
+        }
 
         // Scan AND resolution run detached: resolveLocalLinkDestination stats
         // the disk per link — never on the main actor.
         let task = Task.detached(priority: .utility) { [weak self] in
             let scanned = LinkIndex.scanWorkspaceOutgoing(
-                roots: capturedRoots, cache: capturedCache)
+                roots: capturedRoots, cache: capturedCache,
+                onProgress: { done, total in
+                    guard total > 0 else { return }
+                    publishProgress(0.5 * Double(done) / Double(total))
+                })
 
             // Resolve against WikiLinkResolver with current roots. The whole
             // basename index is captured once — no actor hop per link.
@@ -328,6 +359,9 @@ final class LinkIndex: ObservableObject {
                 cancelled = Task.isCancelled
             }
             var resolvedMap: [URL: [OutgoingLink]] = [:]
+            let resolveTotal = scanned.outgoing.count
+            let resolveStep = max(1, resolveTotal / 100)
+            var resolveDone = 0
             for (source, links) in scanned.outgoing where !cancelled {
                 // On cancellation fall through to MainActor.run WITHOUT
                 // applying data: an early `return` here would leave
@@ -338,6 +372,10 @@ final class LinkIndex: ObservableObject {
                     links, source: source, roots: capturedRoots,
                     vaultFallback: nil, wikiIndex: wikiIndex
                 )
+                resolveDone += 1
+                if resolveDone % resolveStep == 0, resolveTotal > 0 {
+                    publishProgress(0.5 + 0.5 * Double(resolveDone) / Double(resolveTotal))
+                }
                 if Task.isCancelled { cancelled = true; break }
             }
 
@@ -346,6 +384,7 @@ final class LinkIndex: ObservableObject {
             await MainActor.run {
                 self.scanInFlight = false
                 self.isScanning = false
+                self.scanProgress = nil
                 self.fullScanTask = nil
                 // A cancelled walk can hold only a partial cache; never replace
                 // the last complete cache with it.

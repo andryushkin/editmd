@@ -347,6 +347,24 @@ final class VaultLintTests: XCTestCase {
         model.bind(to: LinkIndex.shared)
     }
 
+    func testFullRunReportsProgressPerFile() {
+        let snap = LinkIndexSnapshot(
+            outgoing: [
+                noteA: [link(kind: .wiki, target: "Missing", offset: 1)],
+                noteB: [],
+                orphan: [],
+            ],
+            roots: [root]
+        )
+        final class Box: @unchecked Sendable { var reports: [(Int, Int)] = [] }
+        let box = Box()
+        _ = vaultLintFindings(index: snap) { done, total in
+            box.reports.append((done, total))
+        }
+        XCTAssertEqual(box.reports.map(\.0), [0, 1, 2])
+        XCTAssertTrue(box.reports.allSatisfy { $0.1 == 3 })
+    }
+
     @MainActor
     func testDeactivatingReportCancelsCurrentFullRun() async throws {
         let index = LinkIndex()

@@ -14,6 +14,9 @@ final class VaultLintModel: ObservableObject {
     @Published private(set) var findings: [VaultLintFinding] = []
     @Published private(set) var skippedOversizedCount = 0
     @Published private(set) var isRunning = false
+    /// 0…1 while a full run is in flight; nil when idle. Throttled to ~100
+    /// updates per run (status-bar / report progress).
+    @Published private(set) var runProgress: Double?
     @Published private(set) var lastRun: Date?
     /// Bumps when findings change so SwiftUI can rebind cheaply.
     @Published private(set) var revision = 0
@@ -295,6 +298,7 @@ final class VaultLintModel: ObservableObject {
         runTask?.cancel()
         runTask = nil
         isRunning = false
+        runProgress = nil
     }
 
     private func scheduleRun(force: Bool = false) {
@@ -308,10 +312,17 @@ final class VaultLintModel: ObservableObject {
             return
         }
         isRunning = true
+        runProgress = 0
         let state = currentRevisionSnapshot(for: index, refresh: force)
         let snap = state.snapshot
         let fileSetGeneration = state.fileSetGeneration
         let catalogSource = catalogSource(for: state)
+        let publishProgress: @Sendable (Double) -> Void = { [weak self] fraction in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning else { return }
+                self.runProgress = fraction
+            }
+        }
         runTask = Task.detached(priority: .utility) {
             let catalog: WikiRankCatalog
             let catalogBuildID: Int?
@@ -337,12 +348,18 @@ final class VaultLintModel: ObservableObject {
                 roots: snap.roots,
                 homeDocuments: homes
             )
-            let result = vaultLintFindings(index: full, catalog: catalog)
+            let result = vaultLintFindings(
+                index: full, catalog: catalog,
+                onProgress: { done, total in
+                    guard total > 0 else { return }
+                    publishProgress(Double(done) / Double(total))
+                })
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 self.findings = result
                 self.skippedOversizedCount = snap.skippedOversizedCount
                 self.isRunning = false
+                self.runProgress = nil
                 self.lastRun = Date()
                 self.revision += 1
                 if self.catalogCache?.fileSetGeneration != fileSetGeneration {

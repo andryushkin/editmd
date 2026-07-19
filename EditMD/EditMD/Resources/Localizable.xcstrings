@@ -982,6 +982,16 @@
         }
       }
     },
+    "Building the workspace link graph (backlinks, completion, link check)": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Построение графа ссылок workspace (backlinks, автодополнение, проверка ссылок)"
+          }
+        }
+      }
+    },
     "Bulleted List": {
       "localizations": {
         "ru": {
@@ -1088,6 +1098,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Проверить workspace…"
+          }
+        }
+      }
+    },
+    "Checking workspace…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка workspace…"
           }
         }
       }
@@ -2754,6 +2774,16 @@
         }
       }
     },
+    "Indexing links…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Индексация ссылок…"
+          }
+        }
+      }
+    },
     "Inline": {
       "localizations": {
         "ru": {
@@ -3241,6 +3271,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ссылки: %1$lld  ·  Backlinks: %2$@"
+          }
+        }
+      }
+    },
+    "Linting workspace links (report panel)": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка ссылок workspace (панель отчёта)"
           }
         }
       }

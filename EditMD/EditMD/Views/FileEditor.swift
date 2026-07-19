@@ -113,26 +113,42 @@ struct MainWindowView: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @Environment(\.openWindow) private var openWindow
 
+    /// True when the center pane is the markdown editor (which carries its
+    /// own status bar with the same activity chip).
+    private var isEditorBranch: Bool {
+        if appState.isWelcome { return false }
+        guard let url = appState.currentURL else { return true }
+        return !isPDFFile(url) && !isImageFile(url) && !AppState.isFolder(url)
+    }
+
     var body: some View {
-        Group {
-            if appState.isWelcome {
-                WelcomeHost()
-                    .id("·welcome·")
-            } else if let url = appState.currentURL, isPDFFile(url) {
-                // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
-                PDFViewerHost(fileURL: url, allowsSidebar: true)
-                    .id("pdf:" + url.absoluteString)
-            } else if let url = appState.currentURL, isImageFile(url) {
-                // Images are read-only and never enter the Markdown document path.
-                ImageViewerHost(fileURL: url, allowsSidebar: true)
-                    .id("image:" + url.absoluteString)
-            } else if let url = appState.currentURL, AppState.isFolder(url) {
-                FolderInfoHost(folderURL: url)
-                    .id("folder:" + url.absoluteString)
-            } else {
-                // File URL, or nil + isUntitled → scratch editor.
-                FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
-                    .id(appState.currentURL?.absoluteString ?? "·untitled·")
+        VStack(spacing: 0) {
+            Group {
+                if appState.isWelcome {
+                    WelcomeHost()
+                        .id("·welcome·")
+                } else if let url = appState.currentURL, isPDFFile(url) {
+                    // PDFs bypass DocumentRegistry entirely — read-only PDFKit pane.
+                    PDFViewerHost(fileURL: url, allowsSidebar: true)
+                        .id("pdf:" + url.absoluteString)
+                } else if let url = appState.currentURL, isImageFile(url) {
+                    // Images are read-only and never enter the Markdown document path.
+                    ImageViewerHost(fileURL: url, allowsSidebar: true)
+                        .id("image:" + url.absoluteString)
+                } else if let url = appState.currentURL, AppState.isFolder(url) {
+                    FolderInfoHost(folderURL: url)
+                        .id("folder:" + url.absoluteString)
+                } else {
+                    // File URL, or nil + isUntitled → scratch editor.
+                    FileEditor(url: appState.currentURL, allowsSidebar: true, isMain: true)
+                        .id(appState.currentURL?.absoluteString ?? "·untitled·")
+                }
+            }
+            // Panes without an editor status bar still surface background
+            // workspace work (index scan / vault-lint) — the editor branch
+            // shows the same chip inside its own status bar.
+            if !isEditorBranch {
+                StandaloneActivityBar()
             }
         }
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)

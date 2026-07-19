@@ -231,4 +231,24 @@ final class LinkIndexTests: XCTestCase {
         XCTAssertEqual(scanned.filesScanned, n)
         XCTAssertLessThan(elapsed, 5.0, "scan took \(elapsed)s")
     }
+
+    func testScanReportsMonotonicProgress() throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<5 {
+            _ = try write("n\(i).md", "[[Other]]\n", in: root)
+        }
+        // onProgress is called synchronously from the scanning thread.
+        final class Box: @unchecked Sendable { var reports: [(Int, Int)] = [] }
+        let box = Box()
+        let scanned = LinkIndex.scanWorkspaceOutgoing(roots: [root]) { done, total in
+            box.reports.append((done, total))
+        }
+        XCTAssertEqual(scanned.filesScanned, 5)
+        XCTAssertFalse(box.reports.isEmpty)
+        XCTAssertTrue(box.reports.allSatisfy { $0.1 == 5 })
+        XCTAssertEqual(box.reports.last?.0, 5, "final report must be done == total")
+        let dones = box.reports.map(\.0)
+        XCTAssertEqual(dones, dones.sorted(), "progress must be monotonic")
+    }
 }

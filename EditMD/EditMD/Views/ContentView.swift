@@ -653,6 +653,8 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.quaternary)
             }
+            // Workspace background work (link index scan, vault-lint run).
+            BackgroundActivityChip()
             // Claude Code: grey while listening, accent once /ide attached.
             ClaudeIDEChip()
             // Git: info only (Commit / Push live in the Git sidebar tab).

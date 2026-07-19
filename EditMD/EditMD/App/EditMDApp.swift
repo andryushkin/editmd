@@ -453,13 +453,20 @@ private struct LiteWindowContent: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
 
     var body: some View {
-        Group {
-            if let url, isPDFFile(url) {
-                PDFViewerHost(fileURL: url, allowsSidebar: false)
-            } else if let url, isImageFile(url) {
-                ImageViewerHost(fileURL: url, allowsSidebar: false)
-            } else {
-                FileEditor(url: url, allowsSidebar: false, isMain: false)
+        VStack(spacing: 0) {
+            Group {
+                if let url, isPDFFile(url) {
+                    PDFViewerHost(fileURL: url, allowsSidebar: false)
+                } else if let url, isImageFile(url) {
+                    ImageViewerHost(fileURL: url, allowsSidebar: false)
+                } else {
+                    FileEditor(url: url, allowsSidebar: false, isMain: false)
+                }
+            }
+            // Viewer panes have no editor status bar; still surface
+            // background workspace work (index scan / vault-lint).
+            if let url, isPDFFile(url) || isImageFile(url) {
+                StandaloneActivityBar()
             }
         }
         .preferredColorScheme(editorSettings.general.appearance.colorScheme)
