@@ -40,9 +40,183 @@ final class ControlChannelTests: XCTestCase {
         let names = Set(ControlCommandName.allCases.map(\.rawValue))
         for need in ["ping", "status", "open", "reveal", "mode",
                      "marks.list", "marks.add", "diff.show", "workspace.add",
-                     "agent-status"] {
+                     "agent-status",
+                     // Plan 10 «wikillm ready».
+                     "links.outgoing", "links.backlinks", "links.resolve",
+                     "outline", "lint.workspace", "lint.file", "index.status",
+                     "tags.list", "tags.files", "frontmatter.get"] {
             XCTAssertTrue(names.contains(need), "missing \(need)")
         }
+    }
+
+    // MARK: - Plan 10: vault-graph commands
+
+    private func makeVault() throws -> (root: URL, a: URL, b: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ctl-vault-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let a = root.appendingPathComponent("a.md")
+        let b = root.appendingPathComponent("b.md")
+        try "[[b]] and [[missing]]\n".write(to: a, atomically: true, encoding: .utf8)
+        try "# Target\ntext\n".write(to: b, atomically: true, encoding: .utf8)
+        return (root.standardizedFileURL, a.standardizedFileURL, b.standardizedFileURL)
+    }
+
+    /// Seeds `LinkIndex.shared` the way a completed scan would.
+    @MainActor
+    private func seedSharedIndex(root: URL, a: URL, b: URL) {
+        let resolved = OutgoingLink(
+            kind: .wiki, rawTarget: "b", label: "b", line: 1,
+            utf16Offset: 0, context: "[[b]] and [[missing]]",
+            resolved: b, candidates: [b])
+        let dead = OutgoingLink(
+            kind: .wiki, rawTarget: "missing", label: "missing", line: 1,
+            utf16Offset: 10, context: "[[b]] and [[missing]]")
+        LinkIndex.shared.seedForTesting(
+            outgoing: [a: [resolved, dead], b: []],
+            headings: [b: ["Target"]],
+            roots: [root],
+            key: "ctl-test")
+    }
+
+    @MainActor
+    func testControlLinksOutgoingAndBacklinks() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        seedSharedIndex(root: root, a: a, b: b)
+
+        let out = ControlRouter.process(ControlRequest(
+            id: "1", cmd: "links.outgoing", args: ["path": .string(a.path)]))
+        XCTAssertTrue(out.ok, out.error ?? "")
+        guard case let .object(data)? = out.data,
+              case let .array(links)? = data["links"] else {
+            return XCTFail("bad payload")
+        }
+        XCTAssertEqual(data["count"], .int(2))
+        guard case let .object(first) = links[0],
+              case let .object(second) = links[1] else {
+            return XCTFail("bad link payload")
+        }
+        XCTAssertEqual(first["status"], .string("resolved"))
+        XCTAssertEqual(first["path"], .string(b.path))
+        XCTAssertEqual(second["status"], .string("dead"))
+        XCTAssertEqual(second["target"], .string("missing"))
+
+        let back = ControlRouter.process(ControlRequest(
+            id: "2", cmd: "links.backlinks", args: ["path": .string(b.path)]))
+        XCTAssertTrue(back.ok, back.error ?? "")
+        guard case let .object(bData)? = back.data,
+              case let .array(edges)? = bData["backlinks"],
+              case let .object(edge) = edges.first else {
+            return XCTFail("bad backlinks payload")
+        }
+        XCTAssertEqual(bData["count"], .int(1))
+        XCTAssertEqual(edge["source"], .string(a.path))
+        XCTAssertEqual(edge["target"], .string("b"))
+    }
+
+    @MainActor
+    func testControlLintFileAndWorkspace() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        seedSharedIndex(root: root, a: a, b: b)
+
+        let file = ControlRouter.process(ControlRequest(
+            id: "1", cmd: "lint.file", args: ["path": .string(a.path)]))
+        XCTAssertTrue(file.ok, file.error ?? "")
+        guard case let .object(data)? = file.data,
+              case let .array(findings)? = data["findings"],
+              case let .object(finding) = findings.first else {
+            return XCTFail("bad lint payload")
+        }
+        XCTAssertEqual(finding["rule"], .string("deadWikiLink"))
+        XCTAssertEqual(finding["target"], .string("missing"))
+
+        let ws = ControlRouter.process(ControlRequest(
+            id: "2", cmd: "lint.workspace", args: ["limit": .int(10)]))
+        XCTAssertTrue(ws.ok, ws.error ?? "")
+        guard case let .object(wsData)? = ws.data,
+              case let .array(wsFindings)? = wsData["findings"] else {
+            return XCTFail("bad workspace lint payload")
+        }
+        // At least the dead wiki link; orphan rules may add more.
+        XCTAssertTrue(wsFindings.contains { item in
+            guard case let .object(o) = item else { return false }
+            return o["rule"] == .string("deadWikiLink")
+        })
+    }
+
+    @MainActor
+    func testControlLinksResolveOutlineFrontmatterIndexStatus() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        ---
+        title: Target Note
+        tags: [x, y]
+        ---
+
+        # Target
+        ## Sub
+        """.write(to: b, atomically: true, encoding: .utf8)
+        seedSharedIndex(root: root, a: a, b: b)
+
+        let resolve = ControlRouter.process(ControlRequest(
+            id: "1", cmd: "links.resolve", args: ["target": .string("b")]))
+        XCTAssertTrue(resolve.ok, resolve.error ?? "")
+        guard case let .object(rData)? = resolve.data else {
+            return XCTFail("bad resolve payload")
+        }
+        XCTAssertEqual(rData["status"], .string("resolved"))
+        XCTAssertEqual(rData["path"], .string(b.path))
+
+        let outline = ControlRouter.process(ControlRequest(
+            id: "2", cmd: "outline", args: ["path": .string(b.path)]))
+        XCTAssertTrue(outline.ok, outline.error ?? "")
+        guard case let .object(oData)? = outline.data,
+              case let .array(items)? = oData["outline"],
+              case let .object(item) = items.first else {
+            return XCTFail("bad outline payload")
+        }
+        XCTAssertEqual(oData["count"], .int(2))
+        XCTAssertEqual(item["title"], .string("Target"))
+        XCTAssertEqual(item["level"], .int(1))
+
+        let fm = ControlRouter.process(ControlRequest(
+            id: "3", cmd: "frontmatter.get", args: ["path": .string(b.path)]))
+        XCTAssertTrue(fm.ok, fm.error ?? "")
+        guard case let .object(fmData)? = fm.data,
+              case let .array(props)? = fmData["properties"] else {
+            return XCTFail("bad frontmatter payload")
+        }
+        XCTAssertEqual(fmData["present"], .bool(true))
+        XCTAssertTrue(props.contains { item in
+            guard case let .object(o) = item else { return false }
+            return o["key"] == .string("title") && o["value"] == .string("Target Note")
+        })
+
+        let status = ControlRouter.process(ControlRequest(id: "4", cmd: "index.status"))
+        XCTAssertTrue(status.ok, status.error ?? "")
+        guard case let .object(sData)? = status.data else {
+            return XCTFail("bad status payload")
+        }
+        XCTAssertEqual(sData["ready"], .bool(true))
+        XCTAssertEqual(sData["files"], .int(2))
+        XCTAssertEqual(sData["persisted"], JSONValue.null)
+    }
+
+    @MainActor
+    func testControlFrontmatterAbsent() throws {
+        let (root, a, b) = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        seedSharedIndex(root: root, a: a, b: b)
+        let fm = ControlRouter.process(ControlRequest(
+            id: "1", cmd: "frontmatter.get", args: ["path": .string(a.path)]))
+        XCTAssertTrue(fm.ok, fm.error ?? "")
+        guard case let .object(data)? = fm.data else {
+            return XCTFail("bad payload")
+        }
+        XCTAssertEqual(data["present"], .bool(false))
     }
 
     func testParseAgentStatusArgs() {

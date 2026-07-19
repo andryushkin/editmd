@@ -111,6 +111,18 @@ enum ControlCommandName: String, CaseIterable, Sendable {
     case workspaceAdd = "workspace.add"
     /// Plan 09: harness → app presence channel.
     case agentStatus = "agent-status"
+    // Plan 10 «wikillm ready»: the agent asks EditMD for the vault graph
+    // instead of walking the vault itself. Protocol output is English-only.
+    case linksOutgoing = "links.outgoing"
+    case linksBacklinks = "links.backlinks"
+    case linksResolve = "links.resolve"
+    case outline
+    case lintWorkspace = "lint.workspace"
+    case lintFile = "lint.file"
+    case indexStatus = "index.status"
+    case tagsList = "tags.list"
+    case tagsFiles = "tags.files"
+    case frontmatterGet = "frontmatter.get"
 
     var help: String {
         switch self {
@@ -124,6 +136,16 @@ enum ControlCommandName: String, CaseIterable, Sendable {
         case .diffShow: return "unified diff of buffer vs last-saved / disk"
         case .workspaceAdd: return "workspace.add <absolute folder path>"
         case .agentStatus: return "agent-status <idle|active|completed|blocked> [--label T] [--harness N]"
+        case .linksOutgoing: return "outgoing links of active (or --path) file, with resolution status"
+        case .linksBacklinks: return "files linking TO the active (or --path) file"
+        case .linksResolve: return "resolve a wiki target like navigation would: links.resolve <target> [--from P]"
+        case .outline: return "heading outline of active (or --path) file"
+        case .lintWorkspace: return "vault-lint findings for the active workspace [--limit N]"
+        case .lintFile: return "vault-lint findings for one file"
+        case .indexStatus: return "link-index readiness, scope and counters"
+        case .tagsList: return "workspace tags with file counts"
+        case .tagsFiles: return "files carrying --tag T"
+        case .frontmatterGet: return "frontmatter properties of active (or --path) file"
         }
     }
 }

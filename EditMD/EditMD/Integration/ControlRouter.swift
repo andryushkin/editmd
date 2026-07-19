@@ -52,7 +52,7 @@ enum ControlRouter {
         }
     }
 
-    private enum Dispatched {
+    enum Dispatched {
         case data(JSONValue)
         case deferred(@Sendable () -> ControlResponse)
     }
@@ -89,6 +89,36 @@ enum ControlRouter {
 
         case .agentStatus:
             return try agentStatus(request)
+
+        case .linksOutgoing:
+            return try linksOutgoing(request)
+
+        case .linksBacklinks:
+            return try linksBacklinks(request)
+
+        case .linksResolve:
+            return try linksResolve(request)
+
+        case .outline:
+            return try outlineCommand(request)
+
+        case .lintWorkspace:
+            return try lintWorkspace(request)
+
+        case .lintFile:
+            return try lintFile(request)
+
+        case .indexStatus:
+            return indexStatus(request)
+
+        case .tagsList:
+            return tagsList(request)
+
+        case .tagsFiles:
+            return try tagsFiles(request)
+
+        case .frontmatterGet:
+            return try frontmatterGet(request)
         }
     }
 
@@ -472,7 +502,7 @@ enum ControlRouter {
 
     // MARK: Helpers
 
-    private static func fileURL(for request: ControlRequest) throws -> URL {
+    static func fileURL(for request: ControlRequest) throws -> URL {
         if let path = request.argString("path"), !path.isEmpty {
             let url = try resolvePath(path)
             guard FileManager.default.fileExists(atPath: url.path)
@@ -499,7 +529,7 @@ enum ControlRouter {
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
-    private static func content(of url: URL) -> String {
+    static func content(of url: URL) -> String {
         if let open = DocumentRegistry.shared.contentIfOpen(url) { return open }
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }

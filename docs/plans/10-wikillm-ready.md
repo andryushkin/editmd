@@ -101,7 +101,20 @@ NSTextStorage не затрагивается — это отдельный хэ
 (два independent вычисления совпадают); детерминизм байтов файла при
 неизменном вольте (git-friendly).
 
-## Этап 2 — wikillm-инструменты в control socket
+## Этап 2 — wikillm-инструменты в control socket — **СДЕЛАНО, кроме `search`**
+
+Реализовано в `Integration/ControlLinkCommands.swift`: `links.outgoing`,
+`links.backlinks`, `links.resolve`, `outline`, `lint.workspace [--limit]`,
+`lint.file`, `index.status`, `tags.list`, `tags.files`, `frontmatter.get`.
+Findings сериализуют структурный payload (rule/target/heading/suggestion),
+НЕ локализованный текст. Команда — consumer индекса: если он не построен,
+kick + честный `link index not ready (indexing N%)`; завершённый индекс
+никогда не перезапускается из команды (тесты сидируют `LinkIndex.shared`).
+`links.resolve` бриджит actor через bounded semaphore на socket-потоке.
+`search` отложен: его движок вшит в UI-модель (`WorkspaceSearchModel`),
+нужен вынос чистого ядра — вместе с этапом 4.
+
+### Исходный план этапа
 
 Новые команды `editmdctl` (JSON-выход, английский, не локализуется):
 

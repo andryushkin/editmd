@@ -214,6 +214,131 @@ enum EditMDCtl {
             return ControlRequest(id: "1", cmd: "workspace.add",
                                   args: ["path": .string(path)])
 
+        case "links":
+            guard let sub = rest.first else {
+                throw CLIError("links requires outgoing|backlinks|resolve")
+            }
+            let subRest = Array(rest.dropFirst())
+            switch sub {
+            case "outgoing", "backlinks":
+                var path: String?
+                var j = 0
+                while j < subRest.count {
+                    let a = subRest[j]
+                    if a == "--path", j + 1 < subRest.count {
+                        path = subRest[j + 1]; j += 2; continue
+                    }
+                    if !a.hasPrefix("-"), path == nil { path = a; j += 1; continue }
+                    throw CLIError("unknown argument: \(a)")
+                }
+                var argsMap: [String: JSONValue] = [:]
+                if let path { argsMap["path"] = .string(absolutePath(path)) }
+                return ControlRequest(id: "1", cmd: "links.\(sub)",
+                                      args: argsMap.isEmpty ? nil : argsMap)
+            case "resolve":
+                var target: String?
+                var from: String?
+                var j = 0
+                while j < subRest.count {
+                    let a = subRest[j]
+                    if a == "--from", j + 1 < subRest.count {
+                        from = subRest[j + 1]; j += 2; continue
+                    }
+                    if !a.hasPrefix("-"), target == nil { target = a; j += 1; continue }
+                    throw CLIError("unknown argument: \(a)")
+                }
+                guard let target else { throw CLIError("links resolve requires a target") }
+                var argsMap: [String: JSONValue] = ["target": .string(target)]
+                if let from { argsMap["from"] = .string(absolutePath(from)) }
+                return ControlRequest(id: "1", cmd: "links.resolve", args: argsMap)
+            default:
+                throw CLIError("links requires outgoing|backlinks|resolve")
+            }
+
+        case "outline":
+            var path: String?
+            if let a = rest.first {
+                if a == "--path", rest.count > 1 { path = rest[1] }
+                else if !a.hasPrefix("-") { path = a }
+                else { throw CLIError("unknown argument: \(a)") }
+            }
+            var argsMap: [String: JSONValue]? = nil
+            if let path { argsMap = ["path": .string(absolutePath(path))] }
+            return ControlRequest(id: "1", cmd: "outline", args: argsMap)
+
+        case "lint":
+            guard let sub = rest.first else {
+                throw CLIError("lint requires workspace|file")
+            }
+            let subRest = Array(rest.dropFirst())
+            if sub == "workspace" {
+                var limit: Int?
+                var j = 0
+                while j < subRest.count {
+                    let a = subRest[j]
+                    if a == "--limit", j + 1 < subRest.count {
+                        limit = Int(subRest[j + 1]); j += 2; continue
+                    }
+                    throw CLIError("unknown argument: \(a)")
+                }
+                var argsMap: [String: JSONValue]? = nil
+                if let limit { argsMap = ["limit": .int(limit)] }
+                return ControlRequest(id: "1", cmd: "lint.workspace", args: argsMap)
+            }
+            if sub == "file" {
+                var path: String?
+                var j = 0
+                while j < subRest.count {
+                    let a = subRest[j]
+                    if a == "--path", j + 1 < subRest.count {
+                        path = subRest[j + 1]; j += 2; continue
+                    }
+                    if !a.hasPrefix("-"), path == nil { path = a; j += 1; continue }
+                    throw CLIError("unknown argument: \(a)")
+                }
+                var argsMap: [String: JSONValue]? = nil
+                if let path { argsMap = ["path": .string(absolutePath(path))] }
+                return ControlRequest(id: "1", cmd: "lint.file", args: argsMap)
+            }
+            throw CLIError("lint requires workspace|file")
+
+        case "index":
+            guard rest.first == "status" else {
+                throw CLIError("index requires status")
+            }
+            return ControlRequest(id: "1", cmd: "index.status")
+
+        case "tags":
+            guard let sub = rest.first else {
+                throw CLIError("tags requires list|files")
+            }
+            if sub == "list" {
+                return ControlRequest(id: "1", cmd: "tags.list")
+            }
+            if sub == "files" {
+                guard rest.count >= 2 else {
+                    throw CLIError("tags files requires a tag")
+                }
+                return ControlRequest(id: "1", cmd: "tags.files",
+                                      args: ["tag": .string(rest[1])])
+            }
+            throw CLIError("tags requires list|files")
+
+        case "frontmatter":
+            guard rest.first == "get" else {
+                throw CLIError("frontmatter requires get")
+            }
+            var path: String?
+            if rest.count > 1 {
+                let a = rest[1]
+                if a == "--path", rest.count > 2 { path = rest[2] }
+                else if !a.hasPrefix("-") { path = a }
+                else { throw CLIError("unknown argument: \(a)") }
+            }
+            var argsMap: [String: JSONValue]? = nil
+            if let path { argsMap = ["path": .string(absolutePath(path))] }
+            return ControlRequest(id: "1", cmd: "frontmatter.get", args: argsMap)
+
         case "agent-status":
             // editmdctl agent-status <idle|active|completed|blocked> [--label T] [--harness N]
             guard let state = rest.first, !state.hasPrefix("-") else {
@@ -394,6 +519,18 @@ enum EditMDCtl {
 
           marks add [--path P] --type TYPE --note TEXT [--quote Q]
           diff show [--path P]
+
+        Vault graph (wikillm; answers cover the ACTIVE workspace):
+          index status
+          links outgoing [path]
+          links backlinks [path]
+          links resolve <target> [--from PATH]
+          outline [path]
+          lint workspace [--limit N]
+          lint file [path]
+          tags list
+          tags files <tag>
+          frontmatter get [path]
 
         Socket: \(sock)
         Override: --socket PATH  or  $EDITMD_CONTROL_SOCK
