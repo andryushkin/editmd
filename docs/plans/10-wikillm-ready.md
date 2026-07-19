@@ -56,7 +56,7 @@ LinkIndex/vault-lint», «AI ready», «Vault-lint», «Workspace search»).
 - `Integration/SkillInstaller.swift` + skill `editmd` — agent-facing
   документация; новые команды обязаны попасть туда же.
 
-## Этап 1 — персистентный индекс workspace
+## Этап 1 — персистентный индекс workspace — **СДЕЛАНО** (55896c3)
 
 `.editmd/link-index.json` в корне adopted workspace.
 
@@ -119,6 +119,12 @@ NSTextStorage не затрагивается — это отдельный хэ
 - `search <query> [--limit N]` — результаты workspace search.
 - `index.status` — готов ли индекс, для какого root, возраст персиста,
   счётчики файлов/ссылок; агент по нему решает, ждать или работать.
+- `tags.list` / `tags.files <tag>` — теговый индекс (wikillm-вольты
+  навигируются и по тегам: WoL Phase 1 index был теговым).
+- `frontmatter.get <path>` — чтение frontmatter страницы (страницы wikillm
+  живут на frontmatter: status, counts, doi…). `frontmatter.set` — только
+  через существующий whitelisted `updateConfiguration`-путь с undo, НЕ
+  произвольный YAML (инвариант CLAUDE.md); в первом срезе не делаем.
 
 Роутер: main-фаза читает опубликованные словари LinkIndex (без stat'ов),
 deferred-фаза — всё дисковое. Если индекс не готов — честный ответ
@@ -130,6 +136,36 @@ workspace (контракт `linkIndexRoots`); path вне активного wo
 **Тесты.** По каждой команде: happy path, файл вне workspace, индекс не
 готов; two-phase инвариант роутера (нет disk I/O в main-фазе) — по образцу
 существующих control-тестов.
+
+## Этап 4 — offline-движок: wikillm без запущенного EditMD
+
+Вопрос пользователя: «если editmd не запущен — сможет ли скилл запустить
+editmd в фоновом режиме без gui и делать всё что надо по wikillm?»
+
+**Решение: НЕ headless-запуск GUI-приложения, а offline-режим `editmdctl`.**
+Запуск SwiftUI-app без окон (activation policy `.accessory`, подавление
+WindowGroup restoration) хрупок и тянет весь GUI-стек ради чистых функций.
+Ядро индекса уже pure/nonisolated: `scanWorkspaceOutgoing`,
+`resolveScannedLinks`, `resolveEnvironmentFingerprint`, `vaultLintFindings`,
+`markdownOutline`, `WikiLinkResolver.matches`, `LinkIndexPersistence` — их
+файлы компилируются в target `editmdctl` (он уже отдельный бинарь), и CLI
+исполняет те же команды без сокета:
+
+- `editmdctl index rebuild <root>` — полный скан + запись
+  `.editmd/link-index.json` (тот же формат, тот же fingerprint — app при
+  следующем запуске просто валидирует).
+- `links.*`, `lint.*`, `outline`, `search`, `tags.*` — offline-вариант
+  считает по индексному файлу (+ stat-валидация), НЕ обходя вольт заново,
+  и падает на rebuild при устаревании.
+
+Правило маршрутизации в skill: app запущен → socket (живые буферы,
+несохранённые правки видны); не запущен → offline-режим (истина = диск).
+Конфликт исключён: offline-запись `.editmd/` при работающем app запрещена
+skill-правилом (socket-команды и так есть), а app пишет индекс атомарно.
+
+Предусловие: файлы ядра не должны тянуть AppKit — проверить импорты,
+при необходимости вынести чистые функции из `WikiLinkResolver.swift`
+(его навигационная часть — AppKit) в отдельный файл.
 
 ## Этап 3 — skill и документация для агента
 
