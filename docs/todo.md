@@ -31,7 +31,7 @@
 Зона: Git-сайдбар.
 
 - [x] Кнопку commit приходится нажимать два раза. — Сделано 2026-07-20: причина — `.onTapGesture { onOpen }` на всей строке (`GitSidebar.changedRow`) крал первый клик поверх вложенной кнопки Commit. Row-open перенесён на full-row Button ЗА контентом (`.background`), так что вложенные Diff/Commit выигрывают клик. **Гипотеза по коду; проверить глазами:** клик Commit на неактивной изменённой строке → sheet открывается с ПЕРВОГО клика (и обычный клик по строке всё ещё открывает файл).
-- [x] Кнопку push сделать серой, done — синей, и поменять их местами. — Сделано 2026-07-20: в `GitCommitSheet.successBody` (после коммита) Push теперь вторичная (серая, слева), Done — primary (`.defaultAction`, синяя, справа).
+- [x] Кнопку push сделать серой, done — синей, и поменять их местами. — Сделано 2026-07-20: в `GitCommitSheet.successBody` (после коммита) Push теперь вторичная (серая, слева), Done — primary (`.defaultAction`, синяя, справа). Ревью-фикс: Done как default забрал Return, поэтому Escape привязан к скрытой Cancel-кнопке в `.background` (тот же механизм, что в `commitBody`). Nit (глазами): если Push визуально слишком похож на Done — добавить `.buttonStyle(.bordered)` Push vs `.borderedProminent` Done. **Smoke D1 (hit-test — обязательно глазами):** (1) Commit на неактивной строке → sheet с 1-го клика; (2) клик по имени файла (не по кнопке) → open; (3) Diff с 1-го клика; (4) context menu без регрессий. Если (2) сломан — fallback: outer-Button на всю строку или onTapGesture только на label-зону.
 
 ## Группа E — Инфраструктура и диагностика
 

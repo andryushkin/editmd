@@ -451,6 +451,16 @@ struct GitCommitSheet: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(isBusy)
             }
+            // Done is now the default (Return) button, so Escape lost its target.
+            // Keep Esc closing via a zero-impact hidden Cancel (same mechanism as
+            // the commit screen's Cancel button).
+            .background(
+                Button("Cancel") { onClose() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(isBusy)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            )
         }
     }
 
