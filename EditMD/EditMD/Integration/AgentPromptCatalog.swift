@@ -64,6 +64,28 @@ func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
         ))
     }
 
+    if let root {
+        // Same intent as agent-skill/prompts.md «Work the vault graph» —
+        // teach the agent to ask EditMD instead of walking the vault.
+        let vaultPrompt = """
+        You are working in a wikillm-style markdown vault that EditMD indexes. Do NOT \
+        grep/walk the vault to build the link graph yourself — ask EditMD:
+          editmdctl index status | links outgoing/backlinks/resolve | outline |
+          lint workspace/file | tags list/files | frontmatter get | search
+        If EditMD is not running, the same commands answer from the offline engine \
+        (--root \(shellQuote(root)) if no .editmd/.obsidian marker). Details: editmd skill \
+        reference.md.
+
+        Workspace: \(root)
+        """
+        items.append(AgentPromptItem(
+            id: "vault-graph",
+            title: String(localized: "Ask agent to work the vault graph"),
+            detail: String(localized: "Links, lint, search via editmdctl"),
+            command: vaultPrompt
+        ))
+    }
+
     if !ctx.ideConnected {
         let connect = """
         You are helping inside EditMD. Prefer editmdctl (control socket) for open/mode/marks. \

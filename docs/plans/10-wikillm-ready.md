@@ -1,6 +1,6 @@
 # План 10 — «wikillm ready»: инструменты wikillm-агента + персистентный индекс workspace
 
-Статус: в работе (решения ревью 2026-07-19 внесены)
+Статус: сделано (2026-07-19; этапы 1, 2, 4, 3 — см. отметки ниже)
 Зависимости: план 02 (link index), план 06 (vault-lint), план 07 (workspace
 search), план 09 (AI ready), CPU-сага LinkIndex (см. `docs/HISTORY.md`)
 Разблокирует: работу LLM-агентов с wikillm-вольтами (WoL и др.) через EditMD
@@ -200,7 +200,21 @@ skill-правилом (socket-команды и так есть), а app пиш
 при необходимости вынести чистые функции из `WikiLinkResolver.swift`
 (его навигационная часть — AppKit) в отдельный файл.
 
-## Этап 3 — skill и документация для агента
+## Этап 3 — skill и документация для агента — **СДЕЛАНО**
+
+Skill-пакет (`Resources/agent-skill/`): SKILL.md — раздел «Vault graph
+(wikillm)» с правилом «ask EditMD, don't walk the vault», списком команд и
+правилами маршрутизации (socket → живые буферы; offline → правда диска;
+`index rebuild` offline-only); frontmatter-триггеры расширены (backlinks,
+dead links, wikillm, .editmd/link-index.json…). reference.md — таблица
+команд + формат персист-файла (относительные пути; `mtimeBits`/
+`resolveFingerprint` — opaque, самому не считать). examples.md — рецепты
+(починка dead links, offline-вольт, обзор страницы перед правкой).
+prompts.md + `AgentPromptCatalog` — новый intent «Work the vault graph»
+(✨-пункт `vault-graph`, ru-переводы в каталоге). Переустановка skill —
+Help ▸ Install Agent Skill… (инсталлер сам видит дифф).
+
+### Исходный план этапа
 
 - Skill `editmd` дополняется разделом «wikillm tools»: когда использовать
   index.status/links.*/lint.* вместо самостоятельного grep/walk вольта;

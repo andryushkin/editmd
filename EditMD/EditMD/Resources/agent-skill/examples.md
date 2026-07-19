@@ -1,5 +1,35 @@
 # editmd recipes
 
+## Vault graph: fix dead links in a wikillm vault
+
+```bash
+# Never grep the vault for links — ask EditMD:
+editmdctl index status
+editmdctl lint workspace --limit 50 --json      # dead/ambiguous/orphans
+editmdctl links backlinks ~/vault/note.md       # who cites this page
+editmdctl links resolve "Vitamin D" --from ~/vault/note.md
+# Findings carry `suggestion` (best rename guess) + line/offset for jumps:
+editmdctl open ~/vault/note.md --line 42
+```
+
+## Vault graph with EditMD closed (offline engine)
+
+```bash
+editmdctl index rebuild ~/vault                 # fresh vault: initialize the index
+editmdctl --root ~/vault lint workspace --json  # answers from disk truth
+editmdctl --root ~/vault search "mTOR" --limit 10
+# Bulk graph work: read .editmd/link-index.json directly (see reference.md)
+```
+
+## Survey a page before editing it
+
+```bash
+editmdctl outline ~/vault/note.md          # structure
+editmdctl frontmatter get ~/vault/note.md  # status/tags/doi live here
+editmdctl links outgoing ~/vault/note.md   # what it cites, what is dead
+editmdctl links backlinks ~/vault/note.md  # what depends on it
+```
+
 ## Process the review queue
 
 ```bash

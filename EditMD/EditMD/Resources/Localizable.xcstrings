@@ -750,6 +750,16 @@
         }
       }
     },
+    "Ask agent to work the vault graph": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попросить агента работать с графом вольта"
+          }
+        }
+      }
+    },
     "Auto-reload clean buffer when disk changes": {
       "extractionState": "stale",
       "localizations": {
@@ -3140,6 +3150,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Светлое"
+          }
+        }
+      }
+    },
+    "Links, lint, search via editmdctl": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылки, линт и поиск через editmdctl"
           }
         }
       }

@@ -99,6 +99,7 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 - Физическая смена path сначала получает FIFO permit `ReviewModel`, затем без suspension ставит `AppState` gates и резервирует в `DocumentRegistry` сначала все destinations, потом все sources; завершение обязано передать точные relocate/drop outcomes всем трём координаторам.
 - `openDiff` — blocking tool: continuation завершается ровно один раз для Accept/Reject/close/disconnect/timeout.
 - IDE/control services не запускаются под XCTest. Control router двухфазный: main state + deferred disk work; socket clients конкурентные и не блокируют main.
+- Ядро линк-графа (`LinkGraphEngine`, `WikiLinkCore`, persistence, vault-lint, search) компилируется и в target `editmdctl` (offline-движок, план 10): файлы из его списка в `project.yml` обязаны оставаться без AppKit и app-моделей. Wire-шейпы vault-graph-ответов — только через общий `ControlGraphPayload.swift`; IDE MCP `tools/list` не расширяется (CLI обрывает handshake на незнакомых инструментах).
 
 ## Рабочие правила
 

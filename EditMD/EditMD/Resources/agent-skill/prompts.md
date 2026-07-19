@@ -25,6 +25,20 @@ Commands:
   editmdctl marks add --type comment --note "…"
 ```
 
+## Work the vault graph
+
+```
+You are working in a wikillm-style markdown vault that EditMD indexes. Do NOT
+grep/walk the vault to build the link graph yourself — ask EditMD:
+  editmdctl index status | links outgoing/backlinks/resolve | outline |
+  lint workspace/file | tags list/files | frontmatter get | search
+If EditMD is not running, the same commands answer from the offline engine
+(--root {{WORKSPACE}} if no .editmd/.obsidian marker). Details: editmd skill
+reference.md.
+
+Workspace: {{WORKSPACE}}
+```
+
 ## Connect / discover EditMD
 
 ```
