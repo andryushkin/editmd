@@ -260,6 +260,49 @@ final class LinkIndexTests: XCTestCase {
                        "same-key ensureIndex must reuse the in-flight scan")
     }
 
+    @MainActor
+    func testResolveCacheSkipsUnchangedFilesOnRescan() async throws {
+        let root = try tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var files: [URL] = []
+        for i in 0..<6 {
+            files.append(try write("n\(i).md", "[[n\((i + 1) % 6)]]\n", in: root))
+        }
+        let workspace = WorkspaceModel(
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        workspace.addWorkspace(root)
+        let index = LinkIndex()
+        index.ensureIndex(workspace: workspace)
+        var deadline = Date().addingTimeInterval(5)
+        while !index.hasCompletedFullScan, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.freshResolveCount, 6)
+
+        // Rewrite ONE file (content + future mtime) and force a rebuild:
+        // the unchanged five must come from the resolve cache.
+        try Data("[[n3]]\n".utf8).write(to: files[0])
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)],
+            ofItemAtPath: files[0].path)
+        index.invalidate(workspace: workspace)
+        deadline = Date().addingTimeInterval(5)
+        while !(index.hasCompletedFullScan && index.fullScanCount == 2),
+              Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(index.fullScanCount, 2)
+        XCTAssertEqual(index.freshResolveCount, 7,
+                       "only the touched file may resolve fresh")
+        // Cached resolution stays correct and the touched file re-resolved.
+        let n3 = files[3].standardizedFileURL
+        XCTAssertEqual(
+            index.outgoing[files[0].standardizedFileURL]?.first?.resolved, n3)
+        XCTAssertEqual(
+            index.outgoing[files[1].standardizedFileURL]?.first?.resolved,
+            files[2].standardizedFileURL)
+    }
+
     func testScanReportsMonotonicProgress() throws {
         let root = try tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

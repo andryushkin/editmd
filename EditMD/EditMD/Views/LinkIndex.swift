@@ -33,6 +33,8 @@ final class LinkIndex: ObservableObject {
     /// Test hooks — how many full / single-file scans ran (including resolution).
     private(set) var fullScanCount = 0
     private(set) var fileScanCount = 0
+    /// Files resolved fresh (not served from the per-file resolve cache).
+    private(set) var freshResolveCount = 0
 
     private var indexKey = ""
     private var scanInFlight = false
@@ -225,6 +227,32 @@ final class LinkIndex: ObservableObject {
         let size: Int64
         let links: [OutgoingLink]
         let headings: [String]
+        /// Resolve cache: links with `resolved`/`candidates` filled, valid
+        /// only while `resolveFingerprint` matches the vault's current
+        /// file-set fingerprint. Resolution depends on which files exist,
+        /// not on their contents — so an unchanged file in an unchanged
+        /// file set skips the (expensive) resolve pass entirely.
+        var resolvedLinks: [OutgoingLink]? = nil
+        var resolveFingerprint: Int? = nil
+    }
+
+    /// Order-independent fingerprint of the resolve environment: workspace
+    /// roots + the wiki index (every indexable file's basename → paths).
+    /// Any file added/removed/renamed changes it; content edits do not.
+    /// Process-local (Hasher seed) — the cache never persists to disk.
+    nonisolated static func resolveEnvironmentFingerprint(
+        roots: [URL], wikiIndex: [String: [URL]]
+    ) -> Int {
+        var rootsHasher = Hasher()
+        for root in roots { rootsHasher.combine(root.path) }
+        var result = rootsHasher.finalize()
+        for (key, urls) in wikiIndex {
+            var entryHasher = Hasher()
+            entryHasher.combine(key)
+            for url in urls { entryHasher.combine(url.path) }
+            result ^= entryHasher.finalize()
+        }
+        return result
     }
 
     /// Scan all markdown files under `roots` (no resolution). Off-main only.
@@ -369,6 +397,10 @@ final class LinkIndex: ObservableObject {
                 cancelled = Task.isCancelled
             }
             var resolvedMap: [URL: [OutgoingLink]] = [:]
+            var updatedCache = scanned.newCache
+            var freshResolves = 0
+            let fingerprint = LinkIndex.resolveEnvironmentFingerprint(
+                roots: capturedRoots, wikiIndex: wikiIndex)
             let resolveTotal = scanned.outgoing.count
             let resolveStep = max(1, resolveTotal / 100)
             var resolveDone = 0
@@ -378,16 +410,33 @@ final class LinkIndex: ObservableObject {
                 // scanInFlight stuck true and freeze the index for the
                 // rest of the session.
                 if Task.isCancelled { cancelled = true; break }
-                resolvedMap[source] = LinkIndex.resolveScannedLinks(
-                    links, source: source, roots: capturedRoots,
-                    vaultFallback: nil, wikiIndex: wikiIndex
-                )
+                if let hit = updatedCache[source],
+                   hit.resolveFingerprint == fingerprint,
+                   let cached = hit.resolvedLinks {
+                    // Unchanged file in an unchanged file set — the previous
+                    // resolution is still exact.
+                    resolvedMap[source] = cached
+                } else {
+                    let resolved = LinkIndex.resolveScannedLinks(
+                        links, source: source, roots: capturedRoots,
+                        vaultFallback: nil, wikiIndex: wikiIndex
+                    )
+                    resolvedMap[source] = resolved
+                    freshResolves += 1
+                    if var entry = updatedCache[source] {
+                        entry.resolvedLinks = resolved
+                        entry.resolveFingerprint = fingerprint
+                        updatedCache[source] = entry
+                    }
+                }
                 resolveDone += 1
                 if resolveDone % resolveStep == 0, resolveTotal > 0 {
                     publishProgress(0.5 + 0.5 * Double(resolveDone) / Double(resolveTotal))
                 }
                 if Task.isCancelled { cancelled = true; break }
             }
+            let resolvedCache = updatedCache
+            let freshResolveTotal = freshResolves
 
             let projected = cancelled ? [:] : LinkIndex.projectBacklinks(from: resolvedMap)
             guard let self else { return }
@@ -399,7 +448,8 @@ final class LinkIndex: ObservableObject {
                 // A cancelled walk can hold only a partial cache; never replace
                 // the last complete cache with it.
                 if !cancelled {
-                    self.scanCache = scanned.newCache
+                    self.scanCache = resolvedCache
+                    self.freshResolveCount += freshResolveTotal
                 }
                 // Accept result unless cancelled or a newer ensureIndex queued
                 // a rescan (it re-reads live workspace state below).
