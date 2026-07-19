@@ -181,29 +181,27 @@ struct GitSidebar: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
+            // Tap gestures (not Buttons) so the first click after entering the
+            // Git tab lands — see the row Diff/Commit note (acceptsFirstMouse).
             HStack(spacing: 8) {
-                Button {
-                    refresh(immediate: true)
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                        .font(.system(size: 11))
-                        .labelStyle(.iconOnly)
-                        .frame(width: 22, height: 22)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .editMDHelp("Refresh git status")
-                .disabled(isRefreshing)
+                Label("Refresh", systemImage: "arrow.clockwise")
+                    .font(.system(size: 11))
+                    .labelStyle(.iconOnly)
+                    .frame(width: 22, height: 22)
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !isRefreshing { refresh(immediate: true) } }
+                    .editMDHelp("Refresh git status")
+                    .opacity(isRefreshing ? 0.5 : 1)
 
                 Spacer(minLength: 0)
 
-                Button("Push") {
-                    pushRepo(section.root)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: (section.ahead ?? 0) > 0 ? .semibold : .regular))
-                .foregroundStyle((section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary)
-                .editMDHelp("Push to remote…")
+                Text("Push")
+                    .font(.system(size: 11, weight: (section.ahead ?? 0) > 0 ? .semibold : .regular))
+                    .foregroundStyle((section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary)
+                    .contentShape(Rectangle())
+                    .onTapGesture { pushRepo(section.root) }
+                    .editMDHelp("Push to remote…")
             }
         }
         .padding(.horizontal, 10)
@@ -269,28 +267,30 @@ struct GitSidebar: View {
             .contentShape(Rectangle())
             .onTapGesture { onOpen(file.url) }
 
-            // Diff always available for porcelain / open-dirty rows.
-            Button {
-                presentDiff(file.url)
-            } label: {
-                Image(systemName: "plus.forwardslash.minus")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .editMDHelp("Show diff…")
-            .opacity(hovering || active ? 1 : 0.7)
+            // Diff / Commit use `.onTapGesture`, not `Button`, on purpose. An
+            // NSButton-backed SwiftUI Button ignores the first click after its
+            // view gains focus (acceptsFirstMouse == false), so the first Commit
+            // after (re)entering the Git tab needed two clicks. A tap gesture
+            // fires on the first mouse-down regardless — the same reason the
+            // row-open above already worked on the first click.
+            Image(systemName: "plus.forwardslash.minus")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+                .onTapGesture { presentDiff(file.url) }
+                .editMDHelp("Show diff…")
+                .opacity(hovering || active ? 1 : 0.7)
 
             if allowsCommit, file.canCommit {
-                Button("Commit") {
-                    presentCommit(file.url)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .opacity(hovering || active ? 1 : 0.85)
+                Text("Commit")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture { presentCommit(file.url) }
+                    .opacity(hovering || active ? 1 : 0.85)
             }
         }
         .padding(.horizontal, 8)
