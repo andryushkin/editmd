@@ -8,9 +8,21 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
     return BuiltInPluginRegistry.configurationDiagnostics(in: markdown)
 }
 
+/// Width the flexible editor column keeps before the side panels start to
+/// shrink. Chosen so a usable reading measure survives with BOTH panels open
+/// (at their 150pt floor each, the clamp only engages below ~562pt window
+/// width). This governs the editor vs. the side panels; it is unrelated to the
+/// Source/Preview split's own 160pt pane floor, which divides space *inside*
+/// the editor area.
+let editorColumnMinWidth: CGFloat = 260
+
 struct ResolvedPaneWidths: Equatable {
     var sidebar: CGFloat
     var inspector: CGFloat
+    /// Display / preferred ratio: 1 when the panels fit, <1 while compressed.
+    /// Divider drags invert through it so a resize writes a *preferred* width
+    /// (see `preferredPaneWidthFromDrag`).
+    var scale: CGFloat
 }
 
 /// Clamp the fixed side-panel widths to the available width so the flexible
@@ -27,26 +39,45 @@ func resolveSidePaneWidths(
     inspectorWidth: CGFloat,
     sidebarVisible: Bool,
     inspectorVisible: Bool,
-    editorMin: CGFloat = 260,
+    editorMin: CGFloat = editorColumnMinWidth,
     dividerWidth: CGFloat = 1
 ) -> ResolvedPaneWidths {
     let sidebar = sidebarVisible ? max(0, sidebarWidth) : 0
     let inspector = inspectorVisible ? max(0, inspectorWidth) : 0
     let requested = sidebar + inspector
     guard requested > 0 else {
-        return ResolvedPaneWidths(sidebar: 0, inspector: 0)
+        return ResolvedPaneWidths(sidebar: 0, inspector: 0, scale: 1)
     }
     let dividers = (sidebarVisible ? dividerWidth : 0)
         + (inspectorVisible ? dividerWidth : 0)
     // How much width the panels may occupy while leaving the editor its floor.
     let budget = max(0, available - dividers - editorMin)
     guard requested > budget else {
-        return ResolvedPaneWidths(sidebar: sidebar, inspector: inspector)
+        return ResolvedPaneWidths(sidebar: sidebar, inspector: inspector, scale: 1)
     }
     // Overflow: scale both panels down proportionally into the budget so their
     // sum never exceeds what the editor can spare — no pane overlaps another.
     let scale = budget / requested
-    return ResolvedPaneWidths(sidebar: sidebar * scale, inspector: inspector * scale)
+    return ResolvedPaneWidths(
+        sidebar: sidebar * scale, inspector: inspector * scale, scale: scale)
+}
+
+/// Map a divider drag back to a *preferred* (stored) panel width. The grab
+/// strip sits at the panel's DISPLAY edge, which in a clamped window is the
+/// shrunken width (`preferred * scale`). Writing the raw display width into
+/// storage would overwrite the preferred width with the compressed one — a
+/// no-op drag would collapse a stored 220 down to ~119 and break "restore on
+/// widen". Dividing by `scale` inverts the clamp, so a drag that does not move
+/// leaves the stored width unchanged, and a real drag scales into preferred
+/// space before the range clamp.
+func preferredPaneWidthFromDrag(
+    displayWidth: CGFloat,
+    scale: CGFloat,
+    range: ClosedRange<Double>
+) -> Double {
+    let s = scale > 0 ? Double(scale) : 1
+    let preferred = Double(displayWidth) / s
+    return min(range.upperBound, max(range.lowerBound, preferred))
 }
 
 struct ContentView: View {
@@ -185,8 +216,11 @@ struct ContentView: View {
                         )
                         .frame(width: panes.sidebar)
                         paneDivider(space: .named("mainPanes")) { x in
-                            sidebarWidth = min(Self.sidebarWidthRange.upperBound,
-                                               max(Self.sidebarWidthRange.lowerBound, Double(x)))
+                            // Sidebar starts at x=0, so its display edge x IS its
+                            // display width. Invert the clamp to keep preferred.
+                            sidebarWidth = preferredPaneWidthFromDrag(
+                                displayWidth: x, scale: panes.scale,
+                                range: Self.sidebarWidthRange)
                         }
                         // draw/hit above the editor column: without this the
                         // editor (drawn last) shadows the right half of the
@@ -198,9 +232,11 @@ struct ContentView: View {
                     if inspectorVisible {
                         // Grab strip LEFT of the right panel (mirror of left sidebar).
                         paneDivider(space: .named("mainPanes")) { x in
-                            let w = Double(geo.size.width) - Double(x)
-                            inspectorWidth = min(Self.inspectorWidthRange.upperBound,
-                                                 max(Self.inspectorWidthRange.lowerBound, w))
+                            // Inspector is last: its display width is the span from
+                            // the divider to the right edge. Invert the clamp too.
+                            inspectorWidth = preferredPaneWidthFromDrag(
+                                displayWidth: geo.size.width - x, scale: panes.scale,
+                                range: Self.inspectorWidthRange)
                         }
                         .zIndex(1)
                         InspectorSidebar(
