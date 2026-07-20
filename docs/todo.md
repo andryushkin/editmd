@@ -1,24 +1,4 @@
 # TODO
 
-Задачи сгруппированы по зоне кода, чтобы выполнять группами за один заход.
 
-> Граф знаний кодовой базы: `graphify-out/` (4174 узла, 159 сообществ; `graph.html` — интерактив). Для структурных вопросов «что с чем связано» — `graphify query "…"` вместо ручного обхода. NB: рантайм-семантику SwiftUI (view-identity `.id`, teardown) граф не показывает — только типы/функции/вызовы.
 
-> Закрытые задачи (группы A/B/C/D, 2026-07-20) сняты отсюда — детали в git-коммитах; разбор оптимизации поиска — в `docs/HISTORY.md`.
-
-## Группа E — Инфраструктура и диагностика
-
-- [x] Встроить логирование всплесков CPU при печати. `TypingProfiler.swift`:
-  per-keystroke os_signpost-интервалы (Source и Visual, фаза на под-шаг) +
-  `.warning`, который срабатывает только когда цикл превышает бюджет (16 мс,
-  override `defaults write com.editmd.app EditMDTypingBudgetMs N`). Читать:
-  `log show --predicate 'subsystem == "com.editmd.app" && category == "typing"' --last 5m`
-  или трек `typing` в Instruments. Дальше — фикс горячей фазы, которую он назовёт
-  (кандидаты: Source `highlight`, Visual `serialize`).
-- [ ] (наблюдение, НЕ баг-фикс) «Preview не перерендерился после удаления строки» — не воспроизведено; при повторении вернуть NSLog-цепочку `syncToDocument → updateNSView → render`.
-
-## Группа F — Темы (отложено)
-
-Пользователь (2026-07-18): «старую удали, потом сделаем пресеты для source и visual». Старая система выбора удалена (спринт 3, app 0.45.0). Полная унификация через ThemeSpec отложена.
-
-- [ ] Полноценные пресеты для Source и Visual поверх baseline (возможно ThemeSpec + проекции). Единый пикер, `ElementStyles`/`fontFamily` fallback’и в тему, «Reset to theme».
