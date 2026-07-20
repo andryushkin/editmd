@@ -61,21 +61,73 @@ struct FolderInfoHost: View {
     let folderURL: URL
 
     @ObservedObject private var workspace = WorkspaceModel.shared
+    // Shared with the editor's right inspector — the toggle lives in `MainChrome`
+    // (enabled on the folder branch too); this host renders the folder pane.
+    @AppStorage("inspectorVisible") private var inspectorVisible = false
+    @AppStorage("inspectorWidth") private var inspectorWidth = 220.0
+
+    private static let inspectorWidthRange = 150.0...400.0
 
     private var windowTitle: String {
         workspace.workspaceRoot(at: folderURL)?.name ?? folderURL.lastPathComponent
     }
 
     // The workspace sidebar + its toggle are provided by `MainChrome`; this
-    // host renders only the folder card. No document / editor — File▸Save and
-    // Format stay disabled via nil focus.
+    // host renders the folder card plus an optional right inspector pane. No
+    // document / editor — File▸Save and Format stay disabled via nil focus.
     var body: some View {
-        FolderInfoCard(folderURL: folderURL)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(WindowAccessor { window in
-                window.representedURL = folderURL
-                window.title = windowTitle
-            })
+        GeometryReader { geo in
+            // Same single-side clamp as the editor: the card keeps its floor as
+            // the window narrows, the inspector absorbs the deficit.
+            let panes = resolveSidePaneWidths(
+                available: geo.size.width,
+                sidebarWidth: 0,
+                inspectorWidth: inspectorWidth,
+                sidebarVisible: false,
+                inspectorVisible: inspectorVisible)
+            HStack(spacing: 0) {
+                FolderInfoCard(folderURL: folderURL)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if inspectorVisible {
+                    paneDivider(space: .named("folderPanes")) { x in
+                        inspectorWidth = preferredPaneWidthFromDrag(
+                            displayWidth: geo.size.width - x, scale: panes.scale,
+                            range: Self.inspectorWidthRange)
+                    }
+                    .zIndex(1)
+                    FolderInspectorPanel(folderURL: folderURL)
+                        .frame(width: panes.inspector)
+                }
+            }
+            .coordinateSpace(name: "folderPanes")
+            .animation(.easeInOut(duration: 0.15), value: inspectorVisible)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WindowAccessor { window in
+            window.representedURL = folderURL
+            window.title = windowTitle
+        })
+    }
+
+    /// agterm-style divider: 1px separator + a wider invisible grab strip.
+    private func paneDivider(space: CoordinateSpace,
+                             onDrag: @escaping (CGFloat) -> Void) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: 12)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: space)
+                            .onChanged { onDrag($0.location.x) }
+                    )
+            }
     }
 }
 

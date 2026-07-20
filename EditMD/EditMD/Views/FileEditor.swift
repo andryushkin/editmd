@@ -121,13 +121,23 @@ struct MainWindowView: View {
         return !isPDFFile(url) && !isImageFile(url) && !AppState.isFolder(url)
     }
 
+    /// True when the center pane is a folder card — it now hosts its own right
+    /// inspector (whole-subtree analytics), so the toggle must be enabled.
+    private var isFolderBranch: Bool {
+        guard let url = appState.currentURL else { return false }
+        return AppState.isFolder(url)
+    }
+
+    /// The inspector toggle has a pane to show on the editor and folder branches.
+    private var inspectorAvailable: Bool { isEditorBranch || isFolderBranch }
+
     var body: some View {
         // The workspace sidebar lives in `MainChrome`, a stable parent that is
         // NOT `.id`-swapped per file. Only the CENTER (welcome / pdf / folder /
         // editor) is `.id`-recreated on navigation, so the sidebar survives file
         // switches — its scroll offset, selection and filter persist (A1).
         MainChrome(activeURL: appState.currentURL,
-                   inspectorAvailable: isEditorBranch) {
+                   inspectorAvailable: inspectorAvailable) {
             VStack(spacing: 0) {
                 Group {
                     if appState.isWelcome {

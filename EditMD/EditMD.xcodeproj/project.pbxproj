@@ -106,6 +106,7 @@
 		67619EC701156B09166789B6 /* AIProposalChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */; };
 		69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699B6916CC8820D33D30549E /* FormattingHelpers.swift */; };
 		69D19F4C81153AC64E116CE2 /* FileMoveActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C803DB18A964AA7724C35CE /* FileMoveActions.swift */; };
+		6A22FC2ADABFE403BE2694DA /* FolderInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2913D1F07EB34BED34C0EF6 /* FolderInspector.swift */; };
 		6CB081FD0A08458A1D9DBED7 /* EditorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04300EC4050C4FAC5095E833 /* EditorSettings.swift */; };
 		6E924C83797D274F0524C204 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */; };
 		7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7515C3219FEEA448EFDED1F9 /* AppState.swift */; };
@@ -440,6 +441,7 @@
 		EFCED5DC382D884472BF2D8E /* BuiltInPlugins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPlugins.swift; sourceTree = "<group>"; };
 		F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLintReportView.swift; sourceTree = "<group>"; };
 		F218590314138A42580FA6D8 /* ReviewQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewQueue.swift; sourceTree = "<group>"; };
+		F2913D1F07EB34BED34C0EF6 /* FolderInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInspector.swift; sourceTree = "<group>"; };
 		F3D4A22DA77E17372D05528F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
 		F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeUI.swift; sourceTree = "<group>"; };
 		F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChangeTracker.swift; sourceTree = "<group>"; };
@@ -650,6 +652,7 @@
 				299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */,
 				F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */,
 				D43FDE14678AC0C05027F7AA /* FolderInfoActions.swift */,
+				F2913D1F07EB34BED34C0EF6 /* FolderInspector.swift */,
 				A4840BC0DD8B410D784453BC /* GitSidebar.swift */,
 				57F65113867F0DDDF47D9686 /* GitUI.swift */,
 				1C5DB3AA0FF6A5CA9539A290 /* InspectorSidebar.swift */,
@@ -1100,6 +1103,7 @@
 				9D4657767848E11CF7714FCD /* FocusedValues.swift in Sources */,
 				A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */,
 				F14D26430627E1043375BFF1 /* FolderInfoActions.swift in Sources */,
+				6A22FC2ADABFE403BE2694DA /* FolderInspector.swift in Sources */,
 				69034FDFA4F9C877EAFE1C56 /* FormattingHelpers.swift in Sources */,
 				A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */,
 				3BC7EACE8DFAB72C9F7CD374 /* FrontmatterEdit.swift in Sources */,
