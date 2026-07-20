@@ -10,6 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Always land on Files after a cold launch; keep @AppStorage so the
         // tab still sticks when the sidebar view is recreated mid-session (A4).
         UserDefaults.standard.set("files", forKey: "sidebarTab")
+        // Editor mode is sticky within a session but not across launches: a cold
+        // launch always starts in read-first Preview. Mode switches persist via
+        // @AppStorage during the session; here we reset that persisted value so
+        // the next launch doesn't reopen in whatever mode was left behind.
+        UserDefaults.standard.set(EditorMode.preview.rawValue, forKey: "editorMode")
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
         // Claude Code IDE channel: follows Settings ▸ General (default on).
