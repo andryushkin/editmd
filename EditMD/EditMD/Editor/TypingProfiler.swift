@@ -25,10 +25,25 @@ let typingSignposter = OSSignposter(subsystem: "com.editmd.app", category: "typi
 
 /// A keystroke costing more than this logs a breakdown. Defaults to one dropped
 /// 60 fps frame (16 ms); overridable via the `EditMDTypingBudgetMs` default.
-let typingBudget: Duration = {
-    let override = UserDefaults.standard.object(forKey: "EditMDTypingBudgetMs") as? Double
-    return .milliseconds(override ?? 16)
-}()
+/// Read once at first access — a live `defaults write` needs an app relaunch.
+let typingBudget: Duration = .milliseconds(
+    typingBudgetMs(from: UserDefaults.standard.object(forKey: "EditMDTypingBudgetMs")))
+
+/// Parses the `EditMDTypingBudgetMs` default into a millisecond budget, falling
+/// back to `fallback` for a missing, non-numeric or non-positive value. Accepts
+/// both an NSNumber (`defaults write … -int 8`) and a numeric string (the bare
+/// `defaults write … 8` form, which stores a string) — a plain `as? Double`
+/// bridges neither. Pure, so the parsing is directly testable.
+func typingBudgetMs(from raw: Any?, fallback: Double = 16) -> Double {
+    let parsed: Double?
+    switch raw {
+    case let number as NSNumber: parsed = number.doubleValue
+    case let string as String:   parsed = Double(string)
+    default:                     parsed = nil
+    }
+    guard let value = parsed, value > 0 else { return fallback }
+    return value
+}
 
 /// Measures one keystroke cycle: wrap each phase in `phase(_:_:)`, then call
 /// `finish()`. Value type — create a fresh one per edit.
@@ -56,10 +71,13 @@ struct KeystrokeProfiler {
     mutating func phase<T>(_ name: StaticString, _ body: () -> T) -> T {
         let state = typingSignposter.beginInterval(name, id: keystrokeID)
         let start = clock.now
-        let result = body()
-        phases.append((name, start.duration(to: clock.now)))
-        typingSignposter.endInterval(name, state)
-        return result
+        // defer so the interval always closes even if a future body throws or
+        // returns early — the timing entry and signpost stay balanced.
+        defer {
+            phases.append((name, start.duration(to: clock.now)))
+            typingSignposter.endInterval(name, state)
+        }
+        return body()
     }
 
     /// Closes the keystroke interval; warns (with a phase breakdown) when the

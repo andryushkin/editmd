@@ -35,4 +35,24 @@ final class TypingProfilerTests: XCTestCase {
         XCTAssertEqual(Duration.microseconds(500).milliseconds, 0.5, accuracy: 0.001)
         XCTAssertEqual(Duration.seconds(2).milliseconds, 2000, accuracy: 0.001)
     }
+
+    func testBudgetParsesNSNumber() {
+        // `defaults write … -int 8` / `-float 8.5` store an NSNumber.
+        XCTAssertEqual(typingBudgetMs(from: NSNumber(value: 8)), 8, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: NSNumber(value: 8.5)), 8.5, accuracy: 0.001)
+    }
+
+    func testBudgetParsesNumericString() {
+        // Bare `defaults write … 8` stores a string.
+        XCTAssertEqual(typingBudgetMs(from: "8"), 8, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: "12.5"), 12.5, accuracy: 0.001)
+    }
+
+    func testBudgetFallsBack() {
+        XCTAssertEqual(typingBudgetMs(from: nil), 16, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: "nope"), 16, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: NSNumber(value: 0)), 16, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: NSNumber(value: -5)), 16, accuracy: 0.001)
+        XCTAssertEqual(typingBudgetMs(from: "0"), 16, accuracy: 0.001)
+    }
 }

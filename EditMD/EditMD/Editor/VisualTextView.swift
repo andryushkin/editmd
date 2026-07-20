@@ -505,6 +505,9 @@ struct VisualMarkdownView: NSViewRepresentable {
             // keystroke usually shows up in the "serialize" phase (see
             // TypingProfiler).
             var profiler = KeystrokeProfiler(.visual)
+            // NB: runAutoformat can re-enter textDidChange; that nested cycle is
+            // timed under this outer "autoformat" phase, so a fat autoformat
+            // number may be the re-entrant edit, not formatting itself.
             profiler.phase("autoformat") { runAutoformat() }
             let reloaded = profiler.phase("serialize") { syncToDocument() }
             profiler.phase("presentation") { if !reloaded { applyPresentation() } }
