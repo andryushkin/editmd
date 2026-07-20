@@ -234,6 +234,9 @@ private struct MainChrome<Content: View>: View {
             ToolbarItem(placement: .navigation) {
                 Button { sidebarVisible.toggle() } label: {
                     Label("Toggle Sidebar", systemImage: "sidebar.left")
+                        // Accent tint while open — same active-state cue as the
+                        // editor strip's toggles (B/I, line numbers).
+                        .foregroundStyle(sidebarVisible ? Color.accentColor : Color.primary)
                 }
                 .help("Toggle Sidebar (⌃⌘S)")
             }

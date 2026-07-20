@@ -270,6 +270,9 @@ struct ContentView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { inspectorVisible.toggle() } label: {
                     Label("Toggle Inspector", systemImage: "sidebar.right")
+                        // Accent tint while open, matching the leading sidebar
+                        // toggle and the editor strip's active-state cue.
+                        .foregroundStyle(inspectorVisible ? Color.accentColor : Color.primary)
                 }
                 .help("Toggle Inspector (⌥⌘0)")
             }
