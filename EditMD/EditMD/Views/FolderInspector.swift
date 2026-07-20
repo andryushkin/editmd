@@ -40,10 +40,15 @@ struct FolderAggregates: Equatable, Sendable {
 /// `resourceValues` (cheap); words / tasks require reading markdown content, so
 /// that part is bounded by a byte budget to stay bounded on huge vaults.
 /// Synchronous — call off the main actor. Honors `Task.isCancelled`.
+/// `onProgress` reports the running count of displayable files seen so far,
+/// throttled to roughly every 128 files, so the UI can show a live "N files"
+/// counter on large trees instead of an opaque spinner. Called on the scanning
+/// thread — the closure must hop to the main actor itself.
 func scanFolderAggregates(at root: URL,
                           contentByteBudget: Int64 = 64 * 1024 * 1024,
                           maxFileBytes: Int64 = 4 * 1024 * 1024,
-                          fileManager: FileManager = .default) -> FolderAggregates {
+                          fileManager: FileManager = .default,
+                          onProgress: (@Sendable (Int) -> Void)? = nil) -> FolderAggregates {
     let markdownExt: Set<String> = ["md", "markdown", "textbundle"]
     let imageExt = supportedImageFileExtensions
     let keys: Set<URLResourceKey> = [
@@ -52,6 +57,7 @@ func scanFolderAggregates(at root: URL,
 
     var agg = FolderAggregates.empty
     var readBytes: Int64 = 0
+    var seen = 0
     // Collect every displayable file (size + mtime only); the top-5 largest /
     // recent are picked with a single sort after the walk.
     var files: [FolderFileRef] = []
@@ -84,6 +90,8 @@ func scanFolderAggregates(at root: URL,
             if isImage { agg.imageFiles += 1 }
             if isPDF { agg.pdfFiles += 1 }
             if isMarkdown { agg.markdownFiles += 1 }
+            seen += 1
+            if seen & 0x7F == 0 { onProgress?(seen) }
 
             // Content read: plain markdown only (not textbundle packages). Skip
             // when the total budget is spent OR this one file is oversized —
@@ -195,6 +203,8 @@ struct FolderInspectorPanel: View {
 
     @State private var agg: FolderAggregates = .empty
     @State private var aggLoading = true
+    /// Live count of files the running scan has seen — drives the loading state.
+    @State private var scanProgress = 0
     @State private var graph: FolderGraphStats = .empty
     @State private var scanTask: Task<Void, Never>?
     @State private var graphTask: Task<Void, Never>?
@@ -202,18 +212,22 @@ struct FolderInspectorPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             title
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    overviewSection
-                    tasksSection
-                    graphSection
+            if aggLoading {
+                loadingState
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        overviewSection
+                        tasksSection
+                        graphSection
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, SidebarChrome.firstContentTop)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, SidebarChrome.firstContentTop)
-                .padding(.bottom, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -252,13 +266,33 @@ struct FolderInspectorPanel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            if aggLoading {
-                ProgressView().controlSize(.mini)
-            }
         }
         .padding(.horizontal, 12)
         .padding(.top, SidebarChrome.barPaddingTop)
         .padding(.bottom, SidebarChrome.barPaddingBottom)
+    }
+
+    /// Shown while the first content walk runs. On a big tree the walk is not
+    /// instant, so surface a live file counter instead of a bare spinner —
+    /// makes it obvious work is happening and roughly how much.
+    private var loadingState: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Analyzing folder…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(scanProgress > 0
+                 ? String(localized: "\(scanProgress) files scanned")
+                 : String(localized: "Reading the tree…"))
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(.easeOut(duration: 0.2), value: scanProgress)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -390,6 +424,7 @@ struct FolderInspectorPanel: View {
         // Miss: drop any stale numbers so the previous folder's OVERVIEW/TASKS
         // don't sit under the spinner, then walk off-main.
         agg = .empty
+        scanProgress = 0
         aggLoading = true
 
         scanTask?.cancel()
@@ -399,7 +434,14 @@ struct FolderInspectorPanel: View {
         // actually fires. (A plain `Task {}` here would run the scan on the main
         // actor; a nested detached task would not inherit the cancel.)
         scanTask = Task.detached(priority: .utility) {
-            let scanned = scanFolderAggregates(at: root)
+            let scanned = scanFolderAggregates(at: root) { count in
+                Task { @MainActor in
+                    // Ignore progress from a scan the view has moved past.
+                    guard path == folderURL.standardizedFileURL.path,
+                          epoch == workspace.contentEpoch, aggLoading else { return }
+                    scanProgress = count
+                }
+            }
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard path == folderURL.standardizedFileURL.path,

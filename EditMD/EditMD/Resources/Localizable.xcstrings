@@ -7531,6 +7531,36 @@
           }
         }
       }
+    },
+    "Analyzing folder…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анализ папки…"
+          }
+        }
+      }
+    },
+    "%lld files scanned": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просканировано файлов: %1$lld"
+          }
+        }
+      }
+    },
+    "Reading the tree…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение дерева…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
