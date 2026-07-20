@@ -259,22 +259,15 @@ struct ContentView: View {
         // LiteWindowContent) so non-editor panes follow it too. The sidebar
         // toggle is provided once by `MainChrome`, not here.
         .toolbar {
-            EditorToolbar(
-                editorSettings: editorSettings,
-                appearanceIsDark: appearanceIsDark
-            )
-            // Right inspector toggle, mirroring MainChrome's leading sidebar
-            // button. Trailing edge, Xcode-style; also driven by View ▸ Show/
-            // Hide Inspector (⌥⌘0). Present in lite windows too (they keep the
-            // inspector even without the workspace sidebar).
-            ToolbarItem(placement: .primaryAction) {
-                Button { inspectorVisible.toggle() } label: {
-                    Label("Toggle Inspector", systemImage: "sidebar.right")
-                        // Accent tint while open, matching the leading sidebar
-                        // toggle and the editor strip's active-state cue.
-                        .foregroundStyle(inspectorVisible ? Color.accentColor : Color.primary)
-                }
-                .help("Toggle Inspector (⌥⌘0)")
+            // Main window: MainChrome owns the shared trailing buttons so they
+            // exist on every branch (folder/welcome too). Lite windows have no
+            // MainChrome, so ContentView supplies them here.
+            if !isMain {
+                EditorToolbar(
+                    editorSettings: editorSettings,
+                    appearanceIsDark: appearanceIsDark,
+                    inspectorVisible: $inspectorVisible
+                )
             }
         }
         .agentActivityToast()

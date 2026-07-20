@@ -126,7 +126,8 @@ struct MainWindowView: View {
         // NOT `.id`-swapped per file. Only the CENTER (welcome / pdf / folder /
         // editor) is `.id`-recreated on navigation, so the sidebar survives file
         // switches — its scroll offset, selection and filter persist (A1).
-        MainChrome(activeURL: appState.currentURL) {
+        MainChrome(activeURL: appState.currentURL,
+                   inspectorAvailable: isEditorBranch) {
             VStack(spacing: 0) {
                 Group {
                     if appState.isWelcome {
@@ -183,15 +184,34 @@ struct MainWindowView: View {
 private struct MainChrome<Content: View>: View {
     /// The file/folder currently on screen — highlights the active row.
     let activeURL: URL?
+    /// True when the center pane is the markdown editor, i.e. the inspector
+    /// toggle has a pane to show. Keeps the trailing button set constant while
+    /// disabling the inspector on folder/welcome/viewer panes.
+    let inspectorAvailable: Bool
     @ViewBuilder var content: Content
 
     @ObservedObject private var workspace = WorkspaceModel.shared
     @ObservedObject private var history = DocumentHistory.shared
+    @ObservedObject private var editorSettings = EditorSettings.shared
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
+    // Shared with the editor's own `@AppStorage("inspectorVisible")` — the
+    // toggle lives here (all branches) but the pane renders in ContentView.
+    @AppStorage("inspectorVisible") private var inspectorVisible = false
 
     private static var widthRange: ClosedRange<Double> { 150.0...400.0 }
     private static var paneSpace: String { "mainChromePanes" }
+
+    /// Whether the window currently renders dark — resolves `.system` against
+    /// the app's effective appearance so the ☀/🌙 toggle flips the right way.
+    private var appearanceIsDark: Bool {
+        switch editorSettings.general.appearance {
+        case .dark: return true
+        case .light: return false
+        case .system:
+            return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -257,6 +277,14 @@ private struct MainChrome<Content: View>: View {
                 .help("Forward (⌘])")
                 .disabled(!history.canGoForward)
             }
+            // Shared trailing buttons (appearance / agent / inspector) so the
+            // main window's toolbar set is identical on every center branch.
+            EditorToolbar(
+                editorSettings: editorSettings,
+                appearanceIsDark: appearanceIsDark,
+                inspectorVisible: $inspectorVisible,
+                inspectorAvailable: inspectorAvailable
+            )
         }
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
     }
