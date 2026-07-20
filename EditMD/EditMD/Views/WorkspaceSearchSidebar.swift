@@ -235,6 +235,14 @@ struct WorkspaceSearchSidebar: View {
     }
 
     /// Soft highlight of the first matching needle in the line.
+    ///
+    /// Deliberately keeps Foundation `.caseInsensitive` here rather than the
+    /// scalar fold used by the matcher (`searchFoldScalar`): highlighting needs
+    /// a `String.Index` range to bold the substring, which the bool/count scalar
+    /// primitives don't return. This runs on one short, already-matched line —
+    /// latency is a non-issue — and on the fold table's scripts (ASCII, Latin-1,
+    /// Cyrillic) the two agree, so a genuine hit always yields a range. Only on
+    /// out-of-table scripts could it bold a different occurrence (cosmetic).
     private func highlightedLine(_ line: String, query: SearchQuery) -> Text {
         let needles = query.tokens + query.phrases
         guard let needle = needles.first(where: {

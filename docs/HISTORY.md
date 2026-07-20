@@ -1054,6 +1054,16 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - `is:modified` — `WorkspaceSearchGitBridge` переиспользует snapshot Git-вкладки; Process только при stale. `tag:` — `WorkspaceModel.tagIndex`.
 - Переход: `AppState.requestControlJump` + `onOpen` (как vault-lint / wiki heading).
 
+### Case-fold: профиль → scalar-fold (2026-07-20)
+
+- v1 матчер использовал Foundation `range(of:options:.caseInsensitive)` — «Cyrillic-safe без locale-ловушек». Осторожность todo была «не оптимизировать вслепую, сначала профиль»; предыдущий вывод (2026-07-19) верно отверг «убрать двойной проход» (не-совпавшие файлы отсекаются `guard matched` до line-scan, так что двойной фолд платят только редкие совпавшие).
+- **Профиль на WoL-волте (standalone-бенч, 7010 md / 50 МБ, whole-body скан по токену):** Foundation caseInsensitive = **3–6.8 с/токен**. Case-sensitive без фолдинга ≈ 0.65–1.0 с (фолдинг ×4–5), остальное — grapheme-cluster итерация. Истинный bottleneck — **whole-body casefold по всем meta-passed файлам**, а не double-pass.
+- **Решение — scalar-fold** (`searchFoldScalar` в `SearchMatch.swift`): ручной simple-lowercase по Unicode-скалярам, таблица **узкая и осознанная** — ASCII A–Z, Latin-1 À–Þ (кроме ×), кириллица А–Я + Ѐ–Џ (вкл. Ё). Прочие скаляры проходят **case-sensitive**. `searchContentMatches` фолдит тело/имя/needles по одному разу (`searchFolded` → `[UInt32]`) и гоняет `searchFoldedContains`/`searchFoldedOccurrenceCount` (non-overlapping). Байтовый ASCII-fold из todo **отвергнут** — ломает кириллицу (регистр меняет lead-байт UTF-8 у р/Р).
+- **Результат:** 100% count-parity с Foundation на волте (вкл. `Витамин`==`витамин`, `КЛЕТКА`==`клетка`); ~10–17 мс/токен после 255 мс однократного fold → **~270 мс/запрос vs 4–13 с (15–45×)**. `SearchMatch.swift` в offline-таргете `editmdctl` → правка Foundation-only, ускоряет и `editmdctl search`.
+- **Инвариант расширения:** нужен ещё скрипт (греческий, турецкий İ и т.п.) — **дописывать таблицу `searchFoldScalar`**, не откатываться в grapheme-path Foundation.
+- **Хвост подсветки:** `WorkspaceSearchSidebar.highlightedLine` осознанно оставлен на Foundation `.caseInsensitive` — ему нужен `String.Index`-диапазон (скаляр-примитивы дают bool/count). Одна короткая уже-совпавшая строка; на скриптах таблицы совпадает со scalar-hit, вне таблицы — косметика.
+- **Возможный будущий прирост (не сделано):** LRU content cache хранит raw text; повторные запросы снова фолдят тело. Кэшировать folded `[UInt32]` рядом/вместо raw — убрало бы 255 мс на повторах. 270 мс уже interactive, поэтому отложено.
+
 ## Vault-lint (план 06)
 
 - `Editor/VaultLint.swift` — чистая функция `vaultLintFindings` по `LinkIndexSnapshot`: dead/ambiguous/self wiki, dead relative (в т.ч. за пределы roots), dead image, orphan (без README/index home), dead heading (если в индексе есть titles).
