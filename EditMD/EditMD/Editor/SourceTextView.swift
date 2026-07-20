@@ -344,26 +344,35 @@ struct SourceTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             guard !isInternalUpdate else { return }
-            isInternalUpdate = true
-            parent.document.content = tv.string
-            isInternalUpdate = false
-            parent.document.noteContentEdited()
-            DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-            // The caret sits where the user just typed — it disambiguates a
-            // duplicate-line insertion so the mark lands on the edited line, not
-            // an identical untouched neighbour. Pass the raw offset (O(1)); the
-            // tracker resolves it to a line off-main for large buffers.
-            LineChangeTracker.shared.noteContent(
-                url: parent.fileURL, content: tv.string,
-                caretUTF16Offset: tv.selectedRange().location)
-            updateStats()
-            highlightSource()
-            scheduleLint()
-            scheduleUnresolvedWiki()
-            wikiCompletion.update(fileURL: parent.fileURL)
+            // Phase-timed so a keystroke that pins the CPU names its culprit in
+            // the unified log / Instruments (see TypingProfiler).
+            var profiler = KeystrokeProfiler(.source)
+            profiler.phase("content") {
+                isInternalUpdate = true
+                parent.document.content = tv.string
+                isInternalUpdate = false
+                parent.document.noteContentEdited()
+                DocumentRegistry.shared.noteUserEdit(parent.fileURL)
+                // The caret sits where the user just typed — it disambiguates a
+                // duplicate-line insertion so the mark lands on the edited line,
+                // not an identical untouched neighbour. Pass the raw offset
+                // (O(1)); the tracker resolves it to a line off-main for large
+                // buffers.
+                LineChangeTracker.shared.noteContent(
+                    url: parent.fileURL, content: tv.string,
+                    caretUTF16Offset: tv.selectedRange().location)
+            }
+            profiler.phase("stats") { updateStats() }
+            profiler.phase("highlight") { highlightSource() }
+            profiler.phase("lint") { scheduleLint() }
+            profiler.phase("wiki") {
+                scheduleUnresolvedWiki()
+                wikiCompletion.update(fileURL: parent.fileURL)
+            }
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke repaint here.
-            refreshGutter()
+            profiler.phase("gutter") { refreshGutter() }
+            profiler.finish()
             finishViewportEditOnNextRunLoop()
         }
 

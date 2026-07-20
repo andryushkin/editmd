@@ -74,6 +74,7 @@
 		3F7E0DA132432CC07823BE84 /* LineChangeTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FAF54FD4561973161D09D3 /* LineChangeTracker.swift */; };
 		3F8168BFA79137CB385050B2 /* SourceTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6FEB806B8D4B55475BA13C7 /* SourceTextView.swift */; };
 		3FEE507709F1C9F1E75CB30D /* BuiltInPlugins.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFCED5DC382D884472BF2D8E /* BuiltInPlugins.swift */; };
+		400D7FADB28BF198FEC95E6D /* TypingProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E29A8F8FA4AF8F3AA465702 /* TypingProfiler.swift */; };
 		409D6E4FDD3AE0879AF575E4 /* LinkIndexPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DD337B681C18F411D1F203 /* LinkIndexPersistence.swift */; };
 		413348709EF1DC2FC83513E5 /* FileRevisionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32C2504D8C5752A58EBA73FF /* FileRevisionStore.swift */; };
 		421EE7D3D419BD1A241D8770 /* ControlGraphPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3837EA11A605A047AD80937D /* ControlGraphPayload.swift */; };
@@ -130,6 +131,7 @@
 		84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */; };
 		84CF1A4445DEF3DA95260487 /* ClaudeIDEUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */; };
 		84D806C32BB2AC8BCD7ADB92 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD6CCB1D6D5B37E5E2FD1FE /* MCPProtocol.swift */; };
+		859BFCC1E3734C4CE04E6097 /* TypingProfilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A4C8E0A48283A830078317 /* TypingProfilerTests.swift */; };
 		8717A872653EE3B7B15FFACB /* FileInfoStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE2DF26F3AB64CCC94BBA0C /* FileInfoStats.swift */; };
 		88109ED24F98DE292E0A3299 /* VisualTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */; };
 		887F32CD107D93C201330135 /* Frontmatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */; };
@@ -301,6 +303,7 @@
 		4948C4D96A7D658AF2AA64AC /* VisualTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualTextView.swift; sourceTree = "<group>"; };
 		4A408866ED3EFD25ABC1EC7C /* EditorModeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModeStoreTests.swift; sourceTree = "<group>"; };
 		4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownOutline.swift; sourceTree = "<group>"; };
+		4E29A8F8FA4AF8F3AA465702 /* TypingProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingProfiler.swift; sourceTree = "<group>"; };
 		4F1DD229BD0098840E86A20F /* SearchQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQuery.swift; sourceTree = "<group>"; };
 		5095045B9037F0630921FB05 /* LinkIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndexTests.swift; sourceTree = "<group>"; };
 		50BA444A2429A2E9B1751007 /* KaTeXResources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaTeXResources.swift; sourceTree = "<group>"; };
@@ -315,6 +318,7 @@
 		5DE049C40EE9A0CB2F09BFBF /* icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icon.png; sourceTree = "<group>"; };
 		5E859CBDEF2DA893506C3D45 /* editmd-agent-status.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "editmd-agent-status.sh"; sourceTree = "<group>"; };
 		636191307CD28FDDC4B563A5 /* integration.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = integration.sh; sourceTree = "<group>"; };
+		63A4C8E0A48283A830078317 /* TypingProfilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingProfilerTests.swift; sourceTree = "<group>"; };
 		666BC06A474E4D37C8EA0265 /* LinkIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndex.swift; sourceTree = "<group>"; };
 		6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedToMarkdown.swift; sourceTree = "<group>"; };
 		683585ED84041D652B804F1F /* IDELockFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDELockFileTests.swift; sourceTree = "<group>"; };
@@ -594,6 +598,7 @@
 				ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */,
 				6A36F400AB7AB26E43FEBF3C /* TagScan.swift */,
 				B07A13AEA492FEA0C2B1942F /* TextDiff.swift */,
+				4E29A8F8FA4AF8F3AA465702 /* TypingProfiler.swift */,
 				DDB8AB2EE2DAC64CCEF5EDE1 /* VaultLint.swift */,
 				F7FFCDB0BE4C9E9CAA8A9A2B /* VaultLintSourceBridge.swift */,
 				C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */,
@@ -813,6 +818,7 @@
 				2FA356E942BB22F55DBB6C09 /* SourceListContinuationTests.swift */,
 				0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */,
 				749088093E0AF04AA2B75E48 /* TextDiffTests.swift */,
+				63A4C8E0A48283A830078317 /* TypingProfilerTests.swift */,
 				E86500DFCE1FD7E94B9A48A1 /* VaultLintTests.swift */,
 				DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */,
 				18816986CB29E40D5679A515 /* VisualGutterSourceLineTests.swift */,
@@ -1036,6 +1042,7 @@
 				080B94B3F0F93B87000038CB /* SourceListContinuationTests.swift in Sources */,
 				CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */,
 				9C63BAF79B1A3C2EA1D1EB82 /* TextDiffTests.swift in Sources */,
+				859BFCC1E3734C4CE04E6097 /* TypingProfilerTests.swift in Sources */,
 				D266504367F58D06B5A05151 /* VaultLintTests.swift in Sources */,
 				173501D00F864791657092D3 /* VisualEditingTests.swift in Sources */,
 				13B4F34440F8E0CCB2B0FCAA /* VisualGutterSourceLineTests.swift in Sources */,
@@ -1161,6 +1168,7 @@
 				7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */,
 				9DE7A630C9EC839C33AD8147 /* TextDiff.swift in Sources */,
 				99CEC58F9F8247E166F169AF /* TooltipSupport.swift in Sources */,
+				400D7FADB28BF198FEC95E6D /* TypingProfiler.swift in Sources */,
 				FBBC4FD0BC55AB7E23E11B50 /* VaultLint.swift in Sources */,
 				29CCAC7380E2E7CC3C103400 /* VaultLintModel.swift in Sources */,
 				82F97A527857A21C40BF35CD /* VaultLintReportView.swift in Sources */,

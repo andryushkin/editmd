@@ -8,7 +8,13 @@
 
 ## Группа E — Инфраструктура и диагностика
 
-- [ ] Встроить логирование — сейчас при печати проценты приближаются к 100% загрузки процессора, нужен инструмент, чтобы это ловить.
+- [x] Встроить логирование всплесков CPU при печати. `TypingProfiler.swift`:
+  per-keystroke os_signpost-интервалы (Source и Visual, фаза на под-шаг) +
+  `.warning`, который срабатывает только когда цикл превышает бюджет (16 мс,
+  override `defaults write com.editmd.app EditMDTypingBudgetMs N`). Читать:
+  `log show --predicate 'subsystem == "com.editmd.app" && category == "typing"' --last 5m`
+  или трек `typing` в Instruments. Дальше — фикс горячей фазы, которую он назовёт
+  (кандидаты: Source `highlight`, Visual `serialize`).
 - [ ] (наблюдение, НЕ баг-фикс) «Preview не перерендерился после удаления строки» — не воспроизведено; при повторении вернуть NSLog-цепочку `syncToDocument → updateNSView → render`.
 
 ## Группа F — Темы (отложено)

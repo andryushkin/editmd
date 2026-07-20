@@ -501,23 +501,30 @@ struct VisualMarkdownView: NSViewRepresentable {
             // Load path: setAttributedString can notify; must not rewrite the
             // markdown (would inject trailing newlines / normalize without edit — C4).
             guard !isMutating, !isLoadingDocument else { return }
-            runAutoformat()
-            let reloaded = syncToDocument()
-            if !reloaded { applyPresentation() }
-            parent.document.noteContentEdited()
-            DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-            // The caret's markdown offset disambiguates a duplicate-line
-            // insertion (same as Source) — without it the dirty mark can land
-            // on an identical untouched neighbour. Paragraph-start precision is
-            // enough: the tracker only needs the caret's source LINE.
-            LineChangeTracker.shared.noteContent(
-                url: parent.fileURL, content: parent.document.content,
-                caretUTF16Offset: caretMarkdownOffset())
-            updateStats()
+            // Phase-timed: the Visual path serializes synchronously, so a heavy
+            // keystroke usually shows up in the "serialize" phase (see
+            // TypingProfiler).
+            var profiler = KeystrokeProfiler(.visual)
+            profiler.phase("autoformat") { runAutoformat() }
+            let reloaded = profiler.phase("serialize") { syncToDocument() }
+            profiler.phase("presentation") { if !reloaded { applyPresentation() } }
+            profiler.phase("notify") {
+                parent.document.noteContentEdited()
+                DocumentRegistry.shared.noteUserEdit(parent.fileURL)
+                // The caret's markdown offset disambiguates a duplicate-line
+                // insertion (same as Source) — without it the dirty mark can
+                // land on an identical untouched neighbour. Paragraph-start
+                // precision is enough: the tracker only needs the caret's LINE.
+                LineChangeTracker.shared.noteContent(
+                    url: parent.fileURL, content: parent.document.content,
+                    caretUTF16Offset: caretMarkdownOffset())
+            }
+            profiler.phase("stats") { updateStats() }
             // Review wash re-aligns via the model's debounced recompute
             // notification — no per-keystroke quote search here.
-            refreshGutter()
-            wikiCompletion.update(fileURL: parent.fileURL)
+            profiler.phase("gutter") { refreshGutter() }
+            profiler.phase("wiki") { wikiCompletion.update(fileURL: parent.fileURL) }
+            profiler.finish()
             restoreMinorViewportDrift()
         }
 
