@@ -89,13 +89,14 @@ final class SourceNSTextView: NSTextView {
         }
     }
 
-    /// Adds an empty row below a pipe-table body row, or ends the table when the
-    /// current body row is already empty. Returns false (default newline) unless
-    /// the caret sits on a body row — inserting between the header and delimiter
-    /// would split the table.
+    /// Adds an empty row below a pipe-table row, or ends the table when the
+    /// current body row is already empty. Fires on the delimiter row (line 1 —
+    /// creates the first body row) and any body row (≥ 2); returns false
+    /// (default newline) on the header row, where inserting between it and the
+    /// delimiter would split the table.
     private func continueTableRow(lineStart: Int, contentEnd: Int, line: String) -> Bool {
         guard let context = sourceTableContext(in: string, at: lineStart),
-              context.line >= 2 else { return false }
+              context.line >= 1 else { return false }
         if pipeRowIsEmpty(line) {
             let range = NSRange(location: lineStart, length: contentEnd - lineStart)
             guard shouldChangeText(in: range, replacementString: "") else { return true }

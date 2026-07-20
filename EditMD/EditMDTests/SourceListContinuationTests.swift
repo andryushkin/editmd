@@ -44,6 +44,18 @@ final class ListReturnActionTests: XCTestCase {
         XCTAssertEqual(action("- [ ] "), .clearMarker(NSRange(location: 0, length: 6)))
     }
 
+    func testEmptyChecklistNoTrailingSpaceTerminates() {
+        // Just-typed `- [ ]` (caret right after the box, no trailing space).
+        XCTAssertEqual(action("- [ ]"), .clearMarker(NSRange(location: 0, length: 5)))
+        XCTAssertEqual(action("- [x]"), .clearMarker(NSRange(location: 0, length: 5)))
+    }
+
+    func testBoxWithoutSeparatorIsPlainBullet() {
+        // `- [ ]text` has no space after the box → not a GFM task item; it stays
+        // a bullet whose content is `[ ]text`, so Return continues as a bullet.
+        XCTAssertEqual(action("- [ ]text"), .insertMarker("- "))
+    }
+
     func testEmptyOrderedTerminates() {
         XCTAssertEqual(action("1. "), .clearMarker(NSRange(location: 0, length: 3)))
     }

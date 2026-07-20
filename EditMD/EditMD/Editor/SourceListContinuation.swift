@@ -15,20 +15,23 @@ enum ListReturnAction: Equatable {
     case clearMarker(NSRange)
 }
 
-// Ordered so that a checklist (a bullet carrying a `[ ]` box) is recognised
-// before the plain-bullet pattern it is a superset of.
-private let listReturnPatterns: [(pattern: String, kind: ListMarkerKind)] = [
-    ("^([ \\t]*)([-*+])[ \\t]+\\[[ xX]\\][ \\t]+", .checklist),
-    ("^([ \\t]*)([-*+])[ \\t]+", .bullet),
-    ("^([ \\t]*)(\\d+)([.)])[ \\t]+", .ordered),
-]
-
 private enum ListMarkerKind { case bullet, checklist, ordered }
 
-private func firstListMatch(_ pattern: String, in line: NSString) -> NSTextCheckingResult? {
-    let regex = try! NSRegularExpression(pattern: pattern)
-    return regex.firstMatch(in: line as String,
-                            range: NSRange(location: 0, length: line.length))
+// Compiled once (top-level `let` is a lazy, thread-safe global) rather than per
+// Return. Ordered so that a checklist (a bullet carrying a `[ ]` box) is tried
+// before the plain-bullet pattern it is a superset of. The box may be followed
+// by whitespace or the end of line, so a just-typed empty `- [ ]` (no trailing
+// space) is still recognised as a checklist — but `- [ ]text` (no separator) is
+// not a GFM task item and stays a bullet.
+private let listReturnPatterns: [(regex: NSRegularExpression, kind: ListMarkerKind)] = [
+    (try! NSRegularExpression(pattern: "^([ \\t]*)([-*+])[ \\t]+\\[[ xX]\\]([ \\t]+|$)"), .checklist),
+    (try! NSRegularExpression(pattern: "^([ \\t]*)([-*+])[ \\t]+"), .bullet),
+    (try! NSRegularExpression(pattern: "^([ \\t]*)(\\d+)([.)])[ \\t]+"), .ordered),
+]
+
+private func firstListMatch(_ regex: NSRegularExpression, in line: NSString) -> NSTextCheckingResult? {
+    regex.firstMatch(in: line as String,
+                     range: NSRange(location: 0, length: line.length))
 }
 
 /// Given the text of the line the caret sits on (no trailing newline) and the
@@ -38,8 +41,8 @@ private func firstListMatch(_ pattern: String, in line: NSString) -> NSTextCheck
 /// indentation or marker yields nil so structural edits there behave normally.
 func listReturnAction(line: String, caretColumn: Int) -> ListReturnAction? {
     let ns = line as NSString
-    for (pattern, kind) in listReturnPatterns {
-        guard let match = firstListMatch(pattern, in: ns) else { continue }
+    for (regex, kind) in listReturnPatterns {
+        guard let match = firstListMatch(regex, in: ns) else { continue }
         let prefixLength = match.range.length
         guard caretColumn >= prefixLength else { return nil }
         let indent = ns.substring(with: match.range(at: 1))
