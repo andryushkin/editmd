@@ -46,6 +46,34 @@ final class SearchMatchTests: XCTestCase {
         XCTAssertTrue(searchContentMatches(q2, text: "say hello world", fileName: "n.md").matched)
     }
 
+    // MARK: - Scalar-fold primitives (fast case-insensitive path)
+
+    func testScalarFoldContainsCaseAndScript() {
+        // ASCII, Latin-1, Cyrillic — both fold directions.
+        XCTAssertTrue(searchTextContains("The Vitamin D story", "vitamin"))
+        XCTAssertTrue(searchTextContains("витамин группы B", "ВИТАМИН"))
+        XCTAssertTrue(searchTextContains("КЛЕТКА делится", "клетка"))
+        XCTAssertTrue(searchTextContains("café RÉSUMÉ", "résumé"))   // À–Þ range
+        XCTAssertTrue(searchTextContains("Ёлка в лесу", "ёлка"))     // Ё/ё
+        XCTAssertFalse(searchTextContains("only latin here", "нет"))
+    }
+
+    func testScalarFoldOccurrenceCountNonOverlapping() {
+        // "аа" in "аааа" → 2 non-overlapping, mixed case folded.
+        XCTAssertEqual(searchTextOccurrenceCount("аАаА", "аа"), 2)
+        XCTAssertEqual(searchTextOccurrenceCount("Vitamin vitamin VITAMIN", "vitamin"), 3)
+        XCTAssertEqual(searchTextOccurrenceCount("nothing", "zzz"), 0)
+    }
+
+    func testScalarFoldContentMatchCyrillicMixedCase() {
+        // Two exact forms "Клетка"/"клетка" match; "КЛЕТКЕ" folds to "клетке"
+        // and must NOT count (different final letter).
+        let q = parseSearchQuery("клетка")
+        let hit = searchContentMatches(q, text: "в КЛЕТКЕ, Клетка и клетка", fileName: "n.md")
+        XCTAssertTrue(hit.matched)
+        XCTAssertEqual(hit.matchCount, 2)
+    }
+
     func testPhraseAcrossTokenBoundary() {
         let q = parseSearchQuery("\"world peace\"")
         let hit = searchContentMatches(q, text: "want world peace now", fileName: "n.md")

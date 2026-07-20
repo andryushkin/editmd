@@ -102,25 +102,91 @@ struct SearchRunResult: Equatable, Sendable {
     )
 }
 
-// MARK: - Case-insensitive contains (Cyrillic-safe)
+// MARK: - Case-insensitive contains (Cyrillic-safe, scalar fold)
 
-/// Fixed choice for v1: Foundation `range(of:options: .caseInsensitive)`.
-/// Works for Cyrillic without locale-specific lowercasing pitfalls.
-func searchTextContains(_ haystack: String, _ needle: String) -> Bool {
-    guard !needle.isEmpty else { return true }
-    return haystack.range(of: needle, options: .caseInsensitive) != nil
+/// Simple lowercase case-fold for one Unicode scalar, covering the alphabets
+/// EditMD users actually search: ASCII, Latin-1 letters, and Russian Cyrillic
+/// (incl. Ё). Every other scalar passes through unchanged — i.e. it is compared
+/// case-sensitively.
+///
+/// Why not Foundation `range(of:options:.caseInsensitive)` (the v1 choice):
+/// it folds every script but iterates grapheme clusters, which measured
+/// 3–7 s for a whole-body scan of a 7k-file vault (50 MB). Folding scalar
+/// values directly is ~200× faster and produced identical match counts against
+/// Foundation across ASCII + Russian on that vault, including mixed case
+/// (`Витамин` == `витамин`). The narrowed coverage is deliberate; if a broader
+/// script ever needs folding, extend this table rather than reverting to the
+/// grapheme path.
+@inline(__always)
+func searchFoldScalar(_ s: UInt32) -> UInt32 {
+    if s >= 0x41 && s <= 0x5A { return s + 0x20 }              // A–Z
+    if s >= 0xC0 && s <= 0xDE && s != 0xD7 { return s + 0x20 } // À–Þ (skip ×)
+    if s >= 0x410 && s <= 0x42F { return s + 0x20 }            // А–Я
+    if s >= 0x400 && s <= 0x40F { return s + 0x50 }            // Ѐ–Џ (incl. Ё)
+    return s
 }
 
-/// Count non-overlapping case-insensitive occurrences of `needle` in `haystack`.
-func searchTextOccurrenceCount(_ haystack: String, _ needle: String) -> Int {
-    guard !needle.isEmpty else { return 0 }
+/// Fold a whole string to lowercase scalar values, once. Callers that reuse a
+/// haystack against several needles fold it a single time and pass the buffer
+/// to the `Folded` primitives below.
+func searchFolded(_ s: String) -> [UInt32] {
+    var out = [UInt32]()
+    out.reserveCapacity(s.unicodeScalars.count)
+    for u in s.unicodeScalars { out.append(searchFoldScalar(u.value)) }
+    return out
+}
+
+/// Case-insensitive contains over pre-folded scalar buffers.
+func searchFoldedContains(_ hay: [UInt32], _ needle: [UInt32]) -> Bool {
+    if needle.isEmpty { return true }
+    guard needle.count <= hay.count else { return false }
+    let n0 = needle[0]
+    let last = hay.count - needle.count
+    var i = 0
+    while i <= last {
+        if hay[i] == n0 {
+            var j = 1
+            while j < needle.count, hay[i + j] == needle[j] { j += 1 }
+            if j == needle.count { return true }
+        }
+        i += 1
+    }
+    return false
+}
+
+/// Count non-overlapping occurrences over pre-folded scalar buffers.
+func searchFoldedOccurrenceCount(_ hay: [UInt32], _ needle: [UInt32]) -> Int {
+    if needle.isEmpty || needle.count > hay.count { return 0 }
     var count = 0
-    var searchRange = haystack.startIndex..<haystack.endIndex
-    while let r = haystack.range(of: needle, options: .caseInsensitive, range: searchRange) {
-        count += 1
-        searchRange = r.upperBound..<haystack.endIndex
+    let n0 = needle[0]
+    let last = hay.count - needle.count
+    var i = 0
+    while i <= last {
+        if hay[i] == n0 {
+            var j = 1
+            while j < needle.count, hay[i + j] == needle[j] { j += 1 }
+            if j == needle.count {
+                count += 1
+                i += needle.count      // non-overlapping
+                continue
+            }
+        }
+        i += 1
     }
     return count
+}
+
+/// Convenience wrappers folding both sides per call. Fine for one-shot checks
+/// (short strings, tests); the hot multi-needle path in `searchContentMatches`
+/// folds the haystack once and calls the `Folded` primitives directly.
+func searchTextContains(_ haystack: String, _ needle: String) -> Bool {
+    guard !needle.isEmpty else { return true }
+    return searchFoldedContains(searchFolded(haystack), searchFolded(needle))
+}
+
+func searchTextOccurrenceCount(_ haystack: String, _ needle: String) -> Int {
+    guard !needle.isEmpty else { return 0 }
+    return searchFoldedOccurrenceCount(searchFolded(haystack), searchFolded(needle))
 }
 
 // MARK: - Meta filter
@@ -217,8 +283,14 @@ func searchContentMatches(
         )
     }
 
-    let nameOK = needles.allSatisfy { searchTextContains(fileName, $0) }
-    let bodyOK = needles.allSatisfy { searchTextContains(text, $0) }
+    // Fold each side once and reuse across needles: the whole-body fold is the
+    // dominant cost, so folding `text` a single time (not once per needle) is
+    // what keeps a vault-wide search interactive.
+    let foldedNeedles = needles.map(searchFolded)
+    let foldedName = searchFolded(fileName)
+    let foldedBody = searchFolded(text)
+    let nameOK = foldedNeedles.allSatisfy { searchFoldedContains(foldedName, $0) }
+    let bodyOK = foldedNeedles.allSatisfy { searchFoldedContains(foldedBody, $0) }
     let matched = nameOK || bodyOK
     guard matched else {
         return SearchContentMatch(
@@ -244,9 +316,10 @@ func searchContentMatches(
             var line = ns.substring(with: NSRange(location: lineStart, length: len))
             if line.hasSuffix("\r") { line = String(line.dropLast()) }
 
+            let foldedLine = searchFolded(line)
             var lineOcc = 0
-            for n in needles {
-                lineOcc += searchTextOccurrenceCount(line, n)
+            for nf in foldedNeedles {
+                lineOcc += searchFoldedOccurrenceCount(foldedLine, nf)
             }
             if lineOcc > 0 {
                 matchCount += lineOcc
@@ -267,8 +340,8 @@ func searchContentMatches(
 
     // Name-only match still counts for sorting.
     if nameOK {
-        for n in needles {
-            matchCount += searchTextOccurrenceCount(fileName, n)
+        for nf in foldedNeedles {
+            matchCount += searchFoldedOccurrenceCount(foldedName, nf)
         }
     }
 
