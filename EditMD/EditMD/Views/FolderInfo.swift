@@ -194,6 +194,10 @@ struct FolderInfoCard: View {
     /// README/index of the folder — refreshed with the stats scan; the body
     /// must not list the directory synchronously (1600-file folders).
     @State private var homeDoc: URL?
+    /// Folder `homeDoc` was probed for — like `loadedPath`, guards the frame
+    /// where `folderURL` changed but the probe hasn't returned (the README/index
+    /// button would otherwise briefly point at the previous folder's home doc).
+    @State private var homeDocPath: String?
 
     /// Preview H1 pixel size: body `fontSize` × `elements.h1.sizeScale`
     /// (same formula as CSS `h1 { font-size: Nem }` in `previewHTMLPage`).
@@ -223,6 +227,12 @@ struct FolderInfoCard: View {
     /// one-frame window where `folderURL` has changed but the reload hasn't run.
     private var currentStats: FolderTreeStats? {
         loadedPath == folderURL.standardizedFileURL.path ? treeStats : nil
+    }
+
+    /// `homeDoc`, but only when it belongs to the folder on screen (same guard as
+    /// `currentStats`, for the README/index button in the action strip).
+    private var currentHomeDoc: URL? {
+        homeDocPath == folderURL.standardizedFileURL.path ? homeDoc : nil
     }
 
     private var gridColumns: [GridItem] {
@@ -264,9 +274,8 @@ struct FolderInfoCard: View {
         .overlay(alignment: .bottom) { copiedToast }
         .onAppear { reloadTreeStats() }
         .onChange(of: folderURL) { _ in
-            // New folder: drop the stale README/index button; `currentStats`
-            // already hides the old tree (path mismatch) until reload lands.
-            homeDoc = nil
+            // New folder: `currentStats` / `currentHomeDoc` already hide the old
+            // tree and README button (path mismatch) until reload lands.
             reloadTreeStats()
         }
         .onChange(of: workspace.contentEpoch) { _ in reloadTreeStats() }
@@ -297,6 +306,7 @@ struct FolderInfoCard: View {
                 await MainActor.run {
                     guard path == folderURL.standardizedFileURL.path else { return }
                     homeDoc = home
+                    homeDocPath = path
                 }
             }
             return
@@ -309,9 +319,10 @@ struct FolderInfoCard: View {
             treeStats = any.stats
             loadedPath = path
         }
-        // Cold load only: no data for this folder at all → show the counting
-        // state; a stale tree stays put (stale-while-revalidate).
-        if currentStats == nil { statsLoading = true }
+        // Cold load (no data for this folder at all) shows the counting state;
+        // a visible stale tree keeps its real counts — the spinner over an
+        // already-drawn tree is exactly what SWR is meant to avoid.
+        statsLoading = currentStats == nil
         // Detached task owns cancellation: cancelling `statsTask` propagates into
         // `scanFolderTreeStats`'s `Task.isCancelled` checks, actually aborting the
         // walk (a nested `Task.detached` would not inherit the cancel).
@@ -329,6 +340,7 @@ struct FolderInfoCard: View {
                 treeStats = stats
                 loadedPath = path
                 homeDoc = home
+                homeDocPath = path
                 statsLoading = false
             }
         }
@@ -350,7 +362,7 @@ struct FolderInfoCard: View {
                     pillSeparator
                     folderIdentityMenu(rootWorkspace)
                 }
-                if let home = homeDoc {
+                if let home = currentHomeDoc {
                     let isReadme = home.lastPathComponent.lowercased().hasPrefix("readme")
                     pillSeparator
                     iconButton("book", isReadme
