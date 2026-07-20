@@ -138,6 +138,17 @@ extension SourceTextView.Coordinator {
             }
         }
 
+        // Pass B.25 — syntax markers. Repaint every delimiter / punctuation
+        // span with the configurable marker color (graphite by default),
+        // overriding the element body colors on just the marker characters.
+        // Runs before the frontmatter pass so that block keeps its own dimming.
+        let markerColor = settings.markerColor ?? theme.markerColor
+        for span in spans where NSMaxRange(span.range) <= full.length {
+            if span.kind.isSyntaxMarker {
+                storage.addAttribute(.foregroundColor, value: markerColor, range: span.range)
+            }
+        }
+
         // Pass B.5 — YAML frontmatter (top-of-file ---…---). swift-markdown
         // mis-parses it as a thematic break + setext heading, so Pass A gave
         // the body a big heading font; override the whole block back to the

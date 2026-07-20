@@ -15,6 +15,10 @@ struct EditorTheme {
     var secondaryColor: NSColor
     /// Heading markers, quote markers, active thematic break, table delimiter.
     var tertiaryColor: NSColor
+    /// Default color for Markdown syntax markers in Source mode (heading `#`,
+    /// list bullets, emphasis `*`/`_`, quote `>`, fences, table pipes, brackets).
+    /// Graphite on light, a soft gray on dark. Overridable via Source settings.
+    var markerColor: NSColor
     /// Links and list markers.
     var accentColor: NSColor
     /// Inline code text.
@@ -134,6 +138,7 @@ extension EditorTheme {
         textColor:            gh(0x060606, 0xfbfbfc),
         secondaryColor:       gh(0x6b6e7b, 0x9294a0),
         tertiaryColor:        gh(0x6b6e7b, 0x6d707d),
+        markerColor:          gh(0x4a4d57, 0x9296a1),
         accentColor:          gh(0x2c65cf, 0x4c8ef8),
         inlineCodeColor:      gh(0xd1242f, 0xff7b72),
         imageColor:           gh(0x1a7f37, 0x3fb950),

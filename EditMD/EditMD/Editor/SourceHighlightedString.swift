@@ -125,6 +125,15 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
             break
         }
     }
+    // Syntax markers: repaint every delimiter / punctuation span with the
+    // configurable marker color (graphite default), mirroring the live editor.
+    let markerColor = settings.markerColor ?? theme.markerColor
+    for span in spans where NSMaxRange(span.range) <= full.length {
+        if span.kind.isSyntaxMarker {
+            storage.addAttribute(.foregroundColor, value: markerColor, range: span.range)
+        }
+    }
+
     if let frontmatter = frontmatterRange(in: text),
        NSMaxRange(frontmatter.full) <= nsText.length {
         storage.addAttribute(.font, value: baseFont, range: frontmatter.full)

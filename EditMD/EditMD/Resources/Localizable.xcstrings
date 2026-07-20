@@ -2,6 +2,36 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "Markers": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маркеры"
+          }
+        }
+      }
+    },
+    "Marker color": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет маркеров"
+          }
+        }
+      }
+    },
+    "Color of Markdown syntax markers in Source mode: heading #, list bullets, emphasis * _, quote >, code fences, table pipes, and link/image brackets.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет маркеров синтаксиса Markdown в режиме Source: # заголовков, буллеты списков, * _ выделения, > цитат, ограждения кода, разделители таблиц | и скобки ссылок и изображений."
+          }
+        }
+      }
+    },
     "\n\n%lld commit(s) ahead": {
       "localizations": {
         "ru": {

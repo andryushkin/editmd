@@ -157,6 +157,8 @@ private struct ModeTab: View {
         monospaced ? FontCatalog.monospacedFamilies : FontCatalog.allFamilies
     }
     private var theme: EditorTheme { settings.effectiveTheme }
+    /// Marker coloring is a Source-mode concept (raw markdown delimiters).
+    private var isSource: Bool { mode == \EditorSettings.source }
 
     var body: some View {
         Form {
@@ -258,6 +260,14 @@ private struct ModeTab: View {
                     elementRow("Code", m.elements.inlineCode, showSize: false, showWeight: false, fallback: theme.inlineCodeColor)
                     elementRow("Link", m.elements.link, showSize: false, showWeight: false, fallback: theme.accentColor)
                     elementRow("Quote", m.elements.quote, showSize: false, showWeight: false, fallback: theme.textColor)
+                }
+            }
+            if isSource {
+                Section("Markers") {
+                    ColorOverrideRow(title: "Marker color", hex: m.markerColorHex,
+                                     fallback: theme.markerColor)
+                    Text("Color of Markdown syntax markers in Source mode: heading #, list bullets, emphasis * _, quote >, code fences, table pipes, and link/image brackets.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Section("Sample") {

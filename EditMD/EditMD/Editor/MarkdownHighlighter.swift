@@ -38,6 +38,24 @@ struct Span {
     var kind: Kind
 }
 
+extension Span.Kind {
+    /// Delimiter / punctuation spans painted by the Source "marker color"
+    /// setting (heading `#`, list bullets, emphasis/quote/code/table/link/image
+    /// delimiters, fences, math `$`, wiki `[[ ]]`). Body and semantic spans
+    /// (callout marker, task checkbox, table backgrounds) keep their own color.
+    var isSyntaxMarker: Bool {
+        switch self {
+        case .headingMarker, .boldMarker, .italicMarker, .codeMarker,
+             .codeBlockFence, .linkSyntax, .imageSyntax, .quoteMarker,
+             .thematicBreak, .listMarker, .strikethroughMarker,
+             .tableDelimiter, .wikiLinkSyntax, .mathMarker:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 // MARK: - SpanCollector
 
 /// MarkupWalker that traverses the swift-markdown AST and collects highlight spans.

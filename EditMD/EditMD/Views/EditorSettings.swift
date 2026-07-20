@@ -205,10 +205,15 @@ struct ModeSettings: Codable, Equatable {
     /// each screen is styled independently, including Source, whose highlighter
     /// applies these to the raw markdown.
     var elements: ElementStyles
+    /// Source-only: override color for Markdown syntax markers (heading `#`,
+    /// list bullets, emphasis/quote/code/table/link delimiters). `nil` =
+    /// `EditorTheme.markerColor` (graphite on light, soft gray on dark).
+    var markerColorHex: String?
 
     init(fontSize: CGFloat, insetH: CGFloat, insetV: CGFloat, columnWidth: CGFloat,
          fontFamily: String = "", fontWeight: FontWeight = .regular,
-         elements: ElementStyles = ElementStyles()) {
+         elements: ElementStyles = ElementStyles(),
+         markerColorHex: String? = nil) {
         self.fontSize = fontSize
         self.insetH = insetH
         self.insetV = insetV
@@ -216,6 +221,7 @@ struct ModeSettings: Codable, Equatable {
         self.fontFamily = fontFamily
         self.fontWeight = fontWeight
         self.elements = elements
+        self.markerColorHex = markerColorHex
     }
 
     init(from decoder: Decoder) throws {
@@ -227,7 +233,11 @@ struct ModeSettings: Codable, Equatable {
         fontFamily = try c.decodeIfPresent(String.self, forKey: .fontFamily) ?? ""
         fontWeight = try c.decodeIfPresent(FontWeight.self, forKey: .fontWeight) ?? .regular
         elements = try c.decodeIfPresent(ElementStyles.self, forKey: .elements) ?? ElementStyles()
+        markerColorHex = try c.decodeIfPresent(String.self, forKey: .markerColorHex)
     }
+
+    /// Resolved Source marker-color override, or `nil` to use the theme default.
+    var markerColor: NSColor? { markerColorHex.flatMap { NSColor(hex: $0) } }
 
     static let fontSizeRange: ClosedRange<CGFloat> = 9...40
     static let insetRange: ClosedRange<CGFloat> = 0...160
