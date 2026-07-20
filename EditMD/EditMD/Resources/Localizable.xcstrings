@@ -22,12 +22,12 @@
         }
       }
     },
-    "Color of Markdown syntax markers in Source mode: heading #, list bullets, emphasis * _, quote >, code fences, table pipes, and link/image brackets.": {
+    "Color of Markdown syntax markers in Source mode — heading #, list bullets and checkboxes, emphasis, quotes, code fences, table pipes, links, and other delimiters.": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цвет маркеров синтаксиса Markdown в режиме Source: # заголовков, буллеты списков, * _ выделения, > цитат, ограждения кода, разделители таблиц | и скобки ссылок и изображений."
+            "value": "Цвет маркеров синтаксиса Markdown в режиме Source — # заголовков, буллеты и чекбоксы списков, выделение, цитаты, ограждения кода, разделители таблиц, ссылки и другие разделители."
           }
         }
       }

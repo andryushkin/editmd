@@ -266,7 +266,7 @@ private struct ModeTab: View {
                 Section("Markers") {
                     ColorOverrideRow(title: "Marker color", hex: m.markerColorHex,
                                      fallback: theme.markerColor)
-                    Text("Color of Markdown syntax markers in Source mode: heading #, list bullets, emphasis * _, quote >, code fences, table pipes, and link/image brackets.")
+                    Text("Color of Markdown syntax markers in Source mode — heading #, list bullets and checkboxes, emphasis, quotes, code fences, table pipes, links, and other delimiters.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

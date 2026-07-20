@@ -11,9 +11,12 @@ struct EditorTheme {
 
     /// Base body text.
     var textColor: NSColor
-    /// Blockquote text, code block body, bold/italic markers.
+    /// Dimmed secondary tone: frontmatter delimiters, Visual quote/list
+    /// decorations, external-change diff. (Source syntax markers use
+    /// `markerColor`, not this.)
     var secondaryColor: NSColor
-    /// Heading markers, quote markers, active thematic break, table delimiter.
+    /// Legacy tertiary tone — currently unused. Source markers moved to
+    /// `markerColor`; kept for the planned Source/Visual theme presets.
     var tertiaryColor: NSColor
     /// Default color for Markdown syntax markers in Source mode (heading `#`,
     /// list bullets, emphasis `*`/`_`, quote `>`, fences, table pipes, brackets).

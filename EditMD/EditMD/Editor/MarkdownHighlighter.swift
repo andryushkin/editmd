@@ -43,6 +43,9 @@ extension Span.Kind {
     /// setting (heading `#`, list bullets, task checkbox `[ ]`/`[x]`,
     /// emphasis/quote/code/table/link/image delimiters, fences, math `$`, wiki
     /// `[[ ]]`). The callout marker and table backgrounds keep their own color.
+    ///
+    /// Exhaustive on purpose (no `default`): a new `Span.Kind` must opt in or
+    /// out here rather than silently defaulting to "not a marker".
     var isSyntaxMarker: Bool {
         switch self {
         case .headingMarker, .boldMarker, .italicMarker, .codeMarker,
@@ -50,7 +53,11 @@ extension Span.Kind {
              .thematicBreak, .listMarker, .strikethroughMarker,
              .tableDelimiter, .taskListMarker, .wikiLinkSyntax, .mathMarker:
             return true
-        default:
+        case .headingBody, .boldBody, .italicBody, .code, .linkText,
+             .quoteBody, .calloutMarker, .codeBlockBody, .listBlock,
+             .imageText, .htmlInline, .htmlBlock, .strikethroughBody,
+             .tableHeader, .listItemBody, .tableRow, .builtInPluginToken,
+             .wikiLink, .mathBody:
             return false
         }
     }
