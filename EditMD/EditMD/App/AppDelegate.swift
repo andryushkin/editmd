@@ -43,12 +43,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Mouse side buttons → Back/Forward, like a browser. Button 3 is the
     /// "back" thumb button, 4 is "forward" (macOS numbering). Consumed only
-    /// when a document window (one with a representedURL) is key, so the
-    /// buttons stay free elsewhere; the nav itself no-ops at the ends. Not
-    /// installed under XCTest, matching the IDE/control services.
+    /// when the main window is key — history is that window's trail, so the
+    /// buttons stay free in lite windows and elsewhere; the nav itself no-ops
+    /// at the ends. Not installed under XCTest, matching the IDE/control
+    /// services.
     private func installBackForwardMouseMonitor() {
         backForwardMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
-            guard NSApp.keyWindow?.representedURL != nil else { return event }
+            guard AppState.shared.mainWindowIsKey else { return event }
             switch event.buttonNumber {
             case 3: AppState.shared.historyBack(); return nil
             case 4: AppState.shared.historyForward(); return nil
@@ -67,7 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // CLI dial a dead port on the next `/ide`.
         ClaudeIDEService.shared.stopBeforeTerminate()
         ControlService.shared.stopBeforeTerminate()
-        if let backForwardMonitor { NSEvent.removeMonitor(backForwardMonitor) }
+        if let backForwardMonitor {
+            NSEvent.removeMonitor(backForwardMonitor)
+            self.backForwardMonitor = nil
+        }
         // Whatever the debounce hasn't written yet is the next launch's first
         // frame — write it synchronously, the process is going away.
         WorkspaceModel.shared.snapshot.flushSync()

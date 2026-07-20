@@ -309,6 +309,11 @@ final class AppState: ObservableObject {
 
     // MARK: Back/Forward
 
+    /// True when the main window (the one whose trail the history tracks) is
+    /// key. The mouse side buttons gate on this so a click from a detached
+    /// lite window doesn't quietly spin the main window's history.
+    var mainWindowIsKey: Bool { mainWindow?.isKeyWindow == true }
+
     /// View ▸ Back and the mouse "back" button. No-op at the start of history.
     func historyBack() {
         DocumentHistory.shared.goBack { navigateToHistory($0) }

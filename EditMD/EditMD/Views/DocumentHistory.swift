@@ -41,9 +41,9 @@ final class DocumentHistory: ObservableObject {
     func goBack(open: (Visit) -> Void) { navigate(to: index - 1, open: open) }
     func goForward(open: (Visit) -> Void) { navigate(to: index + 1, open: open) }
 
-    /// Records a main-window visit (file or folder). In-place replacement does
-    /// not re-key the window, so AppState calls this explicitly; key-window
-    /// focus still records via the notification below (deduped).
+    /// Records a main-window visit (file or folder). AppState calls this from
+    /// `openInMainWindow` — the sole entry, so every in-place file swap is a
+    /// visit (deduped on the current URL).
     func recordVisit(_ url: URL) {
         record(url.standardizedFileURL)
     }
