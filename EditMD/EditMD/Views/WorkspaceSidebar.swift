@@ -484,7 +484,10 @@ struct WorkspaceSidebar: View {
                 .padding(.horizontal, 4)
             }
             .onAppear { scrollActiveFileIntoView(proxy) }
-            .onChange(of: activeURL) { _ in scrollActiveFileIntoView(proxy) }
+            .onChange(of: activeURL) { _ in
+                clearStaleFileSelection()
+                scrollActiveFileIntoView(proxy)
+            }
         }
     }
 
@@ -768,6 +771,18 @@ struct WorkspaceSidebar: View {
     private func clearFileSelection() {
         selectedFiles.removeAll()
         selectionAnchor = nil
+    }
+
+    /// The multi-select highlight (`selectedFiles`) survives navigation, so a
+    /// file stayed lit after the user opened a folder or a file from outside the
+    /// sidebar. When the active target moves off the selection, drop it — unless
+    /// the newly active file *is* the selection, which should stay highlighted.
+    private func clearStaleFileSelection() {
+        guard !selectedFiles.isEmpty else { return }
+        if let active = activeURL?.standardizedFileURL, selectedFiles.contains(active) {
+            return
+        }
+        clearFileSelection()
     }
 
     private func isActive(_ url: URL) -> Bool {
