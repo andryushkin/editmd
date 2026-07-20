@@ -1145,3 +1145,139 @@ struct NewFileEditorModeTests {
         #expect(defaults.dictionary(forKey: "editorMode.byPath") == nil)
     }
 }
+
+// MARK: - Folder inspector aggregates
+
+struct FolderInspectorAggregateTests {
+
+    // MARK: countMarkdownTasks
+
+    @Test("Counts GFM task checkboxes, open and done")
+    func countsTasks() {
+        let text = """
+        # Title
+
+        - [ ] open one
+        - [x] done one
+        * [X] done upper bullet
+        +   [ ] extra spaces before marker
+          - [ ] indented open
+
+        - regular list item, no checkbox
+        - [] malformed, empty brackets
+        [ ] no bullet, not a task
+        - [~] unknown marker
+        """
+        let (done, total) = countMarkdownTasks(in: text)
+        #expect(total == 5)
+        #expect(done == 2)
+    }
+
+    @Test("No tasks in plain prose")
+    func noTasks() {
+        let (done, total) = countMarkdownTasks(in: "Just a paragraph.\nAnother line.")
+        #expect(done == 0)
+        #expect(total == 0)
+    }
+
+    // MARK: folderGraphStats
+
+    @Test("Scopes link totals to the subtree and flags orphans")
+    func graphStatsScoped() {
+        let root = URL(fileURLWithPath: "/vault/sub").standardizedFileURL
+        let inA = root.appendingPathComponent("a.md")
+        let inB = root.appendingPathComponent("deep/b.md")
+        let outside = URL(fileURLWithPath: "/vault/other/c.md").standardizedFileURL
+
+        func link(_ target: String) -> OutgoingLink {
+            OutgoingLink(kind: .wiki, rawTarget: target, label: target,
+                         line: 1, utf16Offset: 0, context: "[[\(target)]]")
+        }
+        // a → b (in folder), a → c (target outside). c → a (backlink into folder).
+        let outgoing: [URL: [OutgoingLink]] = [
+            inA: [link("b"), link("c")],
+            inB: [],
+            outside: [link("a")],
+        ]
+        let backlinks: [URL: [BacklinkEdge]] = [
+            inB: [BacklinkEdge(source: inA, link: link("b"))],
+            inA: [BacklinkEdge(source: outside, link: link("a"))],
+        ]
+        let snapshot = LinkIndexSnapshot(outgoing: outgoing, backlinks: backlinks)
+
+        let stats = folderGraphStats(snapshot: snapshot, folderPathPrefix: root.path)
+        // Outgoing counts only edges from files inside the folder: a has 2, b has 0.
+        #expect(stats.outgoing == 2)
+        // Backlinks into folder files: b(1) + a(1) = 2.
+        #expect(stats.backlinks == 2)
+        // a and b are inside; only b has an incoming edge that lands on it,
+        // a also has one → both linked, so 0 orphans here.
+        #expect(stats.orphans == 0)
+    }
+
+    @Test("Orphan is a subtree file with no incoming edge")
+    func graphStatsOrphan() {
+        let root = URL(fileURLWithPath: "/vault").standardizedFileURL
+        let lonely = root.appendingPathComponent("lonely.md")
+        let hub = root.appendingPathComponent("hub.md")
+        func link(_ t: String) -> OutgoingLink {
+            OutgoingLink(kind: .wiki, rawTarget: t, label: t, line: 1,
+                         utf16Offset: 0, context: "")
+        }
+        let outgoing: [URL: [OutgoingLink]] = [lonely: [link("hub")], hub: []]
+        let backlinks: [URL: [BacklinkEdge]] = [
+            hub: [BacklinkEdge(source: lonely, link: link("hub"))],
+        ]
+        let snapshot = LinkIndexSnapshot(outgoing: outgoing, backlinks: backlinks)
+        let stats = folderGraphStats(snapshot: snapshot, folderPathPrefix: root.path)
+        // lonely has no backlink → 1 orphan; hub is linked.
+        #expect(stats.orphans == 1)
+    }
+
+    // MARK: scanFolderAggregates
+
+    @Test("Aggregates words and tasks over a temp tree")
+    func scanTempTree() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("fi-scan-\(UUID())")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let sub = root.appendingPathComponent("nested")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+
+        let textA = "# One\n\nalpha beta gamma\n- [ ] todo\n- [x] did\n"
+        let textB = "delta epsilon\n- [ ] another\n"
+        try textA.write(to: root.appendingPathComponent("a.md"),
+                        atomically: true, encoding: .utf8)
+        try textB.write(to: sub.appendingPathComponent("b.markdown"),
+                        atomically: true, encoding: .utf8)
+
+        let expectedWords = wordAndCharCount(in: textA).words
+            + wordAndCharCount(in: textB).words
+
+        let agg = scanFolderAggregates(at: root)
+        #expect(agg.markdownFiles == 2)
+        #expect(agg.tasksTotal == 3)
+        #expect(agg.tasksDone == 1)
+        #expect(agg.words == expectedWords)
+        #expect(!agg.contentPartial)
+    }
+
+    @Test("Oversized single file is skipped and marks the read partial")
+    func scanOversizedSkipped() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("fi-budget-\(UUID())")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let big = String(repeating: "word ", count: 5000) // ~25 KB
+        try big.write(to: root.appendingPathComponent("big.md"),
+                      atomically: true, encoding: .utf8)
+
+        // Force the per-file cap below the file size: content is skipped.
+        let agg = scanFolderAggregates(at: root, maxFileBytes: 1024)
+        #expect(agg.markdownFiles == 1)     // still counted as a file
+        #expect(agg.words == 0)             // content never read
+        #expect(agg.contentPartial)
+    }
+}

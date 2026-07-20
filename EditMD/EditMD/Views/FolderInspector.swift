@@ -42,6 +42,7 @@ struct FolderAggregates: Equatable, Sendable {
 /// Synchronous — call off the main actor. Honors `Task.isCancelled`.
 func scanFolderAggregates(at root: URL,
                           contentByteBudget: Int64 = 64 * 1024 * 1024,
+                          maxFileBytes: Int64 = 4 * 1024 * 1024,
                           fileManager: FileManager = .default) -> FolderAggregates {
     let markdownExt: Set<String> = ["md", "markdown", "textbundle"]
     let imageExt = supportedImageFileExtensions
@@ -51,7 +52,8 @@ func scanFolderAggregates(at root: URL,
 
     var agg = FolderAggregates.empty
     var readBytes: Int64 = 0
-    // Keep only the top entries — full sort of a 1600-file vault is wasteful.
+    // Collect every displayable file (size + mtime only); the top-5 largest /
+    // recent are picked with a single sort after the walk.
     var files: [FolderFileRef] = []
 
     func walk(_ dir: URL) {
@@ -83,10 +85,13 @@ func scanFolderAggregates(at root: URL,
             if isPDF { agg.pdfFiles += 1 }
             if isMarkdown { agg.markdownFiles += 1 }
 
-            // Content read: plain markdown only (not textbundle packages), and
-            // only while under the byte budget.
+            // Content read: plain markdown only (not textbundle packages). Skip
+            // when the total budget is spent OR this one file is oversized —
+            // reading it would blow the budget on a single load (link indexing
+            // caps individual files the same way). Either skip marks the counts
+            // as a lower bound.
             guard ext == "md" || ext == "markdown" else { continue }
-            guard readBytes < contentByteBudget else {
+            guard readBytes < contentByteBudget, size <= maxFileBytes else {
                 agg.contentPartial = true
                 continue
             }
@@ -192,13 +197,7 @@ struct FolderInspectorPanel: View {
     @State private var aggLoading = true
     @State private var graph: FolderGraphStats = .empty
     @State private var scanTask: Task<Void, Never>?
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
+    @State private var graphTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,14 +221,23 @@ struct FolderInspectorPanel: View {
             linkIndex.ensureIndex()
             reload()
         }
-        .onChange(of: folderURL) { _ in reload() }
+        .onChange(of: folderURL) { _ in
+            // New folder: clear both panes so nothing from the old one lingers
+            // under the spinner while the fresh scan / reduction runs.
+            agg = .empty
+            graph = .empty
+            reload()
+        }
         .onChange(of: workspace.contentEpoch) { _ in reload() }
         // Index republishes backlinks after a scan — recompute folder totals.
         .onChange(of: linkIndex.hasCompletedFullScan) { _ in recomputeGraph() }
         .onChange(of: linkIndex.isScanning) { scanning in
             if !scanning { recomputeGraph() }
         }
-        .onDisappear { scanTask?.cancel() }
+        .onDisappear {
+            scanTask?.cancel()
+            graphTask?.cancel()
+        }
     }
 
     // MARK: Chrome
@@ -319,7 +327,8 @@ struct FolderInspectorPanel: View {
         infoRow(label: String(localized: "Total Size"), value: formatByteSize(agg.totalBytes))
         infoRow(label: String(localized: "Words"),
                 value: agg.contentPartial ? "~\(agg.words)" : "\(agg.words)")
-        infoRow(label: String(localized: "Reading Time"), value: readingTime)
+        infoRow(label: String(localized: "Reading Time"),
+                value: (agg.contentPartial && agg.words > 0) ? "~\(readingTime)" : readingTime)
 
         if !agg.recent.isEmpty {
             sectionHeader(String(localized: "RECENT"))
@@ -339,7 +348,10 @@ struct FolderInspectorPanel: View {
         if agg.tasksTotal > 0 {
             sectionHeader(String(localized: "TASKS"))
             let fraction = Double(agg.tasksDone) / Double(agg.tasksTotal)
-            Text("\(agg.tasksDone) / \(agg.tasksTotal) done")
+            // Partial content read → the sample undercounts; mark it approximate
+            // rather than implying an exact project total.
+            let prefix = agg.contentPartial ? "~" : ""
+            Text(prefix + String(localized: "\(agg.tasksDone) / \(agg.tasksTotal) done"))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             ProgressView(value: fraction)
@@ -364,20 +376,30 @@ struct FolderInspectorPanel: View {
     private func reload() {
         let path = folderURL.standardizedFileURL.path
         let epoch = workspace.contentEpoch
+        recomputeGraph()
+
+        // Fresh (path, epoch) hit: the cache is the source of truth for this
+        // epoch (invalidated on New File/Folder), so a full content re-walk would
+        // just reproduce it. Show it and stop.
         if let cached = FolderAggregatesCache.lookup(path: path, epoch: epoch) {
+            scanTask?.cancel()
             agg = cached
             aggLoading = false
-        } else {
-            aggLoading = true
+            return
         }
-        recomputeGraph()
+        // Miss: drop any stale numbers so the previous folder's OVERVIEW/TASKS
+        // don't sit under the spinner, then walk off-main.
+        agg = .empty
+        aggLoading = true
 
         scanTask?.cancel()
         let root = folderURL.standardizedFileURL
-        scanTask = Task {
-            let scanned = await Task.detached(priority: .utility) {
-                scanFolderAggregates(at: root)
-            }.value
+        // `Task.detached` is the cancellation owner: cancelling `scanTask`
+        // cancels the walk, so `Task.isCancelled` inside `scanFolderAggregates`
+        // actually fires. (A plain `Task {}` here would run the scan on the main
+        // actor; a nested detached task would not inherit the cancel.)
+        scanTask = Task.detached(priority: .utility) {
+            let scanned = scanFolderAggregates(at: root)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard path == folderURL.standardizedFileURL.path,
@@ -393,9 +415,15 @@ struct FolderInspectorPanel: View {
     private func recomputeGraph() {
         let prefix = folderURL.standardizedFileURL.path
         let snapshot = linkIndex.snapshot()
-        Task.detached(priority: .utility) {
+        graphTask?.cancel()
+        graphTask = Task.detached(priority: .utility) {
             let stats = folderGraphStats(snapshot: snapshot, folderPathPrefix: prefix)
-            await MainActor.run { graph = stats }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // A fast folder switch could land another folder's totals here.
+                guard prefix == folderURL.standardizedFileURL.path else { return }
+                graph = stats
+            }
         }
     }
 
@@ -408,6 +436,11 @@ struct FolderInspectorPanel: View {
 
 /// Pure reducer over a `LinkIndex` snapshot: counts outgoing links, backlinks,
 /// and orphan markdown files whose path is inside `folderPathPrefix`.
+///
+/// Orphan here is deliberately simple — a file with no incoming backlink edge.
+/// It is NOT the vault-lint `orphanFile` rule: that excludes home docs
+/// (README/index) and self-links, so the two numbers can differ. This is a
+/// glanceable folder metric, not the authoritative lint.
 func folderGraphStats(snapshot: LinkIndexSnapshot,
                       folderPathPrefix: String) -> FolderGraphStats {
     func inFolder(_ url: URL) -> Bool {

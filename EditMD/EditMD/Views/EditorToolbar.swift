@@ -14,8 +14,8 @@ struct EditorToolbar: ToolbarContent {
     let appearanceIsDark: Bool
     /// Right inspector visibility (a shared `@AppStorage("inspectorVisible")`).
     @Binding var inspectorVisible: Bool
-    /// The inspector only has a pane in the markdown editor; folder/welcome/
-    /// viewer panes disable the toggle so the button set stays constant.
+    /// The inspector has a pane on the editor and folder branches; welcome /
+    /// PDF / image panes disable the toggle so the button set stays constant.
     var inspectorAvailable: Bool = true
 
     // The workspace sidebar toggle is provided once by `MainChrome` (main

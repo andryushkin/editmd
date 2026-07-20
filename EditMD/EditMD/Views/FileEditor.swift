@@ -194,9 +194,9 @@ struct MainWindowView: View {
 private struct MainChrome<Content: View>: View {
     /// The file/folder currently on screen — highlights the active row.
     let activeURL: URL?
-    /// True when the center pane is the markdown editor, i.e. the inspector
-    /// toggle has a pane to show. Keeps the trailing button set constant while
-    /// disabling the inspector on folder/welcome/viewer panes.
+    /// True when the center pane has a right inspector to show — the editor and
+    /// folder branches. Keeps the trailing button set constant while disabling
+    /// the toggle on the welcome / PDF / image panes.
     let inspectorAvailable: Bool
     @ViewBuilder var content: Content
 
