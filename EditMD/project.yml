@@ -8,6 +8,17 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+# Project-level recommended build settings (Xcode "Update to recommended
+# settings"). Set here so xcodegen bakes them into every regenerated pbxproj
+# instead of Xcode re-flagging them. Cascades to all targets.
+settings:
+  base:
+    DEAD_CODE_STRIPPING: YES
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+
 packages:
   swift-markdown:
     url: https://github.com/apple/swift-markdown
