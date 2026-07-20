@@ -145,16 +145,19 @@ struct EditorActionStrip: View {
                 stripWidth: geo.size.width, editingPaneWidth: editingPaneWidth)
             let field = field(for: editingWidth)
             let lead = field.textLeading
-            // Editing tools mirror Source's right inset and stop at the split
-            // divider. The mode switch remains global, at the strip's far edge.
+            // The strip is one bar spanning Source + Preview, so the tools flow
+            // across the whole width up to the mode switch — they no longer stop
+            // at the split divider. Clipping them to the Source pane left the bar
+            // half empty while groups collapsed into "…" with room to spare.
+            // `laneBeforeMode` already reserves the switch's width, so overflow
+            // triggers only when the full-width lane is genuinely too tight.
             let fieldTrail = max(field.textTrailing, SidebarChrome.barPaddingH)
             let stripTrail = editingPaneWidth == nil
                 ? fieldTrail : SidebarChrome.barPaddingH
             let modeWidth = widths[Self.modeKey] ?? 0
             let laneBeforeMode = max(0, geo.size.width - lead - stripTrail
                                        - modeWidth - Self.groupSpacing)
-            let laneInsideEditor = max(0, editingWidth - lead - fieldTrail)
-            let toolLaneWidth = min(laneBeforeMode, laneInsideEditor)
+            let toolLaneWidth = laneBeforeMode
             let plan = plan(available: toolLaneWidth, groups: groups)
             HStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .center, spacing: Self.groupSpacing) {
@@ -191,6 +194,12 @@ struct EditorActionStrip: View {
             .background(alignment: .leading) {
                 measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
             }
+            // One deliberate toolbar backing across the whole width. In split
+            // the editing tools stop at the divider and the mode switch sits at
+            // the far edge (over Preview); without a bar they read as two
+            // floating clusters with a gap. The bar ties them into a single
+            // strip spanning Source + Preview.
+            .background { stripBar }
             .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
         .frame(height: stripHeight)
@@ -573,6 +582,14 @@ struct EditorActionStrip: View {
             + SidebarChrome.barPaddingBottom
             + 8
             + SidebarChrome.iconButtonHeight
+    }
+
+    /// Full-width toolbar backing. `.bar` material gives the standard
+    /// translucent toolbar look and tracks light/dark on its own, so no baked
+    /// appearance. Drawn behind everything, spanning padding included.
+    private var stripBar: some View {
+        Rectangle()
+            .fill(.bar)
     }
 
     /// Preview reports nothing — its column is centred in CSS, and the rail
