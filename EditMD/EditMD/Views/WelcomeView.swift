@@ -37,6 +37,11 @@ struct WelcomeCard: View {
     private var insetV: CGFloat { preview.insetV }
     private var columnWidth: CGFloat { preview.columnWidth }
 
+    /// Cap on the reading column so rows never stretch edge-to-edge on a wide
+    /// window (otherwise the trailing shortcut drifts far from its row title).
+    /// Applied even when Preview column width is off.
+    private let maxContentWidth: CGFloat = 720
+
     private var previewH1Size: CGFloat {
         preview.fontSize * preview.elements.h1.sizeScale
     }
@@ -52,8 +57,9 @@ struct WelcomeCard: View {
 
     /// Same formula as `EditorActionStrip` / Preview column centering.
     private func contentLeading(for width: CGFloat) -> CGFloat {
-        guard columnWidth > 0, width > 0 else { return insetH }
-        let bodyWidth = min(columnWidth, width)
+        guard width > 0 else { return insetH }
+        let cap = columnWidth > 0 ? min(columnWidth, maxContentWidth) : maxContentWidth
+        let bodyWidth = min(cap, width)
         let bodyOrigin = max(0, (width - bodyWidth) / 2)
         return bodyOrigin + insetH
     }
@@ -196,6 +202,9 @@ struct WelcomeCard: View {
                 Text("Welcome to EditMD")
                     .font(titleFont)
                     .lineLimit(1)
+                    // Nudge only the title left for optical alignment — the bold
+                    // large glyphs read as indented next to the subtitle below.
+                    .padding(.leading, -4)
                 Text("Markdown editor for your vault")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)

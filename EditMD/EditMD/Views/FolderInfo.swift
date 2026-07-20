@@ -233,6 +233,10 @@ struct FolderInfoCard: View {
                     nestedFolderTree
                     Spacer(minLength: 0)
                 }
+                // Cap the reading column so full-width rows (subfolder tree)
+                // don't stretch edge-to-edge on a wide window — the trailing
+                // count would otherwise drift far from its folder name.
+                .frame(maxWidth: maxContentWidth, alignment: .leading)
                 // Left (and right) field = Preview mode insetH.
                 .padding(.horizontal, contentLeading)
                 // Top matches first workspace row under the sidebar navigator.
@@ -249,7 +253,14 @@ struct FolderInfoCard: View {
         .fileMoveDropTarget(folder: folderURL, workspace: workspace)
         .overlay(alignment: .bottom) { copiedToast }
         .onAppear { reloadTreeStats() }
-        .onChange(of: folderURL) { _ in reloadTreeStats() }
+        .onChange(of: folderURL) { _ in
+            // New folder: blank first so nothing from the old folder lingers,
+            // then cold-load. (An epoch bump keeps the last tree — see below.)
+            treeStats = nil
+            homeDoc = nil
+            statsLoading = true
+            reloadTreeStats()
+        }
         .onChange(of: workspace.contentEpoch) { _ in reloadTreeStats() }
         .onDisappear {
             toastHideTask?.cancel()
@@ -281,8 +292,11 @@ struct FolderInfoCard: View {
             }
             return
         }
-        statsLoading = true
-        treeStats = nil
+        // Miss: keep the last good tree on screen (stale-while-revalidate) so an
+        // activation `contentEpoch` bump — e.g. swiping back to the app from
+        // another Space — doesn't blank the card for a frame. Only a cold load
+        // (folder change already cleared `treeStats`) shows the counting state.
+        if treeStats == nil { statsLoading = true }
         statsTask?.cancel()
         let root = folderURL.standardizedFileURL
         statsTask = Task {
@@ -348,6 +362,10 @@ struct FolderInfoCard: View {
 
     /// Preview horizontal field (Settings ▸ Preview ▸ inset).
     private var contentLeading: CGFloat { editorSettings.preview.insetH }
+
+    /// Cap on the reading column so rows never stretch edge-to-edge on a wide
+    /// window (keeps the trailing count next to its folder name).
+    private let maxContentWidth: CGFloat = 720
 
     /// Shared left rail for title icon, section headers, and first grid icons
     /// (grid icons sit centered in each tile → inset from the cell edge).
