@@ -79,7 +79,7 @@ struct WelcomeCard: View {
         }
 
         // Session history newest-first, skip folders already listed as workspaces.
-        for url in history.urls.reversed() {
+        for url in history.entries.reversed().map(\.url) {
             let path = url.standardizedFileURL.path
             guard !seen.contains(path) else { continue }
             seen.insert(path)

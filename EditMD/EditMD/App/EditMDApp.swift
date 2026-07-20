@@ -288,13 +288,13 @@ struct EditMDApp: App {
                 Divider()
 
                 Button("Back") {
-                    history.goBack { url in AppState.shared.openInMainWindow(url) }
+                    AppState.shared.historyBack()
                 }
                 .keyboardShortcut("[")
                 .disabled(!history.canGoBack)
 
                 Button("Forward") {
-                    history.goForward { url in AppState.shared.openInMainWindow(url) }
+                    AppState.shared.historyForward()
                 }
                 .keyboardShortcut("]")
                 .disabled(!history.canGoForward)

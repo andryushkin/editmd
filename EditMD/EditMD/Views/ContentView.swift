@@ -332,6 +332,12 @@ struct ContentView: View {
                 ClaudeIDEBridge.shared.setActiveURL(fileURL)
                 ReviewModel.shared.setActiveFile(fileURL, text: document.content)
                 consumePendingControlJump()
+                // Feed Back/Forward the live caret so a departing entry
+                // remembers where the reader was. This view is .id-recreated
+                // per file, so the closure always points at the current store.
+                DocumentHistory.shared.currentOffsetProvider = { [positionStore] in
+                    positionStore.markdownOffset
+                }
             }
         }
         .onChange(of: fileURL) { _ in

@@ -186,6 +186,7 @@ private struct MainChrome<Content: View>: View {
     @ViewBuilder var content: Content
 
     @ObservedObject private var workspace = WorkspaceModel.shared
+    @ObservedObject private var history = DocumentHistory.shared
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarWidth") private var sidebarWidth = 220.0
 
@@ -235,6 +236,23 @@ private struct MainChrome<Content: View>: View {
                     Label("Toggle Sidebar", systemImage: "sidebar.left")
                 }
                 .help("Toggle Sidebar (⌃⌘S)")
+            }
+            // Browser-style Back/Forward over the visited-document history.
+            // The engine also drives View ▸ Back/Forward (⌘[ / ⌘]) and the
+            // mouse side buttons; this is just the visible, discoverable path.
+            ToolbarItem(placement: .navigation) {
+                Button { AppState.shared.historyBack() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .help("Back (⌘[)")
+                .disabled(!history.canGoBack)
+            }
+            ToolbarItem(placement: .navigation) {
+                Button { AppState.shared.historyForward() } label: {
+                    Label("Forward", systemImage: "chevron.right")
+                }
+                .help("Forward (⌘])")
+                .disabled(!history.canGoForward)
             }
         }
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)

@@ -138,6 +138,7 @@
 		8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11113E961095021DD99965B /* ReviewMarksTests.swift */; };
 		8ED863C62172573144693656 /* OfflineVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97EA04AEFF297C30EA7EC742 /* OfflineVault.swift */; };
 		9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */; };
+		9394D13968558A466BCE684D /* DocumentHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024AED6109F576DBA3DB2F7E /* DocumentHistoryTests.swift */; };
 		93AE968FA5677C1963ADBE69 /* WikiCompletionUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90DE6F43F9765940A444EF4 /* WikiCompletionUI.swift */; };
 		942F6ED1880BF19C1F50EC3F /* WikiLinkCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41663DF9728FB291C9E32A3 /* WikiLinkCore.swift */; };
 		959F2DEF3ADC7D1773FE3D70 /* AgentHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10EBA0DFA736319C4CF0087 /* AgentHooksInstaller.swift */; };
@@ -249,6 +250,7 @@
 
 /* Begin PBXFileReference section */
 		0165482D5461A7DC8DCCEC1C /* VisualEditingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEditingHelpers.swift; sourceTree = "<group>"; };
+		024AED6109F576DBA3DB2F7E /* DocumentHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistoryTests.swift; sourceTree = "<group>"; };
 		04300EC4050C4FAC5095E833 /* EditorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSettings.swift; sourceTree = "<group>"; };
 		0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorPresentation.swift; sourceTree = "<group>"; };
 		053F962514802B8D344BB744 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -778,6 +780,7 @@
 				FA89133D6E08AB0FF890383B /* CodeSyntaxHighlighterTests.swift */,
 				3AD04FD106876FC81FD7E786 /* ControlChannelTests.swift */,
 				BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */,
+				024AED6109F576DBA3DB2F7E /* DocumentHistoryTests.swift */,
 				CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */,
 				DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */,
 				5892181628091BA354F2A95C /* FileHistoryGitTests.swift */,
@@ -1001,6 +1004,7 @@
 				F7E62F7A542659F97CE60EAE /* CodeSyntaxHighlighterTests.swift in Sources */,
 				0D51E0A809EEF94EDBEBD078 /* ControlChannelTests.swift in Sources */,
 				5F858EFE290A7572597F15C9 /* DiffApprovalControllerTests.swift in Sources */,
+				9394D13968558A466BCE684D /* DocumentHistoryTests.swift in Sources */,
 				DA424E58D0274B4EB89F9151 /* DocumentStoreTests.swift in Sources */,
 				8C6DCEE9C17EAEDC106316B9 /* EditMenuTests.swift in Sources */,
 				B1BDD7296ECD5EAAB06A6748 /* FileHistoryGitTests.swift in Sources */,

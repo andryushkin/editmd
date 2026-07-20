@@ -9,15 +9,37 @@ import Combine
 /// (untitled documents have no URL and stay out of the history). Navigating
 /// re-activates the neighbouring document's window, or reopens the file if
 /// the window was closed.
+///
+/// Each entry also remembers a caret offset so Back/Forward returns the reader
+/// to *where they were*, not the top of the file — filled from
+/// `currentOffsetProvider` at the moment a visit is left (a new navigation or a
+/// Back/Forward step), and restored through AppState's control-jump path.
 @MainActor
 final class DocumentHistory: ObservableObject {
 
     static let shared = DocumentHistory()
 
-    @Published private(set) var urls: [URL] = []
+    /// One visited document: its URL plus the caret offset the reader last had
+    /// there (UTF-16 into the markdown text; 0 until stamped).
+    struct Visit: Equatable {
+        let url: URL
+        var offset: Int
+    }
+
+    @Published private(set) var entries: [Visit] = []
     @Published private(set) var index = -1
 
-    private init() {
+    /// Returns the live caret offset of the active main editor. Set by the main
+    /// `ContentView` on appear so a departing entry can remember its position;
+    /// nil when no editor is mounted (folder/welcome), which leaves the last
+    /// stamped offset intact.
+    var currentOffsetProvider: (() -> Int?)?
+
+    /// `observingWindows` is false only for isolated unit tests, which drive
+    /// `recordVisit`/`goBack` directly and must not pick up the host app's own
+    /// window activity.
+    init(observingWindows: Bool = true) {
+        guard observingWindows else { return }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowDidBecomeKey(_:)),
@@ -26,10 +48,10 @@ final class DocumentHistory: ObservableObject {
     }
 
     var canGoBack: Bool { index > 0 }
-    var canGoForward: Bool { index >= 0 && index < urls.count - 1 }
+    var canGoForward: Bool { index >= 0 && index < entries.count - 1 }
 
-    func goBack(open: (URL) -> Void) { navigate(to: index - 1, open: open) }
-    func goForward(open: (URL) -> Void) { navigate(to: index + 1, open: open) }
+    func goBack(open: (Visit) -> Void) { navigate(to: index - 1, open: open) }
+    func goForward(open: (Visit) -> Void) { navigate(to: index + 1, open: open) }
 
     /// Records a main-window visit (file or folder). In-place replacement does
     /// not re-key the window, so AppState calls this explicitly; key-window
@@ -40,8 +62,9 @@ final class DocumentHistory: ObservableObject {
 
     /// Preserves Back/Forward targets when a workspace root is renamed.
     func relocateFolder(from oldRoot: URL, to newRoot: URL) {
-        urls = urls.map {
-            WorkspaceModel.relocatedURL($0, from: oldRoot, to: newRoot)
+        entries = entries.map {
+            Visit(url: WorkspaceModel.relocatedURL($0.url, from: oldRoot, to: newRoot),
+                  offset: $0.offset)
         }
     }
 
@@ -49,7 +72,9 @@ final class DocumentHistory: ObservableObject {
     func relocateFile(from oldURL: URL, to newURL: URL) {
         let old = oldURL.standardizedFileURL
         let new = newURL.standardizedFileURL
-        urls = urls.map { $0.standardizedFileURL == old ? new : $0 }
+        entries = entries.map {
+            $0.url.standardizedFileURL == old ? Visit(url: new, offset: $0.offset) : $0
+        }
     }
 
     /// Removes Back/Forward targets whose filesystem outcome is ambiguous.
@@ -59,18 +84,18 @@ final class DocumentHistory: ObservableObject {
         let roots = rawRoots.map(\.standardizedFileURL)
         guard !roots.isEmpty else { return }
         let oldIndex = index
-        var kept: [URL] = []
+        var kept: [Visit] = []
         var keptIndex = -1
-        for (position, url) in urls.enumerated() {
+        for (position, visit) in entries.enumerated() {
             let shouldDrop = roots.contains { root in
-                let path = url.standardizedFileURL.path
+                let path = visit.url.standardizedFileURL.path
                 return path == root.path || path.hasPrefix(root.path + "/")
             }
             guard !shouldDrop else { continue }
-            kept.append(url)
+            kept.append(visit)
             if position <= oldIndex { keptIndex = kept.count - 1 }
         }
-        urls = kept
+        entries = kept
         if kept.isEmpty {
             index = -1
         } else if keptIndex >= 0 {
@@ -87,24 +112,31 @@ final class DocumentHistory: ObservableObject {
 
     private func record(_ url: URL) {
         // Re-focusing the current entry (app switch, a navigation landing on
-        // its target) is not a new visit.
-        if index >= 0, index < urls.count, urls[index] == url { return }
+        // its target) is not a new visit — and must not re-stamp its offset,
+        // since we are arriving, not leaving.
+        if index >= 0, index < entries.count, entries[index].url == url { return }
+        // Leaving the current entry: remember where the reader was so Back
+        // returns there.
+        stampCurrentOffset()
         // A new visit truncates the forward tail — browser-history semantics.
-        urls.removeSubrange((index + 1)...)
-        urls.append(url)
-        index = urls.count - 1
+        entries.removeSubrange((index + 1)...)
+        entries.append(Visit(url: url, offset: 0))
+        index = entries.count - 1
     }
 
-    private func navigate(to newIndex: Int, open: (URL) -> Void) {
-        guard newIndex >= 0, newIndex < urls.count else { return }
+    /// Writes the live caret offset into the current entry. No-op when there is
+    /// no current entry or no editor is mounted to report a position.
+    private func stampCurrentOffset() {
+        guard index >= 0, index < entries.count,
+              let offset = currentOffsetProvider?() else { return }
+        entries[index].offset = offset
+    }
+
+    private func navigate(to newIndex: Int, open: (Visit) -> Void) {
+        guard newIndex >= 0, newIndex < entries.count else { return }
+        // Remember the current position first, so the reverse step returns here.
+        stampCurrentOffset()
         index = newIndex
-        let url = urls[newIndex]
-        if let window = NSApp.windows.first(where: {
-            $0.representedURL?.standardizedFileURL == url
-        }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            open(url)
-        }
+        open(entries[newIndex])
     }
 }

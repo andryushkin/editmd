@@ -307,6 +307,34 @@ final class AppState: ObservableObject {
         return pending.offset
     }
 
+    // MARK: Back/Forward
+
+    /// View ▸ Back and the mouse "back" button. No-op at the start of history.
+    func historyBack() {
+        DocumentHistory.shared.goBack { navigateToHistory($0) }
+    }
+
+    /// View ▸ Forward and the mouse "forward" button. No-op at the tip.
+    func historyForward() {
+        DocumentHistory.shared.goForward { navigateToHistory($0) }
+    }
+
+    /// Opens a history entry and restores its remembered caret offset. Focuses
+    /// an already-open window for that file (e.g. a lite window); otherwise the
+    /// main window swaps to it in place. The caret restore rides the existing
+    /// control-jump path — `openInMainWindow` re-records the same URL as a
+    /// no-op because `DocumentHistory` has already moved its index onto it.
+    private func navigateToHistory(_ visit: DocumentHistory.Visit) {
+        requestControlJump(url: visit.url, offset: visit.offset)
+        if let window = NSApp.windows.first(where: {
+            $0.representedURL?.standardizedFileURL == visit.url
+        }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            openInMainWindow(visit.url)
+        }
+    }
+
     /// Main pane is the app welcome (not a document / folder).
     var isWelcome: Bool { currentURL == nil && !isUntitled }
 

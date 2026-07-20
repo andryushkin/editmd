@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         resetEditorModeForColdLaunch(.standard)
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
+        installBackForwardMouseMonitor()
         // Claude Code IDE channel: follows Settings ▸ General (default on).
         // Skipped under XCTest — the unit-test host would open a real listener
         // and drop a lock file into the developer's own `~/.claude/ide`.
@@ -31,6 +32,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // test host must not walk the developer's real vault.
             if !WorkspaceModel.shared.workspaces.isEmpty {
                 LinkIndex.shared.ensureIndex()
+            }
+        }
+    }
+
+    /// Mouse side buttons → Back/Forward, like a browser. Button 3 is the
+    /// "back" thumb button, 4 is "forward" (macOS numbering). Consumed only
+    /// when a document window (one with a representedURL) is key, so the
+    /// buttons stay free elsewhere; the nav itself no-ops at the ends.
+    private func installBackForwardMouseMonitor() {
+        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            guard NSApp.keyWindow?.representedURL != nil else { return event }
+            switch event.buttonNumber {
+            case 3: AppState.shared.historyBack(); return nil
+            case 4: AppState.shared.historyForward(); return nil
+            default: return event
             }
         }
     }
