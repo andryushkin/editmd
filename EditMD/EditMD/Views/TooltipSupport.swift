@@ -60,6 +60,11 @@ enum SidebarChrome {
     static let iconButtonWidth: CGFloat = 28
     static let iconButtonHeight: CGFloat = 24
 
+    /// Cap on the reading column for the welcome / folder-info center panes so
+    /// full-width rows don't stretch edge-to-edge on a wide window. Welcome
+    /// centers within it (minus insets); folder-info left-aligns.
+    static let maxReadingWidth: CGFloat = 720
+
     /// Soft well gray for icon pills (Files/Outline, folder actions, filter).
     /// Kept lighter than a typical control fill so the plaque stays subtle.
     static let wellColor = NSColor(name: nil) { appearance in

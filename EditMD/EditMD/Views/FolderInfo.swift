@@ -185,6 +185,10 @@ struct FolderInfoCard: View {
     @State private var showCopiedToast = false
     @State private var toastHideTask: Task<Void, Never>?
     @State private var treeStats: FolderTreeStats?
+    /// Folder `treeStats` was computed for. A body render can briefly see a new
+    /// `folderURL` paired with the previous folder's stats (before `onChange`
+    /// reloads); `currentStats` treats that mismatch as no data.
+    @State private var loadedPath: String?
     @State private var statsLoading = true
     @State private var statsTask: Task<Void, Never>?
     /// README/index of the folder — refreshed with the stats scan; the body
@@ -215,6 +219,12 @@ struct FolderInfoCard: View {
         workspace.workspaceRoot(at: folderURL)
     }
 
+    /// `treeStats`, but only when it belongs to the folder on screen — guards the
+    /// one-frame window where `folderURL` has changed but the reload hasn't run.
+    private var currentStats: FolderTreeStats? {
+        loadedPath == folderURL.standardizedFileURL.path ? treeStats : nil
+    }
+
     private var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: FolderGridTile.width, maximum: FolderGridTile.width),
                   spacing: 10)]
@@ -236,7 +246,7 @@ struct FolderInfoCard: View {
                 // Cap the reading column so full-width rows (subfolder tree)
                 // don't stretch edge-to-edge on a wide window — the trailing
                 // count would otherwise drift far from its folder name.
-                .frame(maxWidth: maxContentWidth, alignment: .leading)
+                .frame(maxWidth: SidebarChrome.maxReadingWidth, alignment: .leading)
                 // Left (and right) field = Preview mode insetH.
                 .padding(.horizontal, contentLeading)
                 // Top matches first workspace row under the sidebar navigator.
@@ -254,11 +264,9 @@ struct FolderInfoCard: View {
         .overlay(alignment: .bottom) { copiedToast }
         .onAppear { reloadTreeStats() }
         .onChange(of: folderURL) { _ in
-            // New folder: blank first so nothing from the old folder lingers,
-            // then cold-load. (An epoch bump keeps the last tree — see below.)
-            treeStats = nil
+            // New folder: drop the stale README/index button; `currentStats`
+            // already hides the old tree (path mismatch) until reload lands.
             homeDoc = nil
-            statsLoading = true
             reloadTreeStats()
         }
         .onChange(of: workspace.contentEpoch) { _ in reloadTreeStats() }
@@ -275,6 +283,7 @@ struct FolderInfoCard: View {
         let epoch = workspace.contentEpoch
         if let cached = FolderStatsCache.lookup(path: path, epoch: epoch) {
             treeStats = cached
+            loadedPath = path
             statsLoading = false
             // Stats came from cache, but README/index still needs a (cheap)
             // async probe — never a synchronous listing on the main actor.
@@ -292,17 +301,25 @@ struct FolderInfoCard: View {
             }
             return
         }
-        // Miss: keep the last good tree on screen (stale-while-revalidate) so an
-        // activation `contentEpoch` bump — e.g. swiping back to the app from
-        // another Space — doesn't blank the card for a frame. Only a cold load
-        // (folder change already cleared `treeStats`) shows the counting state.
-        if treeStats == nil { statsLoading = true }
+        // Miss (epoch bumped, or @State dropped on view recreation). Seed from
+        // any cached entry for this path so we revalidate against a visible tree
+        // rather than a blank one — keeps activation `contentEpoch` bumps (e.g.
+        // swiping back from another Space) and re-mounts flicker-free.
+        if currentStats == nil, let any = FolderStatsCache.lookupAny(path: path) {
+            treeStats = any.stats
+            loadedPath = path
+        }
+        // Cold load only: no data for this folder at all → show the counting
+        // state; a stale tree stays put (stale-while-revalidate).
+        if currentStats == nil { statsLoading = true }
+        // Detached task owns cancellation: cancelling `statsTask` propagates into
+        // `scanFolderTreeStats`'s `Task.isCancelled` checks, actually aborting the
+        // walk (a nested `Task.detached` would not inherit the cancel).
         statsTask?.cancel()
         let root = folderURL.standardizedFileURL
-        statsTask = Task {
-            let (stats, home) = await Task.detached(priority: .utility) {
-                (scanFolderTreeStats(at: root), homeDocument(in: root))
-            }.value
+        statsTask = Task.detached(priority: .utility) {
+            let stats = scanFolderTreeStats(at: root)
+            let home = homeDocument(in: root)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 // Drop result if the card moved on (new folder / epoch).
@@ -310,6 +327,7 @@ struct FolderInfoCard: View {
                       epoch == workspace.contentEpoch else { return }
                 FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
                 treeStats = stats
+                loadedPath = path
                 homeDoc = home
                 statsLoading = false
             }
@@ -363,10 +381,6 @@ struct FolderInfoCard: View {
     /// Preview horizontal field (Settings ▸ Preview ▸ inset).
     private var contentLeading: CGFloat { editorSettings.preview.insetH }
 
-    /// Cap on the reading column so rows never stretch edge-to-edge on a wide
-    /// window (keeps the trailing count next to its folder name).
-    private let maxContentWidth: CGFloat = 720
-
     /// Shared left rail for title icon, section headers, and first grid icons
     /// (grid icons sit centered in each tile → inset from the cell edge).
     private var contentIconRail: CGFloat {
@@ -382,13 +396,13 @@ struct FolderInfoCard: View {
             }
             // No per-stat editMDHelp — AppKit tooltip views inflate spacing.
             compactStat(systemImage: "doc.text",
-                        value: statsLoading ? "…" : "\(treeStats?.markdownCount ?? 0)")
+                        value: statsLoading ? "…" : "\(currentStats?.markdownCount ?? 0)")
             Text("·")
                 .foregroundStyle(.quaternary)
                 .font(.system(size: 11))
                 .padding(.horizontal, 1)
             compactStat(systemImage: "folder",
-                        value: statsLoading ? "…" : "\(treeStats?.subfolderCount ?? 0)")
+                        value: statsLoading ? "…" : "\(currentStats?.subfolderCount ?? 0)")
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
@@ -397,7 +411,7 @@ struct FolderInfoCard: View {
         .fixedSize(horizontal: true, vertical: false)
         .editMDHelp(statsLoading
                     ? String(localized: "Counting…")
-                    : String(localized: "Whole tree: \(treeStats?.markdownCount ?? 0) files, \(treeStats?.subfolderCount ?? 0) subfolders"))
+                    : String(localized: "Whole tree: \(currentStats?.markdownCount ?? 0) files, \(currentStats?.subfolderCount ?? 0) subfolders"))
     }
 
     private func compactStat(systemImage: String, value: String) -> some View {
@@ -498,7 +512,7 @@ struct FolderInfoCard: View {
 
     /// Full-depth tree of folders with .md counts — data only from cached scan.
     @ViewBuilder private var nestedFolderTree: some View {
-        let nodes = treeStats?.folderTree ?? []
+        let nodes = currentStats?.folderTree ?? []
         if !nodes.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 sectionHeader(String(localized: "SUBFOLDERS"))
@@ -516,8 +530,8 @@ struct FolderInfoCard: View {
     /// Bottom sections (like hidden files): «Пустые папки», then «Скрытые».
     private var contentList: some View {
         let _ = workspace.contentEpoch
-        let folders = treeStats?.directMarkdownFolders ?? []
-        let emptyFolders = treeStats?.directEmptyFolders ?? []
+        let folders = currentStats?.directMarkdownFolders ?? []
+        let emptyFolders = currentStats?.directEmptyFolders ?? []
         let visible = workspace.visibleMarkdown(in: folderURL)
         let hidden = workspace.hiddenMarkdown(in: folderURL)
         let empty = !statsLoading
