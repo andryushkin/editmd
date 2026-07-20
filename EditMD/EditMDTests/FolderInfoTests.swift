@@ -1098,7 +1098,7 @@ struct LongRunningOperationCenterTests {
     }
 }
 
-@Suite("New file editor mode")
+@Suite("Editor mode open rules")
 @MainActor
 struct NewFileEditorModeTests {
 
