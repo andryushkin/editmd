@@ -131,10 +131,11 @@ private final class TableCellEditorField: NSTextField, NSTextFieldDelegate {
 private final class TableCellEditorCell: NSTextFieldCell {
     var insets: NSSize = .zero
 
-    /// Bare `NSTextFieldCell()` defaults to non-editable/non-selectable. If the
-    /// overlay field swaps in such a cell without restoring these flags,
-    /// `acceptsFirstResponder` stays false: the overlay paints but never takes
-    /// the caret, so typing dies. Force the edit defaults in every init path.
+    /// Bare `NSTextFieldCell` defaults to non-editable/non-selectable. After a
+    /// field swaps this cell in, `acceptsFirstResponder` stays false unless
+    /// these flags are true — overlay paints but never takes the caret.
+    /// Always construct via `init(textCell:)` (not the parameterless
+    /// convenience `init()`, which does not hit this override).
     override init(textCell string: String) {
         super.init(textCell: string)
         isEditable = true
@@ -616,12 +617,15 @@ final class VisualNSTextView: NSTextView {
                                height: max(20, rowH - cellInset * 2))
         let frame = expandedEditorFrame(for: value, cellFrame: cellFrame, font: row == 0 ? entry.headerFont : entry.font)
         let editor = TableCellEditorField(frame: frame)
-        let cell = TableCellEditorCell()
+        // Must use `textCell:` so `TableCellEditorCell.init(textCell:)` runs and
+        // sets isEditable/isSelectable. Parameterless `TableCellEditorCell()` is
+        // NSCell's convenience path and skips that override.
+        let cell = TableCellEditorCell(textCell: "")
         cell.insets = NSSize(width: editorSettings.editorTextInsetH, height: editorSettings.editorTextInsetV)
-        // `TableCellEditorCell` init forces editable/selectable, but re-assert on
-        // the control after the cell swap so a future bare-cell path cannot
-        // silently reintroduce the "overlay without caret" bug.
         editor.cell = cell
+        // Belt-and-braces: control mirrors the cell flags after the swap so a
+        // future bare-cell assignment cannot silently reintroduce the
+        // "overlay without caret" bug.
         editor.isEditable = true
         editor.isSelectable = true
         editor.font = row == 0 ? entry.headerFont : entry.font
