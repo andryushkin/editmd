@@ -93,9 +93,11 @@ struct EditorActionStrip: View {
     /// Source / Visual / Preview inset for column alignment.
     var insetH: CGFloat
     var columnWidth: CGFloat
-    /// Width of the pane whose text/gutter the editing tools belong to. In
-    /// split mode the strip itself is wider (it spans Source + Preview), while
-    /// this lane stops at the divider. nil means the whole strip.
+    /// Width of the Source pane in split, used only to align the tools' left
+    /// edge and the gutter toggle over that pane's text/numbers (field
+    /// geometry) and to pick the split trailing padding. It does NOT bound the
+    /// tool lane — the tools flow across the whole strip up to the mode switch.
+    /// nil (non-split) means the strip spans the whole editor area.
     var editingPaneWidth: CGFloat? = nil
     /// Left edge of the text as reported by Source/Visual (their inset already
     /// reserves the numbers margin). nil → compute it (Preview).
@@ -194,11 +196,10 @@ struct EditorActionStrip: View {
             .background(alignment: .leading) {
                 measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
             }
-            // One deliberate toolbar backing across the whole width. In split
-            // the editing tools stop at the divider and the mode switch sits at
-            // the far edge (over Preview); without a bar they read as two
-            // floating clusters with a gap. The bar ties them into a single
-            // strip spanning Source + Preview.
+            // One deliberate toolbar backing across the whole width. The tools
+            // flow across Source + Preview up to the reserved mode switch;
+            // without a bar they read as two floating clusters with a gap. The
+            // bar ties them into a single strip spanning both panes.
             .background { stripBar }
             .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
