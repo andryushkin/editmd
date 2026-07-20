@@ -34,14 +34,14 @@ struct EditorToolbar: ToolbarContent {
             AgentActivityButton()
         }
         // Right inspector toggle, mirroring MainChrome's leading sidebar
-        // button. Accent tint while open — same active-state cue as the editor
-        // strip's toggles; disabled where no inspector pane exists.
+        // button. A Toggle with `.button` style so macOS draws the active
+        // (open) state itself — a plain `foregroundStyle` tint is often ignored
+        // on toolbar SF Symbols. Disabled where no inspector pane exists.
         ToolbarItem(placement: .primaryAction) {
-            Button { inspectorVisible.toggle() } label: {
+            Toggle(isOn: $inspectorVisible) {
                 Label("Toggle Inspector", systemImage: "sidebar.right")
-                    .foregroundStyle(inspectorVisible && inspectorAvailable
-                                     ? Color.accentColor : Color.primary)
             }
+            .toggleStyle(.button)
             .help("Toggle Inspector (⌥⌘0)")
             .disabled(!inspectorAvailable)
         }

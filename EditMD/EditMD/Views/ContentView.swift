@@ -152,17 +152,7 @@ struct ContentView: View {
     /// General's base color overrides. (Preview has its own `PreviewTheme`.)
     private var theme: EditorTheme { editorSettings.effectiveTheme }
 
-    /// Whether the window currently renders dark — resolves `.system` against
-    /// the app's effective appearance so the ☀/🌙 toolbar toggle flips the
-    /// right way.
-    private var appearanceIsDark: Bool {
-        switch editorSettings.general.appearance {
-        case .dark: return true
-        case .light: return false
-        case .system:
-            return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        }
-    }
+    private var appearanceIsDark: Bool { editorSettings.general.appearance.isDark }
 
     private var modeBinding: Binding<EditorMode> {
         Binding(

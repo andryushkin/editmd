@@ -30,6 +30,18 @@ enum AppearanceMode: String, Codable, CaseIterable, Identifiable {
         case .dark: return .dark
         }
     }
+
+    /// Whether the window renders dark right now — resolves `.system` against
+    /// the app's effective appearance so a ☀/🌙 toggle over this flips the
+    /// right way. Single source for the toolbar hosts (MainChrome + ContentView).
+    var isDark: Bool {
+        switch self {
+        case .dark: return true
+        case .light: return false
+        case .system:
+            return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        }
+    }
 }
 
 // MARK: - Font weight

@@ -202,16 +202,7 @@ private struct MainChrome<Content: View>: View {
     private static var widthRange: ClosedRange<Double> { 150.0...400.0 }
     private static var paneSpace: String { "mainChromePanes" }
 
-    /// Whether the window currently renders dark — resolves `.system` against
-    /// the app's effective appearance so the ☀/🌙 toggle flips the right way.
-    private var appearanceIsDark: Bool {
-        switch editorSettings.general.appearance {
-        case .dark: return true
-        case .light: return false
-        case .system:
-            return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        }
-    }
+    private var appearanceIsDark: Bool { editorSettings.general.appearance.isDark }
 
     var body: some View {
         GeometryReader { geo in
@@ -252,12 +243,13 @@ private struct MainChrome<Content: View>: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { sidebarVisible.toggle() } label: {
+                // Toggle (not Button) so macOS draws the active (open) state —
+                // matches the inspector toggle; a foregroundStyle tint is often
+                // dropped on toolbar SF Symbols.
+                Toggle(isOn: $sidebarVisible) {
                     Label("Toggle Sidebar", systemImage: "sidebar.left")
-                        // Accent tint while open — same active-state cue as the
-                        // editor strip's toggles (B/I, line numbers).
-                        .foregroundStyle(sidebarVisible ? Color.accentColor : Color.primary)
                 }
+                .toggleStyle(.button)
                 .help("Toggle Sidebar (⌃⌘S)")
             }
             // Browser-style Back/Forward over the visited-document history.
