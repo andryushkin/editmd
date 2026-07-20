@@ -23,7 +23,8 @@
 
 Зона: editor input, native/island-таблицы, авто-продолжение списков.
 
-- [ ] Visual: не работает редактирование больших таблиц (2026-07-18, найдено при проверке CPU-фикса LinkIndex на WoL-вольте). Уточнить репро: размер таблицы и что именно не работает (ввод в ячейку? сериализация?). Вероятная зона: порог `maxNativeTableCells` → island-таблица (`replaceTableIsland`); смежный известный хвост — перенос широких ячеек Visual-grid.
+- [x] Visual: не работает редактирование больших таблиц (оверлей открывается, курсора нет, печать молчит). — **Причина 2026-07-20:** в `startEditingTableCell` после `editor.cell = TableCellEditorCell()` bare `NSTextFieldCell` сбрасывает `isEditable`/`isSelectable` в `false` → `acceptsFirstResponder == false` → `makeFirstResponder` отказывает, overlay виден без caret. Это баг с самого feature (`c3aab18`), не регресс layout. **Фикс:** editable/selectable в init `TableCellEditorCell` + re-assert на control; single-click не ставит caret в island и не переключает edit на другую ячейку (click outside = view mode); Enter/Esc/Tab через `control(_:textView:doCommandBy:)` (field editor, не `keyDown` на field) — Enter = commit+exit. Smoke: double-click / F2 → правка → Enter закрывает оверлей.
+- [x] Visual-grid: перенос широких ячеек. — **Сделано 2026-07-20.** Island: колонки по-прежнему cap 260pt; ячейки шире колонки растят высоту строки (`rowHeights`), текст `byWordWrapping`. Layout-резерв — одна spacer-строка с `min=max lineHeight = sum(rowHeights)`; hit/draw/edit — арифметика по `rowHeights`.
 - [ ] В сплит- и Source-режиме: при нажатии Enter внутри списков и чекбоксов автоматически вставлять продолжение (маркер/`- [ ]`). Наверное и с таблицами так же.
 
 ## Группа D — Git-панель UI

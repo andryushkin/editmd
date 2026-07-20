@@ -14,53 +14,138 @@ func visualPointHitsCharacterRange(_ point: NSPoint, range: NSRange,
 
 // MARK: - Text view with drawn markers
 
-/// A large table drawn as a virtualized, read-only grid rather than laid out as
-/// NSTextTable cells (which peg the CPU past a few thousand cells). `range` is
-/// the island paragraph whose (hidden) pipe text reserves the vertical space;
-/// `columnEdges` are absolute x positions left→right including the right edge;
-/// `rowHeight` is the fixed height each display line was pinned to, so row rects
-/// are computed arithmetically — no full line-fragment enumeration, which is
-/// what keeps a 9000-row table cheap to draw.
+/// A large table drawn as a virtualized grid rather than laid out as NSTextTable
+/// cells (which peg the CPU past a few thousand cells). `range` is the island
+/// paragraph whose (hidden) spacer reserves the vertical space; `columnEdges`
+/// are absolute x positions left→right including the right edge; `rowHeights`
+/// are per-row heights (header at 0) so wrapped cells grow their row while
+/// short rows stay compact. Row rects are arithmetic from `rowHeights` — no
+/// full line-fragment enumeration — which keeps a 9000-row table cheap to draw.
 struct TableIslandEntry {
     let range: NSRange
     let grid: TableGrid
     let columnEdges: [CGFloat]
-    let rowHeight: CGFloat
+    /// Per-row heights (index 0 = header). Sum is the island's layout height.
+    let rowHeights: [CGFloat]
     let font: NSFont
     let headerFont: NSFont
+
+    var totalHeight: CGFloat { tableIslandTotalHeight(rowHeights) }
+
+    func rowOffset(_ row: Int) -> CGFloat { tableIslandRowOffset(rowHeights, row: row) }
+
+    func rowIndex(atLocalY y: CGFloat) -> Int {
+        tableIslandRowIndex(heights: rowHeights, localY: y)
+    }
+
+    func rowHeight(_ row: Int) -> CGFloat {
+        guard row >= 0, row < rowHeights.count else { return 0 }
+        return rowHeights[row]
+    }
 }
 
-private final class TableCellEditorField: NSTextField {
+// MARK: - Island row geometry (pure)
+
+func tableIslandTotalHeight(_ heights: [CGFloat]) -> CGFloat {
+    heights.reduce(0, +)
+}
+
+func tableIslandRowOffset(_ heights: [CGFloat], row: Int) -> CGFloat {
+    guard row > 0 else { return 0 }
+    let n = min(row, heights.count)
+    var y: CGFloat = 0
+    for i in 0..<n { y += heights[i] }
+    return y
+}
+
+func tableIslandRowIndex(heights: [CGFloat], localY: CGFloat) -> Int {
+    guard !heights.isEmpty else { return 0 }
+    if localY <= 0 { return 0 }
+    var acc: CGFloat = 0
+    for (i, h) in heights.enumerated() {
+        acc += h
+        if localY < acc { return i }
+    }
+    return heights.count - 1
+}
+
+/// Cell overlay editor. While editing, first responder is AppKit's field editor
+/// (an NSTextView), so `keyDown` on the field itself never sees Enter/Tab/Esc —
+/// those arrive as field-editor commands. Intercept them in
+/// `control(_:textView:doCommandBy:)`: plain Enter commits and exits (same as
+/// clicking outside), not "select all" / insert newline.
+private final class TableCellEditorField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
     var onMove: ((Bool) -> Void)?      // true: forward, false: backward
     var onDeleteRow: (() -> Void)?
     var onTextChange: ((String) -> Void)?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        delegate = self
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        delegate = self
+    }
+
     override func textDidChange(_ notification: Notification) {
         super.textDidChange(notification)
         onTextChange?(stringValue)
     }
 
-    override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 53: // Esc
+    func control(_ control: NSControl, textView: NSTextView,
+                 doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(insertNewline(_:)),
+             #selector(insertNewlineIgnoringFieldEditor(_:)):
+            // Enter / Return → finish editing (commit), like a click outside.
+            onCommit?(stringValue)
+            return true
+        case #selector(cancelOperation(_:)):
             onCancel?()
-        case 48: // Tab
+            return true
+        case #selector(insertTab(_:)):
             onCommit?(stringValue)
-            onMove?(!event.modifierFlags.contains(.shift))
-        case 51 where event.modifierFlags.contains(.command): // Cmd+Backspace
-            onDeleteRow?()
-        case 36, 76: // Enter/Return
+            onMove?(true)
+            return true
+        case #selector(insertBacktab(_:)):
             onCommit?(stringValue)
+            onMove?(false)
+            return true
+        case #selector(deleteToBeginningOfLine(_:)):
+            // Cmd+Backspace (and equivalents that map here) → delete row.
+            if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
+                onDeleteRow?()
+                return true
+            }
+            return false
         default:
-            super.keyDown(with: event)
+            return false
         }
     }
 }
 
 private final class TableCellEditorCell: NSTextFieldCell {
     var insets: NSSize = .zero
+
+    /// Bare `NSTextFieldCell()` defaults to non-editable/non-selectable. If the
+    /// overlay field swaps in such a cell without restoring these flags,
+    /// `acceptsFirstResponder` stays false: the overlay paints but never takes
+    /// the caret, so typing dies. Force the edit defaults in every init path.
+    override init(textCell string: String) {
+        super.init(textCell: string)
+        isEditable = true
+        isSelectable = true
+    }
+
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+        isEditable = true
+        isSelectable = true
+    }
 
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         rect.insetBy(dx: insets.width, dy: insets.height)
@@ -234,14 +319,9 @@ final class VisualNSTextView: NSTextView {
             beginRowDrag(handle: handle)
             return
         }
-        if activeEditor != nil, let hit = tableCellHit(at: point) {
-            // Fast path: switch editor directly to another cell.
-            finishActiveTableEditing(commit: true)
-            focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
-            _ = startEditingTableCell(paragraphLocation: hit.entry.range.location,
-                                      row: hit.row, column: hit.column)
-            return
-        }
+        // Click outside the active overlay (including another table cell) commits
+        // and returns to view mode. Do not auto-open the clicked cell — only
+        // double-click / F2 / Enter start editing.
         if let editor = activeEditor,
            !editor.frame.insetBy(dx: -editorSettings.editorCellInset, dy: -editorSettings.editorCellInset).contains(point) {
             finishActiveTableEditing(commit: true)
@@ -255,19 +335,28 @@ final class VisualNSTextView: NSTextView {
         }
         if let hit = tableCellHit(at: point) {
             focusedIslandCell = (hit.entry.range.location, hit.row, hit.column)
-        } else {
-            focusedIslandCell = nil
+            // Status-token cells still cycle on a single click.
+            if event.clickCount == 1, cycleBuiltInPluginIslandCell(hit) {
+                return
+            }
+            // Island tables are a drawn grid over hidden pipe text. Letting
+            // NSTextView handle the click would plant a blinking caret in that
+            // text under the grid — useless (can't type into `.raw`) and
+            // distracting. Keep cell focus for F2/Enter, but do not move the
+            // insertion point into the island.
+            if activeEditor == nil {
+                clearInsertionPointIfInsideTableIsland(hit.entry.range)
+                window?.makeFirstResponder(self)
+            }
+            return
         }
+        focusedIslandCell = nil
         if let paragraph = builtInPluginTaskParagraph(at: point) {
             visualCoordinator?.toggleBuiltInPluginTask(at: paragraph)
             return
         }
         if let token = builtInPluginInlineToken(at: point) {
             visualCoordinator?.cycleBuiltInPluginInlineToken(in: token.range)
-            return
-        }
-        if event.clickCount == 1, let hit = tableCellHit(at: point),
-           cycleBuiltInPluginIslandCell(hit) {
             return
         }
         if let paragraph = taskParagraph(at: point) {
@@ -443,17 +532,19 @@ final class VisualNSTextView: NSTextView {
         guard let layoutManager else { return nil }
         let totalLength = (string as NSString).length
         for entry in tableIslandEntries {
-            guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { continue }
+            guard entry.range.location < totalLength, entry.columnEdges.count >= 2,
+                  !entry.rowHeights.isEmpty else { continue }
             let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range, actualCharacterRange: nil)
             guard glyphRange.length > 0 else { continue }
             let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
             let top = firstRect.minY + textContainerInset.height
-            let totalRows = entry.grid.rows.count + 1
-            let height = CGFloat(totalRows) * entry.rowHeight
-            let islandRect = NSRect(x: textContainerInset.width, y: top, width: bounds.width - textContainerInset.width * 2, height: height)
+            let height = entry.totalHeight
+            let islandRect = NSRect(x: textContainerInset.width, y: top,
+                                    width: bounds.width - textContainerInset.width * 2, height: height)
             guard islandRect.contains(point) else { continue }
             let offset = islandHorizontalOffsets[entry.range.location] ?? 0
-            let row = min(totalRows - 1, max(0, Int((point.y - top) / entry.rowHeight)))
+            let row = entry.rowIndex(atLocalY: point.y - top)
+            let rowH = entry.rowHeight(row)
             let x = point.x + offset
             var column = 0
             while column + 1 < entry.columnEdges.count, x >= entry.columnEdges[column + 1] {
@@ -462,10 +553,26 @@ final class VisualNSTextView: NSTextView {
             column = min(max(0, column), entry.grid.columnCount - 1)
             let left = entry.columnEdges[column] - offset
             let right = entry.columnEdges[column + 1] - offset
-            let rect = NSRect(x: left, y: top + CGFloat(row) * entry.rowHeight, width: right - left, height: entry.rowHeight)
+            let rect = NSRect(x: left, y: top + entry.rowOffset(row),
+                              width: right - left, height: rowH)
             return (entry, row, column, rect)
         }
         return nil
+    }
+
+    /// If the insertion point (or a selection) sits inside a table island's
+    /// hidden pipe text, move it just after the island so no caret blinks under
+    /// the drawn grid. No-op when the selection is already outside.
+    private func clearInsertionPointIfInsideTableIsland(_ islandRange: NSRange) {
+        let sel = selectedRange()
+        let islandEnd = NSMaxRange(islandRange)
+        let intersects = NSIntersectionRange(sel, islandRange).length > 0
+        let caretInside = sel.length == 0
+            && sel.location >= islandRange.location
+            && sel.location < islandEnd
+        guard intersects || caretInside else { return }
+        let after = min(islandEnd, (string as NSString).length)
+        setSelectedRange(NSRange(location: after, length: 0))
     }
 
     private func beginEditingFocusedTableCell() -> Bool {
@@ -502,14 +609,21 @@ final class VisualNSTextView: NSTextView {
         let left = entry.columnEdges[column] - offset
         let right = entry.columnEdges[column + 1] - offset
         let cellInset = editorSettings.editorCellInset
-        let cellFrame = NSRect(x: left + cellInset, y: top + CGFloat(row) * entry.rowHeight + cellInset,
+        let rowH = entry.rowHeight(row)
+        let cellFrame = NSRect(x: left + cellInset,
+                               y: top + entry.rowOffset(row) + cellInset,
                                width: max(32, right - left - cellInset * 2),
-                               height: max(20, entry.rowHeight - cellInset * 2))
+                               height: max(20, rowH - cellInset * 2))
         let frame = expandedEditorFrame(for: value, cellFrame: cellFrame, font: row == 0 ? entry.headerFont : entry.font)
         let editor = TableCellEditorField(frame: frame)
         let cell = TableCellEditorCell()
         cell.insets = NSSize(width: editorSettings.editorTextInsetH, height: editorSettings.editorTextInsetV)
+        // `TableCellEditorCell` init forces editable/selectable, but re-assert on
+        // the control after the cell swap so a future bare-cell path cannot
+        // silently reintroduce the "overlay without caret" bug.
         editor.cell = cell
+        editor.isEditable = true
+        editor.isSelectable = true
         editor.font = row == 0 ? entry.headerFont : entry.font
         editor.isBezeled = false
         editor.isBordered = false
@@ -735,12 +849,13 @@ final class VisualNSTextView: NSTextView {
     }
 
     private func islandRowFrame(_ entry: TableIslandEntry, row: Int) -> NSRect? {
-        guard let top = islandTop(entry), entry.columnEdges.count >= 2 else { return nil }
+        guard let top = islandTop(entry), entry.columnEdges.count >= 2,
+              !entry.rowHeights.isEmpty else { return nil }
         let offset = islandHorizontalOffsets[entry.range.location] ?? 0
         let left = entry.columnEdges[0] - offset
         let right = (entry.columnEdges.last ?? left) - offset
-        return NSRect(x: left, y: top + CGFloat(row) * entry.rowHeight,
-                      width: right - left, height: entry.rowHeight)
+        return NSRect(x: left, y: top + entry.rowOffset(row),
+                      width: right - left, height: entry.rowHeight(row))
     }
 
     /// Union frame of a native table row's cells (view coordinates, cached —
@@ -773,20 +888,20 @@ final class VisualNSTextView: NSTextView {
 
     /// Grip zone left of a table body row; header rows have no grip.
     private func rowHandle(at point: NSPoint) -> (frame: NSRect, target: TableTarget, body: Int)? {
-        // Islands: arithmetic row rects.
+        // Islands: arithmetic row rects (variable height when cells wrap).
         for entry in tableIslandEntries
-        where entry.columnEdges.count >= 2 && entry.grid.rows.count > 1 {
+        where entry.columnEdges.count >= 2 && entry.grid.rows.count > 1
+            && !entry.rowHeights.isEmpty {
             guard let top = islandTop(entry) else { continue }
-            let totalRows = entry.grid.rows.count + 1
-            guard point.y >= top, point.y < top + CGFloat(totalRows) * entry.rowHeight
-            else { continue }
+            let totalRows = entry.rowHeights.count
+            guard point.y >= top, point.y < top + entry.totalHeight else { continue }
             let offset = islandHorizontalOffsets[entry.range.location] ?? 0
             let left = entry.columnEdges[0] - offset
             guard point.x >= left - 26, point.x <= left - 4 else { continue }
-            let row = min(totalRows - 1, max(0, Int((point.y - top) / entry.rowHeight)))
+            let row = entry.rowIndex(atLocalY: point.y - top)
             guard row >= 1 else { return nil }
-            let frame = NSRect(x: left - 26, y: top + CGFloat(row) * entry.rowHeight,
-                               width: 22, height: entry.rowHeight)
+            let frame = NSRect(x: left - 26, y: top + entry.rowOffset(row),
+                               width: 22, height: entry.rowHeight(row))
             let target = TableTarget.island(paragraphLocation: entry.range.location,
                                             row: row, column: 0,
                                             rows: totalRows, columns: entry.grid.columnCount)

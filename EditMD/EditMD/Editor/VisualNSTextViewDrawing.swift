@@ -352,37 +352,37 @@ extension VisualNSTextView {
     }
 
     /// Draws only the rows of a large table that intersect `dirty`. Row rects
-    /// are derived from the island's first line-fragment origin plus a fixed
-    /// `rowHeight` (arithmetic, not a full fragment walk), so cost scales with
-    /// the viewport, not with table size. The island's display text drops the
-    /// `---` delimiter, so display line 0 = header and lines 1… = data rows.
+    /// are derived from the island's first line-fragment origin plus per-row
+    /// heights (arithmetic, not a full fragment walk), so cost scales with the
+    /// viewport, not with table size. Rows taller than the base height hold
+    /// word-wrapped cell text.
     private func drawTableIsland(_ entry: TableIslandEntry, dirty: NSRect, inset: NSSize,
                                  layoutManager: NSLayoutManager) {
         let totalLength = (string as NSString).length
-        guard entry.range.location < totalLength, entry.columnEdges.count >= 2 else { return }
+        guard entry.range.location < totalLength, entry.columnEdges.count >= 2,
+              !entry.rowHeights.isEmpty else { return }
         let glyphRange = layoutManager.glyphRange(forCharacterRange: entry.range,
                                                   actualCharacterRange: nil)
         guard glyphRange.length > 0 else { return }
         let firstRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location,
                                                        effectiveRange: nil)
         let top = firstRect.minY + inset.height
-        let rowH = entry.rowHeight
         let grid = entry.grid
         let edges = entry.columnEdges
         let horizontalOffset = islandHorizontalOffsets[entry.range.location] ?? 0
         let left = (edges.first ?? inset.width) - horizontalOffset
         let right = (edges.last ?? inset.width) - horizontalOffset
         let width = right - left
-        let totalLines = grid.rows.count + 1   // header + data rows (no delimiter)
-        let bottom = top + CGFloat(totalLines) * rowH
+        let bottom = top + entry.totalHeight
 
-        let firstVisible = max(0, Int(floor((dirty.minY - top) / rowH)))
-        let lastVisible = min(totalLines - 1, Int(ceil((dirty.maxY - top) / rowH)))
+        let firstVisible = entry.rowIndex(atLocalY: dirty.minY - top)
+        let lastVisible = entry.rowIndex(atLocalY: max(dirty.minY, dirty.maxY - 0.5) - top)
         guard firstVisible <= lastVisible else { return }
 
         let border = theme.separatorColor
         for i in firstVisible...lastVisible {
-            let rowY = top + CGFloat(i) * rowH
+            let rowH = entry.rowHeight(i)
+            let rowY = top + entry.rowOffset(i)
             let rowRect = NSRect(x: left, y: rowY, width: width, height: rowH)
             if i == 0 {
                 NSColor(white: 0.5, alpha: 0.08).setFill()
@@ -419,8 +419,7 @@ extension VisualNSTextView {
                               color: NSColor, edges: [CGFloat],
                               alignments: [TableGrid.Alignment], horizontalOffset: CGFloat) {
         let columns = edges.count - 1
-        let lineHeight = font.ascender - font.descender
-        let textY = rowRect.minY + (rowRect.height - lineHeight) / 2
+        let pad: CGFloat = 6
         let elements = EditorSettings.shared.visual.elements
         let linkColor = elements.link.color ?? theme.accentColor
         let codeColor = elements.inlineCode.color ?? theme.inlineCodeColor
@@ -431,18 +430,20 @@ extension VisualNSTextView {
             let cellW = edges[c + 1] - edges[c]
             guard cellW > 12 else { continue }
             let para = NSMutableParagraphStyle()
-            para.lineBreakMode = .byTruncatingTail
+            para.lineBreakMode = .byWordWrapping
             switch (c < alignments.count ? alignments[c] : .leading) {
             case .leading: para.alignment = .left
             case .center: para.alignment = .center
             case .trailing: para.alignment = .right
             }
-            let drawRect = NSRect(x: edges[c] - horizontalOffset + 6, y: textY,
-                                  width: cellW - 12, height: lineHeight)
+            let drawRect = NSRect(x: edges[c] - horizontalOffset + pad,
+                                  y: rowRect.minY + pad,
+                                  width: cellW - pad * 2,
+                                  height: max(1, rowRect.height - pad * 2))
             let attr = attributedTableCell(text, font: font, textColor: color,
                                            linkColor: linkColor, codeColor: codeColor,
                                            boldColor: boldColor, paragraphStyle: para)
-            attr.draw(in: drawRect)
+            attr.draw(with: drawRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
         }
     }
 

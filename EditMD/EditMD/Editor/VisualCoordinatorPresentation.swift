@@ -10,6 +10,8 @@ extension VisualMarkdownView.Coordinator {
     /// table's columns. Widths come from the header plus a sample of body
     /// rows (measuring every row of a 9000-row table would be wasteful),
     /// clamped to a sane min/max so one long cell can't blow out the grid.
+    /// Long cells cap at `maxWidth` and wrap vertically instead of stretching
+    /// the column.
     private func tableColumnEdges(_ grid: TableGrid, font: NSFont, headerFont: NSFont,
                                   originX: CGFloat,
                                   pluginSnapshot: BuiltInPluginSnapshot) -> [CGFloat] {
@@ -39,6 +41,67 @@ extension VisualMarkdownView.Coordinator {
         var edges: [CGFloat] = [originX]
         for w in widths { edges.append((edges.last ?? originX) + min(w, maxWidth)) }
         return edges
+    }
+
+    /// Per-row heights for an island table. Base height fits one line of body
+    /// text; a cell that exceeds its column width grows the whole row so the
+    /// text can wrap. Cheap path: if the raw string already fits the cell
+    /// width under the body font, skip the full markdown measure (markers only
+    /// make rendered text shorter).
+    private func tableIslandRowHeights(_ grid: TableGrid, columnEdges: [CGFloat],
+                                       bodyFont: NSFont, headerFont: NSFont,
+                                       baseRowHeight: CGFloat,
+                                       pluginSnapshot: BuiltInPluginSnapshot) -> [CGFloat] {
+        let columns = grid.columnCount
+        guard columns > 0, columnEdges.count >= columns + 1 else {
+            return [baseRowHeight]
+        }
+        let padH: CGFloat = 12
+        let padV: CGFloat = 12
+
+        func cellHeight(text: String, font: NSFont, column: Int) -> CGFloat {
+            guard !text.isEmpty, column < columns else { return baseRowHeight }
+            let textW = max(8, columnEdges[column + 1] - columnEdges[column] - padH)
+            // Fast reject: raw string narrower than the cell almost always fits
+            // after markdown markers are stripped (markers only shorten text).
+            let rawW = (text as NSString).size(withAttributes: [.font: font]).width
+            if rawW <= textW + 0.5 { return baseRowHeight }
+
+            let attr = renderTableCellAttributed(text, baseFont: font,
+                                                 textColor: .labelColor,
+                                                 linkColor: .linkColor,
+                                                 codeColor: .systemOrange,
+                                                 pluginSnapshot: pluginSnapshot)
+            if attr.length == 0 { return baseRowHeight }
+            if attr.size().width <= textW + 0.5 {
+                return baseRowHeight
+            }
+            let bounds = attr.boundingRect(
+                with: NSSize(width: textW, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            return max(baseRowHeight, ceil(bounds.height) + padV)
+        }
+
+        var heights: [CGFloat] = []
+        heights.reserveCapacity(grid.rows.count + 1)
+
+        var headerH = baseRowHeight
+        for c in 0..<columns {
+            let text = c < grid.headers.count ? grid.headers[c] : ""
+            headerH = max(headerH, cellHeight(text: text, font: headerFont, column: c))
+        }
+        heights.append(headerH)
+
+        for row in grid.rows {
+            var h = baseRowHeight
+            for c in 0..<columns {
+                let text = c < row.count ? row[c] : ""
+                h = max(h, cellHeight(text: text, font: bodyFont, column: c))
+            }
+            heights.append(h)
+        }
+        return heights
     }
 
     // MARK: Presentation (derived visuals + decoration entries)
@@ -242,16 +305,22 @@ extension VisualMarkdownView.Coordinator {
                 if let grid = parseGFMTable(rawText) {
                     let bodyFont = visualStyle.font(for: [], blockKind: .paragraph)
                     let headerFont = visualStyle.font(for: .bold, blockKind: .paragraph)
-                    let rowHeight = ceil(bodyFont.ascender - bodyFont.descender) + 12
-                    style.minimumLineHeight = rowHeight
-                    style.maximumLineHeight = rowHeight
-                    style.lineBreakMode = .byClipping
-                    style.paragraphSpacing = 8 * spacingScale
+                    let baseRowHeight = ceil(bodyFont.ascender - bodyFont.descender) + 12
                     let edges = tableColumnEdges(grid, font: bodyFont, headerFont: headerFont,
                                                  originX: textView.textContainerInset.width,
                                                  pluginSnapshot: pluginSnapshot)
+                    let rowHeights = tableIslandRowHeights(
+                        grid, columnEdges: edges, bodyFont: bodyFont, headerFont: headerFont,
+                        baseRowHeight: baseRowHeight, pluginSnapshot: pluginSnapshot)
+                    // One layout line reserves the full island height; the grid
+                    // is painted in drawBackground with per-row heights (wrap).
+                    let totalH = max(baseRowHeight, tableIslandTotalHeight(rowHeights))
+                    style.minimumLineHeight = totalH
+                    style.maximumLineHeight = totalH
+                    style.lineBreakMode = .byClipping
+                    style.paragraphSpacing = 8 * spacingScale
                     tableIslands.append(TableIslandEntry(range: paragraph, grid: grid,
-                                                         columnEdges: edges, rowHeight: rowHeight,
+                                                         columnEdges: edges, rowHeights: rowHeights,
                                                          font: bodyFont, headerFont: headerFont))
                     isTableIsland = true
                 } else {

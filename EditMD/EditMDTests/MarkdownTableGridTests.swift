@@ -310,4 +310,23 @@ final class MarkdownTableGridTests: XCTestCase {
         let partial = cellAttr("2 * 3 = 6")
         XCTAssertEqual(partial.string, "2 * 3 = 6")
     }
+
+    // MARK: - Variable row height geometry (wrap)
+
+    func testIslandRowGeometryOffsetsAndLookup() {
+        let heights: [CGFloat] = [20, 40, 30]
+        XCTAssertEqual(tableIslandTotalHeight(heights), 90)
+        XCTAssertEqual(tableIslandRowOffset(heights, row: 0), 0)
+        XCTAssertEqual(tableIslandRowOffset(heights, row: 1), 20)
+        XCTAssertEqual(tableIslandRowOffset(heights, row: 2), 60)
+        XCTAssertEqual(tableIslandRowOffset(heights, row: 3), 90)
+
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: -1), 0)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 0), 0)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 19.9), 0)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 20), 1)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 59.9), 1)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 60), 2)
+        XCTAssertEqual(tableIslandRowIndex(heights: heights, localY: 200), 2)
+    }
 }

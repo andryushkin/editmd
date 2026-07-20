@@ -43,10 +43,11 @@ extension VisualMarkdownView.Coordinator {
             return (paragraph, grid)
         }
 
+        /// Layout spacer only — height comes from paragraph min/max line height
+        /// in the presentation pass. The grid is drawn in `drawBackground`.
         private func tableIslandDisplayText(_ grid: TableGrid) -> String {
-            var lines = serializeGFMTable(grid).components(separatedBy: "\n")
-            if lines.count >= 2 { lines.remove(at: 1) } // hide delimiter in Visual display
-            return lines.joined(separator: mdHardBreak)
+            _ = grid
+            return "\u{00A0}"
         }
 
         func replaceTableIsland(paragraph: NSRange, oldBlock: MDBlock, grid: TableGrid) -> Bool {

@@ -645,9 +645,11 @@ private final class VisualRenderer {
             raw = table.format()
         }
         guard !raw.isEmpty else { return }
-        var lines = raw.components(separatedBy: "\n")
-        if lines.count >= 2 { lines.remove(at: 1) }   // drop delimiter from display only
-        let display = lines.joined(separator: mdHardBreak)
+        // Single spacer glyph: vertical space is set by presentation
+        // (min=max line height = sum of wrapped row heights). Drawing paints
+        // the real grid in drawBackground. Display is cosmetic; `.raw` holds
+        // the verbatim pipe markdown for serialization.
+        let display = "\u{00A0}"
         appendParagraph(makeBlock(.raw(raw), ctx)) { b in
             self.appendText(display, block: b, styles: [], link: nil)
         }
