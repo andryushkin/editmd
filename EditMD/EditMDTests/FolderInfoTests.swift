@@ -818,6 +818,43 @@ struct SidebarFileSelectionTests {
         }
     }
 
+    // MARK: - Stale selection on navigation
+
+    @Test("Empty selection never needs clearing")
+    func staleSelectionEmpty() {
+        #expect(!shouldClearSidebarSelection(
+            activeURL: URL(fileURLWithPath: "/tmp/a.md"), selectedFiles: []))
+    }
+
+    @Test("Active file inside the selection stays highlighted")
+    func staleSelectionActiveInSet() {
+        let a = URL(fileURLWithPath: "/tmp/a.md")
+        let b = URL(fileURLWithPath: "/tmp/b.md")
+        #expect(!shouldClearSidebarSelection(activeURL: a, selectedFiles: [a]))
+        // Multi-selection where one member becomes active — keep the group.
+        #expect(!shouldClearSidebarSelection(activeURL: a, selectedFiles: [a, b]))
+    }
+
+    @Test("Active target outside the selection clears it")
+    func staleSelectionActiveOutside() {
+        let file = URL(fileURLWithPath: "/tmp/a.md")
+        let folder = URL(fileURLWithPath: "/tmp/sub")
+        // Navigated to a folder.
+        #expect(shouldClearSidebarSelection(activeURL: folder, selectedFiles: [file]))
+        // Opened a different file from outside the sidebar.
+        #expect(shouldClearSidebarSelection(
+            activeURL: URL(fileURLWithPath: "/tmp/other.md"), selectedFiles: [file]))
+        // Welcome screen (nil active) with a lingering selection.
+        #expect(shouldClearSidebarSelection(activeURL: nil, selectedFiles: [file]))
+    }
+
+    @Test("Comparison standardizes the active URL")
+    func staleSelectionStandardizes() {
+        let a = URL(fileURLWithPath: "/tmp/a.md")
+        let messy = URL(fileURLWithPath: "/tmp/./sub/../a.md")
+        #expect(!shouldClearSidebarSelection(activeURL: messy, selectedFiles: [a]))
+    }
+
 }
 
 @Suite("Path-mutation routing")

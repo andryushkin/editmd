@@ -99,6 +99,17 @@ func updateSidebarFileSelection(
     return true
 }
 
+/// Whether the sidebar's multi-select highlight should be dropped when the
+/// active target changes. Clears when the selection is non-empty and the newly
+/// active URL is not one of the selected files (navigating to a folder, opening
+/// a file from outside the sidebar, or clearing to the welcome screen); keeps it
+/// when the active file is still in the selection. Pure for testing.
+func shouldClearSidebarSelection(activeURL: URL?, selectedFiles: Set<URL>) -> Bool {
+    guard !selectedFiles.isEmpty else { return false }
+    guard let active = activeURL?.standardizedFileURL else { return true }
+    return !selectedFiles.contains(active)
+}
+
 /// Dragging or invoking Move on a selected row acts on the whole selection.
 /// A non-selected row remains an independent single-file operation.
 func sidebarMoveFiles(
@@ -776,13 +787,11 @@ struct WorkspaceSidebar: View {
     /// The multi-select highlight (`selectedFiles`) survives navigation, so a
     /// file stayed lit after the user opened a folder or a file from outside the
     /// sidebar. When the active target moves off the selection, drop it — unless
-    /// the newly active file *is* the selection, which should stay highlighted.
+    /// the newly active file is still in `selectedFiles`, which stays highlighted.
     private func clearStaleFileSelection() {
-        guard !selectedFiles.isEmpty else { return }
-        if let active = activeURL?.standardizedFileURL, selectedFiles.contains(active) {
-            return
+        if shouldClearSidebarSelection(activeURL: activeURL, selectedFiles: selectedFiles) {
+            clearFileSelection()
         }
-        clearFileSelection()
     }
 
     private func isActive(_ url: URL) -> Bool {
