@@ -40,15 +40,15 @@ struct Span {
 
 extension Span.Kind {
     /// Delimiter / punctuation spans painted by the Source "marker color"
-    /// setting (heading `#`, list bullets, emphasis/quote/code/table/link/image
-    /// delimiters, fences, math `$`, wiki `[[ ]]`). Body and semantic spans
-    /// (callout marker, task checkbox, table backgrounds) keep their own color.
+    /// setting (heading `#`, list bullets, task checkbox `[ ]`/`[x]`,
+    /// emphasis/quote/code/table/link/image delimiters, fences, math `$`, wiki
+    /// `[[ ]]`). The callout marker and table backgrounds keep their own color.
     var isSyntaxMarker: Bool {
         switch self {
         case .headingMarker, .boldMarker, .italicMarker, .codeMarker,
              .codeBlockFence, .linkSyntax, .imageSyntax, .quoteMarker,
              .thematicBreak, .listMarker, .strikethroughMarker,
-             .tableDelimiter, .wikiLinkSyntax, .mathMarker:
+             .tableDelimiter, .taskListMarker, .wikiLinkSyntax, .mathMarker:
             return true
         default:
             return false
