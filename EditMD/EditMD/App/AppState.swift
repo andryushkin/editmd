@@ -118,6 +118,17 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
     }
 }
 
+/// Cold-launch reset for editor mode. The mode is sticky within a session
+/// (`@AppStorage("editorMode")`) but must NOT survive a relaunch — every cold
+/// launch starts in read-first Preview. Also drops the per-document mode map
+/// left in prefs by older builds (`EditorModeStore`, since removed) so it can't
+/// resurrect its behavior. Called from `applicationDidFinishLaunching`; a free
+/// function so it can be unit-tested against an injected `UserDefaults`.
+func resetEditorModeForColdLaunch(_ defaults: UserDefaults) {
+    defaults.set(EditorMode.preview.rawValue, forKey: "editorMode")
+    defaults.removeObject(forKey: "editorMode.byPath")
+}
+
 /// Pure queue behind `AppState`'s filesystem-mutation routing gate. Keeping the path
 /// bookkeeping separate makes the suspension/replay contract deterministic
 /// and testable without opening real app windows.

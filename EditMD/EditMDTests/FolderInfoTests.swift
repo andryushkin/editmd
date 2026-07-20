@@ -1129,4 +1129,19 @@ struct NewFileEditorModeTests {
         #expect(appState.isUntitled)
         #expect(appState.currentURL == nil)
     }
+
+    @Test("Cold launch resets a stuck mode back to Preview")
+    func coldLaunchResetsToPreview() throws {
+        let suiteName = "cold-launch-mode-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // Last session was left in Source, with a stale per-document map.
+        defaults.set(EditorMode.source.rawValue, forKey: "editorMode")
+        defaults.set(["/a.md": EditorMode.visual.rawValue], forKey: "editorMode.byPath")
+
+        resetEditorModeForColdLaunch(defaults)
+
+        #expect(defaults.string(forKey: "editorMode") == EditorMode.preview.rawValue)
+        #expect(defaults.dictionary(forKey: "editorMode.byPath") == nil)
+    }
 }
