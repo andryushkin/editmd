@@ -38,7 +38,13 @@ struct EditorToolbar: ToolbarContent {
         // (open) state itself — a plain `foregroundStyle` tint is often ignored
         // on toolbar SF Symbols. Disabled where no inspector pane exists.
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $inspectorVisible) {
+            // Read the sticky pref through availability so a disabled toggle
+            // reads as off, not checked-grey, on folder/welcome/viewer panes.
+            // Writes are inert while unavailable (the toggle is also disabled).
+            Toggle(isOn: Binding(
+                get: { inspectorAvailable && inspectorVisible },
+                set: { if inspectorAvailable { inspectorVisible = $0 } }
+            )) {
                 Label("Toggle Inspector", systemImage: "sidebar.right")
             }
             .toggleStyle(.button)
