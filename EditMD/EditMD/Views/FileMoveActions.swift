@@ -321,6 +321,76 @@ private func uniqueStandardizedFiles(_ rawFiles: [URL]) -> [URL] {
     }
 }
 
+// MARK: - Move to Trash
+
+/// Confirm and move existing files to the system Trash (context menus).
+/// Returns `true` when at least one path was trashed.
+@MainActor
+@discardableResult
+func confirmAndMoveFilesToTrash(
+    _ rawFiles: [URL],
+    workspace: WorkspaceModel
+) -> Bool {
+    let files = uniqueStandardizedFiles(rawFiles).filter {
+        FileManager.default.fileExists(atPath: $0.path)
+    }
+    guard !files.isEmpty else { return false }
+
+    let hasDirty = files.contains { DocumentRegistry.shared.isDirty($0) }
+
+    let alert = NSAlert()
+    if files.count == 1 {
+        let name = files[0].lastPathComponent
+        alert.messageText = String(localized: "Move “\(name)” to the Trash?")
+    } else {
+        // Cast so String Catalog sees a stable Int format (not Int32).
+        alert.messageText = String(localized: "Move \(Int(files.count)) items to the Trash?")
+    }
+    var info = String(localized: "You can restore them from the Trash later.")
+    if hasDirty {
+        info += "\n\n" + String(localized: "Some files have unsaved changes that will be discarded.")
+    }
+    alert.informativeText = info
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: String(localized: "Move to Trash"))
+    alert.addButton(withTitle: String(localized: "Cancel"))
+    guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+    var trashed: [URL] = []
+    var firstError: Error?
+    for url in files {
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            trashed.append(url)
+        } catch {
+            if firstError == nil { firstError = error }
+        }
+    }
+
+    if !trashed.isEmpty {
+        let app = AppState.shared
+        for url in trashed {
+            if app.currentURL?.standardizedFileURL == url {
+                // Leave the editor — the path no longer exists on disk.
+                app.openInMainWindow(nil)
+            }
+            LineChangeTracker.shared.forget(url: url)
+            if workspace.isFavorite(url) { workspace.removeFavorite(url) }
+            if workspace.isPinned(url) { workspace.unpin(url) }
+            workspace.removeLoose(url)
+        }
+        workspace.noteFilesystemChange()
+        NotificationCenter.default.post(name: .gitRepositoryDidChange, object: nil)
+    }
+
+    if let firstError {
+        presentFolderError(
+            firstError,
+            title: String(localized: "Could not move to the Trash"))
+    }
+    return !trashed.isEmpty
+}
+
 @MainActor
 private func restorePreparedFiles(
     _ prepared: [PreparedFileMove],

@@ -682,6 +682,10 @@ struct WorkspaceSidebar: View {
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
+            Divider()
+            Button("Move to Trash", role: .destructive) {
+                confirmAndMoveFilesToTrash(moveFiles(anchoredAt: url), workspace: workspace)
+            }
         }
         .onDrag {
             sidebarFileItemProvider(files: moveFiles(anchoredAt: url))
@@ -715,6 +719,10 @@ struct WorkspaceSidebar: View {
             copyPathMenuItem(url)
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+            Divider()
+            Button("Move to Trash", role: .destructive) {
+                confirmAndMoveFilesToTrash(moveFiles(anchoredAt: url), workspace: workspace)
             }
         }
         .onDrag {
@@ -942,6 +950,10 @@ private struct SubfolderNode: View {
             Button("Copy Path") { copyPathToPasteboard(file) }
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([file])
+            }
+            Divider()
+            Button("Move to Trash", role: .destructive) {
+                confirmAndMoveFilesToTrash(moveFiles(anchoredAt: file), workspace: workspace)
             }
         }
         .onDrag {

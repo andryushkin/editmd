@@ -73,7 +73,7 @@ struct GitSidebar: View {
         }
         .sheet(item: $commitTarget) { target in
             GitCommitSheet(
-                fileURL: target.url,
+                fileURLs: target.urls,
                 onClose: {
                     commitTarget = nil
                     refresh(immediate: true)
@@ -177,6 +177,19 @@ struct GitSidebar: View {
                     .opacity(isRefreshing ? 0.5 : 1)
 
                 Spacer(minLength: 0)
+
+                // One commit for every markdown file listed under this repo
+                // section (workspace-scoped). Same sheet as the per-row action.
+                if !section.files.isEmpty {
+                    Text("Commit all")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            presentCommit(urls: section.files.map(\.url))
+                        }
+                        .editMDHelp("Commit all changed files in this repository…")
+                }
 
                 Text("Push")
                     .font(.system(size: 11, weight: (section.ahead ?? 0) > 0 ? .semibold : .regular))
@@ -299,6 +312,9 @@ struct GitSidebar: View {
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([file.url])
             }
+            Button("Move to Trash", role: .destructive) {
+                confirmAndMoveFilesToTrash([file.url], workspace: workspace)
+            }
         }
     }
 
@@ -353,8 +369,14 @@ struct GitSidebar: View {
     // MARK: - Actions
 
     private func presentCommit(_ url: URL) {
+        presentCommit(urls: [url])
+    }
+
+    private func presentCommit(urls: [URL]) {
         // Single assignment → sheet(item:) always receives a non-nil payload.
-        commitTarget = GitSidebarCommitTarget(url: url)
+        let unique = urls.map(\.standardizedFileURL)
+        guard !unique.isEmpty else { return }
+        commitTarget = GitSidebarCommitTarget(urls: unique)
     }
 
     private func presentDiff(_ url: URL) {
@@ -371,7 +393,10 @@ struct GitSidebar: View {
         let openURLs = DocumentRegistry.shared.openURLs
         var sections = snapshot.sections
         for si in sections.indices {
-            var files = sections[si].files
+            // Drop rows whose path vanished (trashed while this tab stayed open).
+            var files = sections[si].files.filter {
+                FileManager.default.fileExists(atPath: $0.url.path)
+            }
             for fi in files.indices {
                 let u = files[fi].url
                 files[fi] = GitChangedFile(
@@ -397,6 +422,7 @@ struct GitSidebar: View {
         for open in openURLs {
             let key = open.standardizedFileURL
             guard !changed.contains(key) else { continue }
+            guard FileManager.default.fileExists(atPath: key.path) else { continue }
             let bufferDirty = DocumentRegistry.shared.isDirty(key)
             let sessionLines = LineChangeTracker.shared.dirtyLines(for: key).count
             guard bufferDirty || sessionLines > 0 else { continue }
@@ -467,11 +493,14 @@ struct GitSidebar: View {
 
 // MARK: - Sheet targets (item-based presentation)
 
-/// Payload for `.sheet(item:)` so Commit always opens with a concrete URL —
+/// Payload for `.sheet(item:)` so Commit always opens with concrete path(s) —
 /// avoids the dual-state race of `isPresented` + optional `commitURL`.
+/// One URL = per-row Commit; several = repo-header “Commit all”.
 private struct GitSidebarCommitTarget: Identifiable {
-    let url: URL
-    var id: String { url.standardizedFileURL.path }
+    let urls: [URL]
+    var id: String {
+        urls.map(\.standardizedFileURL.path).sorted().joined(separator: "\n")
+    }
 }
 
 /// Fresh id per presentation so re-opening the same file's diff still animates.

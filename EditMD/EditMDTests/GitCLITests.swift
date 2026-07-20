@@ -56,6 +56,11 @@ final class GitCLITests: XCTestCase {
         XCTAssertEqual(span, "L1, L3, L5, L7, …")
     }
 
+    func testSuggestedBatch() {
+        XCTAssertEqual(GitCommitMessage.suggestedBatch(fileCount: 1), "Update 1 file")
+        XCTAssertEqual(GitCommitMessage.suggestedBatch(fileCount: 3), "Update 3 files")
+    }
+
     func testParseUnifiedDiffNewLines() {
         let diff = """
         diff --git a/a.md b/a.md
@@ -264,6 +269,33 @@ final class GitCLITests: XCTestCase {
         XCTAssertEqual(GitCLI.workingTreeContents(of: file), "v2\n")
     }
 
+    func testCommitMultipleFilesInOneCommit() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let a = repo.appendingPathComponent("a.md")
+        let b = repo.appendingPathComponent("b.md")
+        try "a1\n".write(to: a, atomically: true, encoding: .utf8)
+        try "b1\n".write(to: b, atomically: true, encoding: .utf8)
+        // Seed both on HEAD first so the batch commit is a real update.
+        guard case .success = GitCLI.commit(files: [a, b], message: "seed") else {
+            return XCTFail("seed commit failed")
+        }
+        try "a2\n".write(to: a, atomically: true, encoding: .utf8)
+        try "b2\n".write(to: b, atomically: true, encoding: .utf8)
+        let result = GitCLI.commit(files: [a, b], message: "Update 2 files")
+        guard case .success(let hash) = result else {
+            return XCTFail("batch commit failed: \(result)")
+        }
+        XCTAssertEqual(hash.count, 40)
+        XCTAssertEqual(GitCLI.pathStatus(of: a), .clean)
+        XCTAssertEqual(GitCLI.pathStatus(of: b), .clean)
+        XCTAssertEqual(GitCLI.headFileContents(of: a), "a2\n")
+        XCTAssertEqual(GitCLI.headFileContents(of: b), "b2\n")
+    }
+
     @MainActor
     func testPorcelainStatusFiltersToWorkspaceMarkdown() throws {
         guard GitCLI.gitExecutable != nil else {
@@ -288,6 +320,61 @@ final class GitCLITests: XCTestCase {
         XCTAssertEqual(paths, ["note.md"])
         XCTAssertFalse(paths.contains("root.md"))
         XCTAssertFalse(paths.contains { $0.hasSuffix(".swift") })
+    }
+
+    /// Git sidebar lists working files only — paths already deleted from disk
+    /// (git `D`, Trash, missing) are omitted.
+    @MainActor
+    func testWorkspaceSnapshotOmitsDeletedMarkdown() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let ws = repo.appendingPathComponent("vault", isDirectory: true)
+        try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+        let kept = ws.appendingPathComponent("kept.md")
+        let gone = ws.appendingPathComponent("gone.md")
+        try "keep\n".write(to: kept, atomically: true, encoding: .utf8)
+        try "drop\n".write(to: gone, atomically: true, encoding: .utf8)
+        let addKeep = GitCLI.commit(file: kept, message: "add kept")
+        guard case .success = addKeep else {
+            return XCTFail("commit kept failed: \(addKeep)")
+        }
+        let addGone = GitCLI.commit(file: gone, message: "add gone")
+        guard case .success = addGone else {
+            return XCTFail("commit gone failed: \(addGone)")
+        }
+        try FileManager.default.removeItem(at: gone)
+        try "edited\n".write(to: kept, atomically: true, encoding: .utf8)
+
+        let snap = GitWorkspaceStatus.snapshot(workspaceRoots: [ws], openURLs: [])
+        XCTAssertEqual(snap.sections.count, 1)
+        let paths = snap.sections[0].files.map(\.displayPath)
+        XCTAssertEqual(paths, ["kept.md"])
+        XCTAssertFalse(paths.contains("gone.md"))
+        XCTAssertFalse(snap.sections[0].files.contains { $0.pathStatus == .deleted })
+    }
+
+    /// Even if registry still has a path open, a missing file must not reappear
+    /// under openDirty after trash / external delete.
+    @MainActor
+    func testWorkspaceSnapshotOmitsMissingOpenDirty() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let ws = repo.appendingPathComponent("vault", isDirectory: true)
+        try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
+        let missing = ws.appendingPathComponent("buffer-only.md")
+        // Not on disk — openURLs can still name it after a trash.
+        let snap = GitWorkspaceStatus.snapshot(
+            workspaceRoots: [ws],
+            openURLs: [missing])
+        XCTAssertTrue(snap.openDirty.isEmpty)
+        XCTAssertTrue(snap.sections.allSatisfy(\.files.isEmpty))
     }
 
     // MARK: - Helpers

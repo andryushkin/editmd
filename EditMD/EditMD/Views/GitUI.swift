@@ -260,6 +260,12 @@ enum GitCommitMessage {
         }
     }
 
+    /// Default message when committing several files in one shot (repo header).
+    static func suggestedBatch(fileCount: Int) -> String {
+        let n = max(fileCount, 1)
+        return n == 1 ? "Update 1 file" : "Update \(n) files"
+    }
+
     /// Collapses 1-based line numbers into `L3`, `L12–18`, `L3, L9, L20–22`.
     static func formatLineSpan(_ lines: Set<Int>) -> String? {
         let sorted = lines.filter { $0 > 0 }.sorted()
@@ -293,10 +299,24 @@ enum GitCommitMessage {
 // MARK: - Commit sheet (stage 4)
 
 struct GitCommitSheet: View {
-    let fileURL: URL
+    /// One or more paths in the same repository. Single-file rows pass `[url]`;
+    /// the repo-header “Commit all” passes every listed changed file.
+    let fileURLs: [URL]
     let onClose: () -> Void
     /// Called after a successful commit (marks already re-anchored).
     var onCommitted: (() -> Void)? = nil
+
+    init(fileURL: URL, onClose: @escaping () -> Void, onCommitted: (() -> Void)? = nil) {
+        self.fileURLs = [fileURL]
+        self.onClose = onClose
+        self.onCommitted = onCommitted
+    }
+
+    init(fileURLs: [URL], onClose: @escaping () -> Void, onCommitted: (() -> Void)? = nil) {
+        self.fileURLs = fileURLs
+        self.onClose = onClose
+        self.onCommitted = onCommitted
+    }
 
     @State private var message: String = ""
     @State private var isBusy = false
@@ -309,12 +329,16 @@ struct GitCommitSheet: View {
     @State private var branch: String?
     @FocusState private var messageFocused: Bool
 
-    private var fileName: String { fileURL.lastPathComponent }
+    private var isBatch: Bool { fileURLs.count > 1 }
+    private var primaryURL: URL { fileURLs[0] }
+    private var fileName: String { primaryURL.lastPathComponent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(successHash == nil ? "Commit file" : "Committed")
+                Text(successHash == nil
+                     ? (isBatch ? "Commit files" : "Commit file")
+                     : "Committed")
                     .font(.headline)
                 Spacer()
                 if let branch {
@@ -327,9 +351,28 @@ struct GitCommitSheet: View {
                 }
             }
 
-            Text(fileName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
+            if isBatch {
+                Text("\(fileURLs.count) files")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(fileURLs.prefix(8), id: \.path) { url in
+                        Text(url.lastPathComponent)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    if fileURLs.count > 8 {
+                        Text("+\(fileURLs.count - 8) more")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            } else {
+                Text(fileName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+            }
 
             if let successHash {
                 successBody(hash: successHash)
@@ -348,24 +391,29 @@ struct GitCommitSheet: View {
     /// Branch + prefilled message need 2–4 git Processes — run them off-main
     /// so opening the sheet doesn't stall the UI.
     private func loadBranchAndSuggestion() {
-        let url = fileURL
-        let name = fileName
+        let urls = fileURLs
+        let batch = urls.count > 1
+        let name = urls.first?.lastPathComponent ?? "file"
         let wantSuggestion = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         // Session gutter marks live on the main actor — read before hopping.
-        let sessionDirty = LineChangeTracker.shared.dirtyLines(for: url)
+        let sessionDirty = urls.first.map { LineChangeTracker.shared.dirtyLines(for: $0) } ?? []
         Task.detached(priority: .userInitiated) {
-            let branchName = GitCLI.currentBranch(containing: url)
+            let branchName = urls.first.flatMap { GitCLI.currentBranch(containing: $0) }
             var suggested: String?
             if wantSuggestion {
-                let status = GitCLI.pathStatus(of: url)
-                // Prefer session marks (what the user just edited); fall back to
-                // git diff line numbers when marks are empty but the file is modified.
-                var dirty = sessionDirty
-                if dirty.isEmpty, status == .modified || status == .clean {
-                    dirty = GitCLI.changedLineNumbers(of: url)
+                if batch {
+                    suggested = GitCommitMessage.suggestedBatch(fileCount: urls.count)
+                } else if let url = urls.first {
+                    let status = GitCLI.pathStatus(of: url)
+                    // Prefer session marks (what the user just edited); fall back to
+                    // git diff line numbers when marks are empty but the file is modified.
+                    var dirty = sessionDirty
+                    if dirty.isEmpty, status == .modified || status == .clean {
+                        dirty = GitCLI.changedLineNumbers(of: url)
+                    }
+                    suggested = GitCommitMessage.suggested(
+                        fileName: name, pathStatus: status, dirtyLines: dirty)
                 }
-                suggested = GitCommitMessage.suggested(
-                    fileName: name, pathStatus: status, dirtyLines: dirty)
             }
             await MainActor.run {
                 branch = branchName
@@ -379,7 +427,9 @@ struct GitCommitSheet: View {
 
     private var commitBody: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Only this file will be staged and committed (`git add` + `git commit -- path`).")
+            Text(isBatch
+                 ? "These files will be staged and committed together (`git add` + `git commit -- paths`)."
+                 : "Only this file will be staged and committed (`git add` + `git commit -- path`).")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -472,13 +522,12 @@ struct GitCommitSheet: View {
         }
         isBusy = true
         errorText = nil
-        // 1) Flush buffer so git sees current text — but ONLY if the file still
-        // exists. A deleted file has no buffer worth writing: saving would
-        // recreate it on disk and turn the staged deletion into a modification
-        // (or fail if the parent folder is gone). Let git stage the deletion.
-        if FileManager.default.fileExists(atPath: fileURL.path) {
+        // 1) Flush every open buffer so git sees current text — but ONLY if the
+        // path still exists. A deleted file has no buffer worth writing: saving
+        // would recreate it on disk and turn a staged deletion into a modification.
+        for url in fileURLs where FileManager.default.fileExists(atPath: url.path) {
             do {
-                try DocumentRegistry.shared.saveNow(fileURL)
+                try DocumentRegistry.shared.saveNow(url)
             } catch {
                 isBusy = false
                 errorText = String(localized: "Save failed: \(error.localizedDescription)")
@@ -486,20 +535,23 @@ struct GitCommitSheet: View {
             }
         }
         // 2) Stage + commit on a utility queue (Process is blocking).
-        let url = fileURL
+        let urls = fileURLs
         Task.detached(priority: .userInitiated) {
-            let result = GitCLI.commit(file: url, message: msg)
+            let result = GitCLI.commit(files: urls, message: msg)
             await MainActor.run {
                 isBusy = false
                 switch result {
                 case .success(let hash):
-                    // Re-anchor session marks to the committed buffer.
-                    let content = DocumentRegistry.shared.contentIfOpen(url)
-                        ?? (try? loadMarkdownDocument(from: url).content)
-                        ?? ""
-                    LineChangeTracker.shared.noteBaseline(url: url, content: content)
-                    GitCommitWatcher.shared.noteCommitted(url: url, hash: hash)
-                    NotificationCenter.default.post(name: .gitRepositoryDidChange, object: url)
+                    // Re-anchor session marks for every committed path.
+                    for url in urls {
+                        let content = DocumentRegistry.shared.contentIfOpen(url)
+                            ?? (try? loadMarkdownDocument(from: url).content)
+                            ?? ""
+                        LineChangeTracker.shared.noteBaseline(url: url, content: content)
+                        GitCommitWatcher.shared.noteCommitted(url: url, hash: hash)
+                    }
+                    NotificationCenter.default.post(
+                        name: .gitRepositoryDidChange, object: urls.first)
                     successHash = hash
                     onCommitted?()
                 case .failure(let err):
@@ -513,7 +565,7 @@ struct GitCommitSheet: View {
         isBusy = true
         pushError = nil
         pushNote = nil
-        let url = fileURL
+        let url = primaryURL
         // Confirm first (stage 5).
         let alert = NSAlert()
         alert.messageText = String(localized: "Push to remote?")
@@ -759,6 +811,12 @@ enum GitWorkspaceStatus {
 
             for entry in entries {
                 let fileURL = repo.appendingPathComponent(entry.relativePath).standardizedFileURL
+                // Working-file list only: no porcelain-deleted, no Trash, no
+                // already-missing paths. Existence is the ground truth — status
+                // alone is not enough (trashed files stay "D" until committed,
+                // and a stale open buffer can still be listed under openDirty).
+                guard entry.status != .deleted else { continue }
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
                 guard isMarkdown(fileURL) else { continue }
                 guard let ws = owningWorkspace(fileURL, among: workspaces) else { continue }
                 let display = displayPath(of: fileURL, workspace: ws, repo: repo)
@@ -792,6 +850,8 @@ enum GitWorkspaceStatus {
         for open in openURLs {
             let key = open
             guard !changedURLs.contains(key) else { continue }
+            // Trashed / missing buffers must not reappear under "Open in editor".
+            guard FileManager.default.fileExists(atPath: key.path) else { continue }
             guard isMarkdown(key) else { continue }
             guard let ws = owningWorkspace(key, among: roots) else { continue }
             let bufDirty = bufferDirty[key] ?? false
@@ -800,6 +860,7 @@ enum GitWorkspaceStatus {
             // Must be inside a git repo to be interesting here.
             guard let repo = GitCLI.repositoryRoot(containing: key) else { continue }
             let status = GitCLI.pathStatus(of: key)
+            guard status != .deleted else { continue }
             openDirty.append(GitChangedFile(
                 url: key,
                 displayPath: displayPath(of: key, workspace: ws, repo: repo),

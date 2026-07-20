@@ -249,41 +249,77 @@ enum GitCLI {
     /// Caller must save the buffer to disk first.
     /// - Returns: new commit hash (full SHA) on success.
     static func commit(file: URL, message: String) -> Result<String, GitError> {
+        commit(files: [file], message: message)
+    }
+
+    /// Stage the given paths (same repo) and create one commit that includes only them.
+    /// Caller must flush open buffers to disk first. Paths outside one repository
+    /// are rejected. Empty / all-clean sets return a clear error.
+    /// - Returns: new commit hash (full SHA) on success.
+    static func commit(files: [URL], message: String) -> Result<String, GitError> {
         let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !msg.isEmpty else { return .failure(GitError("Commit message is empty.")) }
-        guard let root = repositoryRoot(containing: file) else {
+
+        var seen = Set<URL>()
+        let unique = files.compactMap { raw -> URL? in
+            let u = raw.standardizedFileURL
+            return seen.insert(u).inserted ? u : nil
+        }
+        guard !unique.isEmpty else { return .failure(GitError("Nothing to commit.")) }
+        guard let root = repositoryRoot(containing: unique[0]) else {
             return .failure(GitError("Not inside a git repository."))
         }
-        let rel = relativePath(of: file, to: root)
-        guard !rel.isEmpty else { return .failure(GitError("Invalid path.")) }
-
-        switch stage(file: file) {
-        case .failure(let err): return .failure(err)
-        case .success: break
-        }
-
-        // Only commit if something is staged for this path.
-        let staged = run(in: root, arguments: ["diff", "--cached", "--name-only", "--", rel])?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if staged.isEmpty {
-            // Maybe already committed / no changes vs HEAD.
-            let status = pathStatus(of: file)
-            if status == .clean {
-                return .failure(GitError("Nothing to commit for this file."))
+        for file in unique {
+            guard repositoryRoot(containing: file) == root else {
+                return .failure(GitError("Files span multiple git repositories."))
             }
-            return .failure(GitError("Nothing staged for this file."))
         }
 
-        // `-m` + pathspec: commits only the given paths (requires them staged).
-        let result = runDetailed(in: root, arguments: ["commit", "-m", msg, "--", rel])
+        var rels: [String] = []
+        for file in unique {
+            let rel = relativePath(of: file, to: root)
+            guard !rel.isEmpty else {
+                return .failure(GitError("Invalid path: \(file.lastPathComponent)"))
+            }
+            switch stage(file: file) {
+            case .failure(let err): return .failure(err)
+            case .success: break
+            }
+            rels.append(rel)
+        }
+
+        // Only commit if something is staged for at least one path.
+        var anyStaged = false
+        for rel in rels {
+            let staged = run(in: root, arguments: ["diff", "--cached", "--name-only", "--", rel])?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !staged.isEmpty { anyStaged = true }
+        }
+        if !anyStaged {
+            let allClean = unique.allSatisfy { pathStatus(of: $0) == .clean }
+            if allClean {
+                return .failure(GitError(
+                    unique.count == 1
+                        ? "Nothing to commit for this file."
+                        : "Nothing to commit for these files."))
+            }
+            return .failure(GitError(
+                unique.count == 1
+                    ? "Nothing staged for this file."
+                    : "Nothing staged for these files."))
+        }
+
+        // `-m` + pathspecs: commits only the given paths (must be staged).
+        var args = ["commit", "-m", msg, "--"]
+        args.append(contentsOf: rels)
+        let result = runDetailed(in: root, arguments: args)
         guard let result else { return .failure(GitError("git is not installed.")) }
         guard result.succeeded else {
             return .failure(GitError(result.combinedMessage.isEmpty ? "git commit failed." : result.combinedMessage))
         }
-        if let hash = lastCommitHash(touching: file) {
+        if let hash = lastCommitHash(touching: unique[0]) {
             return .success(hash)
         }
-        // Commit succeeded but log is empty (unlikely) — still OK.
         return .success(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
