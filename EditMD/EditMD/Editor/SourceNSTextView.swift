@@ -41,6 +41,79 @@ final class SourceNSTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    // MARK: - List / checkbox / table auto-continuation
+
+    /// Return continues Markdown structure: a fresh bullet / checkbox / ordered
+    /// marker on a list item, a new empty row inside a pipe table. An empty item
+    /// (or empty table row) ends the structure instead. Everything else — a
+    /// caret inside a fenced code block, a ranged selection, a non-list line —
+    /// falls through to the default newline.
+    override func insertNewline(_ sender: Any?) {
+        let selection = selectedRange()
+        guard selection.length == 0, !caretInsideFence() else {
+            super.insertNewline(sender); return
+        }
+        let ns = string as NSString
+        var lineStart = 0, contentEnd = 0
+        ns.getLineStart(&lineStart, end: nil, contentsEnd: &contentEnd,
+                        for: NSRange(location: selection.location, length: 0))
+        let line = ns.substring(with: NSRange(location: lineStart,
+                                              length: contentEnd - lineStart))
+        let caretColumn = selection.location - lineStart
+
+        if let action = listReturnAction(line: line, caretColumn: caretColumn) {
+            applyListReturn(action, lineStart: lineStart, caret: selection.location)
+            return
+        }
+        if continueTableRow(lineStart: lineStart, contentEnd: contentEnd, line: line) {
+            return
+        }
+        super.insertNewline(sender)
+    }
+
+    private func applyListReturn(_ action: ListReturnAction, lineStart: Int, caret: Int) {
+        switch action {
+        case .insertMarker(let marker):
+            let insertion = "\n" + marker
+            let range = NSRange(location: caret, length: 0)
+            guard shouldChangeText(in: range, replacementString: insertion) else { return }
+            textStorage?.replaceCharacters(in: range, with: insertion)
+            didChangeText()
+            setSelectedRange(NSRange(location: caret + (insertion as NSString).length, length: 0))
+        case .clearMarker(let relative):
+            let range = NSRange(location: lineStart + relative.location, length: relative.length)
+            guard shouldChangeText(in: range, replacementString: "") else { return }
+            textStorage?.replaceCharacters(in: range, with: "")
+            didChangeText()
+            setSelectedRange(NSRange(location: range.location, length: 0))
+        }
+    }
+
+    /// Adds an empty row below a pipe-table body row, or ends the table when the
+    /// current body row is already empty. Returns false (default newline) unless
+    /// the caret sits on a body row — inserting between the header and delimiter
+    /// would split the table.
+    private func continueTableRow(lineStart: Int, contentEnd: Int, line: String) -> Bool {
+        guard let context = sourceTableContext(in: string, at: lineStart),
+              context.line >= 2 else { return false }
+        if pipeRowIsEmpty(line) {
+            let range = NSRange(location: lineStart, length: contentEnd - lineStart)
+            guard shouldChangeText(in: range, replacementString: "") else { return true }
+            textStorage?.replaceCharacters(in: range, with: "")
+            didChangeText()
+            setSelectedRange(NSRange(location: lineStart, length: 0))
+            return true
+        }
+        let insertion = "\n" + emptyPipeRow(columns: context.grid.columnCount)
+        let range = NSRange(location: contentEnd, length: 0)
+        guard shouldChangeText(in: range, replacementString: insertion) else { return true }
+        textStorage?.replaceCharacters(in: range, with: insertion)
+        didChangeText()
+        // Caret into the first cell of the new row (past the leading "\n|").
+        setSelectedRange(NSRange(location: contentEnd + 2, length: 0))
+        return true
+    }
+
     var lintDiagnostics: [LintDiagnostic] = []
     private var menuFixes: [LintFix] = []
     private enum SourceTableOp { case rowAbove, rowBelow, deleteRow, colLeft, colRight, deleteColumn }
