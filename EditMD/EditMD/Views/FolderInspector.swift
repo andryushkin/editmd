@@ -58,8 +58,10 @@ func scanFolderAggregates(at root: URL,
     var agg = FolderAggregates.empty
     var readBytes: Int64 = 0
     var seen = 0
-    // Progress is time-throttled to ~10 Hz (not once per 128 files): a fast SSD
-    // walk would otherwise fire hundreds of main-actor hops on a big tree.
+    // Progress uses a dual filter: a cheap every-128-files gate, then a ~10 Hz
+    // time throttle. The gate keeps the Date() cost off the hot path; the
+    // throttle caps main-actor hops on a fast SSD walk (128 files can pass in
+    // well under a frame). Whichever is coarser at the moment wins.
     var lastReport = Date.distantPast
     // Collect every displayable file (size + mtime only); the top-5 largest /
     // recent are picked with a single sort after the walk.
