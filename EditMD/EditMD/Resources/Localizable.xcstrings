@@ -6842,6 +6842,26 @@
         }
       }
     },
+    "Toggle Inspector" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать/скрыть инспектор"
+          }
+        }
+      }
+    },
+    "Toggle Inspector (⌥⌘0)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать/скрыть инспектор (⌥⌘0)"
+          }
+        }
+      }
+    },
     "Toggle Sidebar" : {
       "localizations" : {
         "ru" : {

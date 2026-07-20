@@ -263,6 +263,16 @@ struct ContentView: View {
                 editorSettings: editorSettings,
                 appearanceIsDark: appearanceIsDark
             )
+            // Right inspector toggle, mirroring MainChrome's leading sidebar
+            // button. Trailing edge, Xcode-style; also driven by View ▸ Show/
+            // Hide Inspector (⌥⌘0). Present in lite windows too (they keep the
+            // inspector even without the workspace sidebar).
+            ToolbarItem(placement: .primaryAction) {
+                Button { inspectorVisible.toggle() } label: {
+                    Label("Toggle Inspector", systemImage: "sidebar.right")
+                }
+                .help("Toggle Inspector (⌥⌘0)")
+            }
         }
         .agentActivityToast()
         .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
