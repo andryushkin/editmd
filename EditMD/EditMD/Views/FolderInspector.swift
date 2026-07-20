@@ -58,6 +58,9 @@ func scanFolderAggregates(at root: URL,
     var agg = FolderAggregates.empty
     var readBytes: Int64 = 0
     var seen = 0
+    // Progress is time-throttled to ~10 Hz (not once per 128 files): a fast SSD
+    // walk would otherwise fire hundreds of main-actor hops on a big tree.
+    var lastReport = Date.distantPast
     // Collect every displayable file (size + mtime only); the top-5 largest /
     // recent are picked with a single sort after the walk.
     var files: [FolderFileRef] = []
@@ -91,7 +94,13 @@ func scanFolderAggregates(at root: URL,
             if isPDF { agg.pdfFiles += 1 }
             if isMarkdown { agg.markdownFiles += 1 }
             seen += 1
-            if seen & 0x7F == 0 { onProgress?(seen) }
+            if let onProgress, seen & 0x7F == 0 {
+                let now = Date()
+                if now.timeIntervalSince(lastReport) > 0.1 {
+                    lastReport = now
+                    onProgress(seen)
+                }
+            }
 
             // Content read: plain markdown only (not textbundle packages). Skip
             // when the total budget is spent OR this one file is oversized —
@@ -203,8 +212,15 @@ struct FolderInspectorPanel: View {
 
     @State private var agg: FolderAggregates = .empty
     @State private var aggLoading = true
+    /// True once a real scan (or cache hit) has populated `agg` for the folder
+    /// on screen. A same-folder rescan keeps the last good data visible; only a
+    /// cold load (fresh folder / first mount) shows the full-panel loading view.
+    @State private var hasData = false
     /// Live count of files the running scan has seen — drives the loading state.
     @State private var scanProgress = 0
+    /// Bumped per reload; the scan's progress / apply hops carry their bump and
+    /// no-op if a newer reload has superseded them (guards a rare double-reload).
+    @State private var scanGeneration = 0
     @State private var graph: FolderGraphStats = .empty
     @State private var scanTask: Task<Void, Never>?
     @State private var graphTask: Task<Void, Never>?
@@ -212,7 +228,10 @@ struct FolderInspectorPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             title
-            if aggLoading {
+            // Full loading view only on a cold load (no data yet). A same-folder
+            // rescan keeps the last good sections and shows compact progress in
+            // the title, rather than blanking the whole panel.
+            if aggLoading && !hasData {
                 loadingState
             } else {
                 ScrollView {
@@ -236,10 +255,11 @@ struct FolderInspectorPanel: View {
             reload()
         }
         .onChange(of: folderURL) { _ in
-            // New folder: clear both panes so nothing from the old one lingers
-            // under the spinner while the fresh scan / reduction runs.
+            // New folder: clear both panes and drop `hasData` so the cold
+            // loading view shows — nothing from the old folder should linger.
             agg = .empty
             graph = .empty
+            hasData = false
             reload()
         }
         .onChange(of: workspace.contentEpoch) { _ in reload() }
@@ -266,6 +286,11 @@ struct FolderInspectorPanel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
+            // Same-folder rescan: sections stay visible, so surface progress
+            // here instead of blanking the panel.
+            if aggLoading && hasData {
+                ProgressView().controlSize(.mini)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, SidebarChrome.barPaddingTop)
@@ -410,6 +435,8 @@ struct FolderInspectorPanel: View {
     private func reload() {
         let path = folderURL.standardizedFileURL.path
         let epoch = workspace.contentEpoch
+        scanGeneration += 1
+        let gen = scanGeneration
         recomputeGraph()
 
         // Fresh (path, epoch) hit: the cache is the source of truth for this
@@ -418,12 +445,12 @@ struct FolderInspectorPanel: View {
         if let cached = FolderAggregatesCache.lookup(path: path, epoch: epoch) {
             scanTask?.cancel()
             agg = cached
+            hasData = true
             aggLoading = false
             return
         }
-        // Miss: drop any stale numbers so the previous folder's OVERVIEW/TASKS
-        // don't sit under the spinner, then walk off-main.
-        agg = .empty
+        // Miss: a same-folder rescan keeps `agg`/`hasData` (last good data stays
+        // on screen); a cold load has already cleared them in `onChange`.
         scanProgress = 0
         aggLoading = true
 
@@ -436,18 +463,17 @@ struct FolderInspectorPanel: View {
         scanTask = Task.detached(priority: .utility) {
             let scanned = scanFolderAggregates(at: root) { count in
                 Task { @MainActor in
-                    // Ignore progress from a scan the view has moved past.
-                    guard path == folderURL.standardizedFileURL.path,
-                          epoch == workspace.contentEpoch, aggLoading else { return }
+                    // No-op if a newer reload has superseded this scan.
+                    guard gen == scanGeneration, aggLoading else { return }
                     scanProgress = count
                 }
             }
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard path == folderURL.standardizedFileURL.path,
-                      epoch == workspace.contentEpoch else { return }
+                guard gen == scanGeneration else { return }
                 FolderAggregatesCache.store(path: path, epoch: epoch, agg: scanned)
                 agg = scanned
+                hasData = true
                 aggLoading = false
             }
         }
