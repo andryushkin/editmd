@@ -1023,6 +1023,16 @@
         }
       }
     },
+    "Back (⌘[)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Назад (⌘[)"
+          }
+        }
+      }
+    },
     "Backlinks — incoming" : {
       "localizations" : {
         "ru" : {
@@ -2796,6 +2806,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вперёд"
+          }
+        }
+      }
+    },
+    "Forward (⌘])" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вперёд (⌘])"
           }
         }
       }

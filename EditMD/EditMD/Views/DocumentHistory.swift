@@ -1,19 +1,19 @@
-import AppKit
+import Foundation
 import Combine
 
-/// App-wide Back/Forward history over document windows (FSNotes' note
-/// history idea, mapped onto DocumentGroup's window-per-document model).
-///
-/// A visit is recorded whenever a document window becomes key — DocumentGroup
-/// sets `representedURL` on its windows, so no per-view wiring is needed
-/// (untitled documents have no URL and stay out of the history). Navigating
-/// re-activates the neighbouring document's window, or reopens the file if
-/// the window was closed.
+/// Back/Forward history for the MAIN window's document trail (FSNotes' note
+/// history idea). Scope is deliberately the main window only: it swaps files
+/// in place, and every such open records a visit via `recordVisit`
+/// (`AppState.openInMainWindow`). Detached lite windows are independent and
+/// neither feed nor are targeted by this history — that keeps the caret-offset
+/// restore, which rides the main window's control-jump path, consistent.
 ///
 /// Each entry also remembers a caret offset so Back/Forward returns the reader
 /// to *where they were*, not the top of the file — filled from
 /// `currentOffsetProvider` at the moment a visit is left (a new navigation or a
-/// Back/Forward step), and restored through AppState's control-jump path.
+/// Back/Forward step), and restored through AppState's control-jump path. The
+/// offset is the Source/Visual caret; Preview has no cheap reading position, so
+/// a file last read in Preview restores to its last caret (often the top).
 @MainActor
 final class DocumentHistory: ObservableObject {
 
@@ -34,18 +34,6 @@ final class DocumentHistory: ObservableObject {
     /// nil when no editor is mounted (folder/welcome), which leaves the last
     /// stamped offset intact.
     var currentOffsetProvider: (() -> Int?)?
-
-    /// `observingWindows` is false only for isolated unit tests, which drive
-    /// `recordVisit`/`goBack` directly and must not pick up the host app's own
-    /// window activity.
-    init(observingWindows: Bool = true) {
-        guard observingWindows else { return }
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowDidBecomeKey(_:)),
-            name: NSWindow.didBecomeKeyNotification,
-            object: nil)
-    }
 
     var canGoBack: Bool { index > 0 }
     var canGoForward: Bool { index >= 0 && index < entries.count - 1 }
@@ -103,11 +91,6 @@ final class DocumentHistory: ObservableObject {
         } else {
             index = 0
         }
-    }
-
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
-        guard let url = (notification.object as? NSWindow)?.representedURL else { return }
-        record(url.standardizedFileURL)
     }
 
     private func record(_ url: URL) {

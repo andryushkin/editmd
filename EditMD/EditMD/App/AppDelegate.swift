@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         resetEditorModeForColdLaunch(.standard)
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
-        installBackForwardMouseMonitor()
         // Claude Code IDE channel: follows Settings ▸ General (default on).
         // Skipped under XCTest — the unit-test host would open a real listener
         // and drop a lock file into the developer's own `~/.claude/ide`.
@@ -33,15 +32,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !WorkspaceModel.shared.workspaces.isEmpty {
                 LinkIndex.shared.ensureIndex()
             }
+            installBackForwardMouseMonitor()
         }
     }
+
+    /// Retained so `applicationWillTerminate` can remove it — AppKit already
+    /// keeps the monitor alive on its own, but holding the token keeps install
+    /// and teardown symmetric with the other launch-time services.
+    private var backForwardMonitor: Any?
 
     /// Mouse side buttons → Back/Forward, like a browser. Button 3 is the
     /// "back" thumb button, 4 is "forward" (macOS numbering). Consumed only
     /// when a document window (one with a representedURL) is key, so the
-    /// buttons stay free elsewhere; the nav itself no-ops at the ends.
+    /// buttons stay free elsewhere; the nav itself no-ops at the ends. Not
+    /// installed under XCTest, matching the IDE/control services.
     private func installBackForwardMouseMonitor() {
-        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+        backForwardMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
             guard NSApp.keyWindow?.representedURL != nil else { return event }
             switch event.buttonNumber {
             case 3: AppState.shared.historyBack(); return nil
@@ -61,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // CLI dial a dead port on the next `/ide`.
         ClaudeIDEService.shared.stopBeforeTerminate()
         ControlService.shared.stopBeforeTerminate()
+        if let backForwardMonitor { NSEvent.removeMonitor(backForwardMonitor) }
         // Whatever the debounce hasn't written yet is the next launch's first
         // frame — write it synchronously, the process is going away.
         WorkspaceModel.shared.snapshot.flushSync()

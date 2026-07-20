@@ -12,7 +12,7 @@ struct DocumentHistoryTests {
 
     @Test("Visits build a browser-style back stack")
     func recordsVisits() {
-        let h = DocumentHistory(observingWindows: false)
+        let h = DocumentHistory()
         #expect(!h.canGoBack && !h.canGoForward)
 
         h.recordVisit(url("a"))
@@ -28,7 +28,7 @@ struct DocumentHistoryTests {
 
     @Test("Re-recording the current file is not a new visit")
     func dedupCurrent() {
-        let h = DocumentHistory(observingWindows: false)
+        let h = DocumentHistory()
         h.recordVisit(url("a"))
         h.recordVisit(url("a"))
         #expect(!h.canGoBack)
@@ -36,7 +36,7 @@ struct DocumentHistoryTests {
 
     @Test("A new visit truncates the forward tail")
     func truncatesForwardTail() {
-        let h = DocumentHistory(observingWindows: false)
+        let h = DocumentHistory()
         h.recordVisit(url("a"))
         h.recordVisit(url("b"))
         h.recordVisit(url("c"))
@@ -51,7 +51,7 @@ struct DocumentHistoryTests {
 
     @Test("Back restores the caret offset the reader left behind")
     func restoresOffset() {
-        let h = DocumentHistory(observingWindows: false)
+        let h = DocumentHistory()
         var caret = 0
         h.currentOffsetProvider = { caret }
 
@@ -67,7 +67,7 @@ struct DocumentHistoryTests {
 
     @Test("Forward remembers where Back was pressed")
     func stampsOnNavigate() {
-        let h = DocumentHistory(observingWindows: false)
+        let h = DocumentHistory()
         var caret = 0
         h.currentOffsetProvider = { caret }
 
