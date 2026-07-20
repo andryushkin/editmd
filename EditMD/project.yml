@@ -17,6 +17,10 @@ settings:
     ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
     CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # "Enable String Catalog Symbol Generation": modern Xcode toggles
+    # STRING_CATALOG_GENERATE_SYMBOLS; SWIFT_EMIT_LOC_STRINGS is the older,
+    # separate key and does NOT silence that recommendation on its own.
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
 
 packages:
