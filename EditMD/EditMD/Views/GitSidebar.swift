@@ -51,7 +51,7 @@ struct GitSidebar: View {
 
                         let open = filteredOpenGlobal
                         if !open.isEmpty {
-                            sectionHeader("Open in editor")
+                            sectionHeader(String(localized: "Open in editor"))
                             ForEach(open) { file in
                                 changedRow(file, allowsCommit: file.canCommit)
                             }
@@ -200,8 +200,10 @@ struct GitSidebar: View {
                     .rotationEffect(.degrees(expanded ? 90 : 0))
                     .frame(width: 10)
 
+                // A clean folder is dimmed so the eye lands on the dirty ones.
                 Text(section.name)
                     .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(count > 0 ? Color.primary : Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -217,7 +219,7 @@ struct GitSidebar: View {
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                         .onTapGesture { if !isRefreshing { refresh(immediate: true) } }
-                        .editMDHelp("Refresh git status")
+                        .editMDHelp(String(localized: "Refresh git status"))
                         .opacity(isRefreshing ? 0.5 : 1)
 
                     Image(systemName: "arrow.up.circle")
@@ -226,7 +228,7 @@ struct GitSidebar: View {
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                         .onTapGesture { pushRepo(section.root) }
-                        .editMDHelp("Push to remote…")
+                        .editMDHelp(String(localized: "Push to remote…"))
                 }
 
                 branchLabel(section)
@@ -316,7 +318,7 @@ struct GitSidebar: View {
                 .padding(.bottom, 4)
                 .contentShape(Rectangle())
                 .onTapGesture { presentCommit(urls: section.files.map(\.url)) }
-                .editMDHelp("Commit all changed files in this folder…")
+                .editMDHelp(String(localized: "Commit all changed files in this folder…"))
         }
     }
 
@@ -388,7 +390,7 @@ struct GitSidebar: View {
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
                 .onTapGesture { presentDiff(file.url) }
-                .editMDHelp("Show diff…")
+                .editMDHelp(String(localized: "Show diff…"))
                 .opacity(hovering || active ? 1 : 0.7)
 
             if allowsCommit, file.canCommit {
