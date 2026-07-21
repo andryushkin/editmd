@@ -25,6 +25,8 @@ struct GitSidebar: View {
     /// by hand are remembered — a folder that becomes dirty opens by itself.
     @State private var manuallyExpanded: Set<String> = GitSidebarDisclosureStore.load(.expanded)
     @State private var manuallyCollapsed: Set<String> = GitSidebarDisclosureStore.load(.collapsed)
+    /// Live sidebar width; 0 until the first layout pass.
+    @State private var panelWidth: CGFloat = 0
 
     @ObservedObject private var lineChanges = LineChangeTracker.shared
 
@@ -63,6 +65,16 @@ struct GitSidebar: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Panel width drives what a header can afford to show. Measured in the
+        // background layer so it never takes part in layout itself.
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: GitSidebarWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(GitSidebarWidthKey.self) { width in
+            panelWidth = width
+        }
         .onAppear { refresh(immediate: true) }
         .onChange(of: workspace.workspaces) { _ in refresh(immediate: true) }
         // Do NOT re-run `git status` on every keystroke — only patch dirty badges.
@@ -126,6 +138,13 @@ struct GitSidebar: View {
     private var filteredOpenGlobal: [GitChangedFile] {
         snapshot.openDirty.filter { nameMatches($0) }
     }
+
+    // MARK: - Adaptive layout
+
+    /// Below this the header only has room for the folder name, ↑N/↓M and the
+    /// count; branch name and the hover action slots are dropped. 0 means the
+    /// first layout pass has not landed yet — assume roomy.
+    private var isNarrowPanel: Bool { panelWidth > 0 && panelWidth < 240 }
 
     // MARK: - Disclosure state
 
@@ -251,33 +270,41 @@ struct GitSidebar: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleExpanded(group) }
+                // The folder name is what identifies the group, so it is the
+                // last thing allowed to shrink.
+                .layoutPriority(1)
 
                 // Icons keep their slots at rest (fixed frames + opacity), so
                 // the branch label and count never shift under the cursor.
                 // Hit testing follows visibility — an invisible icon must not
-                // catch a click meant for the header.
-                headerAction(
-                    systemName: "arrow.clockwise",
-                    tint: .secondary,
-                    visible: hovering,
-                    dimmed: isRefreshing,
-                    help: String(localized: "Refresh git status")
-                ) {
-                    if !isRefreshing { refresh(immediate: true) }
-                }
+                // catch a click meant for the header. A narrow panel cannot
+                // afford the slots at all: there the context menu is the way in.
+                if !isNarrowPanel {
+                    headerAction(
+                        systemName: "arrow.clockwise",
+                        tint: .secondary,
+                        visible: hovering,
+                        dimmed: isRefreshing,
+                        help: String(localized: "Refresh git status")
+                    ) {
+                        if !isRefreshing { refresh(immediate: true) }
+                    }
 
-                headerAction(
-                    systemName: "arrow.up.circle",
-                    tint: (section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary,
-                    visible: hovering,
-                    dimmed: false,
-                    help: String(localized: "Push to remote…")
-                ) {
-                    pushRepo(section.root)
+                    headerAction(
+                        systemName: "arrow.up.circle",
+                        tint: (section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary,
+                        visible: hovering,
+                        dimmed: false,
+                        help: String(localized: "Push to remote…")
+                    ) {
+                        pushRepo(section.root)
+                    }
                 }
 
                 HStack(spacing: 5) {
-                    branchLabel(section)
+                    // Branch name is the first thing dropped when narrow — a
+                    // truncated "m…n" carries no information, ↑N still does.
+                    branchLabel(section, showsName: !isNarrowPanel)
 
                     if count > 0 {
                         Text("\(count)")
@@ -296,6 +323,7 @@ struct GitSidebar: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleExpanded(group) }
+                .layoutPriority(-1)
             }
 
             // Path only when open — collapsed rows stay one line tall.
@@ -363,13 +391,15 @@ struct GitSidebar: View {
     }
 
     @ViewBuilder
-    private func branchLabel(_ section: GitRepoSection) -> some View {
+    private func branchLabel(_ section: GitRepoSection, showsName: Bool) -> some View {
         HStack(spacing: 3) {
-            Text(section.branch ?? String(localized: "detached"))
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if showsName {
+                Text(section.branch ?? String(localized: "detached"))
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             if let ahead = section.ahead, ahead > 0 {
                 Text("↑\(ahead)")
                     .font(.system(size: 10.5, design: .monospaced))
@@ -383,7 +413,9 @@ struct GitSidebar: View {
                     .help(String(localized: "\(behind) commit(s) to pull"))
             }
         }
+        // Never squeeze the folder name for branch metadata.
         .layoutPriority(-1)
+        .editMDHelp(section.branch ?? String(localized: "detached"))
     }
 
     /// Bottom of an expanded group: clean note, filter note, or bulk commit.
@@ -729,6 +761,16 @@ private struct GitSidebarCommitTarget: Identifiable {
 private struct GitSidebarDiffTarget: Identifiable {
     let id = UUID()
     let content: DiffSheetContent
+}
+
+// MARK: - Panel width
+
+/// Sidebar width, reported from a background geometry layer.
+struct GitSidebarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 // MARK: - Group model
