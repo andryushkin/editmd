@@ -163,8 +163,9 @@ extension EditorTheme {
         inlineCodeBackground: ghAlpha(light: 0.055, dark: 0.09),
         codeBlockBackground:  gh(0xf6f8fa, 0x161b22),
         copyButtonBackground: NSColor(white: 0.5, alpha: 0.12),
-        quoteBackground:      ghAlpha(light: 0.025, dark: 0.03),
-        codeBlockCornerRadius: 6,
+        // Plain quotes carry no wash (plan 11.4) — callouts paint their own.
+        quoteBackground:      .clear,
+        codeBlockCornerRadius: 8,
         tableRowBackground:   ghAlpha(light: 0.03, dark: 0.04),
         listItemSpacing:       2,
         h1SizeOffset:          8,
@@ -179,7 +180,7 @@ extension EditorTheme {
         codeBlockHeadIndent:  12,
         codeBlockPanelInset:   8,
         codeBlockOuterSpacing: 16,
-        quoteBarWidth:          3,
+        quoteBarWidth:          2,
         quoteBarXOffset:       12
     )
 

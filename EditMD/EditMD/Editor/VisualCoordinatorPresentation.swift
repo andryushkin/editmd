@@ -286,6 +286,11 @@ extension VisualMarkdownView.Coordinator {
                 codeGroupIndents[blockValue.group] = listIndentPoints(blockValue.listIndent)
             case .thematicBreak:
                 ruleRanges.append(paragraph)
+                // A rule is a section boundary — give it real air (plan 11.4).
+                if !isDocumentStart {
+                    style.paragraphSpacingBefore = 16 * spacingScale
+                }
+                style.paragraphSpacing = 16 * spacingScale
             case .tableCell(let row, let column, let columns, let alignment):
                 let table: NSTextTable
                 if let existing = textTables[blockValue.group] {
@@ -435,10 +440,10 @@ extension VisualMarkdownView.Coordinator {
             switch blockValue.kind {
             case .codeBlock:
                 lineRatio = 1.2
-                lineBase = visualStyle.baseSize - 1
+                lineBase = visualStyle.codeSize
             case .raw:
                 lineRatio = isTableIsland ? 0 : 1.2
-                lineBase = visualStyle.baseSize - 1
+                lineBase = visualStyle.codeSize
             case .heading(let level):
                 // Headings are TIGHTER than natural (a multi-line H1 must not
                 // look loose) — clamp from both sides (plan 11.2).
@@ -630,7 +635,9 @@ extension VisualMarkdownView.Coordinator {
                 } else if isBodyCode {
                     color = theme.secondaryColor
                 } else if isQuote {
-                    color = elements.quote.color ?? theme.textColor
+                    // Quotes read as an aside (plan 11.4): secondary tone by
+                    // default, overridable per element in Settings.
+                    color = elements.quote.color ?? theme.secondaryColor
                 } else if styles.contains(.bold), let bold = elements.bold.color {
                     color = bold
                 } else {

@@ -151,7 +151,7 @@ extension VisualNSTextView {
                                      yRadius: theme.codeBlockCornerRadius)
             panel.fill()
             panel.lineWidth = 1
-            theme.inlineCodeColor.withAlphaComponent(0.28).setStroke()
+            theme.separatorColor.setStroke()
             panel.stroke()
         }
 
@@ -194,7 +194,10 @@ extension VisualNSTextView {
         for entry in quoteEntries {
             guard let rectUnion = trimmedRect(entry), rectUnion.intersects(rect) else { continue }
             let callout = makeCallout(entry.calloutType)
-            (callout?.color ?? theme.accentColor).withAlphaComponent(0.78).setFill()
+            // Plain quotes are quiet (plan 11.4): a thin neutral bar, no
+            // accent, no wash. Callouts keep their typed color.
+            (callout?.color.withAlphaComponent(0.78)
+                ?? theme.secondaryColor.withAlphaComponent(0.45)).setFill()
             for level in 0..<entry.depth {
                 NSRect(x: inset.width + entry.leadingIndent + CGFloat(level) * 18,
                        y: rectUnion.minY,
@@ -220,24 +223,26 @@ extension VisualNSTextView {
             }
         }
 
-        // Bullets — depth cycles • (fill) / ◦ (stroke) / ▪ (square), like Source.
+        // Bullets — depth cycles • (fill) / ◦ (stroke) / ▪ (square), like
+        // Source. Neutral tone and a small dot (plan 11.4): the accent is
+        // reserved for interactive marks, list bullets are furniture.
         for (range, depth) in bulletEntries {
             guard let marker = markerRect(forParagraph: range) else { continue }
-            let radius = marker.height * 0.18
+            let radius = min(2, marker.height * 0.18)
             let center = NSPoint(x: marker.midX, y: marker.midY)
             let box = NSRect(x: center.x - radius, y: center.y - radius,
                              width: radius * 2, height: radius * 2)
             switch depth % 3 {
             case 0:
-                theme.accentColor.setFill()
+                theme.secondaryColor.setFill()
                 NSBezierPath(ovalIn: box).fill()
             case 1:
-                theme.accentColor.setStroke()
+                theme.secondaryColor.setStroke()
                 let ring = NSBezierPath(ovalIn: box)
                 ring.lineWidth = max(1.25, radius * 0.35)
                 ring.stroke()
             default:
-                theme.accentColor.setFill()
+                theme.secondaryColor.setFill()
                 let side = radius * 1.7
                 let square = NSRect(x: center.x - side / 2, y: center.y - side / 2,
                                     width: side, height: side)
@@ -245,12 +250,14 @@ extension VisualNSTextView {
             }
         }
 
-        // Ordered numbers
+        // Ordered numbers — tabular figures, secondary tone, right-aligned to
+        // the marker column so units and tens don't dance (plan 11.4).
         for (range, _, number) in numberEntries {
             guard let marker = markerRect(forParagraph: range) else { continue }
+            let numberSize = max(9, round(EditorSettings.shared.visual.fontSize * 0.75))
             let label = NSAttributedString(string: "\(number).", attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: theme.accentColor,
+                .font: NSFont.monospacedDigitSystemFont(ofSize: numberSize, weight: .medium),
+                .foregroundColor: theme.secondaryColor,
             ])
             let size = label.size()
             label.draw(at: NSPoint(x: marker.maxX - size.width,
@@ -287,11 +294,11 @@ extension VisualNSTextView {
             drawBuiltInPluginIcon(token.state.icon, label: token.state.label, in: box)
         }
 
-        // Thematic breaks
+        // Thematic breaks — a 1pt hairline (plan 11.4).
         for range in ruleRanges {
             guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
             theme.separatorColor.setFill()
-            NSRect(x: inset.width, y: rectUnion.midY - 1, width: fullWidth, height: 2).fill()
+            NSRect(x: inset.width, y: rectUnion.midY - 0.5, width: fullWidth, height: 1).fill()
         }
 
         // Large tables (drawn as virtualized read-only grids)

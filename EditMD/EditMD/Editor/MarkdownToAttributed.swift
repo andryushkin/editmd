@@ -155,13 +155,18 @@ struct VisualStyle {
         return min(scaled, baseSize + cap)
     }
 
+    /// Mono size for inline code and listings: ×0.88 of body (mono runs
+    /// optically larger than proportional at equal size), floored at 11pt
+    /// for legibility but never above body (plan 11.3/11.4).
+    var codeSize: CGFloat { max(baseSize * 0.88, min(baseSize, 11)) }
+
     func font(for styles: MDInlineStyle, blockKind: MDBlock.Kind) -> NSFont {
         if styles.contains(.code) {
-            return NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
+            return NSFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
         }
         switch blockKind {
         case .codeBlock, .raw:
-            return NSFont.monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
+            return NSFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
         case .heading(let level):
             let element = elements.heading(level)
             let weight = (element.weight ?? .semibold).nsWeight
