@@ -207,9 +207,6 @@ final class VisualNSTextView: NSTextView {
         }
     }
     var islandHorizontalOffsets: [Int: CGFloat] = [:]
-    /// Island under the pointer — its column separators are drawn only in
-    /// this state (plan 11.5: the resting grid is horizontal-only).
-    var hoveredIslandLocation: Int?
     private var focusedIslandCell: (paragraphLocation: Int, row: Int, column: Int)?
     var activeEditor: NSTextField?
     private var activeEditorCell: (paragraphLocation: Int, row: Int, column: Int)?
@@ -1084,14 +1081,8 @@ final class VisualNSTextView: NSTextView {
         updateHoverLinkAffordance(
             commandDown: event.modifierFlags.contains(.command),
             windowPoint: event.locationInWindow)
-        let point = convert(event.locationInWindow, from: nil)
-        let island = tableCellHit(at: point)?.entry.range.location
-        if hoveredIslandLocation != island {
-            hoveredIslandLocation = island
-            needsDisplay = true
-        }
         guard rowDrag == nil else { return }
-        let handle = rowHandle(at: point)
+        let handle = rowHandle(at: convert(event.locationInWindow, from: nil))
         setHoverRowHandle(handle)
         if handle != nil { NSCursor.openHand.set() }
     }
@@ -1099,10 +1090,6 @@ final class VisualNSTextView: NSTextView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         updateHoverLinkAffordance(commandDown: false, windowPoint: .zero)
-        if hoveredIslandLocation != nil {
-            hoveredIslandLocation = nil
-            needsDisplay = true
-        }
         setHoverRowHandle(nil)
     }
 

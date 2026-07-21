@@ -384,6 +384,8 @@ extension VisualNSTextView {
             if i == 0 {
                 // No header fill (plan 11.5) — the header reads through
                 // weight and its heavier bottom rule.
+                border.setFill()
+                NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
                 drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
                              color: theme.textColor, edges: edges, alignments: grid.alignments,
                              horizontalOffset: horizontalOffset)
@@ -401,13 +403,11 @@ extension VisualNSTextView {
                    height: ruleHeight).fill()   // row rule
         }
 
-        // Vertical column separators are an interaction guide (plan 11.5):
-        // visible while the pointer is inside this island or during a row
-        // drag, invisible at rest — the resting grid is horizontal-only.
+        // Vertical column separators — the full thin grid (user decision
+        // after the 11.5 eye review), same hairline as the row rules.
         let visTop = max(dirty.minY, top)
         let visBottom = min(dirty.maxY, bottom)
-        if visBottom > visTop,
-           hoveredIslandLocation == entry.range.location || rowDrag != nil {
+        if visBottom > visTop {
             border.setFill()
             for x in edges {
                 NSRect(x: x - horizontalOffset - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()

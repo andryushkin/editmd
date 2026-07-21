@@ -304,13 +304,14 @@ extension VisualMarkdownView.Coordinator {
                 let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1,
                                             startingColumn: column, columnSpan: 1)
                 cell.setBorderColor(theme.separatorColor)
-                // Horizontal hairlines only (plan 11.5): each row draws its
-                // bottom rule, the header's a full point. No vertical or
-                // outer frame lines, no header fill — the header reads
-                // through weight.
-                cell.setWidth(0, type: .absoluteValueType, for: .border)
-                cell.setWidth(row == 0 ? 1 : 0.5, type: .absoluteValueType,
-                              for: .border, edge: .maxY)
+                // Full thin grid (user decision after the 11.5 eye review):
+                // 0.5pt hairlines all around, a full point under the header.
+                // No header fill — the header reads through weight.
+                cell.setWidth(0.5, type: .absoluteValueType, for: .border)
+                if row == 0 {
+                    cell.setWidth(1, type: .absoluteValueType,
+                                  for: .border, edge: .maxY)
+                }
                 cell.setWidth(8, type: .absoluteValueType, for: .padding)
                 style.textBlocks = [cell]
                 style.paragraphSpacing = 0

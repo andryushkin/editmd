@@ -216,13 +216,12 @@ light и dark. Каждый этап принимается на этом фай
 Файлы: `VisualCoordinatorPresentation.swift` (`.tableCell`), `VisualNSTextViewDrawing.swift`
 (island-грид), общие константы — в `EditorTheme`.
 
-- Сетка: только горизонтальные hairlines между строками; header — semibold, линия 1pt
-  снизу, без заливки (если header теряется — едва заметная `ghAlpha(0.03/0.05)`).
-  Native: `NSTextBlock.setWidth(_:type:for:edge:)` по-рёберно; island: колоночные
-  сепараторы не рисуются постоянно.
-- **Вертикальный guide при интерактиве**: при hover границы колонки и при drag/resize
-  island-грид показывает временную вертикальную линию — связь текста с колонкой не
-  теряется, drag-ручки и hit-testing живут.
+- Сетка: ~~только горизонтальные hairlines~~ **переиграно пользователем после просмотра
+  (2026-07-22): полная сетка тонкими линиями** — 0.5pt hairlines везде (вертикали и рамка
+  как строки), 1pt под header; header — semibold, без заливки (если header теряется —
+  едва заметная `ghAlpha(0.03/0.05)`). Native: по-рёберные ширины
+  `NSTextBlock.setWidth(_:type:for:edge:)` для утолщённой линии header.
+- ~~Вертикальный guide при интерактиве~~ — не нужен при постоянной полной сетке.
 - **Числа и даты**: tabular figures (`monospacedDigitSystemFont`) в ячейках; явные
   alignment-маркеры markdown уважаются как сейчас.
 - Минимальная высота строки ≈28pt при базе 15 (масштабируется), паддинг ячейки 6 → 8–9.
