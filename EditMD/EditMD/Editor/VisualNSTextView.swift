@@ -460,6 +460,99 @@ final class VisualNSTextView: NSTextView {
         return storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String
     }
 
+    // MARK: - Link affordance (plan 11.3)
+
+    /// Links carry no permanent underline; the underline appears as a
+    /// TEMPORARY layout-manager attribute (drawing-only, layout untouched)
+    /// while the caret sits inside the link or the pointer ⌘-hovers it.
+    /// Under Increase Contrast the presentation pass paints a permanent
+    /// underline and these states stay quiet.
+    private var caretLinkRange: NSRange?
+    private var hoverLinkRange: NSRange?
+    private var paintedLinkUnderlines: [NSRange] = []
+
+    /// Longest run of `.mdLink`/`.mdWikiLink` covering `charIndex`, or nil.
+    private func linkRun(at charIndex: Int) -> NSRange? {
+        guard let storage = textStorage, charIndex >= 0,
+              charIndex < storage.length else { return nil }
+        let bounds = (storage.string as NSString)
+            .paragraphRange(for: NSRange(location: charIndex, length: 0))
+        var effective = NSRange()
+        if storage.attribute(.mdLink, at: charIndex,
+                             longestEffectiveRange: &effective, in: bounds) != nil {
+            return effective
+        }
+        if storage.attribute(.mdWikiLink, at: charIndex,
+                             longestEffectiveRange: &effective, in: bounds) != nil {
+            return effective
+        }
+        return nil
+    }
+
+    /// Caret-inside state: called by the coordinator on selection changes.
+    func updateCaretLinkAffordance() {
+        var next: NSRange?
+        let sel = selectedRange()
+        if sel.length == 0, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+            next = linkRun(at: sel.location) ?? linkRun(at: sel.location - 1)
+        }
+        guard next != caretLinkRange else { return }
+        caretLinkRange = next
+        repaintLinkUnderlines()
+    }
+
+    /// ⌘-hover state: from mouseMoved / flagsChanged.
+    private func updateHoverLinkAffordance(commandDown: Bool, windowPoint: NSPoint) {
+        var next: NSRange?
+        if commandDown, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+            let point = convert(windowPoint, from: nil)
+            let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                         y: point.y - textContainerInset.height)
+            if let layoutManager, let textContainer, let storage = textStorage,
+               storage.length > 0 {
+                var fraction: CGFloat = 0
+                let glyphIndex = layoutManager.glyphIndex(
+                    for: containerPoint, in: textContainer,
+                    fractionOfDistanceThroughGlyph: &fraction)
+                next = linkRun(at: layoutManager.characterIndexForGlyph(at: glyphIndex))
+            }
+        }
+        guard next != hoverLinkRange else { return }
+        hoverLinkRange = next
+        repaintLinkUnderlines()
+        if next != nil { NSCursor.pointingHand.set() }
+    }
+
+    /// Caret and hover may target the same run — repaint the union so
+    /// clearing one state never wipes the other's underline.
+    private func repaintLinkUnderlines() {
+        guard let layoutManager, let storage = textStorage else { return }
+        let length = storage.length
+        for range in paintedLinkUnderlines {
+            guard range.location < length else { continue }
+            let clamped = NSRange(location: range.location,
+                                  length: min(range.length, length - range.location))
+            layoutManager.removeTemporaryAttribute(.underlineStyle,
+                                                   forCharacterRange: clamped)
+        }
+        paintedLinkUnderlines = [caretLinkRange, hoverLinkRange].compactMap { $0 }
+        for range in paintedLinkUnderlines where range.location < length {
+            let clamped = NSRange(location: range.location,
+                                  length: min(range.length, length - range.location))
+            layoutManager.addTemporaryAttribute(
+                .underlineStyle, value: NSUnderlineStyle.single.rawValue,
+                forCharacterRange: clamped)
+        }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        guard let window else { return }
+        updateHoverLinkAffordance(
+            commandDown: event.modifierFlags.contains(.command),
+            windowPoint: window.mouseLocationOutsideOfEventStream)
+    }
+
     private func taskParagraph(at point: NSPoint) -> NSRange? {
         for entry in taskEntries {
             if let rect = markerRect(forParagraph: entry.range),
@@ -985,6 +1078,9 @@ final class VisualNSTextView: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        updateHoverLinkAffordance(
+            commandDown: event.modifierFlags.contains(.command),
+            windowPoint: event.locationInWindow)
         guard rowDrag == nil else { return }
         let handle = rowHandle(at: convert(event.locationInWindow, from: nil))
         setHoverRowHandle(handle)
@@ -993,6 +1089,7 @@ final class VisualNSTextView: NSTextView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        updateHoverLinkAffordance(commandDown: false, windowPoint: .zero)
         setHoverRowHandle(nil)
     }
 

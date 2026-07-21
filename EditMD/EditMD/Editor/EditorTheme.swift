@@ -155,10 +155,12 @@ extension EditorTheme {
         accentColor:          gh(0x2c65cf, 0x4c8ef8),
         currentLineColor:     gh(0x2c65cf, 0x4c8ef8),
         caretColor:           gh(0x2c65cf, 0x4c8ef8),
-        inlineCodeColor:      gh(0xd1242f, 0xff7b72),
+        // Neutral, not GitHub-red (plan 11.3): code reads as code through the
+        // mono font and the wash, not through an alarm color.
+        inlineCodeColor:      gh(0x060606, 0xfbfbfc),
         imageColor:           gh(0x1a7f37, 0x3fb950),
         separatorColor:       gh(0xd0d0d3, 0x333438),
-        inlineCodeBackground: gh(0xf0f0f5, 0x252629),
+        inlineCodeBackground: ghAlpha(light: 0.055, dark: 0.09),
         codeBlockBackground:  gh(0xf6f8fa, 0x161b22),
         copyButtonBackground: NSColor(white: 0.5, alpha: 0.12),
         quoteBackground:      ghAlpha(light: 0.025, dark: 0.03),

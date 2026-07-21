@@ -541,14 +541,18 @@ extension VisualMarkdownView.Coordinator {
         }
     }
 
-    /// Strikethrough and colors are derived: .mdInline strike ∪ done-task
-    /// paragraphs get strikethrough; links get link color + underline.
+    /// Strikethrough and colors are derived: .mdInline strike (and plugin
+    /// tokens that opt in) get strikethrough; done tasks fade to the
+    /// secondary tone WITHOUT strikethrough (plan 11.3); links get the link
+    /// color — underlined only under Increase Contrast, the interactive
+    /// affordance states live in `VisualNSTextView` as temporary attributes.
     private func applyDerivedInlineDecorations(_ storage: NSTextStorage,
                                                paragraph: NSRange, block: MDBlock) {
         var isDone = false
+        var strikeDone = false
         if case .taskItem(_, true) = block.kind { isDone = true }
         if case .builtInPluginTaskItem(_, let token) = block.kind,
-           token.state.strikethrough { isDone = true }
+           token.state.strikethrough { isDone = true; strikeDone = true }
         var isHeaderCell = false
         if case .tableCell(0, _, _, _) = block.kind { isHeaderCell = true }
         var headingLevel = 0
@@ -573,7 +577,7 @@ extension VisualMarkdownView.Coordinator {
             storage.addAttribute(.font,
                                  value: self.visualStyle.font(for: fontStyles, blockKind: block.kind),
                                  range: range)
-            let strike = styles.contains(.strike) || isDone
+            let strike = styles.contains(.strike) || strikeDone
             if strike {
                 storage.addAttribute(.strikethroughStyle,
                                      value: NSUnderlineStyle.single.rawValue, range: range)
@@ -588,18 +592,21 @@ extension VisualMarkdownView.Coordinator {
                                      range: range)
                 storage.removeAttribute(.backgroundColor, range: range)
                 storage.removeAttribute(.underlineStyle, range: range)
-            } else if attrs[.mdWikiLink] != nil {
-                // Wiki-links look like links; navigation is Cmd+click (resolver).
-                storage.addAttributes([
-                    .foregroundColor: elements.link.color ?? theme.accentColor,
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                ], range: range)
-                storage.removeAttribute(.backgroundColor, range: range)
-            } else if attrs[.mdLink] != nil {
-                storage.addAttributes([
-                    .foregroundColor: elements.link.color ?? theme.accentColor,
-                    .underlineStyle: NSUnderlineStyle.single.rawValue,
-                ], range: range)
+            } else if attrs[.mdWikiLink] != nil || attrs[.mdLink] != nil {
+                // Links (and wiki-links; navigation is Cmd+click) carry no
+                // permanent underline — color plus the caret/⌘-hover states
+                // in the view. Increase Contrast brings the underline back:
+                // color alone may not separate from body text.
+                storage.addAttribute(.foregroundColor,
+                                     value: elements.link.color ?? theme.accentColor,
+                                     range: range)
+                if NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+                    storage.addAttribute(.underlineStyle,
+                                         value: NSUnderlineStyle.single.rawValue,
+                                         range: range)
+                } else {
+                    storage.removeAttribute(.underlineStyle, range: range)
+                }
                 storage.removeAttribute(.backgroundColor, range: range)
             } else if isDone {
                 storage.addAttribute(.foregroundColor, value: theme.secondaryColor,
@@ -609,7 +616,7 @@ extension VisualMarkdownView.Coordinator {
             } else if styles.contains(.code) {
                 storage.addAttributes([
                     .foregroundColor: elements.inlineCode.color ?? theme.inlineCodeColor,
-                    .backgroundColor: NSColor(white: 0.5, alpha: 0.12),
+                    .backgroundColor: theme.inlineCodeBackground,
                 ], range: range)
                 storage.removeAttribute(.underlineStyle, range: range)
             } else {

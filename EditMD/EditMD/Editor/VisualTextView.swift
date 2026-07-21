@@ -599,6 +599,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             }
             storeCursor()
             publishActiveFormats()
+            textView.updateCaretLinkAffordance()
             wikiCompletion.update(fileURL: parent.fileURL)
         }
 
