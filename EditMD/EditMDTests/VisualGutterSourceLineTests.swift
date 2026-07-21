@@ -120,4 +120,47 @@ final class GutterCurrentLineTests: XCTestCase {
         XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 99),
                        NSRange(location: 0, length: 3))
     }
+
+    func testCaretAtDocumentStart() {
+        let text = "abc\ndef"
+        XCTAssertTrue(holds(text, caret: 0, lineAt: 0))
+        XCTAssertFalse(holds(text, caret: 0, lineAt: 4))
+    }
+
+    /// A document that is nothing but a newline has two lines, and the caret
+    /// can sit on either.
+    func testLoneNewline() {
+        let text = "\n"
+        let ns = text as NSString
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 0),
+                       NSRange(location: 0, length: 1))
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 1),
+                       NSRange(location: 1, length: 0))
+        XCTAssertTrue(holds(text, caret: 0, lineAt: 0))
+        XCTAssertFalse(holds(text, caret: 1, lineAt: 0))
+        XCTAssertTrue(holds(text, caret: 1, lineAt: 1))
+    }
+
+    /// Blank line between two paragraphs — the empty middle line owns its
+    /// caret, neither neighbour does.
+    func testCaretOnBlankMiddleLine() {
+        let text = "a\n\nb"          // lines: {0,2} "a\n", {2,1} "\n", {3,1} "b"
+        let ns = text as NSString
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 2),
+                       NSRange(location: 2, length: 1))
+        XCTAssertTrue(holds(text, caret: 2, lineAt: 2))
+        XCTAssertFalse(holds(text, caret: 2, lineAt: 0))
+        XCTAssertFalse(holds(text, caret: 2, lineAt: 3))
+    }
+
+    /// Number emphasis follows the band: a ranged selection emphasizes nothing,
+    /// so a multi-line selection cannot light up its anchor's number alone.
+    func testEmphasisOffset() {
+        XCTAssertEqual(gutterEmphasisOffset(selection: NSRange(location: 7, length: 0),
+                                            enabled: true), 7)
+        XCTAssertNil(gutterEmphasisOffset(selection: NSRange(location: 7, length: 12),
+                                          enabled: true))
+        XCTAssertNil(gutterEmphasisOffset(selection: NSRange(location: 7, length: 0),
+                                          enabled: false))
+    }
 }

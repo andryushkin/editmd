@@ -386,10 +386,14 @@ struct SourceTextView: NSViewRepresentable {
                 dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
                 displayToSourceLine: [],
                 // Emphasis on the caret's number rides with the line highlight:
-                // one setting, one visual idea.
-                caretOffset: source.highlightCurrentLine ? textView.selectedRange().location : nil)
+                // one setting, one visual idea — and it drops out under a
+                // ranged selection exactly like the band does.
+                caretOffset: gutterEmphasisOffset(selection: textView.selectedRange(),
+                                                  enabled: source.highlightCurrentLine))
             textView.currentLineFill = source.currentLineFill(
-                theme: EditorSettings.shared.effectiveTheme)
+                theme: EditorSettings.shared.effectiveTheme,
+                isDark: textView.effectiveAppearance
+                    .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
             textView.needsDisplay = true
             reportTextLeading(textView.textContainerInset.width)
         }
@@ -512,23 +516,19 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         /// Repaint the current-line band when the caret actually changes line
-        /// (or leaves/enters a ranged selection). Moving within one line — the
-        /// common case while typing — must not schedule a redraw.
+        /// (or leaves/enters a ranged selection). Moving the caret within one
+        /// line must not schedule a redraw of its own — an edit still repaints
+        /// through `refreshGutter`.
         private func refreshCurrentLineBand(_ textView: SourceNSTextView) {
-            guard EditorSettings.shared.source.highlightCurrentLine else {
-                if lastCaretLine != nil {
-                    lastCaretLine = nil
-                    textView.gutterState.caretOffset = nil
-                    textView.needsDisplay = true
-                }
-                return
-            }
             let selection = textView.selectedRange()
-            textView.gutterState.caretOffset = selection.location
+            let enabled = EditorSettings.shared.source.highlightCurrentLine
+            // One source of truth for band and number emphasis: both are off
+            // while a range is selected, both follow the same setting.
+            textView.gutterState.caretOffset =
+                gutterEmphasisOffset(selection: selection, enabled: enabled)
             let ns = textView.string as NSString
-            let band: NSRange? = selection.length > 0
-                ? nil  // ranged selection paints itself
-                : gutterCaretLineRange(in: ns, caret: selection.location)
+            let band: NSRange? = textView.gutterState.caretOffset
+                .map { gutterCaretLineRange(in: ns, caret: $0) }
             guard band != lastCaretLine else { return }
             lastCaretLine = band
             textView.needsDisplay = true

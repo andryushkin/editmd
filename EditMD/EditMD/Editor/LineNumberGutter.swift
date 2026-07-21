@@ -80,6 +80,15 @@ func gutterCaretLineRange(in ns: NSString, caret: Int) -> NSRange {
     return ns.lineRange(for: NSRange(location: min(loc, ns.length - 1), length: 0))
 }
 
+/// Caret offset the gutter should emphasize, or `nil` for none. A ranged
+/// selection emphasizes nothing: the selection fill already says where the
+/// user is, and lighting up only the anchor's number would claim a single
+/// current line across a multi-line selection.
+func gutterEmphasisOffset(selection: NSRange, enabled: Bool) -> Int? {
+    guard enabled, selection.length == 0 else { return nil }
+    return selection.location
+}
+
 /// Does `lineRange` end in a newline (i.e. another line follows)?
 func gutterLineEndsWithNewline(in ns: NSString, lineRange: NSRange) -> Bool {
     let end = lineRange.location + lineRange.length
@@ -278,11 +287,14 @@ extension NSTextView {
             }
         }
         guard var band = fill, band.intersects(rect) else { return }
-        // Full width, starting just left of the text so the line number keeps
-        // its own unpainted margin (as in Xcode).
-        let leftEdge = max(0, inset.width - GutterMetrics.gap * 0.5)
-        band.origin.x = leftEdge
-        band.size.width = max(0, bounds.width - leftEdge)
+        // The band spans the reading field, not the whole view: it starts just
+        // left of the text (so the line number keeps its own unpainted margin)
+        // and stops the same distance from the right edge — AppKit applies
+        // `textContainerInset.width` on both sides, so this mirrors the text's
+        // own margins and follows a centered reading column.
+        let sideMargin = max(0, inset.width - GutterMetrics.gap * 0.5)
+        band.origin.x = sideMargin
+        band.size.width = max(0, bounds.width - sideMargin * 2)
         color.setFill()
         band.fill()
     }

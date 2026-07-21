@@ -211,8 +211,11 @@ struct ModeSettings: Codable, Equatable {
     var markerColorHex: String?
     /// Source-only: paint a fill behind the line holding the caret (Xcode-style).
     var highlightCurrentLine: Bool
-    /// `nil` = `EditorTheme.currentLineColor`.
+    /// Tint of that fill; `nil` = `EditorTheme.currentLineColor`. Always washed
+    /// by `currentLineOpacity` — an opaque band would bury the highlighting.
     var currentLineColorHex: String?
+    /// Wash alpha for the band. `0` = the theme's per-appearance default.
+    var currentLineOpacity: CGFloat
     /// `nil` = `EditorTheme.caretColor`.
     var caretColorHex: String?
 
@@ -222,9 +225,11 @@ struct ModeSettings: Codable, Equatable {
          markerColorHex: String? = nil,
          highlightCurrentLine: Bool = true,
          currentLineColorHex: String? = nil,
+         currentLineOpacity: CGFloat = 0,
          caretColorHex: String? = nil) {
         self.highlightCurrentLine = highlightCurrentLine
         self.currentLineColorHex = currentLineColorHex
+        self.currentLineOpacity = currentLineOpacity
         self.caretColorHex = caretColorHex
         self.fontSize = fontSize
         self.insetH = insetH
@@ -248,6 +253,7 @@ struct ModeSettings: Codable, Equatable {
         markerColorHex = try c.decodeIfPresent(String.self, forKey: .markerColorHex)
         highlightCurrentLine = try c.decodeIfPresent(Bool.self, forKey: .highlightCurrentLine) ?? true
         currentLineColorHex = try c.decodeIfPresent(String.self, forKey: .currentLineColorHex)
+        currentLineOpacity = try c.decodeIfPresent(CGFloat.self, forKey: .currentLineOpacity) ?? 0
         caretColorHex = try c.decodeIfPresent(String.self, forKey: .caretColorHex)
     }
 
@@ -255,10 +261,18 @@ struct ModeSettings: Codable, Equatable {
     var markerColor: NSColor? { markerColorHex.flatMap { NSColor(hex: $0) } }
 
     /// Fill behind the caret's line, or `nil` when the highlight is off.
-    func currentLineFill(theme: EditorTheme) -> NSColor? {
+    /// `isDark` picks the default wash; a custom tint is washed the same way,
+    /// since a picked color arrives opaque and would hide the syntax colors.
+    func currentLineFill(theme: EditorTheme, isDark: Bool) -> NSColor? {
         guard highlightCurrentLine else { return nil }
-        return currentLineColorHex.flatMap { NSColor(hex: $0) } ?? theme.currentLineColor
+        let tint = currentLineColorHex.flatMap { NSColor(hex: $0) } ?? theme.currentLineColor
+        let alpha = currentLineOpacity > 0
+            ? currentLineOpacity
+            : EditorTheme.currentLineAlpha(isDark: isDark)
+        return tint.withAlphaComponent(alpha)
     }
+
+    static let currentLineOpacityRange: ClosedRange<CGFloat> = 0...0.4
 
     func caretColor(theme: EditorTheme) -> NSColor {
         caretColorHex.flatMap { NSColor(hex: $0) } ?? theme.caretColor

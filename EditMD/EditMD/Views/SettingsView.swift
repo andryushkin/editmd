@@ -274,9 +274,13 @@ private struct ModeTab: View {
                     ColorOverrideRow(title: "Current line color", hex: m.currentLineColorHex,
                                      fallback: theme.currentLineColor)
                         .disabled(!m.wrappedValue.highlightCurrentLine)
+                    ValueSlider(title: "Current line opacity", value: m.currentLineOpacity,
+                                range: ModeSettings.currentLineOpacityRange,
+                                format: "%.2f")
+                        .disabled(!m.wrappedValue.highlightCurrentLine)
                     ColorOverrideRow(title: "Cursor color", hex: m.caretColorHex,
                                      fallback: theme.caretColor)
-                    Text("Fills the line holding the caret and draws its line number in full color, like Xcode. The cursor color applies to the Source insertion point.")
+                    Text("Fills the line holding the caret and draws its line number in full color, like Xcode. The color is always drawn as a translucent wash so the syntax colors stay readable — opacity 0 uses the theme default. The cursor color applies to the Source insertion point.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

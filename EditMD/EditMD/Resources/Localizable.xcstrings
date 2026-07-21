@@ -22,6 +22,16 @@
         }
       }
     },
+    "Current line opacity": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрозрачность текущей строки"
+          }
+        }
+      }
+    },
     "Cursor color": {
       "localizations": {
         "ru": {
@@ -32,12 +42,12 @@
         }
       }
     },
-    "Fills the line holding the caret and draws its line number in full color, like Xcode. The cursor color applies to the Source insertion point.": {
+    "Fills the line holding the caret and draws its line number in full color, like Xcode. The color is always drawn as a translucent wash so the syntax colors stay readable — opacity 0 uses the theme default. The cursor color applies to the Source insertion point.": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заливает строку с курсором и рисует её номер полным цветом, как в Xcode. Цвет курсора применяется к точке ввода в режиме Source."
+            "value": "Заливает строку с курсором и рисует её номер полным цветом, как в Xcode. Цвет всегда рисуется полупрозрачной заливкой, чтобы подсветка синтаксиса оставалась читаемой: непрозрачность 0 берёт значение из темы. Цвет курсора применяется к точке ввода в режиме Source."
           }
         }
       }
