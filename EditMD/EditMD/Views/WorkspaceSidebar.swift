@@ -232,7 +232,7 @@ func migrateWorkspaceSidebarTab(_ tab: String) -> String {
 /// The left sidebar: Xcode-style icon toolbar switches Files / Search / Git /
 /// Tags (workspace-scope). Outline and Review moved to the right inspector.
 struct WorkspaceSidebar: View {
-    /// Buttons in the navigator capsule (Files / Search / Git / Tags) and the
+    /// Segments in the navigator strip (Files / Search / Git / Tags) and the
     /// narrowest pane that still shows them all — same floor rule as the
     /// inspector, see `InspectorSidebar.minimumPaneWidth`.
     nonisolated static let navigatorTabCount = 4
@@ -325,10 +325,9 @@ struct WorkspaceSidebar: View {
         !isFiltering || name.localizedCaseInsensitiveContains(filterQuery)
     }
 
-    // MARK: - Navigator toolbar (Xcode-style)
+    // MARK: - Navigator toolbar
 
-    /// Xcode-style navigator capsule: equal flex tabs, circular selection at
-    /// floor width, oval pill when the pane is wider.
+    /// Stock segmented control: equal-width tabs that follow the pane.
     private var navigatorToolbar: some View {
         SidebarNavStrip(
             tabs: [

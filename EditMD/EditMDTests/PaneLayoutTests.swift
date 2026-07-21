@@ -171,13 +171,13 @@ final class PaneLayoutTests: XCTestCase {
 
     // MARK: - Pane floors (a *drag* may not clip the navigator strip)
 
-    /// Floors are derived from the navigator capsule (square 24pt cells +
-    /// capsule pad + bar pad; hairlines are overlays and do not add width):
-    /// inspector 7 × 24 + 2 × 3 + 2 × 8 = 190; sidebar 4 × 24 + 6 + 16 = 118.
+    /// Floors are derived from the segmented navigator strip (28pt legibility
+    /// floor per segment + bar pad): inspector 7 × 28 + 2 × 8 = 212;
+    /// sidebar 4 × 28 + 16 = 128.
     func testPaneFloorsFitTheirNavigatorStrips() {
-        XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 190, accuracy: 0.001)
-        XCTAssertEqual(InspectorPane.widthRange.lowerBound, 190, accuracy: 0.001)
-        XCTAssertEqual(WorkspaceSidebar.minimumPaneWidth, 118, accuracy: 0.001)
+        XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 212, accuracy: 0.001)
+        XCTAssertEqual(InspectorPane.widthRange.lowerBound, 212, accuracy: 0.001)
+        XCTAssertEqual(WorkspaceSidebar.minimumPaneWidth, 128, accuracy: 0.001)
     }
 
     /// The ceiling must survive a floor that outgrows it (invalid ranges trap).

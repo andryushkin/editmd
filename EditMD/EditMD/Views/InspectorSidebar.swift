@@ -3,9 +3,10 @@ import AppKit
 
 /// Right inspector panel for document-scope UI (Outline, Review, Info, Links,
 /// Backlinks, Properties, History). Mirrors the left `WorkspaceSidebar`
-/// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
+/// chrome: segmented navigator strip, `SidebarChrome` padding, window
+/// background.
 struct InspectorSidebar: View {
-    /// Buttons in the navigator capsule (Outline … Info). The pane may not be
+    /// Segments in the navigator strip (Outline … Info). The pane may not be
     /// dragged narrower than the strip they form, otherwise the trailing tabs
     /// get clipped by the pane edge. `nonisolated`: pure geometry, and the
     /// layout helpers that read it (`InspectorPane`) are not main-actor bound
@@ -119,6 +120,7 @@ struct InspectorSidebar: View {
                 SidebarNavTab(id: "review",
                               systemImage: "text.bubble",
                               help: String(localized: "Review — document marks"),
+                              badgeSystemImage: "text.bubble.fill",
                               badge: review.openCount),
                 SidebarNavTab(id: "properties",
                               systemImage: "list.bullet.rectangle",
