@@ -377,6 +377,60 @@ final class GitCLITests: XCTestCase {
         XCTAssertTrue(snap.sections.allSatisfy(\.files.isEmpty))
     }
 
+    /// Sidebar groups by adopted folder, so two folders sharing one repository
+    /// stay two sections and each file is listed under exactly one of them.
+    @MainActor
+    func testWorkspaceSnapshotGroupsByWorkspaceNotRepo() throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let fm = FileManager.default
+        let vault = repo.appendingPathComponent("vault", isDirectory: true)
+        let notes = repo.appendingPathComponent("notes", isDirectory: true)
+        // Nested adoption: files under it belong to the deepest folder only.
+        let inner = notes.appendingPathComponent("inner", isDirectory: true)
+        for dir in [vault, notes, inner] {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        try "a\n".write(to: vault.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        try "b\n".write(to: notes.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+        try "c\n".write(to: inner.appendingPathComponent("c.md"), atomically: true, encoding: .utf8)
+
+        let snap = GitWorkspaceStatus.snapshot(
+            workspaceRoots: [vault, notes, inner],
+            openURLs: []
+        )
+        XCTAssertEqual(snap.sections.count, 3)
+        // Section order follows the adopted-folder order, not the repo path.
+        XCTAssertEqual(snap.sections.map(\.workspace.lastPathComponent),
+                       ["vault", "notes", "inner"])
+        XCTAssertTrue(snap.sections.allSatisfy { $0.root == repo })
+        XCTAssertEqual(snap.sections[0].files.map(\.displayPath), ["a.md"])
+        XCTAssertEqual(snap.sections[1].files.map(\.displayPath), ["b.md"])
+        XCTAssertEqual(snap.sections[2].files.map(\.displayPath), ["c.md"])
+        XCTAssertEqual(snap.changedCount, 3)
+    }
+
+    /// The group header shows the sidebar's (possibly custom) folder name.
+    @MainActor
+    func testWorkspaceSnapshotKeepsCustomFolderName() async throws {
+        guard GitCLI.gitExecutable != nil else {
+            throw XCTSkip("git not installed")
+        }
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let snap = await GitWorkspaceStatus.snapshotAsync(
+            workspaces: [GitWorkspaceInput(url: repo, name: "My Vault")],
+            openURLs: []
+        )
+        XCTAssertEqual(snap.sections.map(\.name), ["My Vault"])
+        XCTAssertFalse(snap.sections[0].isNestedInRepo)
+    }
+
     // MARK: - Helpers
 
     private func makeTempRepo() throws -> URL {

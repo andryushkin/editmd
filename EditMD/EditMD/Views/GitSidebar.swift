@@ -19,6 +19,12 @@ struct GitSidebar: View {
     @State private var commitTarget: GitSidebarCommitTarget?
     @State private var diffTarget: GitSidebarDiffTarget?
     @State private var hoverCommitURL: URL?
+    @State private var hoverSectionID: String?
+    /// Disclosure state per workspace section. Default is derived (clean →
+    /// collapsed, has changes → expanded), so only folders the user toggled
+    /// by hand are remembered — a folder that becomes dirty opens by itself.
+    @State private var manuallyExpanded: Set<String> = GitSidebarDisclosureStore.load(.expanded)
+    @State private var manuallyCollapsed: Set<String> = GitSidebarDisclosureStore.load(.collapsed)
 
     @ObservedObject private var lineChanges = LineChangeTracker.shared
 
@@ -29,20 +35,17 @@ struct GitSidebar: View {
             } else if !snapshot.hasAnyRepo {
                 emptyNoRepo
             } else {
+                summaryBar
+                Divider()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(filteredSections) { section in
-                            repoHeader(section)
-                            if section.files.isEmpty {
-                                Text("Working tree clean")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 4)
-                            } else {
+                            workspaceHeader(section)
+                            if isExpanded(section) {
                                 ForEach(section.files.filter { nameMatches($0) }) { file in
                                     changedRow(file, allowsCommit: true)
                                 }
+                                sectionFooter(section)
                             }
                         }
 
@@ -106,11 +109,15 @@ struct GitSidebar: View {
         if !isFiltering { return snapshot.sections }
         return snapshot.sections.compactMap { section in
             let files = section.files.filter { nameMatches($0) }
-            // Keep section if branch/root matches or it has matching files.
-            let metaMatch = (section.branch ?? "").localizedCaseInsensitiveContains(filterQuery)
+            // Keep section if its name / branch / path matches, or it has
+            // matching files.
+            let metaMatch = section.name.localizedCaseInsensitiveContains(filterQuery)
+                || (section.branch ?? "").localizedCaseInsensitiveContains(filterQuery)
                 || section.shortRoot.localizedCaseInsensitiveContains(filterQuery)
             if files.isEmpty && !metaMatch { return nil }
             return GitRepoSection(
+                workspace: section.workspace,
+                name: section.name,
                 root: section.root,
                 branch: section.branch,
                 ahead: section.ahead,
@@ -124,86 +131,193 @@ struct GitSidebar: View {
         snapshot.openDirty.filter { nameMatches($0) }
     }
 
+    // MARK: - Disclosure state
+
+    /// Derived default (clean → collapsed) unless the user toggled this folder.
+    /// While filtering every surviving group is open so matches stay visible.
+    private func isExpanded(_ section: GitRepoSection) -> Bool {
+        if isFiltering { return true }
+        if manuallyExpanded.contains(section.id) { return true }
+        if manuallyCollapsed.contains(section.id) { return false }
+        return !section.files.isEmpty
+    }
+
+    private func toggleExpanded(_ section: GitRepoSection) {
+        // Filtering forces every group open; a toggle then has no visible
+        // effect and would silently record the wrong state.
+        guard !isFiltering else { return }
+        if isExpanded(section) {
+            manuallyExpanded.remove(section.id)
+            manuallyCollapsed.insert(section.id)
+        } else {
+            manuallyCollapsed.remove(section.id)
+            manuallyExpanded.insert(section.id)
+        }
+        GitSidebarDisclosureStore.save(manuallyExpanded, for: .expanded)
+        GitSidebarDisclosureStore.save(manuallyCollapsed, for: .collapsed)
+    }
+
     // MARK: - Header / rows
 
-    @ViewBuilder
-    private func repoHeader(_ section: GitRepoSection) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: "arrow.triangle.branch")
+    /// Thin overview line: how much is dirty across all adopted folders.
+    private var summaryBar: some View {
+        HStack(spacing: 6) {
+            let changed = snapshot.changedCount
+            if changed > 0 {
+                Text("Changed: \(changed)")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                if let branch = section.branch {
-                    Text(branch)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .lineLimit(1)
-                } else {
-                    Text("detached")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                if let ahead = section.ahead, ahead > 0 {
-                    Text("↑\(ahead)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color.accentColor)
-                        .help("\(ahead) commit(s) to push")
-                }
-                if let behind = section.behind, behind > 0 {
-                    Text("↓\(behind)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .help("\(behind) commit(s) to pull")
-                }
-            }
-
-            Text(section.shortRoot)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            // Tap gestures (not Buttons) so the first click after entering the
-            // Git tab lands — see the row Diff/Commit note (acceptsFirstMouse).
-            HStack(spacing: 8) {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                    .foregroundStyle(Color.accentColor)
+            } else {
+                Text("All folders clean")
                     .font(.system(size: 11))
-                    .labelStyle(.iconOnly)
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if !isRefreshing { refresh(immediate: true) } }
-                    .editMDHelp("Refresh git status")
-                    .opacity(isRefreshing ? 0.5 : 1)
-
-                Spacer(minLength: 0)
-
-                // One commit for every markdown file listed under this repo
-                // section (workspace-scoped). Same sheet as the per-row action.
-                if !section.files.isEmpty {
-                    Text("Commit all")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.accentColor)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            presentCommit(urls: section.files.map(\.url))
-                        }
-                        .editMDHelp("Commit all changed files in this repository…")
-                }
-
-                Text("Push")
-                    .font(.system(size: 11, weight: (section.ahead ?? 0) > 0 ? .semibold : .regular))
-                    .foregroundStyle((section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary)
-                    .contentShape(Rectangle())
-                    .onTapGesture { pushRepo(section.root) }
-                    .editMDHelp("Push to remote…")
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6)
+                    .frame(width: 12, height: 12)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
 
-        sectionHeader("Changed (\(section.files.count))")
+    /// Group header = one adopted workspace folder. Branch and ahead/behind are
+    /// secondary metadata here; the folder name is what identifies the group.
+    @ViewBuilder
+    private func workspaceHeader(_ section: GitRepoSection) -> some View {
+        let expanded = isExpanded(section)
+        let hovering = hoverSectionID == section.id
+        let count = section.files.count
+
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: 10)
+
+                Text(section.name)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 4)
+
+                // Actions appear on hover so the resting panel stays readable.
+                // Tap gestures (not Buttons) so the first click after entering
+                // the Git tab lands — see the row Diff/Commit note.
+                if hovering {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if !isRefreshing { refresh(immediate: true) } }
+                        .editMDHelp("Refresh git status")
+                        .opacity(isRefreshing ? 0.5 : 1)
+
+                    Image(systemName: "arrow.up.circle")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle((section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                        .onTapGesture { pushRepo(section.root) }
+                        .editMDHelp("Push to remote…")
+                }
+
+                branchLabel(section)
+
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule().fill(Color.accentColor.opacity(0.15))
+                        )
+                } else if !expanded {
+                    Text("Clean")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            // Path only when open — collapsed rows stay one line tall.
+            if expanded {
+                Text(section.shortRoot)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.leading, 15)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+        )
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onHover { hoverSectionID = $0 ? section.id : nil }
+        .onTapGesture { toggleExpanded(section) }
+        .editMDHelp(section.shortRoot)
+    }
+
+    @ViewBuilder
+    private func branchLabel(_ section: GitRepoSection) -> some View {
+        HStack(spacing: 3) {
+            Text(section.branch ?? String(localized: "detached"))
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let ahead = section.ahead, ahead > 0 {
+                Text("↑\(ahead)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color.accentColor)
+                    .help("\(ahead) commit(s) to push")
+            }
+            if let behind = section.behind, behind > 0 {
+                Text("↓\(behind)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .help("\(behind) commit(s) to pull")
+            }
+        }
+        .layoutPriority(-1)
+    }
+
+    /// Bottom of an expanded group: either the clean note or bulk commit.
+    @ViewBuilder
+    private func sectionFooter(_ section: GitRepoSection) -> some View {
+        if section.files.isEmpty {
+            Text("Working tree clean")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.top, 1)
+                .padding(.bottom, 4)
+        } else if section.files.count > 1 {
+            // One commit for every markdown file listed under this folder.
+            // Same sheet as the per-row action.
+            Text("Commit all")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 12)
+                .padding(.top, 1)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
+                .onTapGesture { presentCommit(urls: section.files.map(\.url)) }
+                .editMDHelp("Commit all changed files in this folder…")
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -408,6 +522,8 @@ struct GitSidebar: View {
                 )
             }
             sections[si] = GitRepoSection(
+                workspace: sections[si].workspace,
+                name: sections[si].name,
                 root: sections[si].root,
                 branch: sections[si].branch,
                 ahead: sections[si].ahead,
@@ -458,7 +574,11 @@ struct GitSidebar: View {
 
     private func refresh(immediate: Bool = false) {
         refreshTask?.cancel()
-        let roots = workspace.workspaces.map(\.url)
+        // Sections are workspace folders, so they carry the sidebar's names.
+        let folders = workspace.workspaces.map {
+            GitWorkspaceInput(url: $0.url, name: $0.name)
+        }
+        let roots = folders.map(\.url)
         let open = DocumentRegistry.shared.openURLs
         // Non-immediate: longer debounce so becomeActive storms don't thrash git.
         let delay: UInt64 = immediate ? 0 : 600_000_000
@@ -470,7 +590,7 @@ struct GitSidebar: View {
             isRefreshing = true
             // Snapshot git Process off the main actor; re-enter only for UI state.
             let built = await GitWorkspaceStatus.snapshotAsync(
-                workspaceRoots: roots,
+                workspaces: folders,
                 openURLs: open
             )
             guard !Task.isCancelled else {
@@ -507,4 +627,25 @@ private struct GitSidebarCommitTarget: Identifiable {
 private struct GitSidebarDiffTarget: Identifiable {
     let id = UUID()
     let content: DiffSheetContent
+}
+
+// MARK: - Disclosure persistence
+
+/// Remembers only folders the user toggled away from the derived default
+/// (clean → collapsed). Storing the *overrides* rather than the open set keeps
+/// a folder that just became dirty opening by itself across launches.
+enum GitSidebarDisclosureStore {
+    enum Kind: String {
+        case expanded = "git.sidebar.expandedWorkspaces"
+        case collapsed = "git.sidebar.collapsedWorkspaces"
+    }
+
+    static func load(_ kind: Kind) -> Set<String> {
+        let paths = UserDefaults.standard.stringArray(forKey: kind.rawValue) ?? []
+        return Set(paths)
+    }
+
+    static func save(_ paths: Set<String>, for kind: Kind) {
+        UserDefaults.standard.set(Array(paths), forKey: kind.rawValue)
+    }
 }

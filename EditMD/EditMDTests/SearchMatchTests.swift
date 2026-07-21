@@ -317,6 +317,8 @@ final class SearchMatchTests: XCTestCase {
         let snap = GitWorkspaceSnapshot(
             sections: [
                 GitRepoSection(
+                    workspace: root,
+                    name: "vault",
                     root: root,
                     branch: "main",
                     ahead: 0,

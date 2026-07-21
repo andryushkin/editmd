@@ -2,6 +2,46 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "All folders clean": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все папки чистые"
+          }
+        }
+      }
+    },
+    "Changed: %lld": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменено: %lld"
+          }
+        }
+      }
+    },
+    "Clean": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "чисто"
+          }
+        }
+      }
+    },
+    "Commit all changed files in this folder…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закоммитить все изменённые файлы этой папки…"
+          }
+        }
+      }
+    },
     "Markers": {
       "localizations": {
         "ru": {
@@ -145,6 +185,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "\"точная фраза\""
+          }
+        }
+      }
+    },
+    "Open in editor": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыто в редакторе"
           }
         }
       }
@@ -1746,17 +1796,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закоммитить все"
-          }
-        }
-      }
-    },
-    "Commit all changed files in this repository…": {
-      "extractionState": "stale",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Закоммитить все изменённые файлы в этом репозитории…"
           }
         }
       }

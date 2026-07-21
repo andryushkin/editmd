@@ -692,9 +692,17 @@ struct GitChangedFile: Equatable, Identifiable, Sendable {
     }
 }
 
-/// Changed files grouped by git repository root.
+/// Changed files of one adopted workspace folder, plus the git state of the
+/// repository that owns it. The sidebar groups by **workspace**, not by repo:
+/// two folders inside one repository stay two sections (git is still queried
+/// once per repository — see `snapshotOffMain`).
 struct GitRepoSection: Equatable, Identifiable, Sendable {
-    var id: String { root.path }
+    var id: String { workspace.path }
+    /// Adopted workspace folder this section represents.
+    let workspace: URL
+    /// Display name from the sidebar (custom name or folder basename).
+    let name: String
+    /// Git work-tree root containing `workspace`.
     let root: URL
     let branch: String?
     let ahead: Int?
@@ -702,13 +710,28 @@ struct GitRepoSection: Equatable, Identifiable, Sendable {
     let files: [GitChangedFile]
 
     var shortRoot: String {
-        (root.path as NSString).abbreviatingWithTildeInPath
+        (workspace.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Workspace folder is not the repository root itself.
+    var isNestedInRepo: Bool { workspace.path != root.path }
+}
+
+/// One adopted workspace folder as the git snapshot sees it: path + the name
+/// the file sidebar shows for it.
+struct GitWorkspaceInput: Equatable, Sendable {
+    let url: URL
+    let name: String
+
+    init(url: URL, name: String? = nil) {
+        self.url = url.standardizedFileURL
+        self.name = name ?? url.lastPathComponent
     }
 }
 
 /// Workspace-scoped git overview for the Git sidebar tab.
 struct GitWorkspaceSnapshot: Equatable, Sendable {
-    /// Distinct repos that own at least one workspace folder.
+    /// One section per adopted workspace folder that sits inside a repository.
     let sections: [GitRepoSection]
     /// Open editor buffers that are dirty but not already listed in `sections`.
     let openDirty: [GitChangedFile]
@@ -729,7 +752,7 @@ struct GitWorkspaceSnapshot: Equatable, Sendable {
 enum GitWorkspaceStatus {
     /// Async: git Process on a utility queue; MainActor only for dirty flags.
     static func snapshotAsync(
-        workspaceRoots: [URL],
+        workspaces: [GitWorkspaceInput],
         openURLs: [URL]
     ) async -> GitWorkspaceSnapshot {
         // Snapshot dirty state on main, then leave.
@@ -740,12 +763,11 @@ enum GitWorkspaceStatus {
             dirtySession[k] = LineChangeTracker.shared.dirtyLines(for: k).count
             dirtyBuffer[k] = DocumentRegistry.shared.isDirty(k)
         }
-        let roots = workspaceRoots.map { $0.standardizedFileURL }
         let open = openURLs.map { $0.standardizedFileURL }
 
         return await Task.detached(priority: .utility) {
             snapshotOffMain(
-                workspaceRoots: roots,
+                workspaces: workspaces,
                 openURLs: open,
                 sessionDirty: dirtySession,
                 bufferDirty: dirtyBuffer
@@ -753,9 +775,20 @@ enum GitWorkspaceStatus {
         }.value
     }
 
-    /// Build a snapshot from adopted workspace roots + currently open docs.
-    /// Uses one `git status` per repository (not per file). Prefer `snapshotAsync`
-    /// from UI so Process work is not on the main actor.
+    /// Convenience for callers that only know paths (search bridge, tests).
+    static func snapshotAsync(
+        workspaceRoots: [URL],
+        openURLs: [URL]
+    ) async -> GitWorkspaceSnapshot {
+        await snapshotAsync(
+            workspaces: workspaceRoots.map { GitWorkspaceInput(url: $0) },
+            openURLs: openURLs
+        )
+    }
+
+    /// Build a snapshot from adopted workspace folders + currently open docs.
+    /// Uses one `git status` per repository (not per file, not per folder).
+    /// Prefer `snapshotAsync` from UI so Process work is not on the main actor.
     static func snapshot(
         workspaceRoots: [URL],
         openURLs: [URL] = DocumentRegistry.shared.openURLs
@@ -768,7 +801,7 @@ enum GitWorkspaceStatus {
             dirtyBuffer[k] = DocumentRegistry.shared.isDirty(k)
         }
         return snapshotOffMain(
-            workspaceRoots: workspaceRoots.map { $0.standardizedFileURL },
+            workspaces: workspaceRoots.map { GitWorkspaceInput(url: $0) },
             openURLs: openURLs.map { $0.standardizedFileURL },
             sessionDirty: dirtySession,
             bufferDirty: dirtyBuffer
@@ -777,7 +810,7 @@ enum GitWorkspaceStatus {
 
     /// Pure git + provided dirty maps (safe off MainActor).
     nonisolated private static func snapshotOffMain(
-        workspaceRoots: [URL],
+        workspaces: [GitWorkspaceInput],
         openURLs: [URL],
         sessionDirty: [URL: Int],
         bufferDirty: [URL: Bool]
@@ -785,45 +818,63 @@ enum GitWorkspaceStatus {
         guard GitCLI.gitExecutable != nil else {
             return GitWorkspaceSnapshot(
                 sections: [], openDirty: [], hasAnyRepo: false,
-                hasWorkspaces: !workspaceRoots.isEmpty
+                hasWorkspaces: !workspaces.isEmpty
             )
         }
-        let roots = workspaceRoots
-        guard !roots.isEmpty else { return .empty }
+        guard !workspaces.isEmpty else { return .empty }
+        let roots = workspaces.map(\.url)
 
-        // Group workspace folders by their git root.
-        var workspacesByRepo: [URL: [URL]] = [:]
-        var hasAnyRepo = false
-        for ws in roots {
-            guard let repo = GitCLI.repositoryRoot(containing: ws) else { continue }
-            hasAnyRepo = true
-            workspacesByRepo[repo, default: []].append(ws)
+        // Repository of each workspace folder; several folders may share one.
+        var repoOfWorkspace: [URL: URL] = [:]
+        for ws in workspaces {
+            guard let repo = GitCLI.repositoryRoot(containing: ws.url) else { continue }
+            repoOfWorkspace[ws.url] = repo
+        }
+        let hasAnyRepo = !repoOfWorkspace.isEmpty
+
+        // One `git status` / branch / ahead-behind per **repository**, reused by
+        // every workspace section that lives inside it.
+        struct RepoState {
+            let branch: String?
+            let ahead: Int?
+            let behind: Int?
+            let entries: [GitCLI.PorcelainEntry]
+        }
+        var repoStates: [URL: RepoState] = [:]
+        for repo in Set(repoOfWorkspace.values) {
+            let ab = GitCLI.aheadBehind(containing: repo)
+            repoStates[repo] = RepoState(
+                branch: GitCLI.currentBranch(containing: repo),
+                ahead: ab?.ahead,
+                behind: ab?.behind,
+                entries: GitCLI.porcelainStatus(in: repo)
+            )
         }
 
         var sections: [GitRepoSection] = []
         var changedURLs = Set<URL>()
 
-        for (repo, workspaces) in workspacesByRepo.sorted(by: { $0.key.path < $1.key.path }) {
-            let branch = GitCLI.currentBranch(containing: repo)
-            let ab = GitCLI.aheadBehind(containing: repo)
-            let entries = GitCLI.porcelainStatus(in: repo)
+        // Sections follow the sidebar order of adopted folders.
+        for ws in workspaces {
+            guard let repo = repoOfWorkspace[ws.url], let state = repoStates[repo] else { continue }
             var files: [GitChangedFile] = []
 
-            for entry in entries {
+            for entry in state.entries {
                 let fileURL = repo.appendingPathComponent(entry.relativePath).standardizedFileURL
                 // Working-file list only: no porcelain-deleted, no Trash, no
                 // already-missing paths. Existence is the ground truth — status
                 // alone is not enough (trashed files stay "D" until committed,
                 // and a stale open buffer can still be listed under openDirty).
                 guard entry.status != .deleted else { continue }
-                guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
                 guard isMarkdown(fileURL) else { continue }
-                guard let ws = owningWorkspace(fileURL, among: workspaces) else { continue }
-                let display = displayPath(of: fileURL, workspace: ws, repo: repo)
+                // A file inside nested adopted folders belongs to the deepest
+                // one only, so it is listed under exactly one section.
+                guard owningWorkspace(fileURL, among: roots) == ws.url else { continue }
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
                 let key = fileURL
                 let item = GitChangedFile(
                     url: key,
-                    displayPath: display,
+                    displayPath: displayPath(of: key, workspace: ws.url, repo: repo),
                     pathStatus: entry.status,
                     sessionDirtyLines: sessionDirty[key] ?? 0,
                     bufferDirty: bufferDirty[key] ?? false
@@ -837,10 +888,12 @@ enum GitWorkspaceStatus {
             }
 
             sections.append(GitRepoSection(
+                workspace: ws.url,
+                name: ws.name,
                 root: repo,
-                branch: branch,
-                ahead: ab?.ahead,
-                behind: ab?.behind,
+                branch: state.branch,
+                ahead: state.ahead,
+                behind: state.behind,
                 files: files
             ))
         }
