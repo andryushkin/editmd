@@ -229,7 +229,7 @@ func migrateWorkspaceSidebarTab(_ tab: String) -> String {
     migrateSidebarTabs(workspaceTab: tab, inspectorTab: "outline").workspaceTab
 }
 
-/// The left sidebar: Xcode-style icon toolbar switches Files / Search / Git /
+/// The left sidebar: a segmented navigator switches Files / Search / Git /
 /// Tags (workspace-scope). Outline and Review moved to the right inspector.
 struct WorkspaceSidebar: View {
     /// Segments in the navigator strip (Files / Search / Git / Tags) and the
@@ -238,7 +238,7 @@ struct WorkspaceSidebar: View {
     nonisolated static let navigatorTabCount = 4
 
     nonisolated static var minimumPaneWidth: CGFloat {
-        SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
+        SidebarChrome.navigatorStripWidth(tabs: navigatorTabCount)
             + 2 * SidebarChrome.barPaddingH
     }
 

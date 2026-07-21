@@ -15,7 +15,7 @@ struct InspectorSidebar: View {
 
     /// Narrowest inspector pane that still shows the whole navigator strip.
     nonisolated static var minimumPaneWidth: CGFloat {
-        SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
+        SidebarChrome.navigatorStripWidth(tabs: navigatorTabCount)
             + 2 * SidebarChrome.barPaddingH
     }
 

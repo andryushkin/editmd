@@ -71,7 +71,7 @@ enum SidebarChrome {
 
     /// Width the navigator strip needs to show `tabs` segments comfortably.
     /// Pinned by `PaneLayoutTests`.
-    static func navigatorPillWidth(tabs: Int) -> CGFloat {
+    static func navigatorStripWidth(tabs: Int) -> CGFloat {
         CGFloat(tabs) * navSegmentMinWidth
     }
 
@@ -180,25 +180,27 @@ struct SidebarNavStrip: NSViewRepresentable {
 
         if control.segmentCount != tabs.count {
             control.segmentCount = tabs.count
-            coordinator.appliedSymbols = []
+            coordinator.appliedTabs = []
         }
         let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         for (index, tab) in tabs.enumerated() {
             // Rebuilding NSImages on every SwiftUI update churns redraws —
-            // only touch the segment whose symbol actually changed.
-            let applied = coordinator.appliedSymbols.indices.contains(index)
-                ? coordinator.appliedSymbols[index] : nil
-            if applied != tab.symbol {
+            // only touch a segment that actually changed. The whole tab is the
+            // cache key: the badge count feeds the accessibility description
+            // (VoiceOver must hear «· N open»), not just the symbol.
+            let applied = coordinator.appliedTabs.indices.contains(index)
+                ? coordinator.appliedTabs[index] : nil
+            if applied != tab {
                 let image = NSImage(systemSymbolName: tab.symbol,
-                                    accessibilityDescription: tab.help)?
+                                    accessibilityDescription: tab.tooltip)?
                     .withSymbolConfiguration(configuration)
                 control.setImage(image, forSegment: index)
+                control.setToolTip(tab.tooltip, forSegment: index)
             }
-            control.setToolTip(tab.tooltip, forSegment: index)
             // Width 0 = let `fillEqually` size the segment.
             control.setWidth(0, forSegment: index)
         }
-        coordinator.appliedSymbols = tabs.map(\.symbol)
+        coordinator.appliedTabs = tabs
         if let selected = tabs.firstIndex(where: { $0.id == selection }) {
             if control.selectedSegment != selected {
                 control.setSelected(true, forSegment: selected)
@@ -210,9 +212,12 @@ struct SidebarNavStrip: NSViewRepresentable {
 }
 
 /// Bridges the control's target/action back to the SwiftUI binding.
+/// `@MainActor`: created and mutated from the representable's main-actor
+/// callbacks, and AppKit fires the action on the main thread.
+@MainActor
 final class SidebarNavStripCoordinator: NSObject {
     var tabIDs: [String] = []
-    var appliedSymbols: [String] = []
+    var appliedTabs: [SidebarNavTab] = []
     var onSelect: (String) -> Void = { _ in }
 
     @objc func segmentChanged(_ sender: NSSegmentedControl) {
