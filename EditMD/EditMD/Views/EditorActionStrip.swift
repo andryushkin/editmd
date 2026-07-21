@@ -198,15 +198,19 @@ struct EditorActionStrip: View {
             // Sits in the left margin, centred over the numbers column — the
             // rail is reserved either way, so it never moves.
             .overlay(alignment: .leading) {
+                // The glyph is centred in its hit target, so aligning the
+                // BOX with the digits leaves the symbol visibly left of them
+                // — nudge back by half the slack. Two clamps: a `barPaddingH`
+                // floor (a narrow rail must not pin the toggle to the pane
+                // edge) and a ceiling short of `lead` — the tool well now
+                // paints from `lead`, and the toggle box used to cross it
+                // invisibly, which the well turned into a visible overlap.
+                let gutterWidth = widths[Self.gutterKey] ?? 0
                 gutterPill
-                    // The glyph is centred in its hit target, so aligning the
-                    // BOX with the digits leaves the symbol visibly left of them
-                    // — nudge back by half the slack. Floor of `barPaddingH`:
-                    // a narrow rail must not pin the toggle to the pane edge.
                     .offset(x: max(SidebarChrome.barPaddingH,
-                                   field.railTrailingX
-                                      - (widths[Self.gutterKey] ?? 0)
-                                      + Self.gutterGlyphInset))
+                                   min(field.railTrailingX - gutterWidth
+                                          + Self.gutterGlyphInset,
+                                       lead - gutterWidth - 3)))
             }
             .background(alignment: .leading) {
                 measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
