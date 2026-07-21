@@ -172,6 +172,15 @@ struct VisualStyle {
             let weight = (element.weight ?? .semibold).nsWeight
             let base = proportional(ofSize: headingSize(level), weight: weight)
             return styles.contains(.italic) ? base.withTraits(.italic) : base
+        case .tableCell:
+            // Tabular figures so numeric columns align (plan 11.5); letters
+            // are unaffected. A custom body family keeps its own digits.
+            var weight = bodyWeight
+            if styles.contains(.bold) { weight = (elements.bold.weight ?? .bold).nsWeight }
+            let base = bodyFamily.isEmpty
+                ? NSFont.monospacedDigitSystemFont(ofSize: baseSize, weight: weight)
+                : proportional(ofSize: baseSize, weight: weight)
+            return styles.contains(.italic) ? base.withTraits(.italic) : base
         default:
             var weight = bodyWeight
             if styles.contains(.bold) { weight = (elements.bold.weight ?? .bold).nsWeight }

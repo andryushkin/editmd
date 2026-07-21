@@ -17,7 +17,7 @@ extension VisualMarkdownView.Coordinator {
                                   pluginSnapshot: BuiltInPluginSnapshot) -> [CGFloat] {
         let columns = grid.columnCount
         guard columns > 0 else { return [originX] }
-        let cellPadding: CGFloat = 12   // 6pt on each side
+        let cellPadding: CGFloat = 16   // 8pt on each side (plan 11.5)
         let minWidth: CGFloat = 44
         let maxWidth: CGFloat = 260
         // Measure *rendered* inline markdown (not raw `**bold**` markers) so
@@ -56,8 +56,8 @@ extension VisualMarkdownView.Coordinator {
         guard columns > 0, columnEdges.count >= columns + 1 else {
             return [baseRowHeight]
         }
-        let padH: CGFloat = 12
-        let padV: CGFloat = 12
+        let padH: CGFloat = 16
+        let padV: CGFloat = 16
 
         func cellHeight(text: String, font: NSFont, column: Int) -> CGFloat {
             guard !text.isEmpty, column < columns else { return baseRowHeight }
@@ -304,11 +304,14 @@ extension VisualMarkdownView.Coordinator {
                 let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1,
                                             startingColumn: column, columnSpan: 1)
                 cell.setBorderColor(theme.separatorColor)
-                cell.setWidth(0.5, type: .absoluteValueType, for: .border)
-                cell.setWidth(6, type: .absoluteValueType, for: .padding)
-                if row == 0 {
-                    cell.backgroundColor = NSColor(white: 0.5, alpha: 0.08)
-                }
+                // Horizontal hairlines only (plan 11.5): each row draws its
+                // bottom rule, the header's a full point. No vertical or
+                // outer frame lines, no header fill — the header reads
+                // through weight.
+                cell.setWidth(0, type: .absoluteValueType, for: .border)
+                cell.setWidth(row == 0 ? 1 : 0.5, type: .absoluteValueType,
+                              for: .border, edge: .maxY)
+                cell.setWidth(8, type: .absoluteValueType, for: .padding)
                 style.textBlocks = [cell]
                 style.paragraphSpacing = 0
                 switch alignment {
@@ -323,9 +326,13 @@ extension VisualMarkdownView.Coordinator {
                 // text, pin a fixed row height, register a draw entry. Other
                 // raw islands (HTML) keep the monospace fallback.
                 if let grid = parseGFMTable(rawText) {
-                    let bodyFont = visualStyle.font(for: [], blockKind: .paragraph)
-                    let headerFont = visualStyle.font(for: .bold, blockKind: .paragraph)
-                    let baseRowHeight = ceil(bodyFont.ascender - bodyFont.descender) + 12
+                    // Tabular-figure cell fonts, 8pt padding (plan 11.5) —
+                    // same tokens as native table cells.
+                    let cellKind = MDBlock.Kind.tableCell(row: 0, column: 0,
+                                                          columns: 1, alignment: 0)
+                    let bodyFont = visualStyle.font(for: [], blockKind: cellKind)
+                    let headerFont = visualStyle.font(for: .bold, blockKind: cellKind)
+                    let baseRowHeight = ceil(bodyFont.ascender - bodyFont.descender) + 16
                     let edges = tableColumnEdges(grid, font: bodyFont, headerFont: headerFont,
                                                  originX: textView.textContainerInset.width,
                                                  pluginSnapshot: pluginSnapshot)
@@ -450,7 +457,12 @@ extension VisualMarkdownView.Coordinator {
                 lineRatio = level <= 3 ? 1.12 : 1.18
                 lineBase = visualStyle.headingSize(level)
                 clampLineHeight = true
-            case .tableCell, .thematicBreak:
+            case .tableCell:
+                // Cells share the body floor — with the 8pt padding this
+                // lands the ~36pt row minimum (plan 11.5).
+                lineRatio = 1.3
+                lineBase = visualStyle.baseSize
+            case .thematicBreak:
                 lineRatio = 0
                 lineBase = 0
             default:

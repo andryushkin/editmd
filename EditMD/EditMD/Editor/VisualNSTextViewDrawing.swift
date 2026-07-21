@@ -382,10 +382,8 @@ extension VisualNSTextView {
             let rowY = top + entry.rowOffset(i)
             let rowRect = NSRect(x: left, y: rowY, width: width, height: rowH)
             if i == 0 {
-                NSColor(white: 0.5, alpha: 0.08).setFill()
-                rowRect.fill()
-                border.setFill()
-                NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
+                // No header fill (plan 11.5) — the header reads through
+                // weight and its heavier bottom rule.
                 drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
                              color: theme.textColor, edges: edges, alignments: grid.alignments,
                              horizontalOffset: horizontalOffset)
@@ -398,13 +396,18 @@ extension VisualNSTextView {
                 }
             }
             border.setFill()
-            NSRect(x: left, y: rowY + rowH - 0.5, width: width, height: 0.5).fill()   // row rule
+            let ruleHeight: CGFloat = i == 0 ? 1 : 0.5
+            NSRect(x: left, y: rowY + rowH - ruleHeight, width: width,
+                   height: ruleHeight).fill()   // row rule
         }
 
-        // Vertical column separators across the visible span.
+        // Vertical column separators are an interaction guide (plan 11.5):
+        // visible while the pointer is inside this island or during a row
+        // drag, invisible at rest — the resting grid is horizontal-only.
         let visTop = max(dirty.minY, top)
         let visBottom = min(dirty.maxY, bottom)
-        if visBottom > visTop {
+        if visBottom > visTop,
+           hoveredIslandLocation == entry.range.location || rowDrag != nil {
             border.setFill()
             for x in edges {
                 NSRect(x: x - horizontalOffset - 0.25, y: visTop, width: 0.5, height: visBottom - visTop).fill()
@@ -416,7 +419,7 @@ extension VisualNSTextView {
                               color: NSColor, edges: [CGFloat],
                               alignments: [TableGrid.Alignment], horizontalOffset: CGFloat) {
         let columns = edges.count - 1
-        let pad: CGFloat = 6
+        let pad: CGFloat = 8
         let elements = EditorSettings.shared.visual.elements
         let linkColor = elements.link.color ?? theme.accentColor
         let codeColor = elements.inlineCode.color ?? theme.inlineCodeColor
