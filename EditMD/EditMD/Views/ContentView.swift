@@ -171,56 +171,22 @@ struct PaneDivider: View {
                 Color.clear
                     .frame(width: Self.grabWidth)
                     .contentShape(Rectangle())
-                    // Entering is AppKit's job (see `PaneDividerCursorArea`);
-                    // this only restores the arrow on the way out, for panes
-                    // that have no cursor rect of their own to take over.
-                    .onHover { inside in
-                        if !inside { NSCursor.arrow.set() }
+                    // Re-assert the cursor on EVERY move inside the strip, not
+                    // once on enter: AppKit re-resolves the pointer from the
+                    // cursor rects under it on each mouse-moved, so a single
+                    // `.onHover` set is immediately overwritten by the
+                    // neighbouring text view's I-beam and ↔ only flashes.
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active: NSCursor.resizeLeftRight.set()
+                        case .ended: NSCursor.arrow.set()
+                        }
                     }
-                    .overlay(PaneDividerCursorArea())
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: space)
                             .onChanged { onDrag($0.location.x) }
                     )
             }
-    }
-}
-
-/// Invisible AppKit strip that owns the ↔ resize cursor over a `PaneDivider`.
-///
-/// `.onHover { NSCursor.resizeLeftRight.set() }` loses this race: AppKit
-/// re-resolves the pointer from the cursor rects of the views under it on
-/// every mouse-moved, so the neighbouring text/scroll view's I-beam wins right
-/// back and the arrow only flashes ↔ — the reported "hard to catch the resize
-/// cursor". A cursor rect plus a `.cursorUpdate` tracking area is the AppKit
-/// side of that same resolution, so the divider stops fighting it.
-///
-/// `hitTest` returns nil so the strip stays transparent to the mouse and the
-/// SwiftUI drag gesture underneath keeps working; tracking areas and cursor
-/// rects are geometry-based and unaffected.
-private struct PaneDividerCursorArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { CursorView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    final class CursorView: NSView {
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: .resizeLeftRight)
-        }
-
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            for area in trackingAreas { removeTrackingArea(area) }
-            addTrackingArea(NSTrackingArea(
-                rect: .zero,
-                options: [.activeInKeyWindow, .inVisibleRect, .cursorUpdate],
-                owner: self))
-        }
-
-        override func cursorUpdate(with event: NSEvent) {
-            NSCursor.resizeLeftRight.set()
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 
