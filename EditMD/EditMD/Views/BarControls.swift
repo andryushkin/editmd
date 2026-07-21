@@ -72,22 +72,6 @@ struct AccessoryBarMenu<Content: View>: View {
     }
 }
 
-// MARK: - Band backing
-
-extension View {
-    /// Chrome backing of a top band: the explicit bar tint plus a bottom
-    /// hairline. Applied to the sidebar navigator bands and the editor strip
-    /// so the whole row reads as one continuous toolbar across the panes.
-    func topBandBackground() -> some View {
-        background(Color(nsColor: SidebarChrome.barBackgroundColor))
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(height: 1)
-            }
-    }
-}
-
 // MARK: - Filter / search field
 
 /// The system search field (loupe, clear button, focus ring) for the sidebar

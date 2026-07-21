@@ -542,18 +542,13 @@ struct EditorActionStrip: View {
 
     private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
-    /// Full-width toolbar backing — the shared band tint + hairline. Neither
-    /// `.bar` material (translucent, went black over a dark editor) nor
-    /// `windowBackgroundColor` (identical to `textBackgroundColor` on
-    /// macOS 26) reads as a bar; see `SidebarChrome.barBackgroundColor`.
+    /// Full-width strip backing. `windowBackgroundColor` matches the sidebar
+    /// panes; on macOS 26 it равно `textBackgroundColor`, so the strip reads
+    /// flush with a default-themed editor — deliberate after the explicit
+    /// band tint was rejected by eye.
     private var stripBar: some View {
         Rectangle()
-            .fill(Color(nsColor: SidebarChrome.barBackgroundColor))
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor))
-                    .frame(height: 1)
-            }
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 
     /// Preview reports nothing — its column is centred in CSS, and the rail

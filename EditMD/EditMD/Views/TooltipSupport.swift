@@ -82,22 +82,6 @@ enum SidebarChrome {
     /// centers within it (minus insets); folder-info left-aligns.
     static let maxReadingWidth: CGFloat = 720
 
-    /// Backing tint of the top bands. Explicit, not semantic: on macOS 26
-    /// `windowBackgroundColor` resolves to the SAME value as
-    /// `textBackgroundColor` (pure white in light, 0.118 gray in dark), so a
-    /// band filled with it disappears into the editor. A bar must read as a
-    /// bar in both appearances.
-    static let barBackgroundColor = NSColor(name: nil) { appearance in
-        switch appearance.name {
-        case .darkAqua, .vibrantDark,
-             .accessibilityHighContrastDarkAqua,
-             .accessibilityHighContrastVibrantDark:
-            return NSColor(srgbRed: 0.17, green: 0.17, blue: 0.18, alpha: 1)
-        default:
-            return NSColor(srgbRed: 0.955, green: 0.955, blue: 0.96, alpha: 1)
-        }
-    }
-
     /// Soft well gray for icon pills (Files/Outline, folder actions, filter).
     /// Kept lighter than a typical control fill so the plaque stays subtle.
     static let wellColor = NSColor(name: nil) { appearance in

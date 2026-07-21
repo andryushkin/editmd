@@ -50,8 +50,6 @@ struct InspectorSidebar: View {
             navigatorToolbar
                 .padding(.horizontal, SidebarChrome.barPaddingH)
                 .frame(height: SidebarChrome.barHeight)
-                .frame(maxWidth: .infinity)
-                .topBandBackground()
 
             Group {
                 switch tab {
