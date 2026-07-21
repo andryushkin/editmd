@@ -5,6 +5,17 @@ import AppKit
 /// Backlinks, Properties, History). Mirrors the left `WorkspaceSidebar`
 /// chrome: Xcode-style tab strip, `SidebarChrome` padding, window background.
 struct InspectorSidebar: View {
+    /// Buttons in the navigator capsule (Outline … Info). The pane may not be
+    /// dragged narrower than the strip they form, otherwise the trailing tabs
+    /// get clipped by the pane edge.
+    static let navigatorTabCount = 7
+
+    /// Narrowest inspector pane that still shows the whole navigator strip.
+    static var minimumPaneWidth: CGFloat {
+        SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
+            + 2 * SidebarChrome.barPaddingH
+    }
+
     let fileURL: URL?
     let outlineContent: String
     /// Live document model — Properties / History apply undoable edits here.
@@ -129,7 +140,7 @@ struct InspectorSidebar: View {
                          help: "Info")
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, SidebarChrome.navPillPaddingH)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
@@ -140,8 +151,8 @@ struct InspectorSidebar: View {
     private var navDivider: some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
+            .frame(width: SidebarChrome.navDividerWidth, height: 14)
+            .padding(.horizontal, SidebarChrome.navDividerPaddingH)
     }
 
     private func navTabButton(

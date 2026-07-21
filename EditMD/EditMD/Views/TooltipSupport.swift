@@ -60,6 +60,21 @@ enum SidebarChrome {
     static let iconButtonWidth: CGFloat = 28
     static let iconButtonHeight: CGFloat = 24
 
+    /// Inner padding of the navigator capsule and the metrics of the hairline
+    /// dividers between its buttons. Kept here (not as literals at the call
+    /// site) because the pane's minimum width is derived from them.
+    static let navPillPaddingH: CGFloat = 5
+    static let navDividerWidth: CGFloat = 1
+    static let navDividerPaddingH: CGFloat = 3
+
+    /// Width the navigator capsule needs to show `tabs` buttons in full.
+    static func navigatorPillWidth(tabs: Int) -> CGFloat {
+        let dividers = max(0, tabs - 1)
+        return CGFloat(tabs) * iconButtonWidth
+            + CGFloat(dividers) * (navDividerWidth + 2 * navDividerPaddingH)
+            + 2 * navPillPaddingH
+    }
+
     /// Cap on the reading column for the welcome / folder-info center panes so
     /// full-width rows don't stretch edge-to-edge on a wide window. Welcome
     /// centers within it (minus insets); folder-info left-aligns.

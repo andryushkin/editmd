@@ -164,6 +164,33 @@ final class PaneLayoutTests: XCTestCase {
         XCTAssertEqual(rewritten, Double(stored), accuracy: 0.001)
     }
 
+    // MARK: - Inspector floor (navigator strip must never be clipped)
+
+    /// The pane floor is derived from the navigator capsule, so the tab strip
+    /// always fits: 7 × 28 buttons + 6 × 7 dividers + 2 × 5 pill + 2 × 8 pane.
+    @MainActor
+    func testInspectorFloorFitsTheNavigatorStrip() {
+        XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 264, accuracy: 0.001)
+        XCTAssertEqual(InspectorPane.widthRange.lowerBound, 264, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testInspectorDragCannotGoNarrowerThanTheStrip() {
+        let dragged = preferredPaneWidthFromDrag(
+            displayWidth: 120, scale: 1, range: InspectorPane.widthRange)
+        XCTAssertEqual(dragged, InspectorPane.widthRange.lowerBound, accuracy: 0.001)
+    }
+
+    /// Widths persisted before the floor existed (the old 150…400 range) are
+    /// clamped on read, so an upgrade does not reopen with clipped tabs.
+    @MainActor
+    func testPersistedNarrowWidthIsClampedOnRead() {
+        XCTAssertEqual(InspectorPane.clampWidth(150),
+                       InspectorPane.widthRange.lowerBound, accuracy: 0.001)
+        XCTAssertEqual(InspectorPane.clampWidth(320), 320, accuracy: 0.001)
+        XCTAssertEqual(InspectorPane.clampWidth(9_000), 400, accuracy: 0.001)
+    }
+
     func testNonPositiveScaleGuardsToUnity() {
         // A degenerate scale must not divide by zero / flip sign.
         XCTAssertEqual(

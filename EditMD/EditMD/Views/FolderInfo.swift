@@ -64,9 +64,7 @@ struct FolderInfoHost: View {
     // Shared with the editor's right inspector — the toggle lives in `MainChrome`
     // (enabled on the folder branch too); this host renders the folder pane.
     @AppStorage("inspectorVisible") private var inspectorVisible = false
-    @AppStorage("inspectorWidth") private var inspectorWidth = 220.0
-
-    private static let inspectorWidthRange = 150.0...400.0
+    @AppStorage("inspectorWidth") private var inspectorWidth = InspectorPane.defaultWidth
 
     private var windowTitle: String {
         workspace.workspaceRoot(at: folderURL)?.name ?? folderURL.lastPathComponent
@@ -82,7 +80,7 @@ struct FolderInfoHost: View {
             let panes = resolveSidePaneWidths(
                 available: geo.size.width,
                 sidebarWidth: 0,
-                inspectorWidth: inspectorWidth,
+                inspectorWidth: InspectorPane.clampWidth(inspectorWidth),
                 sidebarVisible: false,
                 inspectorVisible: inspectorVisible)
             HStack(spacing: 0) {
@@ -92,7 +90,7 @@ struct FolderInfoHost: View {
                     paneDivider(space: .named("folderPanes")) { x in
                         inspectorWidth = preferredPaneWidthFromDrag(
                             displayWidth: geo.size.width - x, scale: panes.scale,
-                            range: Self.inspectorWidthRange)
+                            range: InspectorPane.widthRange)
                     }
                     .zIndex(1)
                     FolderInspectorPanel(folderURL: folderURL)

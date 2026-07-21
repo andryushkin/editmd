@@ -10,8 +10,9 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
 
 /// Width the flexible editor column keeps before the side panels start to
 /// shrink. Chosen so a usable reading measure survives with BOTH panels open
-/// (at their 150pt floor each, the clamp only engages below ~562pt window
-/// width). This governs the editor vs. the side panels; it is unrelated to the
+/// (at their floors — 150pt sidebar, `InspectorPane.widthRange.lowerBound`
+/// inspector — the clamp only engages on a fairly narrow window).
+/// This governs the editor vs. the side panels; it is unrelated to the
 /// Source/Preview split's own 160pt pane floor, which divides space *inside*
 /// the editor area.
 let editorColumnMinWidth: CGFloat = 260
@@ -30,6 +31,23 @@ let mainWindowMinHeight: CGFloat = 420
 /// can be narrower than the main workspace.
 let liteWindowMinWidth: CGFloat = 560
 let liteWindowMinHeight: CGFloat = 360
+
+/// Shared geometry of the right inspector pane. The editor host and the folder
+/// host write the SAME `inspectorWidth` default, so the range and the fallback
+/// live here instead of being repeated (and drifting) in both.
+enum InspectorPane {
+    /// Floor = the navigator strip's own width: dragging narrower than that
+    /// clipped the trailing tabs (Links / Backlinks / Info) behind the edge.
+    static var widthRange: ClosedRange<Double> {
+        Double(InspectorSidebar.minimumPaneWidth)...400.0
+    }
+    static var defaultWidth: Double { max(280, widthRange.lowerBound) }
+
+    /// Clamp a persisted width — stored values predate the current floor.
+    static func clampWidth(_ width: Double) -> Double {
+        min(widthRange.upperBound, max(widthRange.lowerBound, width))
+    }
+}
 
 struct ResolvedPaneWidths: Equatable {
     var sidebar: CGFloat
@@ -113,7 +131,7 @@ struct ContentView: View {
     @AppStorage("sidebarTab") private var sidebarTab = "files"
     /// Right document-scope inspector (Outline / Info / …).
     @AppStorage("inspectorVisible") private var inspectorVisible = false
-    @AppStorage("inspectorWidth") private var inspectorWidth = 220.0
+    @AppStorage("inspectorWidth") private var inspectorWidth = InspectorPane.defaultWidth
     @AppStorage("inspectorTab") private var inspectorTab = "outline"
     /// Dedicated Source + Preview mode: edit pane's share of the split.
     @AppStorage("splitFraction") private var splitFraction = 0.5
@@ -143,7 +161,6 @@ struct ContentView: View {
     @State private var gitSnapshot = GitFileSnapshot.empty
     @State private var gitRefreshTask: Task<Void, Never>?
 
-    private static let inspectorWidthRange = 150.0...400.0
     private static let splitFractionRange = 0.25...0.75
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
@@ -202,7 +219,7 @@ struct ContentView: View {
                 let panes = resolveSidePaneWidths(
                     available: geo.size.width,
                     sidebarWidth: 0,
-                    inspectorWidth: inspectorWidth,
+                    inspectorWidth: InspectorPane.clampWidth(inspectorWidth),
                     sidebarVisible: false,
                     inspectorVisible: inspectorVisible)
                 HStack(spacing: 0) {
@@ -215,7 +232,7 @@ struct ContentView: View {
                             // the divider to the right edge. Invert the clamp too.
                             inspectorWidth = preferredPaneWidthFromDrag(
                                 displayWidth: geo.size.width - x, scale: panes.scale,
-                                range: Self.inspectorWidthRange)
+                                range: InspectorPane.widthRange)
                         }
                         .zIndex(1)
                         InspectorSidebar(
