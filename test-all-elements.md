@@ -1,4 +1,5 @@
 # **Heading 1**
+
 ## Heading 2
 
 ### Heading 3
@@ -76,6 +77,8 @@ Second line of indented code.
 | Charlie | 35 | New York |
 | Dana | 28 | Berlin |
 | Frank | 33 | Oslo |
+
+
 
 Text with <br> inline HTML tag.
 
