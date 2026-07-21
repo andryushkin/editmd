@@ -709,19 +709,61 @@ extension VisualMarkdownView.Coordinator {
         return result
     }
 
-    /// Sizes the attachment to the image, capped at a comfortable reading width.
+    /// Sizes the attachment to the image, capped at a comfortable reading
+    /// width, with softly rounded corners (plan 11.6). The wrapper draws
+    /// lazily, so the clip costs nothing until the image is on screen.
     private func setAttachmentImage(_ image: NSImage, on attachment: NSTextAttachment) {
-        attachment.image = image
         let maxWidth: CGFloat = 420
         let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
-        attachment.bounds = CGRect(x: 0, y: 0,
-                                   width: image.size.width * scale,
-                                   height: image.size.height * scale)
+        let size = NSSize(width: image.size.width * scale,
+                          height: image.size.height * scale)
+        attachment.image = NSImage(size: size, flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).addClip()
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        attachment.bounds = CGRect(origin: .zero, size: size)
     }
 
+    /// Missing/broken image: a panel with the photo glyph and the file name
+    /// (plan 11.6) instead of a bare U+FFFC-sized speck. Dynamic colors
+    /// resolve at draw time — the drawing handler runs per appearance.
     private func setPlaceholder(on attachment: NSTextAttachment, src: String) {
-        attachment.image = NSImage(systemSymbolName: "photo", accessibilityDescription: src)
-        attachment.bounds = CGRect(x: 0, y: -3, width: 18, height: 15)
+        let theme = textView?.theme ?? .editorDefault
+        let name = (src.removingPercentEncoding ?? src)
+        let label = (name as NSString).lastPathComponent.isEmpty
+            ? name : (name as NSString).lastPathComponent
+        let size = NSSize(width: 260, height: 60)
+        attachment.image = NSImage(size: size, flipped: false) { rect in
+            theme.codeBlockBackground.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            let iconSide: CGFloat = 20
+            let iconRect = NSRect(x: 14, y: rect.midY - iconSide / 2,
+                                  width: iconSide + 4, height: iconSide)
+            if let icon = NSImage(systemSymbolName: "photo",
+                                  accessibilityDescription: src) {
+                let config = NSImage.SymbolConfiguration(pointSize: iconSide,
+                                                         weight: .regular)
+                    .applying(.init(paletteColors: [theme.secondaryColor]))
+                (icon.withSymbolConfiguration(config) ?? icon)
+                    .draw(in: iconRect, from: .zero, operation: .sourceOver,
+                          fraction: 1)
+            }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingMiddle
+            let text = NSAttributedString(string: label, attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: theme.secondaryColor,
+                .paragraphStyle: paragraph,
+            ])
+            let textHeight = text.size().height
+            text.draw(in: NSRect(x: iconRect.maxX + 10,
+                                 y: rect.midY - textHeight / 2,
+                                 width: rect.width - iconRect.maxX - 24,
+                                 height: textHeight))
+            return true
+        }
+        attachment.bounds = CGRect(origin: .zero, size: size)
     }
 
     /// Kicks off an async download and, on completion, swaps the placeholder for
