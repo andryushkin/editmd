@@ -211,11 +211,14 @@ struct EditorActionStrip: View {
                 // paints from `lead`, and the toggle box used to cross it
                 // invisibly, which the well turned into a visible overlap.
                 let gutterWidth = widths[Self.gutterKey] ?? 0
+                let ideal = field.railTrailingX - gutterWidth + Self.gutterGlyphInset
+                // The groupSpacing gap to the tool well is a hard rule; the
+                // barPaddingH inset from the pane edge only applies while it
+                // doesn't violate that gap (a narrow rail can't have both).
+                let clearance = lead - gutterWidth - Self.groupSpacing
                 gutterPill
-                    .offset(x: max(SidebarChrome.barPaddingH,
-                                   min(field.railTrailingX - gutterWidth
-                                          + Self.gutterGlyphInset,
-                                       lead - gutterWidth - Self.groupSpacing)))
+                    .offset(x: max(0, min(max(SidebarChrome.barPaddingH, ideal),
+                                          clearance)))
             }
             .background(alignment: .leading) {
                 measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
