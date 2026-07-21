@@ -145,24 +145,9 @@ struct InspectorSidebar: View {
     // MARK: - Bottom bar (Filter only)
 
     private var bottomBar: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                TextField("Filter", text: $filterText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
+        FilterSearchField(prompt: String(localized: "Filter"), text: $filterText)
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color(nsColor: SidebarChrome.wellColor))
-            )
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+            .padding(.vertical, 6)
     }
 }
 

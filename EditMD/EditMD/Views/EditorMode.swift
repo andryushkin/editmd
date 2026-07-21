@@ -28,18 +28,6 @@ enum EditorMode: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Filled glyph variant shown while the mode is active (the agterm-style
-    /// multi-state symbol). Source has no fill variant — the accent tint
-    /// alone marks it active.
-    var activeSystemImage: String {
-        switch self {
-        case .source:  return "chevron.left.forwardslash.chevron.right"
-        case .visual:  return "doc.richtext.fill"
-        case .preview: return "eye.fill"
-        case .split:   return "rectangle.split.2x1.fill"
-        }
-    }
-
     /// ⌘1 / ⌘2 / ⌘3 / ⌘4 in the View menu.
     var keyboardShortcutKey: KeyEquivalent {
         switch self {

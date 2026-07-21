@@ -146,22 +146,14 @@ struct WelcomeCard: View {
         GeometryReader { geo in
             let lead = contentLeading(for: geo.size.width)
             HStack(alignment: .center, spacing: 0) {
-                HStack(spacing: 0) {
+                HStack(spacing: 2) {
                     iconButton("doc.badge.plus", String(localized: "New File (⌘N)")) {
                         AppState.shared.openUntitled()
                     }
-                    pillSeparator
                     iconButton("doc", String(localized: "Open File… (⌘O)"), action: openFilePanel)
-                    pillSeparator
                     iconButton("folder.badge.plus", String(localized: "Open Folder… (⇧⌘O)"),
                                action: openFolderPanel)
                 }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color(nsColor: SidebarChrome.wellColor))
-                )
                 Spacer(minLength: 0)
             }
             .padding(.leading, lead)
@@ -173,25 +165,9 @@ struct WelcomeCard: View {
         .frame(height: stripHeight)
     }
 
-    private var pillSeparator: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
-    }
-
     private func iconButton(_ systemImage: String, _ help: String,
                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(help)
+        AccessoryBarButton(glyph: .symbol(systemImage), help: help, action: action)
     }
 
     // MARK: Header

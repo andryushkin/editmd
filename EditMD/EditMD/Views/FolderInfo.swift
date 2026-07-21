@@ -328,21 +328,17 @@ struct FolderInfoCard: View {
 
     private var actionStrip: some View {
         HStack(alignment: .center, spacing: 6) {
-            HStack(spacing: 0) {
+            HStack(spacing: 2) {
                 iconButton("doc.badge.plus", String(localized: "New File"), action: newFile)
-                pillSeparator
                 iconButton("folder.badge.plus", String(localized: "New Folder"), action: newFolder)
-                pillSeparator
                 iconButton("arrow.up.right.square", String(localized: "Show in Finder")) {
                     NSWorkspace.shared.activateFileViewerSelecting([folderURL])
                 }
                 if let rootWorkspace {
-                    pillSeparator
                     folderIdentityMenu(rootWorkspace)
                 }
                 if let home = currentHomeDoc {
                     let isReadme = home.lastPathComponent.lowercased().hasPrefix("readme")
-                    pillSeparator
                     iconButton("book", isReadme
                                ? String(localized: "Open README")
                                : String(localized: "Open index")) {
@@ -350,13 +346,7 @@ struct FolderInfoCard: View {
                     }
                 }
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color(nsColor: SidebarChrome.wellColor))
-            )
-            // Counts flush after the pill — whole group stays on the left.
+            // Counts flush after the buttons — whole group stays on the left.
             compactStats
             Spacer(minLength: 0)
         }
@@ -414,49 +404,22 @@ struct FolderInfoCard: View {
         }
     }
 
-    /// Hairline between pill buttons — same as Files/Outline in the sidebar.
-    private var pillSeparator: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
-    }
-
-    /// Same metrics as Files/Outline nav tabs; tooltip = gray AppKit plaque.
+    /// System accessory-bar button; tooltip = gray AppKit plaque.
     private func iconButton(_ systemImage: String, _ help: String,
                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(help)
+        AccessoryBarButton(glyph: .symbol(systemImage), help: help, action: action)
     }
 
     private func folderIdentityMenu(_ ws: WorkspaceModel.Workspace) -> some View {
-        Menu {
+        AccessoryBarMenu(systemImage: "pencil",
+                         help: String(localized: "Folder name")) {
             Button("Change Display Name…") {
                 promptForWorkspaceDisplayName(ws, workspace: workspace)
             }
             Button("Rename Folder on Disk…") {
                 promptForWorkspaceFolderRename(ws, workspace: workspace)
             }
-        } label: {
-            Image(systemName: "pencil")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .editMDHelp(String(localized: "Folder name"))
     }
 
     // MARK: Header

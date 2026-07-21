@@ -50,9 +50,9 @@ final class EditorStripActions {
 
 // MARK: - Strip UI
 
-/// Top action pill(s) — folder-info chrome, Notes-like tool groups.
-/// Always above the editor; leading inset matches the active mode's reading
-/// field, and the mode switcher mirrors it on the trailing side. Tool groups
+/// Top accessory bar over the editor — system `.accessoryBar` tool groups
+/// plus a stock segmented mode switcher pinned to the trailing edge.
+/// The leading inset matches the active mode's reading field. Tool groups
 /// that no longer fit the space between them collapse into an "…" menu — the
 /// switcher must never be overlapped.
 struct EditorActionStrip: View {
@@ -267,21 +267,19 @@ struct EditorActionStrip: View {
         if group == .extras {
             // Table / formula stay menus in the strip; the "…" menu flattens
             // them into plain items.
-            pill {
+            cluster {
                 tableMenu
-                sep
                 formulaMenu
             }
         } else if group == .theme {
             // One palette button; the presets live in its menu (and flatten
             // into plain items inside "…").
-            pill {
+            cluster {
                 themeMenu
             }
         } else {
-            pill {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { sep }
+            cluster {
+                ForEach(items) { item in
                     itemButton(item)
                 }
             }
@@ -290,62 +288,57 @@ struct EditorActionStrip: View {
 
     private func overflowPill(_ groups: [StripGroup],
                               itemsByGroup: [StripGroup: [StripItem]]) -> some View {
-        pill {
-            Menu {
-                ForEach(groups) { group in
-                    Section(group.title) {
-                        ForEach(itemsByGroup[group] ?? []) { item in
-                            Button {
-                                item.action()
-                            } label: {
-                                Label(item.title, systemImage: item.menuIcon)
-                                    // macOS menus drop the icon unless the
-                                    // style asks for both.
-                                    .labelStyle(.titleAndIcon)
-                            }
+        AccessoryBarMenu(systemImage: "ellipsis",
+                         help: String(localized: "More Tools")) {
+            ForEach(groups) { group in
+                Section(group.title) {
+                    ForEach(itemsByGroup[group] ?? []) { item in
+                        Button {
+                            item.action()
+                        } label: {
+                            Label(item.title, systemImage: item.menuIcon)
+                                // macOS menus drop the icon unless the
+                                // style asks for both.
+                                .labelStyle(.titleAndIcon)
                         }
                     }
                 }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.primary)
-                    .frame(width: SidebarChrome.iconButtonWidth,
-                           height: SidebarChrome.iconButtonHeight)
-                    .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-            .editMDHelp(String(localized: "More Tools"))
         }
     }
 
     /// Line-number toggle. Lives in the left margin instead of a tool group:
     /// it belongs to the gutter it sits over, and must never collapse into "…".
     private var gutterPill: some View {
-        // Bare glyph, no pill: it belongs to the margin, not to the tool
-        // groups. State carried by the tint — same as B/I/lists.
-        icon("textformat.123",
-             showLineNumbers
-                 ? String(localized: "Hide Line Numbers")
-                 : String(localized: "Show Line Numbers"),
-             active: showLineNumbers) {
+        AccessoryBarButton(
+            glyph: .symbol("textformat.123"),
+            help: showLineNumbers
+                ? String(localized: "Hide Line Numbers")
+                : String(localized: "Show Line Numbers"),
+            active: showLineNumbers
+        ) {
             toggleLineNumbers()
         }
         .fixedSize()
     }
 
+    /// The mode switcher is the same stock segmented control as the sidebar
+    /// navigators, at its intrinsic width (`fit`) — system selection, no
+    /// hand-drawn pill.
     private var modePill: some View {
-        pill {
-            ForEach(Array(EditorMode.allCases.enumerated()), id: \.element.id) { index, candidate in
-                if index > 0 { sep }
-                icon(mode == candidate ? candidate.activeSystemImage : candidate.systemImage,
-                     "\(candidate.title) (\(candidate.shortcutHint))",
-                     active: mode == candidate) {
-                    setEditorMode(candidate)
-                }
-            }
-        }
+        SidebarNavStrip(
+            tabs: EditorMode.allCases.map { candidate in
+                SidebarNavTab(id: candidate.rawValue,
+                              systemImage: candidate.systemImage,
+                              help: "\(candidate.title) (\(candidate.shortcutHint))")
+            },
+            selection: Binding(
+                get: { mode.rawValue },
+                set: { if let picked = EditorMode(rawValue: $0) { setEditorMode(picked) } }
+            ),
+            fillsWidth: false,
+            controlSize: .regular
+        )
         .fixedSize()
     }
 
@@ -499,61 +492,40 @@ struct EditorActionStrip: View {
         if let setHeading = actions.setHeading { setHeading(level) } else { NSSound.beep() }
     }
 
-    @ViewBuilder private func itemButton(_ item: StripItem) -> some View {
-        switch item.glyph {
-        case .symbol(let name):
-            icon(name, item.help, active: item.active, action: item.action)
-        case .text(let title):
-            labelBtn(title, item.help, active: item.active, action: item.action)
-        }
+    private func itemButton(_ item: StripItem) -> some View {
+        AccessoryBarButton(glyph: item.glyph, help: item.help,
+                           active: item.active, action: item.action)
     }
 
     // MARK: Table menu (Visual)
 
     private var tableMenu: some View {
-        Menu {
+        AccessoryBarMenu(systemImage: "tablecells",
+                         help: String(localized: "Table")) {
             Button("Insert 3×3 Table") { actions.run(actions.insertTable) }
             Divider()
             Button("Add Row") { actions.run(actions.tableAddRow) }
             Button("Delete Row") { actions.run(actions.tableDeleteRow) }
             Button("Add Column") { actions.run(actions.tableAddColumn) }
             Button("Delete Column") { actions.run(actions.tableDeleteColumn) }
-        } label: {
-            Image(systemName: "tablecells")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-        .editMDHelp(String(localized: "Table"))
     }
 
     // MARK: Formula menu (Visual)
 
     private var formulaMenu: some View {
-        Menu {
+        AccessoryBarMenu(systemImage: "function",
+                         help: String(localized: "Formula")) {
             Button("Inline Formula  $…$") { actions.run(actions.insertInlineFormula) }
             Button("Block Formula  $$…$$") { actions.run(actions.insertBlockFormula) }
-        } label: {
-            Image(systemName: "function")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-        .editMDHelp(String(localized: "Formula"))
     }
 
     // MARK: Preview theme menu (Preview)
 
     private var themeMenu: some View {
-        Menu {
+        AccessoryBarMenu(systemImage: "paintpalette",
+                         help: String(localized: "Preview theme")) {
             Picker("Theme", selection: Binding(
                 get: { EditorSettings.shared.previewTypography.theme },
                 set: { EditorSettings.shared.previewTypography.theme = $0 })) {
@@ -563,17 +535,7 @@ struct EditorActionStrip: View {
             }
             .pickerStyle(.inline)
             .labelsHidden()
-        } label: {
-            Image(systemName: "paintpalette")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: SidebarChrome.iconButtonWidth, height: SidebarChrome.iconButtonHeight)
-        .editMDHelp(String(localized: "Preview theme"))
     }
 
     // MARK: Chrome
@@ -606,51 +568,11 @@ struct EditorActionStrip: View {
                                    railGap: railGap)
     }
 
-    private func pill<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 0) { content() }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color(nsColor: SidebarChrome.wellColor))
-            )
-    }
-
-    private var sep: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
-    }
-
-    private func icon(_ systemImage: String, _ help: String,
-                      active: Bool = false,
-                      action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(active ? Color.accentColor : Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(help)
-    }
-
-    private func labelBtn(_ title: String, _ help: String,
-                          active: Bool = false,
-                          action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(active ? Color.accentColor : Color.primary)
-                .frame(minWidth: SidebarChrome.iconButtonWidth,
-                       minHeight: SidebarChrome.iconButtonHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(help)
+    /// One tool group: accessory-bar controls packed tight, no background —
+    /// the system style draws hover/pressed/on shapes per control, so the
+    /// capsule wells and hand-drawn hairlines are gone.
+    private func cluster<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 2) { content() }
     }
 }
 
@@ -693,18 +615,19 @@ private enum StripGroup: String, CaseIterable, Identifiable {
 /// One button: drawn as a glyph in the strip, as an icon + title in the "…"
 /// menu. Text-glyph buttons (H1, `<>`, Aa…) have no symbol to reuse there, so
 /// `menuIcon` names one explicitly.
+///
+/// `active == nil` → momentary action (plain button). A `Bool` → the control
+/// renders as a toggle whose on-state tracks it (bold at caret, current
+/// heading level).
 private struct StripItem: Identifiable {
-    enum Glyph {
-        case symbol(String)
-        case text(String)
-    }
+    typealias Glyph = AccessoryBarButton.Glyph
 
     let id: String
     let glyph: Glyph
     let title: String
     let help: String
     let menuIcon: String
-    var active: Bool = false
+    var active: Bool? = nil
     let action: () -> Void
 }
 

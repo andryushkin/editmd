@@ -139,20 +139,24 @@ struct SidebarNavTab: Identifiable, Equatable {
 struct SidebarNavStrip: NSViewRepresentable {
     let tabs: [SidebarNavTab]
     @Binding var selection: String
+    /// Sidebars stretch the strip across the pane (`fillEqually`); the editor
+    /// mode switcher keeps its intrinsic width (`fit`) at the strip's edge.
+    var fillsWidth: Bool = true
+    var controlSize: NSControl.ControlSize = .large
 
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl()
         control.segmentStyle = .automatic
         control.trackingMode = .selectOne
-        // Segments split the pane width evenly and follow it as the divider
-        // is dragged.
-        control.segmentDistribution = .fillEqually
-        control.controlSize = .large
+        control.segmentDistribution = fillsWidth ? .fillEqually : .fit
+        control.controlSize = controlSize
         control.target = context.coordinator
         control.action = #selector(SidebarNavStripCoordinator.segmentChanged(_:))
-        // Let SwiftUI stretch the control past its intrinsic width.
-        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if fillsWidth {
+            // Let SwiftUI stretch the control past its intrinsic width.
+            control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
         apply(to: control, coordinator: context.coordinator)
         return control
     }
@@ -161,12 +165,13 @@ struct SidebarNavStrip: NSViewRepresentable {
         apply(to: control, coordinator: context.coordinator)
     }
 
-    /// Fill the proposed width; keep the control's own height.
+    /// Fill the proposed width (sidebars); keep the control's own height.
     func sizeThatFits(_ proposal: ProposedViewSize,
                       nsView: NSSegmentedControl,
                       context: Context) -> CGSize? {
         let fitting = nsView.intrinsicContentSize
-        return CGSize(width: proposal.width ?? fitting.width, height: fitting.height)
+        let width = fillsWidth ? (proposal.width ?? fitting.width) : fitting.width
+        return CGSize(width: width, height: fitting.height)
     }
 
     func makeCoordinator() -> SidebarNavStripCoordinator {

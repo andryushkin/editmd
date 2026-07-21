@@ -351,57 +351,32 @@ struct WorkspaceSidebar: View {
     // MARK: - Bottom bar (+ · Filter · eye)
 
     private var bottomBar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             // "+" is Files-only (folder creation/adoption). Filter stays global —
             // it also filters Git / Tags.
             if tab == "files" {
-                Menu {
+                AccessoryBarMenu(systemImage: "plus", help: "Add Folder…") {
                     Button("New Folder…") { workspace.promptCreateFolder() }
                     Button("Open Folder…") { workspace.promptAddFolder() }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 22, height: 22)
-                .editMDHelp("Add Folder…")
             }
 
-            HStack(spacing: 5) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                TextField("Filter", text: $filterText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color(nsColor: SidebarChrome.wellColor))
-            )
+            FilterSearchField(prompt: String(localized: "Filter"), text: $filterText)
 
             // Review mode: hidden files + empty (no-md) folders (Files tab only).
             if tab == "files" {
                 let hidden = workspace.totalHiddenCount
-                Button { showHidden.toggle() } label: {
-                    Image(systemName: showHidden ? "eye" : "eye.slash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(showHidden ? Color.accentColor : Color.secondary)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+                AccessoryBarButton(
+                    glyph: .symbol(showHidden ? "eye" : "eye.slash"),
+                    help: showHidden
+                        ? String(localized: "Hide again (hidden files and empty folders)")
+                        : (hidden > 0
+                           ? String(localized: "Show hidden files (\(hidden)) and empty folders")
+                           : String(localized: "Show hidden files and empty folders")),
+                    active: showHidden
+                ) {
+                    showHidden.toggle()
                 }
-                .buttonStyle(.plain)
-                .editMDHelp(showHidden
-                      ? String(localized: "Hide again (hidden files and empty folders)")
-                      : (hidden > 0
-                         ? String(localized: "Show hidden files (\(hidden)) and empty folders")
-                         : String(localized: "Show hidden files and empty folders")))
             }
         }
         .padding(.horizontal, 8)

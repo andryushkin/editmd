@@ -84,6 +84,7 @@
 		46F16BFCEE41796A3DAC0568 /* KitchenSink.md in Resources */ = {isa = PBXBuildFile; fileRef = E376139687B7CCA83695B07F /* KitchenSink.md */; };
 		48A8B82FBD8E4233D68AC5C9 /* LineIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B0BE54C0CF4F05DAE74A09 /* LineIndex.swift */; };
 		4B6DBD9D445CBFC0B0B655FD /* editmd-codex-status.sh in Resources */ = {isa = PBXBuildFile; fileRef = 2FE95986EE77D906AA024049 /* editmd-codex-status.sh */; };
+		4DFE5D09941E907CE5DCA457 /* BarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052C9727323D4C755E9B8FAD /* BarControls.swift */; };
 		4E3A8088FD4A5CB3B0E871DA /* FolderInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */; };
 		5002CBD560580954A20E9FE7 /* editmd-agent-status.sh in Resources */ = {isa = PBXBuildFile; fileRef = 5E859CBDEF2DA893506C3D45 /* editmd-agent-status.sh */; };
 		5102EA54A432A745DC14B499 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = 8343F4E715B634185DD1FDA6 /* Highlighter */; };
@@ -254,6 +255,7 @@
 		024AED6109F576DBA3DB2F7E /* DocumentHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentHistoryTests.swift; sourceTree = "<group>"; };
 		04300EC4050C4FAC5095E833 /* EditorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSettings.swift; sourceTree = "<group>"; };
 		0476876F549A68D268052AD1 /* VisualCoordinatorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorPresentation.swift; sourceTree = "<group>"; };
+		052C9727323D4C755E9B8FAD /* BarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarControls.swift; sourceTree = "<group>"; };
 		053F962514802B8D344BB744 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		05BD6FEE37D46DDCB2327414 /* AgentActivityUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityUI.swift; sourceTree = "<group>"; };
 		07CE11FC46AD449CDD2526D3 /* MarkdownTableGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableGrid.swift; sourceTree = "<group>"; };
@@ -635,6 +637,7 @@
 				829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */,
 				1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */,
 				307C7F64AC7988D119B02721 /* BackgroundActivity.swift */,
+				052C9727323D4C755E9B8FAD /* BarControls.swift */,
 				92FC4DF2AA363556316613C1 /* ClaudeIDEUI.swift */,
 				92161BAEF22CB4D7970B98F1 /* ContentView.swift */,
 				AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */,
@@ -1067,6 +1070,7 @@
 				7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */,
 				2DC3DD70D9EABD4B0A3F79BB /* AttributedToMarkdown.swift in Sources */,
 				24E66FB97A58F0E44E2DED16 /* BackgroundActivity.swift in Sources */,
+				4DFE5D09941E907CE5DCA457 /* BarControls.swift in Sources */,
 				3FEE507709F1C9F1E75CB30D /* BuiltInPlugins.swift in Sources */,
 				CC5DCB8C753404B2696E4CB0 /* ClaudeIDEBridge.swift in Sources */,
 				EB3CCCB901409C444B32A78D /* ClaudeIDEServer.swift in Sources */,

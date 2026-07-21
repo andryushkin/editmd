@@ -40,35 +40,14 @@ struct WorkspaceSearchSidebar: View {
 
     private var queryField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                TextField(
-                    String(localized: "search · \"phrase\" path: type: tag:"),
-                    text: Binding(
-                        get: { model.queryText },
-                        set: { model.setQueryText($0) }
-                    )
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                if !model.queryText.isEmpty {
-                    Button {
-                        model.clear()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: SidebarChrome.wellColor))
+            // System search field: loupe + clear button come with it.
+            FilterSearchField(
+                prompt: String(localized: "search · \"phrase\" path: type: tag:"),
+                text: Binding(
+                    get: { model.queryText },
+                    set: { model.setQueryText($0) }
+                ),
+                controlSize: .regular
             )
 
             if model.queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
