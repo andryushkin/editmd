@@ -195,7 +195,7 @@ extension VisualMarkdownView.Coordinator {
                 ?? MDBlock(kind: .paragraph)
 
             let style = NSMutableParagraphStyle()
-            style.paragraphSpacing = 6 * spacingScale
+            style.paragraphSpacing = 8 * spacingScale
             var markerIndent: CGFloat = 0
             var isTableIsland = false
             // Document-leading block: top gap is `textContainerInset.height`
@@ -213,17 +213,17 @@ extension VisualMarkdownView.Coordinator {
             case .bulletItem(let depth):
                 markerIndent = 24 + CGFloat(depth) * 22
                 bullets.append((paragraph, depth))
-                style.paragraphSpacing = 2 * spacingScale
+                style.paragraphSpacing = 3 * spacingScale
                 lastListGroupDepth = (blockValue.group, depth)
             case .taskItem(let depth, let done):
                 markerIndent = 24 + CGFloat(depth) * 22
                 tasks.append((paragraph, depth, done))
-                style.paragraphSpacing = 2 * spacingScale
+                style.paragraphSpacing = 3 * spacingScale
                 lastListGroupDepth = (blockValue.group, depth)
             case .builtInPluginTaskItem(let depth, let token):
                 markerIndent = 24 + CGFloat(depth) * 22
                 pluginTasks.append((paragraph, depth, token))
-                style.paragraphSpacing = 2 * spacingScale
+                style.paragraphSpacing = 3 * spacingScale
                 lastListGroupDepth = (blockValue.group, depth)
             case .orderedItem(let depth, _):
                 markerIndent = 28 + CGFloat(depth) * 22
@@ -250,7 +250,7 @@ extension VisualMarkdownView.Coordinator {
                     if case .orderedItem(_, let n) = blockValue.kind { return n }
                     return 1
                 }()))
-                style.paragraphSpacing = 2 * spacingScale
+                style.paragraphSpacing = 3 * spacingScale
                 lastListGroupDepth = (blockValue.group, depth)
             case .listContinuation(let indent):
                 markerIndent = 24 + CGFloat(max(0, indent - 2) / 4) * 22
@@ -355,7 +355,7 @@ extension VisualMarkdownView.Coordinator {
             let isTableCellKind: Bool
             if case .tableCell = blockValue.kind { isTableCellKind = true } else { isTableCellKind = false }
             if isListKind(blockValue.kind), nextScan?.isList != true {
-                style.paragraphSpacing = max(style.paragraphSpacing, 6 * spacingScale)
+                style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
             }
             if !isTableCellKind, nextScan?.isTable == true {
                 style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
@@ -403,6 +403,37 @@ extension VisualMarkdownView.Coordinator {
                     style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 8 * spacingScale)
                 }
                 style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
+            }
+
+            // Reading leading (plan 11.1): CSS-style ratio over the element's
+            // FONT SIZE (body 15 → 20pt line), enforced as a per-line floor —
+            // `lineHeightMultiple` would scale the natural line height (already
+            // ~1.2× the size) and overshoot. A floor also keeps mixed runs
+            // (smaller inline code, links) from breathing between lines.
+            // Paragraphs carrying attachment glyphs (images, rendered math,
+            // thematic breaks — U+FFFC) keep the font default: the glyph
+            // defines its own height. Headings get their own leading in 11.2,
+            // table cells in 11.5.
+            let lineRatio: CGFloat
+            let lineBase: CGFloat
+            switch blockValue.kind {
+            case .codeBlock:
+                lineRatio = 1.2
+                lineBase = visualStyle.baseSize - 1
+            case .raw:
+                lineRatio = isTableIsland ? 0 : 1.2
+                lineBase = visualStyle.baseSize - 1
+            case .heading, .tableCell, .thematicBreak:
+                lineRatio = 0
+                lineBase = 0
+            default:
+                lineRatio = isDisplayMath ? 0 : 1.3
+                lineBase = visualStyle.baseSize
+            }
+            if lineRatio > 0,
+               nsText.range(of: mdObjectChar, options: .literal, range: paragraph)
+                   .location == NSNotFound {
+                style.minimumLineHeight = round(lineBase * lineRatio)
             }
 
             style.firstLineHeadIndent = markerIndent
