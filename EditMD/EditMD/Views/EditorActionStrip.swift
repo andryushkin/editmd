@@ -339,17 +339,23 @@ struct EditorActionStrip: View {
 
     /// Line-number toggle. Lives in the left margin instead of a tool group:
     /// it belongs to the gutter it sits over, and must never collapse into "…".
+    /// Bare glyph on purpose (user call): no accessory backplate, no well —
+    /// the accent tint alone carries the state, so it reads as part of the
+    /// margin rather than another panel crowding the tool well.
     private var gutterPill: some View {
-        AccessoryBarButton(
-            glyph: .symbol("textformat.123"),
-            help: showLineNumbers
-                ? String(localized: "Hide Line Numbers")
-                : String(localized: "Show Line Numbers"),
-            active: showLineNumbers
-        ) {
+        Button {
             toggleLineNumbers()
+        } label: {
+            Image(systemName: "textformat.123")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(showLineNumbers ? Color.accentColor : Color.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .editMDHelp(showLineNumbers
+            ? String(localized: "Hide Line Numbers")
+            : String(localized: "Show Line Numbers"))
         .fixedSize()
     }
 
