@@ -198,7 +198,6 @@ final class VisualNSTextView: NSTextView {
     var quoteEntries: [VisualQuoteEntry] = []
     var codePanelEntries: [(range: NSRange, leadingIndent: CGFloat)] = []
     var ruleRanges: [NSRange] = []
-    var headingDividerRanges: [NSRange] = []
     var tableIslandEntries: [TableIslandEntry] = [] {
         didSet {
             tableCellAttrCache.removeAll(keepingCapacity: true)

@@ -48,8 +48,6 @@ struct EditorTheme {
     var codeBlockBackground: NSColor
     /// Copy-button semi-transparent fill.
     var copyButtonBackground: NSColor
-    /// Color for thin divider lines drawn below H1 and H2 headings.
-    var headingDividerColor: NSColor
     /// Subtle background fill behind blockquote body text (added to the left bar).
     var quoteBackground: NSColor
     /// Corner radius for code block background panels.
@@ -163,7 +161,6 @@ extension EditorTheme {
         inlineCodeBackground: gh(0xf0f0f5, 0x252629),
         codeBlockBackground:  gh(0xf6f8fa, 0x161b22),
         copyButtonBackground: NSColor(white: 0.5, alpha: 0.12),
-        headingDividerColor:  gh(0xd0d0d3, 0x333438),
         quoteBackground:      ghAlpha(light: 0.025, dark: 0.03),
         codeBlockCornerRadius: 6,
         tableRowBackground:   ghAlpha(light: 0.03, dark: 0.04),

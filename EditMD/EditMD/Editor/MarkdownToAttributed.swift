@@ -140,7 +140,19 @@ struct VisualStyle {
     var elements = ElementStyles()
 
     func headingSize(_ level: Int) -> CGFloat {
-        baseSize * elements.heading(level).sizeScale
+        let scaled = baseSize * elements.heading(level).sizeScale
+        // Optical cap (plan 11.2): the increment over body is limited in
+        // absolute points, so at accessibility-size bases the ramp compresses
+        // instead of exploding (Dynamic Type-style). At the default base 15
+        // none of the caps engage.
+        let cap: CGFloat
+        switch level {
+        case 1: cap = 16
+        case 2: cap = 10
+        case 3: cap = 6
+        default: cap = 4
+        }
+        return min(scaled, baseSize + cap)
     }
 
     func font(for styles: MDInlineStyle, blockKind: MDBlock.Kind) -> NSFont {

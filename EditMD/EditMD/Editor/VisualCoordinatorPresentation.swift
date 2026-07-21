@@ -120,7 +120,6 @@ extension VisualMarkdownView.Coordinator {
         var codeLanguages: [Int: String] = [:]
         var codeGroupIndents: [Int: CGFloat] = [:]
         var ruleRanges: [NSRange] = []
-        var headingDividers: [NSRange] = []
         var tableIslands: [TableIslandEntry] = []
 
         var orderedCounters: [String: Int] = [:]
@@ -143,7 +142,10 @@ extension VisualMarkdownView.Coordinator {
         // spacing. The scan records what each paragraph is, and the main pass
         // opens up run boundaries (list end, quote edges, table edges) by
         // looking at the neighbors.
-        struct ParaScan { var isList = false; var isTable = false; var quoteGroup: Int? }
+        struct ParaScan {
+            var isList = false; var isTable = false; var isHeading = false
+            var quoteGroup: Int?
+        }
         var paraScan: [ParaScan] = []
         var scanLoc = 0
         while scanLoc < nsText.length {
@@ -157,6 +159,7 @@ extension VisualMarkdownView.Coordinator {
             var info = ParaScan()
             info.isList = isListKind(block.kind)
             if case .tableCell = block.kind { info.isTable = true }
+            if case .heading = block.kind { info.isHeading = true }
             info.quoteGroup = block.quoteDepth > 0 ? block.quoteGroup : nil
             paraScan.append(info)
             guard case .codeBlock = block.kind else { continue }
@@ -205,11 +208,23 @@ extension VisualMarkdownView.Coordinator {
 
             switch blockValue.kind {
             case .heading(let level):
+                // Plan 11.2: a heading clings to ITS section — before:after
+                // ≈ 3:1. A heading directly after another heading halves the
+                // top gap so consecutive headings read as one cluster.
+                let before: CGFloat
+                let after: CGFloat
+                switch level {
+                case 1: before = 26; after = 8
+                case 2: before = 22; after = 7
+                case 3: before = 16; after = 6
+                default: before = 12; after = 5
+                }
+                let prevIsHeading = paraIndex > 0 && paraIndex <= paraScan.count
+                    && paraScan[paraIndex - 1].isHeading
                 style.paragraphSpacingBefore = isDocumentStart
                     ? 0
-                    : (level <= 2 ? 14 : 10) * spacingScale
-                style.paragraphSpacing = 8 * spacingScale
-                if level <= 2 { headingDividers.append(paragraph) }
+                    : before * (prevIsHeading ? 0.5 : 1) * spacingScale
+                style.paragraphSpacing = after * spacingScale
             case .bulletItem(let depth):
                 markerIndent = 24 + CGFloat(depth) * 22
                 bullets.append((paragraph, depth))
@@ -416,6 +431,7 @@ extension VisualMarkdownView.Coordinator {
             // table cells in 11.5.
             let lineRatio: CGFloat
             let lineBase: CGFloat
+            var clampLineHeight = false
             switch blockValue.kind {
             case .codeBlock:
                 lineRatio = 1.2
@@ -423,7 +439,13 @@ extension VisualMarkdownView.Coordinator {
             case .raw:
                 lineRatio = isTableIsland ? 0 : 1.2
                 lineBase = visualStyle.baseSize - 1
-            case .heading, .tableCell, .thematicBreak:
+            case .heading(let level):
+                // Headings are TIGHTER than natural (a multi-line H1 must not
+                // look loose) — clamp from both sides (plan 11.2).
+                lineRatio = level <= 3 ? 1.12 : 1.18
+                lineBase = visualStyle.headingSize(level)
+                clampLineHeight = true
+            case .tableCell, .thematicBreak:
                 lineRatio = 0
                 lineBase = 0
             default:
@@ -434,6 +456,9 @@ extension VisualMarkdownView.Coordinator {
                nsText.range(of: mdObjectChar, options: .literal, range: paragraph)
                    .location == NSNotFound {
                 style.minimumLineHeight = round(lineBase * lineRatio)
+                if clampLineHeight {
+                    style.maximumLineHeight = round(lineBase * lineRatio)
+                }
             }
 
             style.firstLineHeadIndent = markerIndent
@@ -484,7 +509,6 @@ extension VisualMarkdownView.Coordinator {
             (range: range, leadingIndent: codeGroupIndents[group] ?? 0)
         }
         textView.ruleRanges = ruleRanges
-        textView.headingDividerRanges = headingDividers
         textView.tableIslandEntries = tableIslands
         textView.needsDisplay = true
     }
@@ -591,7 +615,11 @@ extension VisualMarkdownView.Coordinator {
             } else {
                 let color: NSColor
                 if headingLevel > 0 {
-                    color = elements.heading(headingLevel).color ?? theme.textColor
+                    // H6 defaults to the secondary tone (plan 11.2) — same
+                    // size as body, so the hierarchy reads through color.
+                    let headingDefault = headingLevel == 6
+                        ? theme.secondaryColor : theme.textColor
+                    color = elements.heading(headingLevel).color ?? headingDefault
                 } else if isBodyCode {
                     color = theme.secondaryColor
                 } else if isQuote {

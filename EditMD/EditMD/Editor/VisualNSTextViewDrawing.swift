@@ -294,16 +294,6 @@ extension VisualNSTextView {
             NSRect(x: inset.width, y: rectUnion.midY - 1, width: fullWidth, height: 2).fill()
         }
 
-        // H1/H2 dividers
-        if theme.headingDividerColor.cgColor.alpha > 0 {
-            theme.headingDividerColor.setFill()
-            for range in headingDividerRanges {
-                guard let rectUnion = unionRect(for: range) else { continue }
-                let line = NSRect(x: inset.width, y: rectUnion.maxY - 1, width: fullWidth, height: 1)
-                if line.intersects(rect) { line.fill() }
-            }
-        }
-
         // Large tables (drawn as virtualized read-only grids)
         for entry in tableIslandEntries {
             drawTableIsland(entry, dirty: rect, inset: inset, layoutManager: layoutManager)

@@ -151,12 +151,15 @@ struct ElementStyles: Codable, Equatable {
     var quote: ElementStyle
 
     init() {
-        h1 = ElementStyle(weight: .bold, sizeScale: 1.8)
-        h2 = ElementStyle(weight: .semibold, sizeScale: 1.5)
-        h3 = ElementStyle(weight: .semibold, sizeScale: 1.3)
-        h4 = ElementStyle(weight: .semibold, sizeScale: 1.1)
+        // Plan 11.2 ramp — HIG-flavored (Large Title 26 / Title 1 22 /
+        // Title 2 17 at the 15pt base). H6 additionally renders in the
+        // secondary tone (draw-time default, not a baked color).
+        h1 = ElementStyle(weight: .bold, sizeScale: 1.75)
+        h2 = ElementStyle(weight: .semibold, sizeScale: 1.45)
+        h3 = ElementStyle(weight: .semibold, sizeScale: 1.2)
+        h4 = ElementStyle(weight: .semibold, sizeScale: 1.07)
         h5 = ElementStyle(weight: .semibold, sizeScale: 1.0)
-        h6 = ElementStyle(weight: .semibold, sizeScale: 0.9)
+        h6 = ElementStyle(weight: .semibold, sizeScale: 1.0)
         bold = ElementStyle(weight: .bold)
         inlineCode = ElementStyle()
         link = ElementStyle()
@@ -622,9 +625,9 @@ final class EditorSettings: ObservableObject {
     }
 
     /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a
-    /// later stage replaces element defaults again (11.2 → 3) so existing
-    /// installs re-migrate.
-    static let visualTypographyBaseline = 2
+    /// later stage replaces element defaults again so existing installs
+    /// re-migrate (2 = 11.0 column, 3 = 11.2 heading ramp).
+    static let visualTypographyBaseline = 3
 
     /// Hard baseline migration (redesign decision 2026-07-22): stored element
     /// styles and the reading column are REPLACED with the current defaults —
