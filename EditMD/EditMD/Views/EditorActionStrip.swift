@@ -176,6 +176,11 @@ struct EditorActionStrip: View {
                         overflowPill(plan.overflow, itemsByGroup: itemsByGroup)
                     }
                 }
+                // Compact metrics: at .regular the accessory buttons carry
+                // enough system padding that a ~450pt lane fit NOTHING and
+                // every group fell into "…" — .small keeps the same glyphs
+                // with tighter boxes, so groups survive on narrow panes.
+                .controlSize(.small)
                 // One shared well behind ALL the tools (user-picked look):
                 // hugs the visible buttons, mirrors the segmented switcher's
                 // bezel so the two read as sibling panels on the strip.
@@ -275,6 +280,9 @@ struct EditorActionStrip: View {
             modePill.measureWidth(key: Self.modeKey)
             gutterPill.measureWidth(key: Self.gutterKey)
         }
+        // Must match the visible lane's control size, or the plan runs on
+        // .regular widths and overflows too early.
+        .controlSize(.small)
         .fixedSize()
         .hidden()
         .allowsHitTesting(false)
@@ -338,6 +346,7 @@ struct EditorActionStrip: View {
         ) {
             toggleLineNumbers()
         }
+        .controlSize(.small)
         .fixedSize()
     }
 
