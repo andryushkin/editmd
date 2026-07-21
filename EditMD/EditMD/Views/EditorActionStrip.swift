@@ -210,7 +210,7 @@ struct EditorActionStrip: View {
                     .offset(x: max(SidebarChrome.barPaddingH,
                                    min(field.railTrailingX - gutterWidth
                                           + Self.gutterGlyphInset,
-                                       lead - gutterWidth - 3)))
+                                       lead - gutterWidth - Self.groupSpacing)))
             }
             .background(alignment: .leading) {
                 measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
