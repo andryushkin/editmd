@@ -591,6 +591,7 @@ final class EditorSettings: ObservableObject {
         static let visualTableEditor = "editorSettings.visualTableEditor"
         static let preview = "editorSettings.preview"
         static let previewTypography = "editorSettings.previewTypography"
+        static let visualTypographyBaseline = "editorSettings.visualTypographyBaseline"
     }
 
     private init() {
@@ -598,13 +599,42 @@ final class EditorSettings: ObservableObject {
         gutter = Self.load(Keys.gutter) ?? GutterSettings()
         source = Self.load(Keys.source) ?? ModeSettings(
             fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0)
-        visual = Self.load(Keys.visual) ?? ModeSettings(
-            fontSize: 15, insetH: 48, insetV: 24, columnWidth: 0)
+        var storedVisual = Self.load(Keys.visual) ?? Self.visualDefaults()
+        let storedBaseline = UserDefaults.standard.integer(forKey: Keys.visualTypographyBaseline)
+        let needsBaselineMigration = storedBaseline < Self.visualTypographyBaseline
+        if needsBaselineMigration { storedVisual = Self.migratedVisual(storedVisual) }
+        visual = storedVisual
         visualSpacing = Self.load(Keys.visualSpacing) ?? VisualSpacingSettings(scale: 1.0)
         visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
         preview = Self.load(Keys.preview) ?? ModeSettings(
             fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
+        // didSet observers don't fire during init — flush the migrated value
+        // and the stamp explicitly (fresh installs get stamped too).
+        if needsBaselineMigration { persist(visual, Keys.visual) }
+        UserDefaults.standard.set(Self.visualTypographyBaseline, forKey: Keys.visualTypographyBaseline)
+    }
+
+    /// Baseline Visual defaults (plan 11): the prose reading column matches
+    /// Preview's 736pt; `0` (full width) stays available in Settings.
+    private static func visualDefaults() -> ModeSettings {
+        ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 736)
+    }
+
+    /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a
+    /// later stage replaces element defaults again (11.2 → 3) so existing
+    /// installs re-migrate.
+    static let visualTypographyBaseline = 2
+
+    /// Hard baseline migration (redesign decision 2026-07-22): stored element
+    /// styles and the reading column are REPLACED with the current defaults —
+    /// deliberately no merge with old per-element overrides. Personal font
+    /// size/family/weight and margins are kept.
+    static func migratedVisual(_ stored: ModeSettings) -> ModeSettings {
+        var visual = stored
+        visual.columnWidth = visualDefaults().columnWidth
+        visual.elements = ElementStyles()
+        return visual
     }
 
     /// The active Source/Visual look: the single fixed editor theme plus
@@ -627,7 +657,7 @@ final class EditorSettings: ObservableObject {
     func resetGutter() { gutter = GutterSettings() }
     func resetSource() { source = ModeSettings(fontSize: 14, insetH: 48, insetV: 24, columnWidth: 0) }
     func resetVisual() {
-        visual = ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 0)
+        visual = Self.visualDefaults()
         visualSpacing = VisualSpacingSettings(scale: 1.0)
         visualTableEditor = VisualTableEditorSettings()
     }

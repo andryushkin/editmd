@@ -1305,3 +1305,12 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Механика ленты редактора не тронута:** measurement layer, greedy overflow в «…», геометрия insets — всё прежнее; поменялся только хром (`pill`/`sep`/`icon`/`labelBtn` → `cluster` из accessory-кнопок).
 - `wellColor` остался только у контентных подложек (чипы тегов и карточки плагинов PropertiesPanel) — это не бары.
 
+
+## Визуальный язык Visual — план 11, этап 11.0: колонка и baseline-миграция (2026-07-22)
+
+Старт спринта по `docs/plans/11-visual-typography.md` (v2 после арт-ревью пользователя): уход от GitHub-имитации (`EditorTheme.github`) к Apple/HIG-типографике. Порядок принципиален: сначала мера строки, потом калибровка ритма под неё.
+
+- **Prose-колонка по умолчанию:** дефолт Visual `columnWidth` 0 → 736 (та же константа, что у Preview; механика reading column уже существовала). Full width возвращается через `0`; тумблер «Limit column width» в Settings теперь включает 736, а не 720.
+- **Жёсткая baseline-миграция** (решение пользователя: «дизайн заново — старые значения убирай»): stamp `editorSettings.visualTypographyBaseline` в UserDefaults; при значении меньше `EditorSettings.visualTypographyBaseline` (=2) сохранённые `visual.elements` и `visual.columnWidth` перезаписываются текущими дефолтами — старые per-element кастомизации сознательно теряются. Личные `fontSize`/`insetH`/`insetV`/`fontFamily`/`fontWeight` сохраняются. Логика вынесена в чистую `EditorSettings.migratedVisual` (тесты в `EditorSettingsMigrationTests`). Этап 11.2 сменит дефолты `ElementStyles` и обязан поднять stamp до 3, иначе существующие установки не увидят новую шкалу.
+- **Контрольный лист** `demo-typography.md` в корне — pass/fail всего спринта (пары ритма, кириллица/mixed, цифры/emoji/длинные URL, многострочный H1, плотный технический абзац, таблица с числами и длинной ячейкой). Фикс-условия просмотра: окно 1000×800, колонка 736, база 15, spacing 1.0, light+dark.
+- didSet-персист `EditorSettings` не срабатывает в `init` — мигрированное значение и stamp пишутся явно.

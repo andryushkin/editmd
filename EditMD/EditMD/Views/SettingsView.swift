@@ -294,7 +294,7 @@ private struct ModeTab: View {
 
     private var columnEnabled: Binding<Bool> {
         Binding(get: { m.wrappedValue.columnWidth > 0 },
-                set: { on in m.wrappedValue.columnWidth = on ? 720 : 0 })
+                set: { on in m.wrappedValue.columnWidth = on ? 736 : 0 })
     }
 
     // MARK: Element grid
