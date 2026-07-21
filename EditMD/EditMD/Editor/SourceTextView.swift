@@ -384,6 +384,29 @@ struct SourceTextView: NSViewRepresentable {
             finishViewportEditOnNextRunLoop()
         }
 
+        /// Re-derives the reading geometry once the view has a real width.
+        /// `makeNSView` runs before layout, where the scroll view is still 0pt
+        /// wide, so a centered reading column cannot be computed there yet.
+        func applyReadingInsetsAfterLayout() {
+            guard !isApplyingReadingInsets,
+                  let textView,
+                  let scrollView = textView.enclosingScrollView,
+                  scrollView.contentView.bounds.width > 0
+            else { return }
+            isApplyingReadingInsets = true
+            defer { isApplyingReadingInsets = false }
+            // Reuse the cached reserve: recomputing it counts the document's
+            // lines, and layout runs on every resize.
+            _ = SourceTextView.applyReadingInsets(
+                textView: textView, scrollView: scrollView,
+                insetH: parent.insetH, insetV: parent.insetV,
+                columnWidth: parent.columnWidth,
+                gutterReserve: textView.gutterReserveWidth)
+        }
+
+        /// Guards the layout → insets → layout loop.
+        private var isApplyingReadingInsets = false
+
         func refreshGutter() {
             guard let textView else { return }
             let source = EditorSettings.shared.source

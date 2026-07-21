@@ -40,6 +40,15 @@ final class SourceNSTextView: NSTextView {
     /// the current-line band can start just left of them. 0 = unknown.
     var gutterReserveWidth: CGFloat = 0
 
+    override func layout() {
+        super.layout()
+        // Geometry must settle BEFORE the first frame is drawn. `makeNSView`
+        // computes the reading insets while the scroll view is still 0pt wide,
+        // so a centered reading column got no centering there and the file
+        // flashed once — narrow field, then wide.
+        (delegate as? SourceTextView.Coordinator)?.applyReadingInsetsAfterLayout()
+    }
+
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         // Under the numbers. `caretOffset` is the single gate shared with the
