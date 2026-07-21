@@ -53,19 +53,10 @@ struct AgentActivityButton: View {
     }
 }
 
-/// Pulse only on macOS 14+; ignore on 13.
 private struct OptionalPulse: ViewModifier {
     let isActive: Bool
     func body(content: Content) -> some View {
-        if #available(macOS 14.0, *) {
-            content.symbolEffect(.pulse, isActive: isActive)
-        } else {
-            content.opacity(isActive ? 0.55 : 1.0)
-                .animation(isActive
-                           ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                           : .default,
-                           value: isActive)
-        }
+        content.symbolEffect(.pulse, isActive: isActive)
     }
 }
 

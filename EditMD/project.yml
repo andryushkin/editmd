@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.editmd
   developmentLanguage: en
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "14.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
@@ -42,7 +42,7 @@ targets:
   EditMD:
     type: application
     platform: macOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "14.0"
     sources:
       - EditMD
     resources:
@@ -64,7 +64,7 @@ targets:
         INFOPLIST_FILE: EditMD/App/Info.plist
         # App icon: EditMD/Resources/AppIcon.icns (from docs/img/icon.png master)
         INFOPLIST_KEY_CFBundleIconFile: AppIcon
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: YES
@@ -74,7 +74,7 @@ targets:
   EditMDTests:
     type: bundle.unit-test
     platform: macOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "14.0"
     sources:
       - EditMDTests
     dependencies:
@@ -85,7 +85,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.tests
         SWIFT_VERSION: "6.2"
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
 
@@ -95,7 +95,7 @@ targets:
   editmdctl:
     type: tool
     platform: macOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "14.0"
     sources:
       - editmdctl
       - path: EditMD/Integration/ControlProtocol.swift
@@ -124,7 +124,7 @@ targets:
         PRODUCT_NAME: editmdctl
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.ctl
         SWIFT_VERSION: "6.2"
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_STRICT_CONCURRENCY: complete
         # Protocol files only need Foundation; MCPProtocol is pure JSON codec.
         GENERATE_INFOPLIST_FILE: YES
@@ -133,7 +133,7 @@ targets:
   editmd-mcp:
     type: tool
     platform: macOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "14.0"
     sources:
       - editmd-mcp
       - path: EditMD/Integration/ControlProtocol.swift
@@ -143,7 +143,7 @@ targets:
         PRODUCT_NAME: editmd-mcp
         PRODUCT_BUNDLE_IDENTIFIER: com.editmd.mcp
         SWIFT_VERSION: "6.2"
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
 
