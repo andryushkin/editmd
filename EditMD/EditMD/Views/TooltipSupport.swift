@@ -60,14 +60,17 @@ enum SidebarChrome {
     static let iconButtonWidth: CGFloat = 28
     static let iconButtonHeight: CGFloat = 24
 
-    /// Inner padding of the navigator capsule and the metrics of the hairline
-    /// dividers between its buttons. Kept here (not as literals at the call
-    /// site) because the pane's minimum width is derived from them.
+    /// Slack a navigator tab needs beyond its icon, and the padding of the
+    /// strip itself. The strip is a stock segmented control now, so these no
+    /// longer draw anything — they survive as the budget behind the pane
+    /// floor, whose values are pinned by `PaneLayoutTests`.
     static let navPillPaddingH: CGFloat = 5
     static let navDividerWidth: CGFloat = 1
     static let navDividerPaddingH: CGFloat = 3
 
-    /// Width the navigator capsule needs to show `tabs` buttons in full.
+    /// Width the navigator strip needs to show `tabs` icons comfortably. The
+    /// segmented control squeezes below this instead of clipping the trailing
+    /// tabs, but the icons stop being legible — so it stays the pane floor.
     static func navigatorPillWidth(tabs: Int) -> CGFloat {
         let dividers = max(0, tabs - 1)
         return CGFloat(tabs) * iconButtonWidth
@@ -79,11 +82,6 @@ enum SidebarChrome {
     /// full-width rows don't stretch edge-to-edge on a wide window. Welcome
     /// centers within it (minus insets); folder-info left-aligns.
     static let maxReadingWidth: CGFloat = 720
-
-    /// Selection pill inside the navigator capsule. A capsule (not a circle)
-    /// because the buttons stretch with the pane — at the floor width it is a
-    /// circle, on a wide pane it grows into an Xcode-style pill.
-    static let navSelectionShape = Capsule(style: .continuous)
 
     /// Soft well gray for icon pills (Files/Outline, folder actions, filter).
     /// Kept lighter than a typical control fill so the plaque stays subtle.
@@ -105,94 +103,47 @@ enum SidebarChrome {
 struct SidebarNavTab: Identifiable {
     let id: String
     let systemImage: String
+    /// Accessibility label (VoiceOver); the segmented control has no per-tab
+    /// tooltip, so this is the only place the tab names itself.
     let help: String
+    /// Symbol shown while `badge > 0`. A segmented control leaves no room for
+    /// a badge dot, so a pending tab swaps in a filled variant instead.
+    var badgeSystemImage: String?
     var badge: Int = 0
+
+    init(id: String, systemImage: String, help: String,
+         badgeSystemImage: String? = nil, badge: Int = 0) {
+        self.id = id
+        self.systemImage = systemImage
+        self.help = help
+        self.badgeSystemImage = badgeSystemImage
+        self.badge = badge
+    }
+
+    var symbol: String {
+        badge > 0 ? (badgeSystemImage ?? systemImage) : systemImage
+    }
 }
 
-/// The navigator capsule shared by the left workspace sidebar and the right
-/// inspector: icon tabs on a recessed gray well, hairlines between them.
-/// Xcode-style, the strip stretches with the pane — see `SidebarNavTabButton`.
+/// The navigator strip shared by the left workspace sidebar and the right
+/// inspector. A stock segmented picker: AppKit gives equal-width segments that
+/// stretch with the pane, drops the hairlines flanking the selection, and
+/// keeps the system look, animation and keyboard handling — all of which we
+/// used to draw by hand.
 struct SidebarNavStrip: View {
     let tabs: [SidebarNavTab]
     @Binding var selection: String
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                if index > 0 {
-                    // Hidden rather than dropped: the hairlines flanking the
-                    // active tab disappear (as in Xcode) without the whole
-                    // strip re-laying out on every switch.
-                    SidebarNavDivider()
-                        .opacity(flanksSelection(dividerAt: index) ? 0 : 1)
-                }
-                SidebarNavTabButton(systemImage: tab.systemImage,
-                                    help: tab.help,
-                                    selected: selection == tab.id,
-                                    badge: tab.badge) { selection = tab.id }
+        Picker("", selection: $selection) {
+            ForEach(tabs) { tab in
+                Image(systemName: tab.symbol)
+                    .accessibilityLabel(Text(tab.help))
+                    .tag(tab.id)
             }
         }
-        .padding(.horizontal, SidebarChrome.navPillPaddingH)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color(nsColor: SidebarChrome.wellColor))
-        )
-    }
-
-    /// The divider drawn before tab `index` sits between it and its neighbor.
-    private func flanksSelection(dividerAt index: Int) -> Bool {
-        selection == tabs[index].id || selection == tabs[index - 1].id
-    }
-}
-
-/// One tab of a sidebar navigator capsule (left workspace, right inspector).
-/// The button stretches with the pane like Xcode's navigator strip: at the
-/// pane's floor width it is exactly `iconButtonWidth`, wider panes share the
-/// slack equally between the tabs.
-struct SidebarNavTabButton: View {
-    let systemImage: String
-    let help: String
-    let selected: Bool
-    var badge: Int = 0
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                // Overlay before the stretching frame: the dot tracks the
-                // glyph, not the far edge of a wide button.
-                .overlay(alignment: .topTrailing) {
-                    if badge > 0 && !selected {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 5, y: -3)
-                    }
-                }
-                .frame(minWidth: SidebarChrome.iconButtonWidth,
-                       maxWidth: .infinity,
-                       minHeight: SidebarChrome.iconButtonHeight,
-                       maxHeight: SidebarChrome.iconButtonHeight)
-                .background(
-                    SidebarChrome.navSelectionShape
-                        .fill(selected ? Color.accentColor : Color.clear)
-                )
-                .contentShape(SidebarChrome.navSelectionShape)
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(badge > 0 ? String(localized: "\(help) · \(badge) open") : help)
-    }
-}
-
-/// Xcode-style hairline between navigator modes.
-struct SidebarNavDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: SidebarChrome.navDividerWidth, height: 14)
-            .padding(.horizontal, SidebarChrome.navDividerPaddingH)
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
     }
 }
