@@ -19,6 +19,11 @@ enum GutterMetrics {
     static let gap: CGFloat = 18
     /// Text view's left edge → numbers, when the reading column leaves no slack.
     static let edgePad: CGFloat = 6
+    /// How far left of the numbers the current-line band starts.
+    static let bandLeadIn: CGFloat = 3
+    /// Band's right margin. Small and fixed: mirroring the left inset would
+    /// leave a far wider gap, since that inset carries the gutter reserve.
+    static let bandRightMargin: CGFloat = 12
 
     static func numbersWidth(lineCountHint: Int) -> CGFloat {
         let digits = max(2, String(max(1, lineCountHint)).count)
@@ -262,9 +267,12 @@ extension NSTextView {
     /// selection highlight already says where the caret is.
     /// `gutterReserve` is the margin `GutterMetrics.reserve` claimed for the
     /// numbers; it is what places the band's left edge just outside them.
+    /// `opacity` 0 means "the theme default for the appearance this view is
+    /// rendering in" — resolved here, not at settings time, so a light/dark
+    /// flip repaints correctly.
     @MainActor
-    func drawCurrentLineHighlight(in rect: NSRect, caret: Int, color: NSColor,
-                                  gutterReserve: CGFloat) {
+    func drawCurrentLineHighlight(in rect: NSRect, caret: Int, tint: NSColor,
+                                  opacity: CGFloat, gutterReserve: CGFloat) {
         guard let layoutManager else { return }
         let ns = string as NSString
         let lineRange = gutterCaretLineRange(in: ns, caret: caret)
@@ -301,11 +309,13 @@ extension NSTextView {
         let numbersLeft = gutterReserve > 0
             ? inset.width - gutterReserve + GutterMetrics.edgePad
             : GutterMetrics.edgePad
-        let leftMargin = max(0, min(numbersLeft - 3, inset.width))
-        let rightMargin = GutterMetrics.edgePad * 2
+        let leftMargin = max(0, min(numbersLeft - GutterMetrics.bandLeadIn, inset.width))
         band.origin.x = leftMargin
-        band.size.width = max(0, bounds.width - leftMargin - rightMargin)
-        color.setFill()
+        band.size.width = max(0, bounds.width - leftMargin - GutterMetrics.bandRightMargin)
+
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let alpha = opacity > 0 ? opacity : EditorTheme.currentLineAlpha(isDark: isDark)
+        tint.withAlphaComponent(alpha).setFill()
         band.fill()
     }
 }

@@ -142,9 +142,12 @@ struct GitSidebar: View {
     // MARK: - Adaptive layout
 
     /// Below this the header only has room for the folder name, ↑N/↓M and the
-    /// count; branch name and the hover action slots are dropped. 0 means the
-    /// first layout pass has not landed yet — assume roomy.
-    private var isNarrowPanel: Bool { panelWidth > 0 && panelWidth < 240 }
+    /// count; branch name and the hover action slots are dropped. The budget:
+    /// ~120pt of readable folder name + 18pt chevron + two 18pt action slots +
+    /// a ~50pt branch label + the count capsule. Before the first measurement
+    /// assume NARROW — dropping chrome on a wide panel for one frame is
+    /// invisible, while the reverse flashes wide chrome and reflows.
+    private var isNarrowPanel: Bool { panelWidth < 240 }
 
     // MARK: - Disclosure state
 
@@ -358,7 +361,11 @@ struct GitSidebar: View {
         )
         .padding(.horizontal, 4)
         .onHover { hoverSectionID = $0 ? group.id : nil }
-        .editMDHelp(section.shortRoot)
+        // Name · branch · path: on a narrow panel the branch label is gone from
+        // the header, so this is the only place left that still reports it.
+        .editMDHelp([section.name,
+                     section.branch ?? String(localized: "detached"),
+                     section.shortRoot].joined(separator: " · "))
         // Same actions without hover, for keyboard / VoiceOver users and for
         // anyone who never discovers the hover icons.
         .contextMenu {
@@ -785,7 +792,7 @@ private struct GitSidebarDiffTarget: Identifiable {
 // MARK: - Panel width
 
 /// Sidebar width, reported from a background geometry layer.
-struct GitSidebarWidthKey: PreferenceKey {
+private struct GitSidebarWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())

@@ -30,20 +30,24 @@ final class SourceNSTextView: NSTextView {
     /// AppKit would pin it to the pane edge, far from a centred column).
     var gutterState = GutterState()
     weak var wikiCompletion: WikiCompletionController?
-    /// Fill for the caret's line; `nil` = highlight off (Settings ▸ Source).
-    var currentLineFill: NSColor?
+    /// Tint for the caret's line; `nil` = highlight off (Settings ▸ Source).
+    /// The wash alpha is applied when drawing, so a light/dark flip needs no
+    /// settings round trip.
+    var currentLineTint: NSColor?
+    /// Wash alpha; 0 = the theme's per-appearance default.
+    var currentLineOpacity: CGFloat = 0
     /// Left margin reserved for the numbers (`GutterMetrics.reserve`), kept so
     /// the current-line band can start just left of them. 0 = unknown.
     var gutterReserveWidth: CGFloat = 0
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        // Under the numbers, and only for a collapsed caret: with a range
-        // selected the selection fill already marks the spot.
-        if let currentLineFill, selectedRange().length == 0 {
-            drawCurrentLineHighlight(in: rect,
-                                     caret: selectedRange().location,
-                                     color: currentLineFill,
+        // Under the numbers. `caretOffset` is the single gate shared with the
+        // number emphasis — it is already nil for a ranged selection, where the
+        // selection fill marks the spot instead.
+        if let tint = currentLineTint, let caret = gutterState.caretOffset {
+            drawCurrentLineHighlight(in: rect, caret: caret, tint: tint,
+                                     opacity: currentLineOpacity,
                                      gutterReserve: gutterReserveWidth)
         }
         drawGutterNumbers(in: rect, state: gutterState)

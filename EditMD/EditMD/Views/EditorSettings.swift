@@ -260,16 +260,20 @@ struct ModeSettings: Codable, Equatable {
     /// Resolved Source marker-color override, or `nil` to use the theme default.
     var markerColor: NSColor? { markerColorHex.flatMap { NSColor(hex: $0) } }
 
-    /// Fill behind the caret's line, or `nil` when the highlight is off.
-    /// `isDark` picks the default wash; a custom tint is washed the same way,
-    /// since a picked color arrives opaque and would hide the syntax colors.
-    func currentLineFill(theme: EditorTheme, isDark: Bool) -> NSColor? {
+    /// Tint of the fill behind the caret's line, or `nil` when the highlight is
+    /// off. Opaque by design — the wash alpha (`currentLineOpacity`, or the
+    /// theme default) is applied when drawing, where the appearance is known.
+    /// A picked color arrives opaque and would otherwise hide the syntax.
+    func currentLineTint(theme: EditorTheme) -> NSColor? {
         guard highlightCurrentLine else { return nil }
-        let tint = currentLineColorHex.flatMap { NSColor(hex: $0) } ?? theme.currentLineColor
-        let alpha = currentLineOpacity > 0
+        return currentLineColorHex.flatMap { NSColor(hex: $0) } ?? theme.currentLineColor
+    }
+
+    /// Alpha the band should draw with, given the appearance it lands in.
+    func currentLineAlpha(isDark: Bool) -> CGFloat {
+        currentLineOpacity > 0
             ? currentLineOpacity
             : EditorTheme.currentLineAlpha(isDark: isDark)
-        return tint.withAlphaComponent(alpha)
     }
 
     static let currentLineOpacityRange: ClosedRange<CGFloat> = 0...0.4

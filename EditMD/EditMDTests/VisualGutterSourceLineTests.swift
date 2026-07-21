@@ -164,3 +164,53 @@ final class GutterCurrentLineTests: XCTestCase {
                                           enabled: false))
     }
 }
+
+/// Resolution of the current-line band's tint and wash alpha (Settings ▸ Source).
+final class CurrentLineFillTests: XCTestCase {
+
+    private func source(_ mutate: (inout ModeSettings) -> Void) -> ModeSettings {
+        var m = ModeSettings(fontSize: 13, insetH: 24, insetV: 12, columnWidth: 0)
+        mutate(&m)
+        return m
+    }
+
+    func testHighlightOffHasNoTint() {
+        let m = source { $0.highlightCurrentLine = false }
+        XCTAssertNil(m.currentLineTint(theme: .editorDefault))
+    }
+
+    func testDefaultsToThemeTint() {
+        let m = source { _ in }
+        XCTAssertNotNil(m.currentLineTint(theme: .editorDefault))
+        XCTAssertEqual(m.currentLineOpacity, 0)
+    }
+
+    /// A picked color arrives opaque; the band must still wash, so the alpha
+    /// comes from the resolver — never from the stored color.
+    func testCustomTintIsUsedButAlphaComesFromResolver() {
+        let m = source { $0.currentLineColorHex = "#FF0000" }
+        let tint = m.currentLineTint(theme: .editorDefault)
+        XCTAssertEqual(tint?.usingColorSpace(.sRGB)?.redComponent, 1.0)
+        XCTAssertEqual(tint?.alphaComponent, 1.0)
+        XCTAssertEqual(m.currentLineAlpha(isDark: false),
+                       EditorTheme.currentLineAlpha(isDark: false))
+    }
+
+    /// Opacity 0 means "theme default", which differs per appearance — a dark
+    /// buffer needs more alpha for the same read.
+    func testAutoAlphaFollowsAppearance() {
+        let m = source { _ in }
+        XCTAssertEqual(m.currentLineAlpha(isDark: false),
+                       EditorTheme.currentLineAlpha(isDark: false))
+        XCTAssertEqual(m.currentLineAlpha(isDark: true),
+                       EditorTheme.currentLineAlpha(isDark: true))
+        XCTAssertGreaterThan(EditorTheme.currentLineAlpha(isDark: true),
+                             EditorTheme.currentLineAlpha(isDark: false))
+    }
+
+    func testExplicitOpacityWinsInBothAppearances() {
+        let m = source { $0.currentLineOpacity = 0.25 }
+        XCTAssertEqual(m.currentLineAlpha(isDark: false), 0.25)
+        XCTAssertEqual(m.currentLineAlpha(isDark: true), 0.25)
+    }
+}

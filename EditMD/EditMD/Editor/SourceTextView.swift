@@ -53,7 +53,7 @@ struct SourceTextView: NSViewRepresentable {
 
     /// Room the numbers need beside the text — reserved whether or not they're
     /// shown, so toggling them doesn't move the column.
-    private var gutterReserve: CGFloat {
+    fileprivate var gutterReserve: CGFloat {
         GutterMetrics.reserve(lineCountHint: max(1, countDiffLines(document.content)))
     }
 
@@ -279,7 +279,11 @@ struct SourceTextView: NSViewRepresentable {
         if textInsetChanged { textView.textContainerInset = nextTextInset }
         // Remember the reserve: it is the only way back to where the numbers
         // start (inset − reserve + edgePad), which the current-line band needs.
-        (textView as? SourceNSTextView)?.gutterReserveWidth = gutterReserve
+        // Callers that do not compute one pass 0 — keep the last known value
+        // rather than resetting the band to the view edge.
+        if gutterReserve > 0 {
+            (textView as? SourceNSTextView)?.gutterReserveWidth = gutterReserve
+        }
         scrollView.automaticallyAdjustsContentInsets = false
         let v = inset.height
         let current = scrollView.contentInsets
@@ -393,10 +397,11 @@ struct SourceTextView: NSViewRepresentable {
                 // ranged selection exactly like the band does.
                 caretOffset: gutterEmphasisOffset(selection: textView.selectedRange(),
                                                   enabled: source.highlightCurrentLine))
-            textView.currentLineFill = source.currentLineFill(
-                theme: EditorSettings.shared.effectiveTheme,
-                isDark: textView.effectiveAppearance
-                    .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            // Tint and opacity, NOT a finished color: the wash alpha depends on
+            // light/dark, which can flip without a settings change.
+            textView.currentLineTint = source.currentLineTint(
+                theme: EditorSettings.shared.effectiveTheme)
+            textView.currentLineOpacity = source.currentLineOpacity
             textView.needsDisplay = true
             reportTextLeading(textView.textContainerInset.width)
         }
@@ -1141,7 +1146,8 @@ struct SourceTextView: NSViewRepresentable {
                 SourceTextView.applyReadingInsets(
                     textView: textView, scrollView: scrollView,
                     insetH: settings.insetH, insetV: settings.insetV,
-                    columnWidth: settings.columnWidth)
+                    columnWidth: settings.columnWidth,
+                    gutterReserve: parent.gutterReserve)
             }
             highlightSource()
             applyReviewHighlights()
