@@ -347,7 +347,6 @@ struct WorkspaceSidebar: View {
             navTabButton(id: "tags",
                          systemImage: "tag",
                          help: "Tags — frontmatter")
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, SidebarChrome.navPillPaddingH)
         .padding(.vertical, 4)
@@ -357,41 +356,14 @@ struct WorkspaceSidebar: View {
         )
     }
 
-    /// Xcode-style hairline between navigator modes.
-    private var navDivider: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: SidebarChrome.navDividerWidth, height: 14)
-            .padding(.horizontal, SidebarChrome.navDividerPaddingH)
-    }
+    private var navDivider: some View { SidebarNavDivider() }
 
     private func navTabButton(id: String, systemImage: String, help: String,
                               badge: Int = 0) -> some View {
-        let selected = tab == id
-        return Button {
-            tab = id
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .frame(width: SidebarChrome.iconButtonWidth,
-                       height: SidebarChrome.iconButtonHeight)
-                .background(
-                    Circle()
-                        .fill(selected ? Color.accentColor : Color.clear)
-                )
-                .overlay(alignment: .topTrailing) {
-                    if badge > 0 && !selected {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 1, y: -1)
-                    }
-                }
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .editMDHelp(badge > 0 ? String(localized: "\(help) · \(badge) open") : help)
+        SidebarNavTabButton(systemImage: systemImage,
+                            help: help,
+                            selected: tab == id,
+                            badge: badge) { tab = id }
     }
 
     // MARK: - Bottom bar (+ · Filter · eye)

@@ -80,6 +80,11 @@ enum SidebarChrome {
     /// centers within it (minus insets); folder-info left-aligns.
     static let maxReadingWidth: CGFloat = 720
 
+    /// Selection pill inside the navigator capsule. A capsule (not a circle)
+    /// because the buttons stretch with the pane — at the floor width it is a
+    /// circle, on a wide pane it grows into an Xcode-style pill.
+    static let navSelectionShape = Capsule(style: .continuous)
+
     /// Soft well gray for icon pills (Files/Outline, folder actions, filter).
     /// Kept lighter than a typical control fill so the plaque stays subtle.
     static let wellColor = NSColor(name: nil) { appearance in
@@ -93,5 +98,56 @@ enum SidebarChrome {
             // Was ~0.90 (#E5E5EA) — closer to white / window background.
             return NSColor(srgbRed: 0.945, green: 0.945, blue: 0.955, alpha: 1)
         }
+    }
+}
+
+/// One tab of a sidebar navigator capsule (left workspace, right inspector).
+/// The button stretches with the pane like Xcode's navigator strip: at the
+/// pane's floor width it is exactly `iconButtonWidth`, wider panes share the
+/// slack equally between the tabs.
+struct SidebarNavTabButton: View {
+    let systemImage: String
+    let help: String
+    let selected: Bool
+    var badge: Int = 0
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                // Overlay before the stretching frame: the dot tracks the
+                // glyph, not the far edge of a wide button.
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 && !selected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 5, y: -3)
+                    }
+                }
+                .frame(minWidth: SidebarChrome.iconButtonWidth,
+                       maxWidth: .infinity,
+                       minHeight: SidebarChrome.iconButtonHeight,
+                       maxHeight: SidebarChrome.iconButtonHeight)
+                .background(
+                    SidebarChrome.navSelectionShape
+                        .fill(selected ? Color.accentColor : Color.clear)
+                )
+                .contentShape(SidebarChrome.navSelectionShape)
+        }
+        .buttonStyle(.plain)
+        .editMDHelp(badge > 0 ? String(localized: "\(help) · \(badge) open") : help)
+    }
+}
+
+/// Xcode-style hairline between navigator modes.
+struct SidebarNavDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: SidebarChrome.navDividerWidth, height: 14)
+            .padding(.horizontal, SidebarChrome.navDividerPaddingH)
     }
 }
