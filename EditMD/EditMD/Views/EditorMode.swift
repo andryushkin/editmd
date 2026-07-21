@@ -12,10 +12,10 @@ enum EditorMode: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .source:  return "Source"
-        case .visual:  return "Visual"
-        case .preview: return "Preview"
-        case .split:   return "Split"
+        case .source:  return String(localized: "Source")
+        case .visual:  return String(localized: "Visual")
+        case .preview: return String(localized: "Preview")
+        case .split:   return String(localized: "Split")
         }
     }
 

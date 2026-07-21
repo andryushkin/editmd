@@ -115,7 +115,7 @@ struct InspectorSidebar: View {
             tabs: [
                 SidebarNavTab(id: "outline",
                               systemImage: "list.bullet.indent",
-                              help: "Outline"),
+                              help: String(localized: "Outline")),
                 SidebarNavTab(id: "review",
                               systemImage: "text.bubble",
                               help: String(localized: "Review — document marks"),
@@ -135,7 +135,7 @@ struct InspectorSidebar: View {
                               help: String(localized: "Backlinks — incoming")),
                 SidebarNavTab(id: "info",
                               systemImage: "info.circle",
-                              help: "Info")
+                              help: String(localized: "Info"))
             ],
             selection: $tab
         )

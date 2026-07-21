@@ -1778,6 +1778,16 @@
         }
       }
     },
+    "Collapsed": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свёрнуто"
+          }
+        }
+      }
+    },
     "Color": {
       "localizations": {
         "ru": {
@@ -2657,6 +2667,16 @@
         }
       }
     },
+    "Expanded": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Развёрнуто"
+          }
+        }
+      }
+    },
     "Export as PDF…": {
       "localizations": {
         "ru": {
@@ -2793,6 +2813,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "пропущено файлов: %lld"
+          }
+        }
+      }
+    },
+    "Files": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы"
           }
         }
       }
@@ -3024,6 +3054,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Начало работы"
+          }
+        }
+      }
+    },
+    "Git": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git"
           }
         }
       }
@@ -3371,6 +3411,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Индексация ссылок…"
+          }
+        }
+      }
+    },
+    "Info": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инфо"
           }
         }
       }
@@ -5153,6 +5203,16 @@
         }
       }
     },
+    "Outline": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Структура"
+          }
+        }
+      }
+    },
     "Overlay color": {
       "localizations": {
         "ru": {
@@ -6602,6 +6662,16 @@
         }
       }
     },
+    "Split": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split"
+          }
+        }
+      }
+    },
     "Spawn injects EDITMD_ENABLED, EDITMD_SOCKET, EDITMD_WORKSPACE, EDITMD_QUEUE.": {
       "localizations": {
         "ru": {
@@ -6858,6 +6928,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Теги"
+          }
+        }
+      }
+    },
+    "Tags — frontmatter": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теги — frontmatter"
           }
         }
       }

@@ -271,6 +271,12 @@ struct GitSidebar: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleExpanded(group) }
+                // Tap gestures carry no semantics of their own — announce this
+                // zone as the disclosure button (clicks stay on the gesture,
+                // see the changedRow note on acceptsFirstMouse).
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityValue(Text(expanded ? "Expanded" : "Collapsed"))
                 // The folder name is what identifies the group, so it is the
                 // last thing allowed to shrink. NO Spacer inside this zone: a
                 // Spacer asks for unbounded width, and at priority 1 it took
@@ -280,10 +286,12 @@ struct GitSidebar: View {
 
                 // Flexible gap, and a disclosure hit target of its own so the
                 // empty middle of the header still toggles the group.
+                // Duplicate of the name zone's toggle — hidden from VoiceOver.
                 Color.clear
                     .frame(maxWidth: .infinity, minHeight: 18)
                     .contentShape(Rectangle())
                     .onTapGesture { toggleExpanded(group) }
+                    .accessibilityHidden(true)
 
                 // Icons keep their slots at rest (fixed frames + opacity), so
                 // the branch label and count never shift under the cursor.
@@ -405,6 +413,7 @@ struct GitSidebar: View {
             // Git tab lands — see the changedRow note on acceptsFirstMouse.
             .onTapGesture(perform: action)
             .editMDHelp(help)
+            .accessibilityAddTraits(.isButton)
             .opacity(visible ? (dimmed ? 0.5 : 1) : 0)
             .allowsHitTesting(visible)
             .accessibilityHidden(!visible)
@@ -467,6 +476,7 @@ struct GitSidebar: View {
                 .contentShape(Rectangle())
                 .onTapGesture { presentCommit(urls: group.files.map(\.url)) }
                 .editMDHelp(String(localized: "Commit all changed files in this folder…"))
+                .accessibilityAddTraits(.isButton)
         }
     }
 
@@ -534,6 +544,9 @@ struct GitSidebar: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { onOpen(file.url) }
+            // The open zone reads as one button named by the file row itself.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
 
             // Diff / Commit use `.onTapGesture`, not `Button`, on purpose. An
             // NSButton-backed SwiftUI Button ignores the first click after its
@@ -548,6 +561,7 @@ struct GitSidebar: View {
                 .contentShape(Rectangle())
                 .onTapGesture { presentDiff(file.url) }
                 .editMDHelp(String(localized: "Show diff…"))
+                .accessibilityAddTraits(.isButton)
                 .opacity(hovering || active ? 1 : 0.7)
 
             if allowsCommit, file.canCommit {
@@ -558,6 +572,7 @@ struct GitSidebar: View {
                     .padding(.vertical, 2)
                     .contentShape(Rectangle())
                     .onTapGesture { presentCommit(file.url) }
+                    .accessibilityAddTraits(.isButton)
                     .opacity(hovering || active ? 1 : 0.85)
             }
         }

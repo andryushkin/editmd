@@ -332,13 +332,13 @@ struct WorkspaceSidebar: View {
             tabs: [
                 SidebarNavTab(id: "files",
                               systemImage: "folder",
-                              help: "Files"),
+                              help: String(localized: "Files")),
                 SidebarNavTab(id: "search",
                               systemImage: "magnifyingglass",
                               help: String(localized: "Search — search the workspace")),
                 SidebarNavTab(id: "git",
                               systemImage: "arrow.triangle.branch",
-                              help: "Git"),
+                              help: String(localized: "Git")),
                 SidebarNavTab(id: "tags",
                               systemImage: "tag",
                               help: "Tags — frontmatter")
@@ -354,7 +354,8 @@ struct WorkspaceSidebar: View {
             // "+" is Files-only (folder creation/adoption). Filter stays global —
             // it also filters Git / Tags.
             if tab == "files" {
-                AccessoryBarMenu(systemImage: "plus", help: "Add Folder…") {
+                AccessoryBarMenu(systemImage: "plus",
+                                 help: String(localized: "Add Folder…")) {
                     Button("New Folder…") { workspace.promptCreateFolder() }
                     Button("Open Folder…") { workspace.promptAddFolder() }
                 }
