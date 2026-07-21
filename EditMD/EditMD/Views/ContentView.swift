@@ -147,9 +147,9 @@ func preferredPaneWidthFromDrag(
 }
 
 /// agterm-style divider between the editor and a side pane: a 1px separator
-/// plus a wider invisible grab strip. Shared by all three hosts (editor
-/// sidebar, editor inspector, folder inspector) so the grab width and the
-/// cursor behaviour cannot drift apart.
+/// plus a wider invisible grab strip. Shared by all four call sites (workspace
+/// sidebar, editor inspector, folder inspector, Source/Preview split) so the
+/// grab width and the cursor behaviour cannot drift apart.
 ///
 /// The drag reports the ABSOLUTE cursor x in `space`, not accumulated
 /// translation — the divider moves with the resize, so translation-based
@@ -176,6 +176,13 @@ struct PaneDivider: View {
                     // cursor rects under it on each mouse-moved, so a single
                     // `.onHover` set is immediately overwritten by the
                     // neighbouring text view's I-beam and ↔ only flashes.
+                    //
+                    // Do NOT "fix" this with an AppKit cursor rect / cursorUpdate
+                    // strip: staying transparent to the drag (`hitTest` → nil)
+                    // also drops the view out of cursor resolution, and ↔ stops
+                    // appearing entirely (tried in f32f4b9, reverted). The known
+                    // cost here is a pointer parked on the strip without moving —
+                    // a neighbour may hold the cursor until the next move.
                     .onContinuousHover { phase in
                         switch phase {
                         case .active: NSCursor.resizeLeftRight.set()
