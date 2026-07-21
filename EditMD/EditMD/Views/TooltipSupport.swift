@@ -100,14 +100,13 @@ enum SidebarChrome {
 }
 
 /// One tab of a sidebar navigator strip.
-struct SidebarNavTab: Identifiable {
+struct SidebarNavTab: Identifiable, Equatable {
     let id: String
     let systemImage: String
-    /// Accessibility label (VoiceOver); the segmented control has no per-tab
-    /// tooltip, so this is the only place the tab names itself.
+    /// Tooltip and VoiceOver label.
     let help: String
-    /// Symbol shown while `badge > 0`. A segmented control leaves no room for
-    /// a badge dot, so a pending tab swaps in a filled variant instead.
+    /// Symbol shown while `badge > 0`. A segment leaves no room for a badge
+    /// dot, so a tab with pending work swaps in a filled variant instead.
     var badgeSystemImage: String?
     var badge: Int = 0
 
@@ -123,27 +122,95 @@ struct SidebarNavTab: Identifiable {
     var symbol: String {
         badge > 0 ? (badgeSystemImage ?? systemImage) : systemImage
     }
+
+    /// Tooltip: the plain name, or the name plus the pending count.
+    var tooltip: String {
+        badge > 0 ? String(localized: "\(help) · \(badge) open") : help
+    }
 }
 
 /// The navigator strip shared by the left workspace sidebar and the right
-/// inspector. A stock segmented picker: AppKit gives equal-width segments that
-/// stretch with the pane, drops the hairlines flanking the selection, and
-/// keeps the system look, animation and keyboard handling — all of which we
-/// used to draw by hand.
-struct SidebarNavStrip: View {
+/// inspector — `NSSegmentedControl` itself, not SwiftUI's segmented picker.
+/// AppKit gives the Xcode look for free: equal-width segments, hairlines that
+/// vanish next to the selection, system highlight, animation and keyboard.
+///
+/// Wrapped rather than used through `Picker` because the SwiftUI picker keeps
+/// its intrinsic width (it centers in the pane instead of filling it, no
+/// `segmentDistribution` knob) and exposes no per-segment tooltip.
+struct SidebarNavStrip: NSViewRepresentable {
     let tabs: [SidebarNavTab]
     @Binding var selection: String
 
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(tabs) { tab in
-                Image(systemName: tab.symbol)
-                    .accessibilityLabel(Text(tab.help))
-                    .tag(tab.id)
-            }
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.segmentStyle = .automatic
+        control.trackingMode = .selectOne
+        // The whole point: segments split the pane width evenly and follow it
+        // as the divider is dragged.
+        control.segmentDistribution = .fillEqually
+        control.controlSize = .large
+        control.target = context.coordinator
+        control.action = #selector(SidebarNavStripCoordinator.segmentChanged(_:))
+        // Let SwiftUI stretch the control past its intrinsic width.
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        apply(to: control, coordinator: context.coordinator)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        apply(to: control, coordinator: context.coordinator)
+    }
+
+    /// Fill the proposed width; keep the control's own height.
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      nsView: NSSegmentedControl,
+                      context: Context) -> CGSize? {
+        let fitting = nsView.intrinsicContentSize
+        return CGSize(width: proposal.width ?? fitting.width, height: fitting.height)
+    }
+
+    func makeCoordinator() -> SidebarNavStripCoordinator {
+        SidebarNavStripCoordinator()
+    }
+
+    private func apply(to control: NSSegmentedControl,
+                       coordinator: SidebarNavStripCoordinator) {
+        coordinator.tabIDs = tabs.map(\.id)
+        coordinator.onSelect = { selection = $0 }
+
+        if control.segmentCount != tabs.count {
+            control.segmentCount = tabs.count
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: .infinity)
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        for (index, tab) in tabs.enumerated() {
+            let image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.help)?
+                .withSymbolConfiguration(configuration)
+            if control.image(forSegment: index) !== image {
+                control.setImage(image, forSegment: index)
+            }
+            control.setToolTip(tab.tooltip, forSegment: index)
+            // Width 0 = let `fillEqually` size the segment.
+            control.setWidth(0, forSegment: index)
+        }
+        if let selected = tabs.firstIndex(where: { $0.id == selection }) {
+            if control.selectedSegment != selected {
+                control.setSelected(true, forSegment: selected)
+            }
+        } else if control.selectedSegment != -1 {
+            control.setSelected(false, forSegment: control.selectedSegment)
+        }
+    }
+}
+
+/// Bridges the control's target/action back to the SwiftUI binding.
+final class SidebarNavStripCoordinator: NSObject {
+    var tabIDs: [String] = []
+    var onSelect: (String) -> Void = { _ in }
+
+    @objc func segmentChanged(_ sender: NSSegmentedControl) {
+        let index = sender.selectedSegment
+        guard tabIDs.indices.contains(index) else { return }
+        onSelect(tabIDs[index])
     }
 }
