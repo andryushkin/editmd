@@ -265,14 +265,22 @@ struct GitSidebar: View {
                         .foregroundStyle(count > 0 ? Color.primary : Color.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-
-                    Spacer(minLength: 4)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleExpanded(group) }
                 // The folder name is what identifies the group, so it is the
-                // last thing allowed to shrink.
+                // last thing allowed to shrink. NO Spacer inside this zone: a
+                // Spacer asks for unbounded width, and at priority 1 it took
+                // every point, leaving the branch/count zone 0pt wide — its
+                // text then wrapped per character and inflated the row.
                 .layoutPriority(1)
+
+                // Flexible gap, and a disclosure hit target of its own so the
+                // empty middle of the header still toggles the group.
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleExpanded(group) }
 
                 // Icons keep their slots at rest (fixed frames + opacity), so
                 // the branch label and count never shift under the cursor.
@@ -310,20 +318,25 @@ struct GitSidebar: View {
                         Text("\(count)")
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
                             .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
+                            .fixedSize()
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(
                                 Capsule().fill(Color.accentColor.opacity(0.15))
                             )
                     } else if !expanded {
+                        // fixedSize: never let a squeezed layout wrap these per
+                        // character — that is what blew up the row height.
                         Text("Clean")
                             .font(.system(size: 10.5))
                             .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleExpanded(group) }
-                .layoutPriority(-1)
             }
 
             // Path only when open — collapsed rows stay one line tall.
@@ -400,16 +413,22 @@ struct GitSidebar: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            // ↑N/↓M are short and always worth their few points — pinned so a
+            // tight header trims the branch name instead.
             if let ahead = section.ahead, ahead > 0 {
                 Text("↑\(ahead)")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
+                    .fixedSize()
                     .help(String(localized: "\(ahead) commit(s) to push"))
             }
             if let behind = section.behind, behind > 0 {
                 Text("↓\(behind)")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
                     .help(String(localized: "\(behind) commit(s) to pull"))
             }
         }
