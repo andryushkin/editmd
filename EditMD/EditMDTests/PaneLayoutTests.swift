@@ -214,13 +214,20 @@ final class PaneLayoutTests: XCTestCase {
     }
 
     /// Widths persisted before the floor existed (the old 150…400 range) are
-    /// clamped on read, so an upgrade does not reopen with clipped tabs.
+    /// clamped on read, so an upgrade does not reopen with clipped tabs — for
+    /// BOTH panes: a stored width that is never dragged would keep painting a
+    /// clipped strip otherwise.
     @MainActor
     func testPersistedNarrowWidthIsClampedOnRead() {
         XCTAssertEqual(InspectorPane.clampWidth(150),
                        InspectorPane.widthRange.lowerBound, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.clampWidth(320), 320, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.clampWidth(9_000), 400, accuracy: 0.001)
+
+        let sidebarRange = sidePaneWidthRange(floor: WorkspaceSidebar.minimumPaneWidth)
+        XCTAssertEqual(clampPaneWidth(150, to: sidebarRange),
+                       Double(WorkspaceSidebar.minimumPaneWidth), accuracy: 0.001)
+        XCTAssertEqual(clampPaneWidth(220, to: sidebarRange), 220, accuracy: 0.001)
     }
 
     func testNonPositiveScaleGuardsToUnity() {

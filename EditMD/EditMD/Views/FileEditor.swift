@@ -230,7 +230,7 @@ private struct MainChrome<Content: View>: View {
             // squeeze differs. Kept split to avoid hoisting inspector state up.
             let panes = resolveSidePaneWidths(
                 available: geo.size.width,
-                sidebarWidth: sidebarWidth,
+                sidebarWidth: clampPaneWidth(sidebarWidth, to: Self.widthRange),
                 inspectorWidth: 0,
                 sidebarVisible: sidebarVisible,
                 inspectorVisible: false)

@@ -9,9 +9,9 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
 }
 
 /// Width the flexible editor column keeps before the side panels start to
-/// shrink. Chosen so a usable reading measure survives with BOTH panels open
-/// (at their floors — 150pt sidebar, `InspectorPane.widthRange.lowerBound`
-/// inspector — the clamp only engages on a fairly narrow window).
+/// shrink. Chosen so a usable reading measure survives with BOTH panels open —
+/// at their navigator-strip floors (159pt sidebar, 264pt inspector) the clamp
+/// only engages below a ~685pt window, well under the enforced minimum.
 /// This governs the editor vs. the side panels; it is unrelated to the
 /// Source/Preview split's own 160pt pane floor, which divides space *inside*
 /// the editor area.
@@ -20,8 +20,9 @@ let editorColumnMinWidth: CGFloat = 260
 /// Floor for the main workspace window. Pane clamp only prevents *overlap*;
 /// without a window min the user can still drag the frame until the editor is
 /// a mid-word wrapping strip while both side panels stay open. 900 leaves a
-/// readable ~450pt editor at default panel widths (220+220+2); 720 was still
-/// too tight in practice (title/body mid-word wrap, strip buttons clipped).
+/// readable ~398pt editor at default panel widths (220 + 280 + 2); 720 was
+/// still too tight in practice (title/body mid-word wrap, strip buttons
+/// clipped).
 /// Enforced via `NSWindow.contentMinSize` — SwiftUI `.frame(minWidth:)` alone
 /// does not reliably stop live resize on `Window` scenes.
 let mainWindowMinWidth: CGFloat = 900
@@ -43,6 +44,13 @@ func sidePaneWidthRange(floor: CGFloat) -> ClosedRange<Double> {
     return lower...max(lower, sidePaneWidthCeiling)
 }
 
+/// Clamp a persisted pane width on read. Stored widths predate the current
+/// floors (both panes used to bottom out at 150), so a pane that is never
+/// dragged would otherwise keep painting its navigator strip clipped.
+func clampPaneWidth(_ width: Double, to range: ClosedRange<Double>) -> Double {
+    min(range.upperBound, max(range.lowerBound, width))
+}
+
 /// Shared geometry of the right inspector pane. The editor host and the folder
 /// host write the SAME `inspectorWidth` default, so the range and the fallback
 /// live here instead of being repeated (and drifting) in both.
@@ -60,7 +68,7 @@ enum InspectorPane {
 
     /// Clamp a persisted width — stored values predate the current floor.
     static func clampWidth(_ width: Double) -> Double {
-        min(widthRange.upperBound, max(widthRange.lowerBound, width))
+        clampPaneWidth(width, to: widthRange)
     }
 }
 
