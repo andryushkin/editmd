@@ -43,6 +43,12 @@ struct GutterState {
     /// Index 0 = display hard-line 1 → source line number. Empty = identity
     /// (Source); Visual passes the paragraph→markdown map.
     var displayToSourceLine: [Int] = []
+    /// Caret offset (UTF-16, this view's own text) when its line's number
+    /// should stand out; `nil` = no current-line emphasis. Deliberately an
+    /// offset, not a line number: the drawing pass already walks the visible
+    /// hard lines, so matching there is O(visible) — deriving a line number on
+    /// every caret move would rescan the whole prefix of a large file.
+    var caretOffset: Int?
 }
 
 // MARK: - Drawing
@@ -50,6 +56,35 @@ struct GutterState {
 private struct GutterAnchor {
     var y: CGFloat          // vertical center of the number
     var sourceLine: Int
+    var isCurrent: Bool
+}
+
+/// Is `caret` on the hard line `lineRange`? A caret at the line's trailing
+/// edge belongs to it only when the line does not end in a newline — otherwise
+/// that offset is the first position of the NEXT line (and a document ending
+/// in `\n` really does have one more, empty, line).
+func gutterLineHoldsCaret(_ caret: Int, lineRange: NSRange, lineEndsWithNewline: Bool) -> Bool {
+    if NSLocationInRange(caret, lineRange) { return true }
+    return caret == lineRange.location + lineRange.length && !lineEndsWithNewline
+}
+
+/// Hard line (including its newline) that owns `caret`. Unlike a plain
+/// `lineRange(for:)` on a clamped probe, a caret parked after a trailing `\n`
+/// gets the empty last line, not the line above it.
+func gutterCaretLineRange(in ns: NSString, caret: Int) -> NSRange {
+    let loc = max(0, min(caret, ns.length))
+    guard ns.length > 0 else { return NSRange(location: 0, length: 0) }
+    if loc == ns.length, ns.character(at: ns.length - 1) == 0x0A {
+        return NSRange(location: ns.length, length: 0)
+    }
+    return ns.lineRange(for: NSRange(location: min(loc, ns.length - 1), length: 0))
+}
+
+/// Does `lineRange` end in a newline (i.e. another line follows)?
+func gutterLineEndsWithNewline(in ns: NSString, lineRange: NSRange) -> Bool {
+    let end = lineRange.location + lineRange.length
+    guard lineRange.length > 0, end <= ns.length else { return false }
+    return ns.character(at: end - 1) == 0x0A
 }
 
 extension NSTextView {
@@ -153,20 +188,33 @@ extension NSTextView {
             let y = fragmentRect.minY + yOffset
                 + (fragmentRect.height - fontSize) * 0.5
                 - 1
-            anchors.append(GutterAnchor(y: y, sourceLine: sourceLine(forDisplay: displayLine)))
+            let isCurrent = state.caretOffset.map {
+                gutterLineHoldsCaret(
+                    $0, lineRange: hardLine,
+                    lineEndsWithNewline: gutterLineEndsWithNewline(in: ns, lineRange: hardLine))
+            } ?? false
+            anchors.append(GutterAnchor(y: y,
+                                        sourceLine: sourceLine(forDisplay: displayLine),
+                                        isCurrent: isCurrent))
         }
 
         guard !anchors.isEmpty else { return }
         anchors.sort { $0.y < $1.y }
 
-        func drawNumber(_ src: Int, at y: CGFloat) {
+        func drawNumber(_ src: Int, at y: CGFloat, isCurrent: Bool) {
             guard y + fontSize >= rect.minY - 2, y <= rect.maxY + 2 else { return }
             let isDirty = state.settings.highlightChangedLines
                 && state.dirtySourceLines.contains(src)
             if state.settings.showLineNumbers {
+                // Caret's line reads in full label color against the tertiary
+                // rest (Xcode's cue). A dirty line keeps its own color — that
+                // is information the caret position does not replace.
+                let color: NSColor = isDirty
+                    ? dirtyColor
+                    : (isCurrent ? .labelColor : normalColor)
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: isDirty ? dirtyFont : normalFont,
-                    .foregroundColor: isDirty ? dirtyColor : normalColor,
+                    .foregroundColor: color,
                 ]
                 let s = "\(src)" as NSString
                 let size = s.size(withAttributes: attrs)
@@ -193,10 +241,50 @@ extension NSTextView {
             guard a.sourceLine != lastDrawnLine,
                   a.y - lastDrawnY >= fontSize * 1.1
             else { continue }
-            drawNumber(a.sourceLine, at: a.y)
+            drawNumber(a.sourceLine, at: a.y, isCurrent: a.isCurrent)
             lastDrawnLine = a.sourceLine
             lastDrawnY = a.y
         }
+    }
+
+    /// Fills the hard line holding `caret` (all of its wrapped fragments) with
+    /// `color`, full editor width. Call from `drawBackground` BEFORE the gutter
+    /// so the numbers stay on top. No-op while a range is selected — the
+    /// selection highlight already says where the caret is.
+    @MainActor
+    func drawCurrentLineHighlight(in rect: NSRect, caret: Int, color: NSColor) {
+        guard let layoutManager else { return }
+        let ns = string as NSString
+        let lineRange = gutterCaretLineRange(in: ns, caret: caret)
+        let inset = textContainerInset
+        var fill: NSRect?
+
+        if lineRange.length == 0, lineRange.location == ns.length, ns.length > 0 {
+            // Caret parked on the empty line after a trailing newline: that
+            // line has no fragment of its own, only the extra rect.
+            let extra = layoutManager.extraLineFragmentRect
+            if !extra.isEmpty { fill = extra.offsetBy(dx: inset.width, dy: inset.height) }
+        } else {
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange,
+                                                      actualCharacterRange: nil)
+            // Union of the line's fragments: a soft-wrapped line highlights whole.
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { fragRect, _, _, _, _ in
+                let r = fragRect.offsetBy(dx: inset.width, dy: inset.height)
+                fill = fill.map { $0.union(r) } ?? r
+            }
+            if fill == nil {
+                let extra = layoutManager.extraLineFragmentRect
+                if !extra.isEmpty { fill = extra.offsetBy(dx: inset.width, dy: inset.height) }
+            }
+        }
+        guard var band = fill, band.intersects(rect) else { return }
+        // Full width, starting just left of the text so the line number keeps
+        // its own unpainted margin (as in Xcode).
+        let leftEdge = max(0, inset.width - GutterMetrics.gap * 0.5)
+        band.origin.x = leftEdge
+        band.size.width = max(0, bounds.width - leftEdge)
+        color.setFill()
+        band.fill()
     }
 }
 

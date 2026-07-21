@@ -269,6 +269,16 @@ private struct ModeTab: View {
                     Text("Color of Markdown syntax markers in Source mode — heading #, list bullets and checkboxes, emphasis, quotes, code fences, table pipes, links, and other delimiters.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Section("Caret") {
+                    Toggle("Highlight current line", isOn: m.highlightCurrentLine)
+                    ColorOverrideRow(title: "Current line color", hex: m.currentLineColorHex,
+                                     fallback: theme.currentLineColor)
+                        .disabled(!m.wrappedValue.highlightCurrentLine)
+                    ColorOverrideRow(title: "Cursor color", hex: m.caretColorHex,
+                                     fallback: theme.caretColor)
+                    Text("Fills the line holding the caret and draws its line number in full color, like Xcode. The cursor color applies to the Source insertion point.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("Sample") {
                 StyleSample(mode: m.wrappedValue, theme: theme, monospaced: monospaced)

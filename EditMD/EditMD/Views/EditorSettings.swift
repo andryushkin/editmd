@@ -209,11 +209,23 @@ struct ModeSettings: Codable, Equatable {
     /// list bullets, emphasis/quote/code/table/link delimiters). `nil` =
     /// `EditorTheme.markerColor` (graphite on light, soft gray on dark).
     var markerColorHex: String?
+    /// Source-only: paint a fill behind the line holding the caret (Xcode-style).
+    var highlightCurrentLine: Bool
+    /// `nil` = `EditorTheme.currentLineColor`.
+    var currentLineColorHex: String?
+    /// `nil` = `EditorTheme.caretColor`.
+    var caretColorHex: String?
 
     init(fontSize: CGFloat, insetH: CGFloat, insetV: CGFloat, columnWidth: CGFloat,
          fontFamily: String = "", fontWeight: FontWeight = .regular,
          elements: ElementStyles = ElementStyles(),
-         markerColorHex: String? = nil) {
+         markerColorHex: String? = nil,
+         highlightCurrentLine: Bool = true,
+         currentLineColorHex: String? = nil,
+         caretColorHex: String? = nil) {
+        self.highlightCurrentLine = highlightCurrentLine
+        self.currentLineColorHex = currentLineColorHex
+        self.caretColorHex = caretColorHex
         self.fontSize = fontSize
         self.insetH = insetH
         self.insetV = insetV
@@ -234,10 +246,23 @@ struct ModeSettings: Codable, Equatable {
         fontWeight = try c.decodeIfPresent(FontWeight.self, forKey: .fontWeight) ?? .regular
         elements = try c.decodeIfPresent(ElementStyles.self, forKey: .elements) ?? ElementStyles()
         markerColorHex = try c.decodeIfPresent(String.self, forKey: .markerColorHex)
+        highlightCurrentLine = try c.decodeIfPresent(Bool.self, forKey: .highlightCurrentLine) ?? true
+        currentLineColorHex = try c.decodeIfPresent(String.self, forKey: .currentLineColorHex)
+        caretColorHex = try c.decodeIfPresent(String.self, forKey: .caretColorHex)
     }
 
     /// Resolved Source marker-color override, or `nil` to use the theme default.
     var markerColor: NSColor? { markerColorHex.flatMap { NSColor(hex: $0) } }
+
+    /// Fill behind the caret's line, or `nil` when the highlight is off.
+    func currentLineFill(theme: EditorTheme) -> NSColor? {
+        guard highlightCurrentLine else { return nil }
+        return currentLineColorHex.flatMap { NSColor(hex: $0) } ?? theme.currentLineColor
+    }
+
+    func caretColor(theme: EditorTheme) -> NSColor {
+        caretColorHex.flatMap { NSColor(hex: $0) } ?? theme.caretColor
+    }
 
     static let fontSizeRange: ClosedRange<CGFloat> = 9...40
     static let insetRange: ClosedRange<CGFloat> = 0...160

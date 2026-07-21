@@ -2,32 +2,62 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "Caret": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Курсор"
+          }
+        }
+      }
+    },
+    "Current line color": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет текущей строки"
+          }
+        }
+      }
+    },
+    "Cursor color": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет курсора"
+          }
+        }
+      }
+    },
+    "Fills the line holding the caret and draws its line number in full color, like Xcode. The cursor color applies to the Source insertion point.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заливает строку с курсором и рисует её номер полным цветом, как в Xcode. Цвет курсора применяется к точке ввода в режиме Source."
+          }
+        }
+      }
+    },
+    "Highlight current line": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсвечивать текущую строку"
+          }
+        }
+      }
+    },
     "\n\n%lld commit(s) ahead": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
             "value": "\n\nКоммитов впереди: %lld"
-          }
-        }
-      }
-    },
-    "No changes in this folder": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В этой папке нет изменений"
-          }
-        }
-      }
-    },
-    "No files match the filter": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нет файлов, подходящих под фильтр"
           }
         }
       }
@@ -135,16 +165,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "\"точная фраза\""
-          }
-        }
-      }
-    },
-    "Unsaved: %lld": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не сохранено: %lld"
           }
         }
       }
@@ -1829,7 +1849,6 @@
       }
     },
     "Commit all changed files in this folder…": {
-      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -4471,6 +4490,16 @@
         }
       }
     },
+    "No changes in this folder": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой папке нет изменений"
+          }
+        }
+      }
+    },
     "No commits for this file": {
       "localizations": {
         "ru": {
@@ -4518,6 +4547,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нет файлов"
+          }
+        }
+      }
+    },
+    "No files match the filter": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет файлов, подходящих под фильтр"
           }
         }
       }
@@ -4994,7 +5033,6 @@
       }
     },
     "Open in editor": {
-      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -5449,7 +5487,6 @@
       }
     },
     "Push to remote…": {
-      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -5632,7 +5669,6 @@
       }
     },
     "Refresh git status": {
-      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -6346,7 +6382,6 @@
       }
     },
     "Show diff…": {
-      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {
@@ -7337,6 +7372,16 @@
         }
       }
     },
+    "Unsaved: %lld": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сохранено: %lld"
+          }
+        }
+      }
+    },
     "Untitled": {
       "localizations": {
         "ru": {
@@ -7581,6 +7626,7 @@
       }
     },
     "Working tree clean": {
+      "extractionState": "stale",
       "localizations": {
         "ru": {
           "stringUnit": {

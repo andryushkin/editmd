@@ -84,7 +84,8 @@ struct SourceTextView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.font = EditorSettings.shared.source.resolvedFont(defaultMono: true)
         textView.textColor = EditorSettings.shared.effectiveTheme.textColor
-        textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
+        textView.insertionPointColor = EditorSettings.shared.source
+            .caretColor(theme: EditorSettings.shared.effectiveTheme)
         textView.backgroundColor = NSColor.textBackgroundColor
         // Accept image drops (file URLs + bitmap flavors) on top of the text
         // view's own drag types, so a non-image drop still falls through to
@@ -378,11 +379,17 @@ struct SourceTextView: NSViewRepresentable {
 
         func refreshGutter() {
             guard let textView else { return }
+            let source = EditorSettings.shared.source
             // Source: display line ≡ source line (identity map).
             textView.gutterState = GutterState(
                 settings: EditorSettings.shared.gutter,
                 dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
-                displayToSourceLine: [])
+                displayToSourceLine: [],
+                // Emphasis on the caret's number rides with the line highlight:
+                // one setting, one visual idea.
+                caretOffset: source.highlightCurrentLine ? textView.selectedRange().location : nil)
+            textView.currentLineFill = source.currentLineFill(
+                theme: EditorSettings.shared.effectiveTheme)
             textView.needsDisplay = true
             reportTextLeading(textView.textContainerInset.width)
         }
@@ -495,6 +502,7 @@ struct SourceTextView: NSViewRepresentable {
             if textView.typingAttributes[.kern] != nil {
                 textView.typingAttributes[.kern] = nil
             }
+            refreshCurrentLineBand(textView)
             // Source coordinates are the markdown's own — no mapping needed.
             ClaudeIDEBridge.shared.noteSelection(url: parent.fileURL,
                                                  markdownRange: textView.selectedRange(),
@@ -502,6 +510,32 @@ struct SourceTextView: NSViewRepresentable {
             publishActiveFormats()
             wikiCompletion.update(fileURL: parent.fileURL)
         }
+
+        /// Repaint the current-line band when the caret actually changes line
+        /// (or leaves/enters a ranged selection). Moving within one line — the
+        /// common case while typing — must not schedule a redraw.
+        private func refreshCurrentLineBand(_ textView: SourceNSTextView) {
+            guard EditorSettings.shared.source.highlightCurrentLine else {
+                if lastCaretLine != nil {
+                    lastCaretLine = nil
+                    textView.gutterState.caretOffset = nil
+                    textView.needsDisplay = true
+                }
+                return
+            }
+            let selection = textView.selectedRange()
+            textView.gutterState.caretOffset = selection.location
+            let ns = textView.string as NSString
+            let band: NSRange? = selection.length > 0
+                ? nil  // ranged selection paints itself
+                : gutterCaretLineRange(in: ns, caret: selection.location)
+            guard band != lastCaretLine else { return }
+            lastCaretLine = band
+            textView.needsDisplay = true
+        }
+
+        /// Hard line the band was last drawn for; `nil` = none (ranged selection).
+        private var lastCaretLine: NSRange?
 
         func applyWikiCompletion(_ textView: NSTextView, range: NSRange, replacement: String) {
             guard textView.shouldChangeText(in: range, replacementString: replacement)
@@ -1098,7 +1132,8 @@ struct SourceTextView: NSViewRepresentable {
             guard let textView else { return }
             let settings = EditorSettings.shared.source
             textView.font = settings.resolvedFont(defaultMono: true)
-            textView.insertionPointColor = EditorSettings.shared.effectiveTheme.textColor
+            textView.insertionPointColor =
+                settings.caretColor(theme: EditorSettings.shared.effectiveTheme)
             if let scrollView = textView.enclosingScrollView {
                 SourceTextView.applyReadingInsets(
                     textView: textView, scrollView: scrollView,

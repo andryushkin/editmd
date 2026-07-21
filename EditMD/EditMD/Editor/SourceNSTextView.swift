@@ -30,9 +30,18 @@ final class SourceNSTextView: NSTextView {
     /// AppKit would pin it to the pane edge, far from a centred column).
     var gutterState = GutterState()
     weak var wikiCompletion: WikiCompletionController?
+    /// Fill for the caret's line; `nil` = highlight off (Settings ▸ Source).
+    var currentLineFill: NSColor?
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        // Under the numbers, and only for a collapsed caret: with a range
+        // selected the selection fill already marks the spot.
+        if let currentLineFill, selectedRange().length == 0 {
+            drawCurrentLineHighlight(in: rect,
+                                     caret: selectedRange().location,
+                                     color: currentLineFill)
+        }
         drawGutterNumbers(in: rect, state: gutterState)
     }
 

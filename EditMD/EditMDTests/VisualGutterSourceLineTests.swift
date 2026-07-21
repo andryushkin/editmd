@@ -65,3 +65,59 @@ final class VisualGutterSourceLineTests: XCTestCase {
         XCTAssertEqual(lines.last, 5)
     }
 }
+
+/// Which hard line the caret belongs to, for the current-line band and the
+/// emphasized line number (Source).
+final class GutterCurrentLineTests: XCTestCase {
+
+    private func holds(_ text: String, caret: Int, lineAt probe: Int) -> Bool {
+        let ns = text as NSString
+        let line = gutterCaretLineRange(in: ns, caret: probe)
+        return gutterLineHoldsCaret(
+            caret, lineRange: line,
+            lineEndsWithNewline: gutterLineEndsWithNewline(in: ns, lineRange: line))
+    }
+
+    func testCaretInsideLine() {
+        let text = "abc\ndef\nghi"
+        XCTAssertTrue(holds(text, caret: 5, lineAt: 5))
+        XCTAssertFalse(holds(text, caret: 5, lineAt: 0))
+    }
+
+    /// The caret sits after the last character far more often than inside the
+    /// line. On a line that ends in a newline that offset is already the next
+    /// line's first position; on the last line (no newline) it is not.
+    func testCaretAtLineEnd() {
+        let text = "abc\ndef"
+        XCTAssertTrue(holds(text, caret: 3, lineAt: 0))   // "abc|\n"
+        XCTAssertFalse(holds(text, caret: 4, lineAt: 0))  // start of "def"
+        XCTAssertTrue(holds(text, caret: 4, lineAt: 4))
+        XCTAssertTrue(holds(text, caret: 7, lineAt: 4))   // end of document
+    }
+
+    /// A document ending in a newline really has one more, empty, line — the
+    /// caret parked there must not light up the line above.
+    func testCaretOnTrailingEmptyLine() {
+        let text = "abc\n"
+        let ns = text as NSString
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 4),
+                       NSRange(location: 4, length: 0))
+        XCTAssertFalse(holds(text, caret: 4, lineAt: 0))
+        XCTAssertTrue(holds(text, caret: 4, lineAt: 4))
+    }
+
+    func testEmptyDocument() {
+        let ns = "" as NSString
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 0),
+                       NSRange(location: 0, length: 0))
+        XCTAssertTrue(holds("", caret: 0, lineAt: 0))
+    }
+
+    /// Caret beyond the text (stale offset after an external edit) clamps
+    /// instead of trapping.
+    func testCaretPastEndClamps() {
+        let ns = "abc" as NSString
+        XCTAssertEqual(gutterCaretLineRange(in: ns, caret: 99),
+                       NSRange(location: 0, length: 3))
+    }
+}

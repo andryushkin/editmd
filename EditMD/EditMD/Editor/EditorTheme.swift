@@ -24,6 +24,13 @@ struct EditorTheme {
     var markerColor: NSColor
     /// Links and list markers.
     var accentColor: NSColor
+    /// Fill behind the line holding the caret (Source). Translucent so the
+    /// syntax colors underneath stay readable.
+    var currentLineColor: NSColor
+    /// Text insertion point. A thin accent bar, like Xcode's — the system
+    /// default paints it in the body text color, which reads as a heavy black
+    /// slab against monospaced markdown.
+    var caretColor: NSColor
     /// Inline code text.
     var inlineCodeColor: NSColor
     /// Image alt-text and image syntax.
@@ -114,6 +121,29 @@ extension EditorTheme {
         }
     }
 
+    /// Like `gh`, with per-appearance alpha (translucent fills).
+    private static func ghFill(light lightHex: UInt32, lightAlpha: CGFloat,
+                               dark darkHex: UInt32, darkAlpha: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            func rgba(_ hex: UInt32, _ alpha: CGFloat) -> NSColor {
+                NSColor(
+                    red:   CGFloat((hex >> 16) & 0xFF) / 255,
+                    green: CGFloat((hex >>  8) & 0xFF) / 255,
+                    blue:  CGFloat( hex        & 0xFF) / 255,
+                    alpha: alpha
+                )
+            }
+            switch appearance.name {
+            case .darkAqua, .vibrantDark,
+                 .accessibilityHighContrastDarkAqua,
+                 .accessibilityHighContrastVibrantDark:
+                return rgba(darkHex, darkAlpha)
+            default:
+                return rgba(lightHex, lightAlpha)
+            }
+        }
+    }
+
     private static func gh(_ lightHex: UInt32, _ darkHex: UInt32) -> NSColor {
         NSColor(name: nil) { appearance in
             func rgb(_ hex: UInt32) -> NSColor {
@@ -143,6 +173,9 @@ extension EditorTheme {
         tertiaryColor:        gh(0x6b6e7b, 0x6d707d),
         markerColor:          gh(0x4a4d57, 0x9296a1),
         accentColor:          gh(0x2c65cf, 0x4c8ef8),
+        currentLineColor:     ghFill(light: 0x2c65cf, lightAlpha: 0.07,
+                                     dark: 0x4c8ef8, darkAlpha: 0.14),
+        caretColor:           gh(0x2c65cf, 0x4c8ef8),
         inlineCodeColor:      gh(0xd1242f, 0xff7b72),
         imageColor:           gh(0x1a7f37, 0x3fb950),
         separatorColor:       gh(0xd0d0d3, 0x333438),
