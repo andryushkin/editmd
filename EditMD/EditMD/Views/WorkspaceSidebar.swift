@@ -341,7 +341,7 @@ struct WorkspaceSidebar: View {
                               help: String(localized: "Git")),
                 SidebarNavTab(id: "tags",
                               systemImage: "tag",
-                              help: "Tags — frontmatter")
+                              help: String(localized: "Tags — frontmatter"))
             ],
             selection: $tab
         )
