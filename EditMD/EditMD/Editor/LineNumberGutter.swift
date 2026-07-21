@@ -287,14 +287,14 @@ extension NSTextView {
             }
         }
         guard var band = fill, band.intersects(rect) else { return }
-        // The band spans the reading field, not the whole view: it starts just
-        // left of the text (so the line number keeps its own unpainted margin)
-        // and stops the same distance from the right edge — AppKit applies
-        // `textContainerInset.width` on both sides, so this mirrors the text's
-        // own margins and follows a centered reading column.
-        let sideMargin = max(0, inset.width - GutterMetrics.gap * 0.5)
-        band.origin.x = sideMargin
-        band.size.width = max(0, bounds.width - sideMargin * 2)
+        // The band covers the line number too (as Xcode's does), so it starts
+        // left of the gutter — not at the text. Both margins are small and
+        // fixed: mirroring the left inset would leave a right margin far wider
+        // than Xcode's, because that inset carries the gutter reserve.
+        let leftMargin = min(GutterMetrics.edgePad, inset.width)
+        let rightMargin = GutterMetrics.edgePad * 2
+        band.origin.x = leftMargin
+        band.size.width = max(0, bounds.width - leftMargin - rightMargin)
         color.setFill()
         band.fill()
     }
