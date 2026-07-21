@@ -1030,14 +1030,14 @@ struct GitStatusChip: View {
                 Text("↑\(ahead)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
-                    .help("\(ahead) commit(s) to push")
+                    .help(String(localized: "\(ahead) commit(s) to push"))
             }
 
             if let behind = snapshot.behind, behind > 0 {
                 Text("↓\(behind)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .help("\(behind) commit(s) to pull")
+                    .help(String(localized: "\(behind) commit(s) to pull"))
             }
         }
         if let onTap {

@@ -39,13 +39,13 @@ struct GitSidebar: View {
                 Divider()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(filteredSections) { section in
-                            workspaceHeader(section)
-                            if isExpanded(section) {
-                                ForEach(section.files.filter { nameMatches($0) }) { file in
+                        ForEach(filteredGroups) { group in
+                            workspaceHeader(group)
+                            if isExpanded(group) {
+                                ForEach(group.files) { file in
                                     changedRow(file, allowsCommit: true)
                                 }
-                                sectionFooter(section)
+                                sectionFooter(group)
                             }
                         }
 
@@ -105,8 +105,10 @@ struct GitSidebar: View {
             || file.url.lastPathComponent.localizedCaseInsensitiveContains(filterQuery)
     }
 
-    private var filteredSections: [GitRepoSection] {
-        if !isFiltering { return snapshot.sections }
+    private var filteredGroups: [GitSidebarGroup] {
+        if !isFiltering {
+            return snapshot.sections.map { GitSidebarGroup(section: $0, files: $0.files) }
+        }
         return snapshot.sections.compactMap { section in
             let files = section.files.filter { nameMatches($0) }
             // Keep section if its name / branch / path matches, or it has
@@ -115,15 +117,9 @@ struct GitSidebar: View {
                 || (section.branch ?? "").localizedCaseInsensitiveContains(filterQuery)
                 || section.shortRoot.localizedCaseInsensitiveContains(filterQuery)
             if files.isEmpty && !metaMatch { return nil }
-            return GitRepoSection(
-                workspace: section.workspace,
-                name: section.name,
-                root: section.root,
-                branch: section.branch,
-                ahead: section.ahead,
-                behind: section.behind,
-                files: files
-            )
+            // Carries the full section: a filter narrows what is listed, it
+            // must never make a dirty folder read as clean.
+            return GitSidebarGroup(section: section, files: files)
         }
     }
 
@@ -133,40 +129,77 @@ struct GitSidebar: View {
 
     // MARK: - Disclosure state
 
-    /// Derived default (clean → collapsed) unless the user toggled this folder.
-    /// While filtering every surviving group is open so matches stay visible.
-    private func isExpanded(_ section: GitRepoSection) -> Bool {
-        if isFiltering { return true }
-        if manuallyExpanded.contains(section.id) { return true }
-        if manuallyCollapsed.contains(section.id) { return false }
-        return !section.files.isEmpty
+    private func isExpanded(_ group: GitSidebarGroup) -> Bool {
+        GitSidebarDisclosure.isExpanded(
+            id: group.id,
+            hasChanges: group.hasChanges,
+            expanded: manuallyExpanded,
+            collapsed: manuallyCollapsed,
+            filtering: isFiltering
+        )
     }
 
-    private func toggleExpanded(_ section: GitRepoSection) {
+    private func toggleExpanded(_ group: GitSidebarGroup) {
         // Filtering forces every group open; a toggle then has no visible
         // effect and would silently record the wrong state.
         guard !isFiltering else { return }
-        if isExpanded(section) {
-            manuallyExpanded.remove(section.id)
-            manuallyCollapsed.insert(section.id)
-        } else {
-            manuallyCollapsed.remove(section.id)
-            manuallyExpanded.insert(section.id)
+        let next = GitSidebarDisclosure.toggled(
+            id: group.id,
+            hasChanges: group.hasChanges,
+            expanded: manuallyExpanded,
+            collapsed: manuallyCollapsed
+        )
+        applyDisclosure(next)
+    }
+
+    /// Drop overrides that agree with the derived default, so a folder the user
+    /// once collapsed while dirty does not stay pinned closed the next time it
+    /// becomes dirty. Called after every snapshot.
+    private func pruneDisclosure(for sections: [GitRepoSection]) {
+        let defaults = Dictionary(
+            sections.map { ($0.id, !$0.files.isEmpty) },
+            uniquingKeysWith: { a, _ in a }
+        )
+        applyDisclosure(GitSidebarDisclosure.pruned(
+            expanded: manuallyExpanded,
+            collapsed: manuallyCollapsed,
+            defaults: defaults
+        ))
+    }
+
+    private func applyDisclosure(_ next: GitSidebarDisclosure.State) {
+        guard next.expanded != manuallyExpanded || next.collapsed != manuallyCollapsed else {
+            return
         }
-        GitSidebarDisclosureStore.save(manuallyExpanded, for: .expanded)
-        GitSidebarDisclosureStore.save(manuallyCollapsed, for: .collapsed)
+        manuallyExpanded = next.expanded
+        manuallyCollapsed = next.collapsed
+        GitSidebarDisclosureStore.save(next.expanded, for: .expanded)
+        GitSidebarDisclosureStore.save(next.collapsed, for: .collapsed)
     }
 
     // MARK: - Header / rows
 
     /// Thin overview line: how much is dirty across all adopted folders.
+    /// Must agree with the list below — open buffers with unsaved / session
+    /// changes are listed under "Open in editor" even when git is clean, so
+    /// they count as not-clean here too.
     private var summaryBar: some View {
         HStack(spacing: 6) {
             let changed = snapshot.changedCount
+            let unsaved = snapshot.openDirty.count
             if changed > 0 {
                 Text("Changed: \(changed)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.accentColor)
+                if unsaved > 0 {
+                    Text("Unsaved: \(unsaved)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                }
+            } else if unsaved > 0 {
+                Text("Unsaved: \(unsaved)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
             } else {
                 Text("All folders clean")
                     .font(.system(size: 11))
@@ -187,66 +220,82 @@ struct GitSidebar: View {
     /// Group header = one adopted workspace folder. Branch and ahead/behind are
     /// secondary metadata here; the folder name is what identifies the group.
     @ViewBuilder
-    private func workspaceHeader(_ section: GitRepoSection) -> some View {
-        let expanded = isExpanded(section)
-        let hovering = hoverSectionID == section.id
+    private func workspaceHeader(_ group: GitSidebarGroup) -> some View {
+        let section = group.section
+        let expanded = isExpanded(group)
+        let hovering = hoverSectionID == group.id
+        // Always the full section count: a filter narrows the listing, it does
+        // not make the folder clean.
         let count = section.files.count
 
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                    .frame(width: 10)
-
-                // A clean folder is dimmed so the eye lands on the dirty ones.
-                Text(section.name)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(count > 0 ? Color.primary : Color.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer(minLength: 4)
-
-                // Actions appear on hover so the resting panel stays readable.
-                // Tap gestures (not Buttons) so the first click after entering
-                // the Git tab lands — see the row Diff/Commit note.
-                if hovering {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10.5))
+                // Disclosure hit target. It is a *sibling* of the action icons,
+                // never their ancestor — overlapping tap targets each swallow
+                // the first click (see the changedRow note).
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                        .onTapGesture { if !isRefreshing { refresh(immediate: true) } }
-                        .editMDHelp(String(localized: "Refresh git status"))
-                        .opacity(isRefreshing ? 0.5 : 1)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 10)
 
-                    Image(systemName: "arrow.up.circle")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle((section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                        .onTapGesture { pushRepo(section.root) }
-                        .editMDHelp(String(localized: "Push to remote…"))
+                    // A clean folder is dimmed so the eye lands on the dirty ones.
+                    Text(section.name)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(count > 0 ? Color.primary : Color.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { toggleExpanded(group) }
+
+                // Icons keep their slots at rest (fixed frames + opacity), so
+                // the branch label and count never shift under the cursor.
+                // Hit testing follows visibility — an invisible icon must not
+                // catch a click meant for the header.
+                headerAction(
+                    systemName: "arrow.clockwise",
+                    tint: .secondary,
+                    visible: hovering,
+                    dimmed: isRefreshing,
+                    help: String(localized: "Refresh git status")
+                ) {
+                    if !isRefreshing { refresh(immediate: true) }
                 }
 
-                branchLabel(section)
-
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(
-                            Capsule().fill(Color.accentColor.opacity(0.15))
-                        )
-                } else if !expanded {
-                    Text("Clean")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
+                headerAction(
+                    systemName: "arrow.up.circle",
+                    tint: (section.ahead ?? 0) > 0 ? Color.accentColor : Color.secondary,
+                    visible: hovering,
+                    dimmed: false,
+                    help: String(localized: "Push to remote…")
+                ) {
+                    pushRepo(section.root)
                 }
+
+                HStack(spacing: 5) {
+                    branchLabel(section)
+
+                    if count > 0 {
+                        Text("\(count)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(
+                                Capsule().fill(Color.accentColor.opacity(0.15))
+                            )
+                    } else if !expanded {
+                        Text("Clean")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { toggleExpanded(group) }
             }
 
             // Path only when open — collapsed rows stay one line tall.
@@ -267,10 +316,47 @@ struct GitSidebar: View {
                 .fill(hovering ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
         )
         .padding(.horizontal, 4)
-        .contentShape(Rectangle())
-        .onHover { hoverSectionID = $0 ? section.id : nil }
-        .onTapGesture { toggleExpanded(section) }
+        .onHover { hoverSectionID = $0 ? group.id : nil }
         .editMDHelp(section.shortRoot)
+        // Same actions without hover, for keyboard / VoiceOver users and for
+        // anyone who never discovers the hover icons.
+        .contextMenu {
+            Button("Refresh git status") { refresh(immediate: true) }
+            Button("Push to remote…") { pushRepo(section.root) }
+            if !section.files.isEmpty {
+                Button("Commit all changed files in this folder…") {
+                    presentCommit(urls: section.files.map(\.url))
+                }
+            }
+            Divider()
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([section.workspace])
+            }
+        }
+    }
+
+    /// Header action icon: fixed slot, visibility by opacity, hit testing tied
+    /// to that visibility.
+    private func headerAction(
+        systemName: String,
+        tint: Color,
+        visible: Bool,
+        dimmed: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 10.5))
+            .foregroundStyle(tint)
+            .frame(width: 18, height: 18)
+            .contentShape(Rectangle())
+            // Tap gesture (not Button) so the first click after entering the
+            // Git tab lands — see the changedRow note on acceptsFirstMouse.
+            .onTapGesture(perform: action)
+            .editMDHelp(help)
+            .opacity(visible ? (dimmed ? 0.5 : 1) : 0)
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
     }
 
     @ViewBuilder
@@ -285,29 +371,30 @@ struct GitSidebar: View {
                 Text("↑\(ahead)")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
-                    .help("\(ahead) commit(s) to push")
+                    .help(String(localized: "\(ahead) commit(s) to push"))
             }
             if let behind = section.behind, behind > 0 {
                 Text("↓\(behind)")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .help("\(behind) commit(s) to pull")
+                    .help(String(localized: "\(behind) commit(s) to pull"))
             }
         }
         .layoutPriority(-1)
     }
 
-    /// Bottom of an expanded group: either the clean note or bulk commit.
+    /// Bottom of an expanded group: clean note, filter note, or bulk commit.
     @ViewBuilder
-    private func sectionFooter(_ section: GitRepoSection) -> some View {
-        if section.files.isEmpty {
-            Text("Working tree clean")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 12)
-                .padding(.top, 1)
-                .padding(.bottom, 4)
-        } else if section.files.count > 1 {
+    private func sectionFooter(_ group: GitSidebarGroup) -> some View {
+        if group.hiddenByFilter {
+            // Dirty folder kept by a name/branch/path match: say the filter hid
+            // the files rather than claiming the folder is clean.
+            footerNote(Text("No files match the filter"))
+        } else if !group.hasChanges {
+            // Scoped to this folder — a sibling folder in the same repository
+            // can still be dirty.
+            footerNote(Text("No changes in this folder"))
+        } else if group.files.count > 1 {
             // One commit for every markdown file listed under this folder.
             // Same sheet as the per-row action.
             Text("Commit all")
@@ -317,9 +404,18 @@ struct GitSidebar: View {
                 .padding(.top, 1)
                 .padding(.bottom, 4)
                 .contentShape(Rectangle())
-                .onTapGesture { presentCommit(urls: section.files.map(\.url)) }
+                .onTapGesture { presentCommit(urls: group.files.map(\.url)) }
                 .editMDHelp(String(localized: "Commit all changed files in this folder…"))
         }
+    }
+
+    private func footerNote(_ text: Text) -> some View {
+        text
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 12)
+            .padding(.top, 1)
+            .padding(.bottom, 4)
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -600,6 +696,7 @@ struct GitSidebar: View {
                 return
             }
             snapshot = built
+            pruneDisclosure(for: built.sections)
             // Share with workspace Search `is:modified` so it need not re-run git.
             WorkspaceSearchGitBridge.shared.apply(snapshot: built, roots: roots)
             isRefreshing = false
@@ -629,6 +726,85 @@ private struct GitSidebarCommitTarget: Identifiable {
 private struct GitSidebarDiffTarget: Identifiable {
     let id = UUID()
     let content: DiffSheetContent
+}
+
+// MARK: - Group model
+
+/// One rendered group: the snapshot section plus the files currently listed.
+/// "Is this folder dirty" and the header count always come from `section`, so
+/// a filter can hide rows without ever making a dirty folder look clean.
+struct GitSidebarGroup: Identifiable {
+    let section: GitRepoSection
+    let files: [GitChangedFile]
+
+    var id: String { section.id }
+    var hasChanges: Bool { !section.files.isEmpty }
+    /// Dirty folder whose files were all filtered out.
+    var hiddenByFilter: Bool { files.isEmpty && hasChanges }
+}
+
+// MARK: - Disclosure rules
+
+/// Pure expand/collapse rules for the workspace groups. The stored sets are
+/// *overrides* on top of the derived default (dirty open / clean collapsed).
+enum GitSidebarDisclosure {
+    struct State: Equatable {
+        var expanded: Set<String>
+        var collapsed: Set<String>
+    }
+
+    /// While filtering every surviving group is open so matches stay visible.
+    static func isExpanded(
+        id: String,
+        hasChanges: Bool,
+        expanded: Set<String>,
+        collapsed: Set<String>,
+        filtering: Bool
+    ) -> Bool {
+        if filtering { return true }
+        if expanded.contains(id) { return true }
+        if collapsed.contains(id) { return false }
+        return hasChanges
+    }
+
+    /// Flip one group. An override equal to the derived default is not stored —
+    /// otherwise collapsing a dirty folder would keep it closed even after it
+    /// goes clean and becomes dirty again.
+    static func toggled(
+        id: String,
+        hasChanges: Bool,
+        expanded: Set<String>,
+        collapsed: Set<String>
+    ) -> State {
+        let target = !isExpanded(
+            id: id, hasChanges: hasChanges,
+            expanded: expanded, collapsed: collapsed, filtering: false
+        )
+        var next = State(expanded: expanded, collapsed: collapsed)
+        next.expanded.remove(id)
+        next.collapsed.remove(id)
+        guard target != hasChanges else { return next }
+        if target {
+            next.expanded.insert(id)
+        } else {
+            next.collapsed.insert(id)
+        }
+        return next
+    }
+
+    /// Drop overrides that now agree with the derived default (`defaults[id]` =
+    /// folder has changes). Unknown ids are left alone — a workspace folder can
+    /// be temporarily absent from a snapshot.
+    static func pruned(
+        expanded: Set<String>,
+        collapsed: Set<String>,
+        defaults: [String: Bool]
+    ) -> State {
+        State(
+            expanded: expanded.filter { defaults[$0] != true },
+            collapsed: collapsed.filter { defaults[$0] != false }
+        )
+    }
 }
 
 // MARK: - Disclosure persistence

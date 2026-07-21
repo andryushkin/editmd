@@ -431,6 +431,95 @@ final class GitCLITests: XCTestCase {
         XCTAssertFalse(snap.sections[0].isNestedInRepo)
     }
 
+    // MARK: - Sidebar disclosure rules
+
+    /// Default: dirty folders open, clean folders collapsed, no stored state.
+    func testDisclosureDefaultsFollowDirtiness() {
+        let none = Set<String>()
+        XCTAssertTrue(GitSidebarDisclosure.isExpanded(
+            id: "a", hasChanges: true, expanded: none, collapsed: none, filtering: false))
+        XCTAssertFalse(GitSidebarDisclosure.isExpanded(
+            id: "a", hasChanges: false, expanded: none, collapsed: none, filtering: false))
+        // A filter forces every surviving group open regardless of overrides.
+        XCTAssertTrue(GitSidebarDisclosure.isExpanded(
+            id: "a", hasChanges: false, expanded: none, collapsed: ["a"], filtering: true))
+    }
+
+    func testDisclosureOverridesWinOverDefault() {
+        XCTAssertFalse(GitSidebarDisclosure.isExpanded(
+            id: "a", hasChanges: true, expanded: [], collapsed: ["a"], filtering: false))
+        XCTAssertTrue(GitSidebarDisclosure.isExpanded(
+            id: "a", hasChanges: false, expanded: ["a"], collapsed: [], filtering: false))
+    }
+
+    /// Toggling back to the derived default stores nothing — overrides only
+    /// exist while they disagree with it.
+    func testDisclosureToggleStoresOnlyDivergence() {
+        // Dirty folder collapsed by hand → recorded.
+        let collapsedDirty = GitSidebarDisclosure.toggled(
+            id: "a", hasChanges: true, expanded: [], collapsed: [])
+        XCTAssertEqual(collapsedDirty.collapsed, ["a"])
+        XCTAssertTrue(collapsedDirty.expanded.isEmpty)
+
+        // Expanding it again matches the default → override dropped.
+        let backToDefault = GitSidebarDisclosure.toggled(
+            id: "a", hasChanges: true, expanded: [], collapsed: ["a"])
+        XCTAssertTrue(backToDefault.collapsed.isEmpty)
+        XCTAssertTrue(backToDefault.expanded.isEmpty)
+
+        // Clean folder opened by hand → recorded.
+        let openedClean = GitSidebarDisclosure.toggled(
+            id: "b", hasChanges: false, expanded: [], collapsed: [])
+        XCTAssertEqual(openedClean.expanded, ["b"])
+    }
+
+    /// A folder collapsed while dirty must not stay pinned closed for the next
+    /// dirty cycle: once it is clean the override equals the default and goes.
+    func testDisclosurePruneDropsRedundantOverrides() {
+        let pruned = GitSidebarDisclosure.pruned(
+            expanded: ["dirty", "gone"],
+            collapsed: ["clean", "stillDirty"],
+            defaults: ["dirty": true, "clean": false, "stillDirty": true]
+        )
+        // Redundant with the derived default → dropped.
+        XCTAssertFalse(pruned.expanded.contains("dirty"))
+        XCTAssertFalse(pruned.collapsed.contains("clean"))
+        // Still diverging → kept.
+        XCTAssertTrue(pruned.collapsed.contains("stillDirty"))
+        // Folder absent from this snapshot → left alone.
+        XCTAssertTrue(pruned.expanded.contains("gone"))
+    }
+
+    /// The header count and "is clean" must come from the section, not from the
+    /// filtered subset, or a filter would repaint a dirty folder as clean.
+    func testFilteredGroupKeepsSectionTruth() {
+        let ws = URL(fileURLWithPath: "/vault")
+        let file = GitChangedFile(
+            url: ws.appendingPathComponent("a.md"),
+            displayPath: "a.md",
+            pathStatus: .modified,
+            sessionDirtyLines: 0,
+            bufferDirty: false
+        )
+        let section = GitRepoSection(
+            workspace: ws, name: "vault", root: ws,
+            branch: "main", ahead: 0, behind: 0, files: [file]
+        )
+        let filteredOut = GitSidebarGroup(section: section, files: [])
+        XCTAssertTrue(filteredOut.hasChanges)
+        XCTAssertTrue(filteredOut.hiddenByFilter)
+
+        let clean = GitSidebarGroup(
+            section: GitRepoSection(
+                workspace: ws, name: "vault", root: ws,
+                branch: "main", ahead: 0, behind: 0, files: []
+            ),
+            files: []
+        )
+        XCTAssertFalse(clean.hasChanges)
+        XCTAssertFalse(clean.hiddenByFilter)
+    }
+
     // MARK: - Helpers
 
     private func makeTempRepo() throws -> URL {
