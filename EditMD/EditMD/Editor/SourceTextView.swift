@@ -299,8 +299,12 @@ struct SourceTextView: NSViewRepresentable {
         if textInsetChanged, let tc = textView.textContainer {
             textView.layoutManager?.textContainerChangedGeometry(tc)
         }
-        textView.needsDisplay = true
-        return textInsetChanged || scrollInsetChanged
+        // Only when something actually moved: this now runs from every layout
+        // pass (live resize included), and an unconditional invalidation would
+        // repaint a large buffer for nothing.
+        let geometryChanged = textInsetChanged || scrollInsetChanged
+        if geometryChanged { textView.needsDisplay = true }
+        return geometryChanged
     }
 
     // MARK: - Coordinator
@@ -397,11 +401,14 @@ struct SourceTextView: NSViewRepresentable {
             defer { isApplyingReadingInsets = false }
             // Reuse the cached reserve: recomputing it counts the document's
             // lines, and layout runs on every resize.
-            _ = SourceTextView.applyReadingInsets(
+            let changed = SourceTextView.applyReadingInsets(
                 textView: textView, scrollView: scrollView,
                 insetH: parent.insetH, insetV: parent.insetV,
                 columnWidth: parent.columnWidth,
                 gutterReserve: textView.gutterReserveWidth)
+            // The action strip lines up with the text; without this it would
+            // keep the pre-centering leading until some later refresh.
+            if changed { reportTextLeading(textView.textContainerInset.width) }
         }
 
         /// Guards the layout → insets → layout loop.
