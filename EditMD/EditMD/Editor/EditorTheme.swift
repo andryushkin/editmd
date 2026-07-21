@@ -52,10 +52,6 @@ struct EditorTheme {
     var quoteBackground: NSColor
     /// Corner radius for code block background panels.
     var codeBlockCornerRadius: CGFloat
-    /// Background for alternating (odd-index) body rows in tables.
-    var tableRowBackground: NSColor
-    /// `paragraphSpacingBefore` added to each list item paragraph.
-    var listItemSpacing: CGFloat
 
     // MARK: - Typography
 
@@ -166,8 +162,6 @@ extension EditorTheme {
         // Plain quotes carry no wash (plan 11.4) — callouts paint their own.
         quoteBackground:      .clear,
         codeBlockCornerRadius: 8,
-        tableRowBackground:   ghAlpha(light: 0.03, dark: 0.04),
-        listItemSpacing:       2,
         h1SizeOffset:          8,
         h2SizeOffset:          5,
         h3SizeOffset:          3,

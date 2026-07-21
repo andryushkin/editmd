@@ -533,6 +533,9 @@ extension VisualMarkdownView.Coordinator {
         textView.ruleRanges = ruleRanges
         textView.tableIslandEntries = tableIslands
         textView.needsDisplay = true
+        // Presentation re-stamped attribute runs (and Increase Contrast may
+        // have flipped) — recompute the temporary link underlines.
+        textView.refreshLinkAffordances()
     }
 
     /// Display indent for a block nested in a list item, from the item's raw

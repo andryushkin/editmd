@@ -156,8 +156,9 @@ struct VisualStyle {
     }
 
     /// Mono size for inline code and listings: ×0.88 of body (mono runs
-    /// optically larger than proportional at equal size), floored at 11pt
-    /// for legibility but never above body (plan 11.3/11.4).
+    /// optically larger than proportional at equal size). Floor: 11pt — or
+    /// the body size itself when body is under 11pt, so code never exceeds
+    /// body (plan 11.3/11.4).
     var codeSize: CGFloat { max(baseSize * 0.88, min(baseSize, 11)) }
 
     func font(for styles: MDInlineStyle, blockKind: MDBlock.Kind) -> NSFont {

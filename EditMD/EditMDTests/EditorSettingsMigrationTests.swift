@@ -40,8 +40,46 @@ final class EditorSettingsMigrationTests: XCTestCase {
     }
 
     func testBaselineStampIsCurrent() {
-        // The stamp gates re-migration; 11.2 bumps it when element defaults
-        // change again. Guard against accidental decrements.
-        XCTAssertGreaterThanOrEqual(EditorSettings.visualTypographyBaseline, 2)
+        // The stamp gates re-migration (2 = 11.0 column, 3 = 11.2 ramp).
+        // Exact match on purpose: changing element defaults without bumping
+        // this — or bumping it without meaning to re-wipe stored elements —
+        // must fail a test.
+        XCTAssertEqual(EditorSettings.visualTypographyBaseline, 3)
+    }
+}
+
+/// Plan-11 optical limits in `VisualStyle`: heading increment caps and the
+/// mono `codeSize` floor/ceiling across the 9–40pt base range.
+final class VisualTypographyScaleTests: XCTestCase {
+
+    private func style(base: CGFloat) -> VisualStyle {
+        var style = VisualStyle()
+        style.baseSize = base
+        return style
+    }
+
+    func testHeadingRampUncappedAtDefaultBase() {
+        let s = style(base: 15)
+        XCTAssertEqual(s.headingSize(1), 15 * 1.75, accuracy: 0.01)
+        XCTAssertEqual(s.headingSize(2), 15 * 1.45, accuracy: 0.01)
+        XCTAssertEqual(s.headingSize(3), 15 * 1.2, accuracy: 0.01)
+    }
+
+    func testHeadingCapsCompressRampAtAccessibilityBases() {
+        let s = style(base: 40)
+        XCTAssertEqual(s.headingSize(1), 56, accuracy: 0.01)   // 40 + 16, not 70
+        XCTAssertEqual(s.headingSize(2), 50, accuracy: 0.01)   // 40 + 10
+        XCTAssertEqual(s.headingSize(3), 46, accuracy: 0.01)   // 40 + 6
+        XCTAssertEqual(s.headingSize(4), 40 * 1.07, accuracy: 0.01) // under the +4 cap
+    }
+
+    func testCodeSizeScalesFloorsAndNeverExceedsBody() {
+        XCTAssertEqual(style(base: 15).codeSize, 15 * 0.88, accuracy: 0.01)
+        XCTAssertEqual(style(base: 12).codeSize, 11, accuracy: 0.01)  // floor
+        XCTAssertEqual(style(base: 9).codeSize, 9, accuracy: 0.01)    // ≤ body
+        XCTAssertEqual(style(base: 40).codeSize, 40 * 0.88, accuracy: 0.01)
+        for base in stride(from: 9.0, through: 40.0, by: 0.5) {
+            XCTAssertLessThanOrEqual(style(base: base).codeSize, base)
+        }
     }
 }

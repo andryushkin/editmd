@@ -432,7 +432,11 @@ final class VisualNSTextView: NSTextView {
         return charIndex
     }
 
-    private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {
+    /// Character index under the point, verified against the actual glyph
+    /// rect of `attribute`'s run — glyphIndex(for:) snaps to the nearest
+    /// glyph, so a bare lookup makes empty space next to a link clickable.
+    private func hitCharacterIndex(at point: NSPoint,
+                                   attribute: NSAttributedString.Key) -> Int? {
         guard let layoutManager, let textContainer, let storage = textStorage,
               storage.length > 0 else { return nil }
         let containerPoint = NSPoint(x: point.x - textContainerInset.width,
@@ -442,21 +446,31 @@ final class VisualNSTextView: NSTextView {
                                                   fractionOfDistanceThroughGlyph: &fraction)
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard charIndex < storage.length else { return nil }
+        let bounds = (storage.string as NSString)
+            .paragraphRange(for: NSRange(location: charIndex, length: 0))
+        var run = NSRange()
+        guard storage.attribute(attribute, at: charIndex,
+                                longestEffectiveRange: &run, in: bounds) != nil,
+              visualPointHitsCharacterRange(containerPoint, range: run,
+                                            layoutManager: layoutManager,
+                                            textContainer: textContainer)
+        else { return nil }
+        return charIndex
+    }
+
+    private func wikiPayload(at point: NSPoint) -> MDWikiLinkPayload? {
+        guard let storage = textStorage,
+              let charIndex = hitCharacterIndex(at: point, attribute: .mdWikiLink)
+        else { return nil }
         return storage.attribute(.mdWikiLink, at: charIndex, effectiveRange: nil) as? MDWikiLinkPayload
     }
 
     /// Raw `[text](destination)` under the cursor — scheme URLs and local
     /// paths alike; the coordinator decides how to open (v: pdf-спринт).
     private func linkDestination(at point: NSPoint) -> String? {
-        guard let layoutManager, let textContainer, let storage = textStorage,
-              storage.length > 0 else { return nil }
-        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
-                                     y: point.y - textContainerInset.height)
-        var fraction: CGFloat = 0
-        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
-                                                  fractionOfDistanceThroughGlyph: &fraction)
-        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        guard charIndex < storage.length else { return nil }
+        guard let storage = textStorage,
+              let charIndex = hitCharacterIndex(at: point, attribute: .mdLink)
+        else { return nil }
         return storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String
     }
 
@@ -489,38 +503,66 @@ final class VisualNSTextView: NSTextView {
         return nil
     }
 
+    private func caretLinkRangeNow() -> NSRange? {
+        let sel = selectedRange()
+        guard sel.length == 0,
+              !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        else { return nil }
+        return linkRun(at: sel.location) ?? linkRun(at: sel.location - 1)
+    }
+
     /// Caret-inside state: called by the coordinator on selection changes.
     func updateCaretLinkAffordance() {
-        var next: NSRange?
-        let sel = selectedRange()
-        if sel.length == 0, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
-            next = linkRun(at: sel.location) ?? linkRun(at: sel.location - 1)
-        }
+        let next = caretLinkRangeNow()
         guard next != caretLinkRange else { return }
         caretLinkRange = next
+        repaintLinkUnderlines()
+    }
+
+    /// Recompute + repaint after a presentation pass: attribute runs were
+    /// re-stamped (ranges may have drifted) and the Increase Contrast state
+    /// may have flipped since the last selection change.
+    func refreshLinkAffordances() {
+        hoverLinkRange = nil
+        caretLinkRange = caretLinkRangeNow()
         repaintLinkUnderlines()
     }
 
     /// ⌘-hover state: from mouseMoved / flagsChanged.
     private func updateHoverLinkAffordance(commandDown: Bool, windowPoint: NSPoint) {
         var next: NSRange?
-        if commandDown, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
+        if commandDown, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+           let layoutManager, let textContainer, let storage = textStorage,
+           storage.length > 0 {
             let point = convert(windowPoint, from: nil)
             let containerPoint = NSPoint(x: point.x - textContainerInset.width,
                                          y: point.y - textContainerInset.height)
-            if let layoutManager, let textContainer, let storage = textStorage,
-               storage.length > 0 {
-                var fraction: CGFloat = 0
-                let glyphIndex = layoutManager.glyphIndex(
-                    for: containerPoint, in: textContainer,
-                    fractionOfDistanceThroughGlyph: &fraction)
-                next = linkRun(at: layoutManager.characterIndexForGlyph(at: glyphIndex))
+            var fraction: CGFloat = 0
+            let glyphIndex = layoutManager.glyphIndex(
+                for: containerPoint, in: textContainer,
+                fractionOfDistanceThroughGlyph: &fraction)
+            // glyphIndex(for:) snaps to the NEAREST glyph — without the rect
+            // check, hovering the gutter or empty space past EOL lights up
+            // the closest link (phantom underline).
+            if let run = linkRun(at: layoutManager.characterIndexForGlyph(at: glyphIndex)),
+               visualPointHitsCharacterRange(containerPoint, range: run,
+                                             layoutManager: layoutManager,
+                                             textContainer: textContainer) {
+                next = run
             }
         }
         guard next != hoverLinkRange else { return }
+        let hadHover = hoverLinkRange != nil
         hoverLinkRange = next
         repaintLinkUnderlines()
-        if next != nil { NSCursor.pointingHand.set() }
+        if next != nil {
+            NSCursor.pointingHand.set()
+        } else if hadHover {
+            // ⌘ released without a mouseMoved would otherwise leave the
+            // pointing hand stuck; mouseMoved re-asserts openHand for row
+            // handles right after this call.
+            NSCursor.iBeam.set()
+        }
     }
 
     /// Caret and hover may target the same run — repaint the union so
