@@ -46,36 +46,44 @@ func copyPathToPasteboard(_ url: URL) {
 /// Metrics and well color shared by the Files/Outline pill and the folder
 /// info action strip so both sit on one horizontal band.
 enum SidebarChrome {
-    /// Outer padding around the top navigator / action strip (must match).
+    /// Outer padding around the top navigator / action strip (must match
+    /// between sidebars and folder-info). Vertical is intentionally tight —
+    /// Xcode sits the capsule flush under the toolbar with no air gap.
     static let barPaddingH: CGFloat = 8
-    static let barPaddingTop: CGFloat = 8
-    static let barPaddingBottom: CGFloat = 6
+    static let barPaddingTop: CGFloat = 0
+    static let barPaddingBottom: CGFloat = 0
 
     /// Gap from the bottom of the top chrome to the first workspace row /
     /// folder-info title. Matches Files tab: LazyVStack vertical pad (6) +
     /// workspace group `.padding(.top, 8)`.
     static let firstContentTop: CGFloat = 14
 
-    /// Icon hit target inside the gray capsule (Files/Outline and folder actions).
-    static let iconButtonWidth: CGFloat = 28
+    /// Square floor cell for one navigator tab. Equal sides → selection reads
+    /// as a true circle at the pane floor (Xcode); was 28×24 which made a squat
+    /// oval even at minimum.
+    static let iconButtonWidth: CGFloat = 24
     static let iconButtonHeight: CGFloat = 24
 
-    /// Slack a navigator tab needs beyond its icon, and the padding of the
-    /// strip itself. The strip is a stock segmented control now, so these no
-    /// longer draw anything — they survive as the budget behind the pane
-    /// floor, whose values are pinned by `PaneLayoutTests`.
-    static let navPillPaddingH: CGFloat = 5
-    static let navDividerWidth: CGFloat = 1
-    static let navDividerPaddingH: CGFloat = 3
+    /// Inner horizontal pad of the gray capsule. Tight like Xcode's strip —
+    /// was 5 and left a visible air gap at either end of a min-width pane.
+    static let navPillPaddingH: CGFloat = 3
 
-    /// Width the navigator strip needs to show `tabs` icons comfortably. The
-    /// segmented control squeezes below this instead of clipping the trailing
-    /// tabs, but the icons stop being legible — so it stays the pane floor.
+    /// Hairline between tabs (drawn as a zero-layout overlay — see
+    /// `SidebarNavStrip`). Only the stroke width matters; no side padding,
+    /// otherwise min-width packs looser than Xcode.
+    static let navDividerWidth: CGFloat = 1
+    static let navDividerHeight: CGFloat = 12
+
+    /// Selection pill grows with its cell up to this width, then centres.
+    /// ~1.75× height ≈ Xcode's moderate oval; without the cap a 4-tab strip
+    /// on a wide pane becomes a full-cell sausage.
+    static let navSelectionMaxWidth: CGFloat = 42
+
+    /// Width the navigator capsule needs to show `tabs` buttons in full.
+    /// Hairlines are overlays and do NOT add to the budget — only icon cells
+    /// + capsule pad. Pinned by `PaneLayoutTests`.
     static func navigatorPillWidth(tabs: Int) -> CGFloat {
-        let dividers = max(0, tabs - 1)
-        return CGFloat(tabs) * iconButtonWidth
-            + CGFloat(dividers) * (navDividerWidth + 2 * navDividerPaddingH)
-            + 2 * navPillPaddingH
+        CGFloat(tabs) * iconButtonWidth + 2 * navPillPaddingH
     }
 
     /// Cap on the reading column for the welcome / folder-info center panes so
@@ -105,22 +113,15 @@ struct SidebarNavTab: Identifiable, Equatable {
     let systemImage: String
     /// Tooltip and VoiceOver label.
     let help: String
-    /// Symbol shown while `badge > 0`. A segment leaves no room for a badge
-    /// dot, so a tab with pending work swaps in a filled variant instead.
-    var badgeSystemImage: String?
+    /// Pending-work count (e.g. open review marks). Drawn as a small accent
+    /// dot on the icon when > 0 and the tab is not selected.
     var badge: Int = 0
 
-    init(id: String, systemImage: String, help: String,
-         badgeSystemImage: String? = nil, badge: Int = 0) {
+    init(id: String, systemImage: String, help: String, badge: Int = 0) {
         self.id = id
         self.systemImage = systemImage
         self.help = help
-        self.badgeSystemImage = badgeSystemImage
         self.badge = badge
-    }
-
-    var symbol: String {
-        badge > 0 ? (badgeSystemImage ?? systemImage) : systemImage
     }
 
     /// Tooltip: the plain name, or the name plus the pending count.
@@ -129,88 +130,126 @@ struct SidebarNavTab: Identifiable, Equatable {
     }
 }
 
-/// The navigator strip shared by the left workspace sidebar and the right
-/// inspector — `NSSegmentedControl` itself, not SwiftUI's segmented picker.
-/// AppKit gives the Xcode look for free: equal-width segments, hairlines that
-/// vanish next to the selection, system highlight, animation and keyboard.
+/// The navigator capsule shared by the left workspace sidebar and the right
+/// inspector: icon tabs on a recessed gray well, hairlines between them.
 ///
-/// Wrapped rather than used through `Picker` because the SwiftUI picker keeps
-/// its intrinsic width (it centers in the pane instead of filling it, no
-/// `segmentDistribution` knob) and exposes no per-segment tooltip.
-struct SidebarNavStrip: NSViewRepresentable {
+/// Hit targets share the pane width equally. The selection pill only grows up
+/// to `navSelectionMaxWidth` and stays centred. Hairlines are trailing
+/// *overlays* (zero layout width) so hiding the ones that flank the selection
+/// does not leave empty gaps — packing at min width matches Xcode.
+struct SidebarNavStrip: View {
     let tabs: [SidebarNavTab]
     @Binding var selection: String
 
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl()
-        control.segmentStyle = .automatic
-        control.trackingMode = .selectOne
-        // The whole point: segments split the pane width evenly and follow it
-        // as the divider is dragged.
-        control.segmentDistribution = .fillEqually
-        control.controlSize = .large
-        control.target = context.coordinator
-        control.action = #selector(SidebarNavStripCoordinator.segmentChanged(_:))
-        // Let SwiftUI stretch the control past its intrinsic width.
-        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        apply(to: control, coordinator: context.coordinator)
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        apply(to: control, coordinator: context.coordinator)
-    }
-
-    /// Fill the proposed width; keep the control's own height.
-    func sizeThatFits(_ proposal: ProposedViewSize,
-                      nsView: NSSegmentedControl,
-                      context: Context) -> CGSize? {
-        let fitting = nsView.intrinsicContentSize
-        return CGSize(width: proposal.width ?? fitting.width, height: fitting.height)
-    }
-
-    func makeCoordinator() -> SidebarNavStripCoordinator {
-        SidebarNavStripCoordinator()
-    }
-
-    private func apply(to control: NSSegmentedControl,
-                       coordinator: SidebarNavStripCoordinator) {
-        coordinator.tabIDs = tabs.map(\.id)
-        coordinator.onSelect = { selection = $0 }
-
-        if control.segmentCount != tabs.count {
-            control.segmentCount = tabs.count
-        }
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        for (index, tab) in tabs.enumerated() {
-            let image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.help)?
-                .withSymbolConfiguration(configuration)
-            if control.image(forSegment: index) !== image {
-                control.setImage(image, forSegment: index)
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                SidebarNavTabButton(
+                    systemImage: tab.systemImage,
+                    help: tab.tooltip,
+                    selected: selection == tab.id,
+                    badge: tab.badge,
+                    showsTrailingDivider: showsDividerAfter(index: index)
+                ) { selection = tab.id }
             }
-            control.setToolTip(tab.tooltip, forSegment: index)
-            // Width 0 = let `fillEqually` size the segment.
-            control.setWidth(0, forSegment: index)
         }
-        if let selected = tabs.firstIndex(where: { $0.id == selection }) {
-            if control.selectedSegment != selected {
-                control.setSelected(true, forSegment: selected)
-            }
-        } else if control.selectedSegment != -1 {
-            control.setSelected(false, forSegment: control.selectedSegment)
-        }
+        .padding(.horizontal, SidebarChrome.navPillPaddingH)
+        // 2pt: Xcode's capsule hugs the selection circle; 4pt left a visible
+        // air band above/below the blue pill at min width.
+        .padding(.vertical, 2)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color(nsColor: SidebarChrome.wellColor))
+        )
+    }
+
+    /// Hairline after tab `index`, unless it would sit against the selection
+    /// (Xcode drops those two strokes).
+    private func showsDividerAfter(index: Int) -> Bool {
+        guard index < tabs.count - 1 else { return false }
+        let left = tabs[index].id
+        let right = tabs[index + 1].id
+        return selection != left && selection != right
     }
 }
 
-/// Bridges the control's target/action back to the SwiftUI binding.
-final class SidebarNavStripCoordinator: NSObject {
-    var tabIDs: [String] = []
-    var onSelect: (String) -> Void = { _ in }
+/// One navigator tab. The button's hit area flexes with the pane; the blue
+/// selection is a separate, width-capped layer centred on the icon.
+///
+/// Xcode rule: at the pane floor the highlight is a **circle** (diameter =
+/// cell height). Only when the cell grows wider than that does it become a
+/// capsule oval — never a squat Capsule(28×24)-style oval at minimum.
+struct SidebarNavTabButton: View {
+    let systemImage: String
+    let help: String
+    let selected: Bool
+    var badge: Int = 0
+    /// Hairline painted on the trailing edge (overlay — no layout width).
+    var showsTrailingDivider: Bool = false
+    let action: () -> Void
 
-    @objc func segmentChanged(_ sender: NSSegmentedControl) {
-        let index = sender.selectedSegment
-        guard tabIDs.indices.contains(index) else { return }
-        onSelect(tabIDs[index])
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                // Dot tracks the glyph, not the far edge of a wide cell.
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 && !selected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 4, y: -2)
+                    }
+                }
+                .frame(minWidth: SidebarChrome.iconButtonWidth,
+                       maxWidth: .infinity,
+                       minHeight: SidebarChrome.iconButtonHeight,
+                       maxHeight: SidebarChrome.iconButtonHeight)
+                .background {
+                    if selected {
+                        GeometryReader { geo in
+                            selectionHighlight(in: geo.size)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                }
+                .overlay(alignment: .trailing) {
+                    if showsTrailingDivider {
+                        Rectangle()
+                            .fill(Color(nsColor: .separatorColor))
+                            .frame(width: SidebarChrome.navDividerWidth,
+                                   height: SidebarChrome.navDividerHeight)
+                    }
+                }
+                // Full cell is clickable, not just the pill.
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .editMDHelp(help)
+    }
+
+    /// Floor → `Circle` with diameter = icon height. Wider cell → `Capsule`
+    /// growing from that diameter up to `navSelectionMaxWidth`, centred.
+    @ViewBuilder
+    private func selectionHighlight(in size: CGSize) -> some View {
+        let diameter = SidebarChrome.iconButtonHeight
+        // min(cell, cap): at the 24pt floor this equals `diameter` → circle;
+        // on a wide pane it grows into an oval, then stops at the cap.
+        let pillWidth = min(size.width, SidebarChrome.navSelectionMaxWidth)
+        Group {
+            if pillWidth <= diameter + 0.5 {
+                // True circle — `Capsule` on equal sides still looks slightly
+                // off next to Xcode's hard circle at minimum width.
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: diameter, height: diameter)
+            } else {
+                Capsule(style: .continuous)
+                    .fill(Color.accentColor)
+                    .frame(width: pillWidth, height: diameter)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

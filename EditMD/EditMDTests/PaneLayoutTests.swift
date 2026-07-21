@@ -171,13 +171,13 @@ final class PaneLayoutTests: XCTestCase {
 
     // MARK: - Pane floors (a *drag* may not clip the navigator strip)
 
-    /// Floors are derived from the navigator capsule, so a dragged pane always
-    /// fits its tabs: inspector 7 × 28 buttons + 6 × 7 dividers + 2 × 5 pill +
-    /// 2 × 8 pane = 264; the 4-tab sidebar the same way = 159.
+    /// Floors are derived from the navigator capsule (square 24pt cells +
+    /// capsule pad + bar pad; hairlines are overlays and do not add width):
+    /// inspector 7 × 24 + 2 × 3 + 2 × 8 = 190; sidebar 4 × 24 + 6 + 16 = 118.
     func testPaneFloorsFitTheirNavigatorStrips() {
-        XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 264, accuracy: 0.001)
-        XCTAssertEqual(InspectorPane.widthRange.lowerBound, 264, accuracy: 0.001)
-        XCTAssertEqual(WorkspaceSidebar.minimumPaneWidth, 159, accuracy: 0.001)
+        XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 190, accuracy: 0.001)
+        XCTAssertEqual(InspectorPane.widthRange.lowerBound, 190, accuracy: 0.001)
+        XCTAssertEqual(WorkspaceSidebar.minimumPaneWidth, 118, accuracy: 0.001)
     }
 
     /// The ceiling must survive a floor that outgrows it (invalid ranges trap).
@@ -191,16 +191,16 @@ final class PaneLayoutTests: XCTestCase {
     /// still paint below it (documented on `resolveSidePaneWidths`). Pinned so
     /// the trade-off is a decision, not a surprise.
     func testCompressedRegimeMayPaintBelowTheInspectorFloor() {
-        // Main window at its minimum with the sidebar at its 400pt max: the
-        // editor area gets 900 - 400 - 1 = 499.
+        // Budget 400 − 1 − 260 = 139, below the inspector navigator floor.
+        let available: CGFloat = 400
         let panes = resolveSidePaneWidths(
-            available: 499,
+            available: available,
             sidebarWidth: 0,
             inspectorWidth: InspectorPane.widthRange.lowerBound,
             sidebarVisible: false, inspectorVisible: true)
         XCTAssertLessThan(panes.inspector, InspectorSidebar.minimumPaneWidth)
         // …but never wider than what is physically there — no overlap.
-        XCTAssertLessThanOrEqual(panes.inspector + 1, 499)
+        XCTAssertLessThanOrEqual(panes.inspector + 1, available)
     }
 
     func testInspectorDragCannotGoNarrowerThanTheStrip() {
@@ -214,13 +214,13 @@ final class PaneLayoutTests: XCTestCase {
     /// BOTH panes: a stored width that is never dragged would keep painting a
     /// clipped strip otherwise.
     func testPersistedNarrowWidthIsClampedOnRead() {
-        XCTAssertEqual(InspectorPane.clampWidth(150),
+        XCTAssertEqual(InspectorPane.clampWidth(100),
                        InspectorPane.widthRange.lowerBound, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.clampWidth(320), 320, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.clampWidth(9_000), 400, accuracy: 0.001)
 
         let sidebarRange = sidePaneWidthRange(floor: WorkspaceSidebar.minimumPaneWidth)
-        XCTAssertEqual(clampPaneWidth(150, to: sidebarRange),
+        XCTAssertEqual(clampPaneWidth(100, to: sidebarRange),
                        Double(WorkspaceSidebar.minimumPaneWidth), accuracy: 0.001)
         XCTAssertEqual(clampPaneWidth(220, to: sidebarRange), 220, accuracy: 0.001)
     }

@@ -10,8 +10,8 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
 
 /// Width the flexible editor column keeps before the side panels start to
 /// shrink. Chosen so a usable reading measure survives with BOTH panels open —
-/// at their navigator-strip floors (159pt sidebar, 264pt inspector) the clamp
-/// only engages below a ~685pt window, well under the enforced minimum.
+/// at their navigator-strip floors (118pt sidebar, 190pt inspector) the clamp
+/// only engages well under the enforced window minimum.
 /// This governs the editor vs. the side panels; it is unrelated to the
 /// Source/Preview split's own 160pt pane floor, which divides space *inside*
 /// the editor area.
@@ -95,7 +95,7 @@ struct ResolvedPaneWidths: Equatable {
 /// this is the last-resort anti-overlap squeeze. In the compressed regime a
 /// pane can therefore paint narrower than its tab strip and clip a trailing
 /// tab — e.g. a min-width main window with the sidebar dragged to its 400pt
-/// max leaves the inspector ~238pt of ~264. Honouring the floor here would
+/// max leaves the inspector under its navigator floor. Honouring the floor here would
 /// mean pushing the editor below `editorMin` (it is the flexible pane, so no
 /// overlap either way); that trade was not taken because the squeeze is
 /// already a degraded state and the editor floor guards readability.

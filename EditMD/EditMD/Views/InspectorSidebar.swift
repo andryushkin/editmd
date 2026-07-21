@@ -119,7 +119,6 @@ struct InspectorSidebar: View {
                 SidebarNavTab(id: "review",
                               systemImage: "text.bubble",
                               help: String(localized: "Review — document marks"),
-                              badgeSystemImage: "text.bubble.fill",
                               badge: review.openCount),
                 SidebarNavTab(id: "properties",
                               systemImage: "list.bullet.rectangle",

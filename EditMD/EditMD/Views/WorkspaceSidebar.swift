@@ -327,8 +327,8 @@ struct WorkspaceSidebar: View {
 
     // MARK: - Navigator toolbar (Xcode-style)
 
-    /// Pill of icon buttons on a recessed gray well (like Xcode's navigator
-    /// strip / filter field) — geometry and chrome live in `SidebarNavStrip`.
+    /// Xcode-style navigator capsule: equal flex tabs, circular selection at
+    /// floor width, oval pill when the pane is wider.
     private var navigatorToolbar: some View {
         SidebarNavStrip(
             tabs: [
