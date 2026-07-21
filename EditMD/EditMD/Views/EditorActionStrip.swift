@@ -184,10 +184,12 @@ struct EditorActionStrip: View {
             // rail is reserved either way, so it never moves.
             .overlay(alignment: .leading) {
                 gutterPill
-                    // The glyph is centred in a 28pt hit target, so aligning the
+                    // The glyph is centred in its hit target, so aligning the
                     // BOX with the digits leaves the symbol visibly left of them
-                    // — nudge back by half the slack.
-                    .offset(x: max(0, field.railTrailingX
+                    // — nudge back by half the slack. Floor of `barPaddingH`:
+                    // a narrow rail must not pin the toggle to the pane edge.
+                    .offset(x: max(SidebarChrome.barPaddingH,
+                                   field.railTrailingX
                                       - (widths[Self.gutterKey] ?? 0)
                                       + Self.gutterGlyphInset))
             }
@@ -540,13 +542,18 @@ struct EditorActionStrip: View {
 
     private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
-    /// Full-width toolbar backing. The same opaque window-chrome fill as the
-    /// sidebar bands flanking this strip — `.bar` material is translucent and
-    /// went near-black over a dark editor, visually detaching the tools from
-    /// the band the three panes share.
+    /// Full-width toolbar backing — the shared band tint + hairline. Neither
+    /// `.bar` material (translucent, went black over a dark editor) nor
+    /// `windowBackgroundColor` (identical to `textBackgroundColor` on
+    /// macOS 26) reads as a bar; see `SidebarChrome.barBackgroundColor`.
     private var stripBar: some View {
         Rectangle()
-            .fill(Color(nsColor: .windowBackgroundColor))
+            .fill(Color(nsColor: SidebarChrome.barBackgroundColor))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(height: 1)
+            }
     }
 
     /// Preview reports nothing — its column is centred in CSS, and the rail
