@@ -277,6 +277,9 @@ struct SourceTextView: NSViewRepresentable {
         let nextTextInset = NSSize(width: leading, height: 0)
         let textInsetChanged = textView.textContainerInset != nextTextInset
         if textInsetChanged { textView.textContainerInset = nextTextInset }
+        // Remember the reserve: it is the only way back to where the numbers
+        // start (inset − reserve + edgePad), which the current-line band needs.
+        (textView as? SourceNSTextView)?.gutterReserveWidth = gutterReserve
         scrollView.automaticallyAdjustsContentInsets = false
         let v = inset.height
         let current = scrollView.contentInsets

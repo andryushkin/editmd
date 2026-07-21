@@ -260,8 +260,11 @@ extension NSTextView {
     /// `color`, full editor width. Call from `drawBackground` BEFORE the gutter
     /// so the numbers stay on top. No-op while a range is selected — the
     /// selection highlight already says where the caret is.
+    /// `gutterReserve` is the margin `GutterMetrics.reserve` claimed for the
+    /// numbers; it is what places the band's left edge just outside them.
     @MainActor
-    func drawCurrentLineHighlight(in rect: NSRect, caret: Int, color: NSColor) {
+    func drawCurrentLineHighlight(in rect: NSRect, caret: Int, color: NSColor,
+                                  gutterReserve: CGFloat) {
         guard let layoutManager else { return }
         let ns = string as NSString
         let lineRange = gutterCaretLineRange(in: ns, caret: caret)
@@ -287,11 +290,18 @@ extension NSTextView {
             }
         }
         guard var band = fill, band.intersects(rect) else { return }
-        // The band covers the line number too (as Xcode's does), so it starts
-        // left of the gutter — not at the text. Both margins are small and
-        // fixed: mirroring the left inset would leave a right margin far wider
-        // than Xcode's, because that inset carries the gutter reserve.
-        let leftMargin = min(GutterMetrics.edgePad, inset.width)
+        // The band covers the line number (as Xcode's does) but starts a couple
+        // of points left of it, not at the view edge. The numbers are right
+        // aligned at `inset.width - gap` and occupy `reserve - gap - edgePad`,
+        // so their left edge is `inset.width - reserve + edgePad`. Without a
+        // known reserve (numbers hidden / other host) fall back to a small
+        // margin. The right margin is small and fixed — mirroring the left
+        // inset would leave a far wider gap than Xcode's, since that inset
+        // carries the reserve.
+        let numbersLeft = gutterReserve > 0
+            ? inset.width - gutterReserve + GutterMetrics.edgePad
+            : GutterMetrics.edgePad
+        let leftMargin = max(0, min(numbersLeft - 3, inset.width))
         let rightMargin = GutterMetrics.edgePad * 2
         band.origin.x = leftMargin
         band.size.width = max(0, bounds.width - leftMargin - rightMargin)

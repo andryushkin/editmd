@@ -32,6 +32,9 @@ final class SourceNSTextView: NSTextView {
     weak var wikiCompletion: WikiCompletionController?
     /// Fill for the caret's line; `nil` = highlight off (Settings ▸ Source).
     var currentLineFill: NSColor?
+    /// Left margin reserved for the numbers (`GutterMetrics.reserve`), kept so
+    /// the current-line band can start just left of them. 0 = unknown.
+    var gutterReserveWidth: CGFloat = 0
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
@@ -40,7 +43,8 @@ final class SourceNSTextView: NSTextView {
         if let currentLineFill, selectedRange().length == 0 {
             drawCurrentLineHighlight(in: rect,
                                      caret: selectedRange().location,
-                                     color: currentLineFill)
+                                     color: currentLineFill,
+                                     gutterReserve: gutterReserveWidth)
         }
         drawGutterNumbers(in: rect, state: gutterState)
     }
