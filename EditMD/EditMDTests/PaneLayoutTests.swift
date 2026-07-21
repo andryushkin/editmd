@@ -16,7 +16,6 @@ final class PaneLayoutTests: XCTestCase {
     /// Main window min must leave a readable editor at *default* panel widths
     /// (sidebar 220 + inspector 280), not only at the drag floors — 720 still
     /// mid-word-wrapped.
-    @MainActor
     func testMainWindowMinLeavesReadableEditorAtDefaultPanelWidths() {
         let defaultPanels = 220 + InspectorPane.defaultWidth + 2
         let editorAtMin = Double(mainWindowMinWidth) - defaultPanels
@@ -175,7 +174,6 @@ final class PaneLayoutTests: XCTestCase {
     /// Floors are derived from the navigator capsule, so a dragged pane always
     /// fits its tabs: inspector 7 × 28 buttons + 6 × 7 dividers + 2 × 5 pill +
     /// 2 × 8 pane = 264; the 4-tab sidebar the same way = 159.
-    @MainActor
     func testPaneFloorsFitTheirNavigatorStrips() {
         XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 264, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.widthRange.lowerBound, 264, accuracy: 0.001)
@@ -192,7 +190,6 @@ final class PaneLayoutTests: XCTestCase {
     /// The floor bounds the PREFERRED width only: the anti-overlap squeeze may
     /// still paint below it (documented on `resolveSidePaneWidths`). Pinned so
     /// the trade-off is a decision, not a surprise.
-    @MainActor
     func testCompressedRegimeMayPaintBelowTheInspectorFloor() {
         // Main window at its minimum with the sidebar at its 400pt max: the
         // editor area gets 900 - 400 - 1 = 499.
@@ -206,7 +203,6 @@ final class PaneLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(panes.inspector + 1, 499)
     }
 
-    @MainActor
     func testInspectorDragCannotGoNarrowerThanTheStrip() {
         let dragged = preferredPaneWidthFromDrag(
             displayWidth: 120, scale: 1, range: InspectorPane.widthRange)
@@ -217,7 +213,6 @@ final class PaneLayoutTests: XCTestCase {
     /// clamped on read, so an upgrade does not reopen with clipped tabs — for
     /// BOTH panes: a stored width that is never dragged would keep painting a
     /// clipped strip otherwise.
-    @MainActor
     func testPersistedNarrowWidthIsClampedOnRead() {
         XCTAssertEqual(InspectorPane.clampWidth(150),
                        InspectorPane.widthRange.lowerBound, accuracy: 0.001)

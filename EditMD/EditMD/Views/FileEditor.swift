@@ -326,19 +326,29 @@ private struct MainChrome<Content: View>: View {
 /// Finds the enclosing `NSWindow` after layout and lets the caller configure it
 /// (representedURL, title). No SwiftUI API sets representedURL pre-macOS 15.
 struct WindowAccessor: NSViewRepresentable {
-    let configure: (NSWindow) -> Void
+    /// `@MainActor` because every caller touches window state (title,
+    /// representedURL, contentMinSize) — all main-actor AppKit API.
+    let configure: @MainActor (NSWindow) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { [weak view] in
-            if let window = view?.window { configure(window) }
-        }
+        configureAfterLayout(view)
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
+        configureAfterLayout(view)
+    }
+
+    /// The window only exists after the view joins a hierarchy, so configure on
+    /// the next main-queue turn. `DispatchQueue.main` IS the main actor, hence
+    /// `assumeIsolated` rather than a `Task` (which would add a hop and let the
+    /// window change underneath us).
+    private func configureAfterLayout(_ view: NSView) {
         DispatchQueue.main.async { [weak view] in
-            if let window = view?.window { configure(window) }
+            MainActor.assumeIsolated {
+                if let window = view?.window { configure(window) }
+            }
         }
     }
 }
@@ -348,6 +358,7 @@ struct WindowAccessor: NSViewRepresentable {
 /// is what actually stops the drag. If the window is already below the floor
 /// (e.g. restored frame from before the constant rose), grow once so the user
 /// is not stuck in an illegal size until they touch the edge.
+@MainActor
 func applyWindowContentMinimum(_ window: NSWindow, width: CGFloat, height: CGFloat) {
     let min = NSSize(width: width, height: height)
     if window.contentMinSize != min {

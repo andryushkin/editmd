@@ -235,9 +235,9 @@ struct WorkspaceSidebar: View {
     /// Buttons in the navigator capsule (Files / Search / Git / Tags) and the
     /// narrowest pane that still shows them all — same floor rule as the
     /// inspector, see `InspectorSidebar.minimumPaneWidth`.
-    static let navigatorTabCount = 4
+    nonisolated static let navigatorTabCount = 4
 
-    static var minimumPaneWidth: CGFloat {
+    nonisolated static var minimumPaneWidth: CGFloat {
         SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
             + 2 * SidebarChrome.barPaddingH
     }

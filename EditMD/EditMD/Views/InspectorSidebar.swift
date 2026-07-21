@@ -7,11 +7,13 @@ import AppKit
 struct InspectorSidebar: View {
     /// Buttons in the navigator capsule (Outline … Info). The pane may not be
     /// dragged narrower than the strip they form, otherwise the trailing tabs
-    /// get clipped by the pane edge.
-    static let navigatorTabCount = 7
+    /// get clipped by the pane edge. `nonisolated`: pure geometry, and the
+    /// layout helpers that read it (`InspectorPane`) are not main-actor bound
+    /// even though `View` conformance isolates the rest of this type.
+    nonisolated static let navigatorTabCount = 7
 
     /// Narrowest inspector pane that still shows the whole navigator strip.
-    static var minimumPaneWidth: CGFloat {
+    nonisolated static var minimumPaneWidth: CGFloat {
         SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
             + 2 * SidebarChrome.barPaddingH
     }

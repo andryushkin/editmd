@@ -34,6 +34,8 @@ enum AppearanceMode: String, Codable, CaseIterable, Identifiable {
     /// Whether the window renders dark right now — resolves `.system` against
     /// the app's effective appearance so a ☀/🌙 toggle over this flips the
     /// right way. Single source for the toolbar hosts (MainChrome + ContentView).
+    /// Main-actor: `.system` has to ask `NSApp`.
+    @MainActor
     var isDark: Bool {
         switch self {
         case .dark: return true
