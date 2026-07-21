@@ -324,6 +324,9 @@ struct GitSidebar: View {
             Button("Refresh git status") { refresh(immediate: true) }
             Button("Push to remote…") { pushRepo(section.root) }
             if !section.files.isEmpty {
+                // Whole folder on purpose: the menu hangs off the folder, not
+                // off the filtered listing. The footer's "Commit all" instead
+                // takes what is on screen (`group.files`) — commit what you see.
                 Button("Commit all changed files in this folder…") {
                     presentCommit(urls: section.files.map(\.url))
                 }
