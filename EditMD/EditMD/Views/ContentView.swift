@@ -32,16 +32,31 @@ let mainWindowMinHeight: CGFloat = 420
 let liteWindowMinWidth: CGFloat = 560
 let liteWindowMinHeight: CGFloat = 360
 
+/// Drag range for a side pane whose floor is derived from its own chrome. The
+/// ceiling stays a fixed reading-width cap, so `max` keeps the range valid if a
+/// future navigator strip ever grows past it (a `ClosedRange` with lower >
+/// upper traps at runtime).
+let sidePaneWidthCeiling: Double = 400
+
+func sidePaneWidthRange(floor: CGFloat) -> ClosedRange<Double> {
+    let lower = Double(floor)
+    return lower...max(lower, sidePaneWidthCeiling)
+}
+
 /// Shared geometry of the right inspector pane. The editor host and the folder
 /// host write the SAME `inspectorWidth` default, so the range and the fallback
 /// live here instead of being repeated (and drifting) in both.
 enum InspectorPane {
     /// Floor = the navigator strip's own width: dragging narrower than that
     /// clipped the trailing tabs (Links / Backlinks / Info) behind the edge.
+    /// This bounds the *preferred* (stored) width. The display width can still
+    /// dip below it in the compressed regime — see `resolveSidePaneWidths`.
     static var widthRange: ClosedRange<Double> {
-        Double(InspectorSidebar.minimumPaneWidth)...400.0
+        sidePaneWidthRange(floor: InspectorSidebar.minimumPaneWidth)
     }
-    static var defaultWidth: Double { max(280, widthRange.lowerBound) }
+    static var defaultWidth: Double {
+        min(widthRange.upperBound, max(280, widthRange.lowerBound))
+    }
 
     /// Clamp a persisted width — stored values predate the current floor.
     static func clampWidth(_ width: Double) -> Double {
@@ -66,6 +81,16 @@ struct ResolvedPaneWidths: Equatable {
 /// panels proportionally into the leftover budget keeps every pane side-by-side.
 /// The stored (requested) widths are untouched, so panels restore when the
 /// window widens again.
+///
+/// This clamp deliberately ignores the panes' navigator floors (see
+/// `InspectorPane.widthRange`): those bound what the user can *drag* to, while
+/// this is the last-resort anti-overlap squeeze. In the compressed regime a
+/// pane can therefore paint narrower than its tab strip and clip a trailing
+/// tab — e.g. a min-width main window with the sidebar dragged to its 400pt
+/// max leaves the inspector ~238pt of ~264. Honouring the floor here would
+/// mean pushing the editor below `editorMin` (it is the flexible pane, so no
+/// overlap either way); that trade was not taken because the squeeze is
+/// already a degraded state and the editor floor guards readability.
 func resolveSidePaneWidths(
     available: CGFloat,
     sidebarWidth: CGFloat,

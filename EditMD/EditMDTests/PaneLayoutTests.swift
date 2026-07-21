@@ -7,20 +7,26 @@ import XCTest
 /// drags invert that clamp so a resize keeps the *preferred* width.
 final class PaneLayoutTests: XCTestCase {
 
+    /// Synthetic drag range for the pure-function tests; the real panes derive
+    /// their floors from their navigator strips (see the pane-floor tests).
     private let range = 150.0...400.0
 
     // MARK: - window floors
 
     /// Main window min must leave a readable editor at *default* panel widths
-    /// (220+220), not only at the 150pt drag floor — 720 still mid-word-wrapped.
+    /// (sidebar 220 + inspector 280), not only at the drag floors — 720 still
+    /// mid-word-wrapped.
+    @MainActor
     func testMainWindowMinLeavesReadableEditorAtDefaultPanelWidths() {
-        let defaultPanels: CGFloat = 220 + 220 + 2
-        let editorAtMin = mainWindowMinWidth - defaultPanels
-        XCTAssertGreaterThanOrEqual(editorAtMin, 400,
-                                    "editor should keep ≥400pt at default side panels")
-        // Still above the dual-panel clamp onset (150+150+2+editorMin).
-        let dualPanelFloor = 150 + 150 + 2 + editorColumnMinWidth
-        XCTAssertGreaterThan(mainWindowMinWidth, dualPanelFloor)
+        let defaultPanels = 220 + InspectorPane.defaultWidth + 2
+        let editorAtMin = Double(mainWindowMinWidth) - defaultPanels
+        XCTAssertGreaterThanOrEqual(editorAtMin, 380,
+                                    "editor should keep ≥380pt at default side panels")
+        // Still above the dual-panel clamp onset (both floors + dividers + editor).
+        let dualPanelFloor = Double(WorkspaceSidebar.minimumPaneWidth)
+            + Double(InspectorSidebar.minimumPaneWidth)
+            + 2 + Double(editorColumnMinWidth)
+        XCTAssertGreaterThan(Double(mainWindowMinWidth), dualPanelFloor)
         XCTAssertLessThan(liteWindowMinWidth, mainWindowMinWidth)
         XCTAssertGreaterThanOrEqual(liteWindowMinWidth, editorColumnMinWidth)
     }
@@ -47,8 +53,8 @@ final class PaneLayoutTests: XCTestCase {
         XCTAssertEqual(panes.scale, 1)
     }
 
-    /// Boundary: requested == budget still fits (scale stays 1). Documents the
-    /// ~562pt onset noted on `editorColumnMinWidth` (150 + 150 + 2 + 260).
+    /// Boundary: requested == budget still fits (scale stays 1). Synthetic
+    /// 150pt panes — the pure function knows no floors (150 + 150 + 2 + 260).
     func testExactlyFittingKeepsFullWidthsScaleOne() {
         let panes = resolveSidePaneWidths(
             available: 562,
@@ -164,14 +170,40 @@ final class PaneLayoutTests: XCTestCase {
         XCTAssertEqual(rewritten, Double(stored), accuracy: 0.001)
     }
 
-    // MARK: - Inspector floor (navigator strip must never be clipped)
+    // MARK: - Pane floors (a *drag* may not clip the navigator strip)
 
-    /// The pane floor is derived from the navigator capsule, so the tab strip
-    /// always fits: 7 × 28 buttons + 6 × 7 dividers + 2 × 5 pill + 2 × 8 pane.
+    /// Floors are derived from the navigator capsule, so a dragged pane always
+    /// fits its tabs: inspector 7 × 28 buttons + 6 × 7 dividers + 2 × 5 pill +
+    /// 2 × 8 pane = 264; the 4-tab sidebar the same way = 159.
     @MainActor
-    func testInspectorFloorFitsTheNavigatorStrip() {
+    func testPaneFloorsFitTheirNavigatorStrips() {
         XCTAssertEqual(InspectorSidebar.minimumPaneWidth, 264, accuracy: 0.001)
         XCTAssertEqual(InspectorPane.widthRange.lowerBound, 264, accuracy: 0.001)
+        XCTAssertEqual(WorkspaceSidebar.minimumPaneWidth, 159, accuracy: 0.001)
+    }
+
+    /// The ceiling must survive a floor that outgrows it (invalid ranges trap).
+    func testWidthRangeStaysValidWhenFloorExceedsCeiling() {
+        let range = sidePaneWidthRange(floor: 900)
+        XCTAssertEqual(range.lowerBound, 900, accuracy: 0.001)
+        XCTAssertEqual(range.upperBound, 900, accuracy: 0.001)
+    }
+
+    /// The floor bounds the PREFERRED width only: the anti-overlap squeeze may
+    /// still paint below it (documented on `resolveSidePaneWidths`). Pinned so
+    /// the trade-off is a decision, not a surprise.
+    @MainActor
+    func testCompressedRegimeMayPaintBelowTheInspectorFloor() {
+        // Main window at its minimum with the sidebar at its 400pt max: the
+        // editor area gets 900 - 400 - 1 = 499.
+        let panes = resolveSidePaneWidths(
+            available: 499,
+            sidebarWidth: 0,
+            inspectorWidth: InspectorPane.widthRange.lowerBound,
+            sidebarVisible: false, inspectorVisible: true)
+        XCTAssertLessThan(panes.inspector, InspectorSidebar.minimumPaneWidth)
+        // …but never wider than what is physically there — no overlap.
+        XCTAssertLessThanOrEqual(panes.inspector + 1, 499)
     }
 
     @MainActor

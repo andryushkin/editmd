@@ -209,7 +209,11 @@ private struct MainChrome<Content: View>: View {
     // toggle lives here (all branches) but the pane renders in ContentView.
     @AppStorage("inspectorVisible") private var inspectorVisible = false
 
-    private static var widthRange: ClosedRange<Double> { 150.0...400.0 }
+    /// Same rule as the inspector: the pane may not be dragged narrower than
+    /// its own navigator strip, or the trailing tabs get clipped by the edge.
+    private static var widthRange: ClosedRange<Double> {
+        sidePaneWidthRange(floor: WorkspaceSidebar.minimumPaneWidth)
+    }
     private static var paneSpace: String { "mainChromePanes" }
 
     private var appearanceIsDark: Bool { editorSettings.general.appearance.isDark }

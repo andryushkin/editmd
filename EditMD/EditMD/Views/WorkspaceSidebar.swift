@@ -232,6 +232,16 @@ func migrateWorkspaceSidebarTab(_ tab: String) -> String {
 /// The left sidebar: Xcode-style icon toolbar switches Files / Search / Git /
 /// Tags (workspace-scope). Outline and Review moved to the right inspector.
 struct WorkspaceSidebar: View {
+    /// Buttons in the navigator capsule (Files / Search / Git / Tags) and the
+    /// narrowest pane that still shows them all — same floor rule as the
+    /// inspector, see `InspectorSidebar.minimumPaneWidth`.
+    static let navigatorTabCount = 4
+
+    static var minimumPaneWidth: CGFloat {
+        SidebarChrome.navigatorPillWidth(tabs: navigatorTabCount)
+            + 2 * SidebarChrome.barPaddingH
+    }
+
     @ObservedObject var workspace: WorkspaceModel
     let activeURL: URL?
     /// Left-click a file: the host decides (replace in place, or the
@@ -339,7 +349,7 @@ struct WorkspaceSidebar: View {
                          help: "Tags — frontmatter")
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, SidebarChrome.navPillPaddingH)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
@@ -351,8 +361,8 @@ struct WorkspaceSidebar: View {
     private var navDivider: some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: 14)
-            .padding(.horizontal, 3)
+            .frame(width: SidebarChrome.navDividerWidth, height: 14)
+            .padding(.horizontal, SidebarChrome.navDividerPaddingH)
     }
 
     private func navTabButton(id: String, systemImage: String, help: String,
