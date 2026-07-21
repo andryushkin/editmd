@@ -133,6 +133,8 @@ struct EditorActionStrip: View {
     private static let overflowKey = "__overflow"
     private static let gutterKey = "__gutter"
     private static let groupSpacing: CGFloat = 8
+    /// Inner horizontal pad of the shared tool well.
+    private static let toolWellPaddingH: CGFloat = 6
     /// Optical nudge for the toggle: half the empty space around its glyph.
     private static let gutterGlyphInset: CGFloat = 7
 
@@ -160,7 +162,11 @@ struct EditorActionStrip: View {
             let laneBeforeMode = max(0, geo.size.width - lead - stripTrail
                                        - modeWidth - Self.groupSpacing)
             let toolLaneWidth = laneBeforeMode
-            let plan = plan(available: toolLaneWidth, groups: groups)
+            // The well's own horizontal padding eats into the lane before any
+            // group does — without this the "…" collapse triggers a dozen
+            // points late and the last group clips under the switcher.
+            let plan = plan(available: toolLaneWidth - 2 * Self.toolWellPaddingH,
+                            groups: groups)
             HStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .center, spacing: Self.groupSpacing) {
                     ForEach(plan.visible) { group in
@@ -170,6 +176,15 @@ struct EditorActionStrip: View {
                         overflowPill(plan.overflow, itemsByGroup: itemsByGroup)
                     }
                 }
+                // One shared well behind ALL the tools (user-picked look):
+                // hugs the visible buttons, mirrors the segmented switcher's
+                // bezel so the two read as sibling panels on the strip.
+                .padding(.horizontal, Self.toolWellPaddingH)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color(nsColor: .quaternarySystemFill))
+                )
                 .frame(width: toolLaneWidth, alignment: .leading)
                 // Belt and braces: even if a pill measures wider than planned,
                 // it gets clipped instead of drawing over the switcher.
