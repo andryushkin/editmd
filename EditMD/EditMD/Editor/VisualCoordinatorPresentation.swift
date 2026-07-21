@@ -298,6 +298,10 @@ extension VisualMarkdownView.Coordinator {
                 } else {
                     table = NSTextTable()
                     table.numberOfColumns = columns
+                    // Merge adjacent cell borders — without this every cell
+                    // paints its own 0.5pt frame and neighbors show doubled
+                    // hairlines.
+                    table.collapsesBorders = true
                     table.setContentWidth(100, type: .percentageValueType)
                     textTables[blockValue.group] = table
                 }
