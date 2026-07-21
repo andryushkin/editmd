@@ -146,6 +146,84 @@ func preferredPaneWidthFromDrag(
     return min(range.upperBound, max(range.lowerBound, preferred))
 }
 
+/// agterm-style divider between the editor and a side pane: a 1px separator
+/// plus a wider invisible grab strip. Shared by all three hosts (editor
+/// sidebar, editor inspector, folder inspector) so the grab width and the
+/// cursor behaviour cannot drift apart.
+///
+/// The drag reports the ABSOLUTE cursor x in `space`, not accumulated
+/// translation — the divider moves with the resize, so translation-based
+/// dragging feeds back on itself and flickers.
+struct PaneDivider: View {
+    let space: CoordinateSpace
+    let onDrag: (CGFloat) -> Void
+
+    /// Grab strip width, centred on the 1px line. Was 12; the pointer target
+    /// is what the user aims at, and 1px of visible line is not it.
+    static let grabWidth: CGFloat = 14
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: Self.grabWidth)
+                    .contentShape(Rectangle())
+                    // Entering is AppKit's job (see `PaneDividerCursorArea`);
+                    // this only restores the arrow on the way out, for panes
+                    // that have no cursor rect of their own to take over.
+                    .onHover { inside in
+                        if !inside { NSCursor.arrow.set() }
+                    }
+                    .overlay(PaneDividerCursorArea())
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: space)
+                            .onChanged { onDrag($0.location.x) }
+                    )
+            }
+    }
+}
+
+/// Invisible AppKit strip that owns the ↔ resize cursor over a `PaneDivider`.
+///
+/// `.onHover { NSCursor.resizeLeftRight.set() }` loses this race: AppKit
+/// re-resolves the pointer from the cursor rects of the views under it on
+/// every mouse-moved, so the neighbouring text/scroll view's I-beam wins right
+/// back and the arrow only flashes ↔ — the reported "hard to catch the resize
+/// cursor". A cursor rect plus a `.cursorUpdate` tracking area is the AppKit
+/// side of that same resolution, so the divider stops fighting it.
+///
+/// `hitTest` returns nil so the strip stays transparent to the mouse and the
+/// SwiftUI drag gesture underneath keeps working; tracking areas and cursor
+/// rects are geometry-based and unaffected.
+private struct PaneDividerCursorArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { CursorView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class CursorView: NSView {
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            for area in trackingAreas { removeTrackingArea(area) }
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.activeInKeyWindow, .inVisibleRect, .cursorUpdate],
+                owner: self))
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
@@ -260,7 +338,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if inspectorVisible {
                         // Grab strip LEFT of the right panel.
-                        paneDivider(space: .named("mainPanes")) { x in
+                        PaneDivider(space: .named("mainPanes")) { x in
                             // Inspector is last: its display width is the span from
                             // the divider to the right edge. Invert the clamp too.
                             inspectorWidth = preferredPaneWidthFromDrag(
@@ -574,7 +652,7 @@ struct ContentView: View {
                     HStack(spacing: 0) {
                         editorPane
                             .frame(width: splitEditorWidth)
-                        paneDivider(space: .named("editorSplit")) { x in
+                        PaneDivider(space: .named("editorSplit")) { x in
                             splitFraction = min(Self.splitFractionRange.upperBound,
                                                 max(Self.splitFractionRange.lowerBound,
                                                     Double(x) / max(1, Double(geo.size.width))))
@@ -708,30 +786,6 @@ struct ContentView: View {
             return
         }
         document.applyDocumentEdit(oldContent, actionName: "Restore Revision")
-    }
-
-    /// agterm-style divider: a 1px separator with a wider invisible grab
-    /// strip. The new position comes from the ABSOLUTE cursor x in `space`,
-    /// not accumulated translation — the divider moves with the resize, so
-    /// translation-based dragging feeds back on itself and flickers.
-    private func paneDivider(space: CoordinateSpace,
-                             onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: space)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
     }
 
     // MARK: - Status bar

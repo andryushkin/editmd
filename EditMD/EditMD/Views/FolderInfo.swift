@@ -87,7 +87,7 @@ struct FolderInfoHost: View {
                 FolderInfoCard(folderURL: folderURL)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if inspectorVisible {
-                    paneDivider(space: .named("folderPanes")) { x in
+                    PaneDivider(space: .named("folderPanes")) { x in
                         inspectorWidth = preferredPaneWidthFromDrag(
                             displayWidth: geo.size.width - x, scale: panes.scale,
                             range: InspectorPane.widthRange)
@@ -107,26 +107,6 @@ struct FolderInfoHost: View {
         })
     }
 
-    /// agterm-style divider: 1px separator + a wider invisible grab strip.
-    private func paneDivider(space: CoordinateSpace,
-                             onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: space)
-                            .onChanged { onDrag($0.location.x) }
-                    )
-            }
-    }
 }
 
 // MARK: - Nested tree row (separate type — recursive `some View` is illegal)

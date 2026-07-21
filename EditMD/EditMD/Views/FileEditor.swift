@@ -295,31 +295,14 @@ private struct MainChrome<Content: View>: View {
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
     }
 
-    /// agterm-style divider: 1px separator + a wider invisible grab strip. The
-    /// sidebar starts at x=0 of the chrome's coordinate space, so the cursor x
-    /// IS the sidebar's display width — inverted through the clamp scale so a
-    /// resize in a clamped window keeps the preferred width.
+    /// The sidebar starts at x=0 of the chrome's coordinate space, so the
+    /// cursor x IS the sidebar's display width — inverted through the clamp
+    /// scale so a resize in a clamped window keeps the preferred width.
     private func paneDivider(scale: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.paneSpace))
-                            .onChanged { value in
-                                sidebarWidth = preferredPaneWidthFromDrag(
-                                    displayWidth: value.location.x, scale: scale,
-                                    range: Self.widthRange)
-                            }
-                    )
-            }
+        PaneDivider(space: .named(Self.paneSpace)) { x in
+            sidebarWidth = preferredPaneWidthFromDrag(
+                displayWidth: x, scale: scale, range: Self.widthRange)
+        }
     }
 }
 
