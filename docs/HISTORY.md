@@ -1294,3 +1294,14 @@ for barRect in barRects where barRect.intersects(rect) { barRect.fill() }
 - **Вертикальные отступы ленты** `barPaddingTop/Bottom` 0/0 → 6/4: капсула сидела вплотную под тулбаром (так в Xcode), у системного контрола с bezel нужен стандартный воздух. Константы общие — полоса folder-info/welcome/editor strip сдвинулась вместе.
 - **Не гонять NSImage на каждый апдейт:** координатор кэширует применённые имена символов и трогает `setImage` только для сегмента, чей символ реально сменился.
 
+## Унификация всех баров на системных контролах (2026-07-21)
+
+Продолжение сегментед-развязки: пользователь попросил «проинспектируй все тулбары и унифицируй по гайдлайнам Apple/SwiftUI». Инвентаризация: оконный NSToolbar (уже нативный), навигаторы сайдбаров (уже `NSSegmentedControl`), и четыре самодельных капсульных бара — лента редактора, нижние бары сайдбаров, action strip карточки папки, строка Welcome.
+
+- **Deployment target 13.0 → 14.0** ради `.buttonStyle(.accessoryBar)` — системного стиля для баров над контентом (Notes/Freeform). Заодно схлопнут гейт `OptionalPulse` в AgentActivityUI.
+- **`BarControls.swift`:** `AccessoryBarButton` (glyph symbol/text; `active == nil` → Button, `Bool` → Toggle, on-state рисует macOS) и `AccessoryBarMenu` (`.menuStyle(.button)` + accessoryBar). Ручные капсулы-подложки, хеирлайны-разделители и accent-tint активных кнопок удалены во всех четырёх барах.
+- **Переключатель режимов** Source/Visual/Preview/Split — реюз `SidebarNavStrip` с новыми ручками `fillsWidth: false` (`segmentDistribution = .fit`, intrinsic width) и `controlSize: .regular`. `EditorMode.activeSystemImage` умер — выделение рисует сам контрол.
+- **Фильтры** внизу обоих сайдбаров и поле запроса Search-таба — `FilterSearchField` (`NSSearchField`: лупа, крестик, focus ring). Крестик очистки в Search идёт через `setQueryText("")` (debounce-путь), а не старый `model.clear()` — осознанно.
+- **Механика ленты редактора не тронута:** measurement layer, greedy overflow в «…», геометрия insets — всё прежнее; поменялся только хром (`pill`/`sep`/`icon`/`labelBtn` → `cluster` из accessory-кнопок).
+- `wellColor` остался только у контентных подложек (чипы тегов и карточки плагинов PropertiesPanel) — это не бары.
+
