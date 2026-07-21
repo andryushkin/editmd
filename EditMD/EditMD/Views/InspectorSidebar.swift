@@ -111,56 +111,33 @@ struct InspectorSidebar: View {
     // MARK: - Navigator toolbar
 
     private var navigatorToolbar: some View {
-        HStack(spacing: 0) {
-            navTabButton(id: "outline",
-                         systemImage: "list.bullet.indent",
-                         help: "Outline")
-            navDivider
-            navTabButton(id: "review",
-                         systemImage: "text.bubble",
-                         help: String(localized: "Review — document marks"),
-                         badge: review.openCount)
-            navDivider
-            navTabButton(id: "properties",
-                         systemImage: "list.bullet.rectangle",
-                         help: String(localized: "Properties — frontmatter"))
-            navDivider
-            navTabButton(id: "history",
-                         systemImage: "clock.arrow.circlepath",
-                         help: String(localized: "History — local revisions and git"))
-            navDivider
-            navTabButton(id: "links",
-                         systemImage: "link",
-                         help: String(localized: "Links — outgoing"))
-            navDivider
-            navTabButton(id: "backlinks",
-                         systemImage: "arrow.turn.down.left",
-                         help: String(localized: "Backlinks — incoming"))
-            navDivider
-            navTabButton(id: "info",
-                         systemImage: "info.circle",
-                         help: "Info")
-        }
-        .padding(.horizontal, SidebarChrome.navPillPaddingH)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color(nsColor: SidebarChrome.wellColor))
+        SidebarNavStrip(
+            tabs: [
+                SidebarNavTab(id: "outline",
+                              systemImage: "list.bullet.indent",
+                              help: "Outline"),
+                SidebarNavTab(id: "review",
+                              systemImage: "text.bubble",
+                              help: String(localized: "Review — document marks"),
+                              badge: review.openCount),
+                SidebarNavTab(id: "properties",
+                              systemImage: "list.bullet.rectangle",
+                              help: String(localized: "Properties — frontmatter")),
+                SidebarNavTab(id: "history",
+                              systemImage: "clock.arrow.circlepath",
+                              help: String(localized: "History — local revisions and git")),
+                SidebarNavTab(id: "links",
+                              systemImage: "link",
+                              help: String(localized: "Links — outgoing")),
+                SidebarNavTab(id: "backlinks",
+                              systemImage: "arrow.turn.down.left",
+                              help: String(localized: "Backlinks — incoming")),
+                SidebarNavTab(id: "info",
+                              systemImage: "info.circle",
+                              help: "Info")
+            ],
+            selection: $tab
         )
-    }
-
-    private var navDivider: some View { SidebarNavDivider() }
-
-    private func navTabButton(
-        id: String,
-        systemImage: String,
-        help: String,
-        badge: Int = 0
-    ) -> some View {
-        SidebarNavTabButton(systemImage: systemImage,
-                            help: help,
-                            selected: tab == id,
-                            badge: badge) { tab = id }
     }
 
     // MARK: - Bottom bar (Filter only)

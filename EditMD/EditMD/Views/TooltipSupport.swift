@@ -101,6 +101,51 @@ enum SidebarChrome {
     }
 }
 
+/// One tab of a sidebar navigator strip.
+struct SidebarNavTab: Identifiable {
+    let id: String
+    let systemImage: String
+    let help: String
+    var badge: Int = 0
+}
+
+/// The navigator capsule shared by the left workspace sidebar and the right
+/// inspector: icon tabs on a recessed gray well, hairlines between them.
+/// Xcode-style, the strip stretches with the pane — see `SidebarNavTabButton`.
+struct SidebarNavStrip: View {
+    let tabs: [SidebarNavTab]
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                if index > 0 {
+                    // Hidden rather than dropped: the hairlines flanking the
+                    // active tab disappear (as in Xcode) without the whole
+                    // strip re-laying out on every switch.
+                    SidebarNavDivider()
+                        .opacity(flanksSelection(dividerAt: index) ? 0 : 1)
+                }
+                SidebarNavTabButton(systemImage: tab.systemImage,
+                                    help: tab.help,
+                                    selected: selection == tab.id,
+                                    badge: tab.badge) { selection = tab.id }
+            }
+        }
+        .padding(.horizontal, SidebarChrome.navPillPaddingH)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color(nsColor: SidebarChrome.wellColor))
+        )
+    }
+
+    /// The divider drawn before tab `index` sits between it and its neighbor.
+    private func flanksSelection(dividerAt index: Int) -> Bool {
+        selection == tabs[index].id || selection == tabs[index - 1].id
+    }
+}
+
 /// One tab of a sidebar navigator capsule (left workspace, right inspector).
 /// The button stretches with the pane like Xcode's navigator strip: at the
 /// pane's floor width it is exactly `iconButtonWidth`, wider panes share the

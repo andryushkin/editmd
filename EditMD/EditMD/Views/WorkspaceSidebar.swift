@@ -328,42 +328,25 @@ struct WorkspaceSidebar: View {
     // MARK: - Navigator toolbar (Xcode-style)
 
     /// Pill of icon buttons on a recessed gray well (like Xcode's navigator
-    /// strip / filter field). `controlBackgroundColor` is nearly identical to
-    /// `windowBackgroundColor`, so we paint an explicit adaptive fill.
+    /// strip / filter field) — geometry and chrome live in `SidebarNavStrip`.
     private var navigatorToolbar: some View {
-        HStack(spacing: 0) {
-            navTabButton(id: "files",
-                         systemImage: "folder",
-                         help: "Files")
-            navDivider
-            navTabButton(id: "search",
-                         systemImage: "magnifyingglass",
-                         help: String(localized: "Search — search the workspace"))
-            navDivider
-            navTabButton(id: "git",
-                         systemImage: "arrow.triangle.branch",
-                         help: "Git")
-            navDivider
-            navTabButton(id: "tags",
-                         systemImage: "tag",
-                         help: "Tags — frontmatter")
-        }
-        .padding(.horizontal, SidebarChrome.navPillPaddingH)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color(nsColor: SidebarChrome.wellColor))
+        SidebarNavStrip(
+            tabs: [
+                SidebarNavTab(id: "files",
+                              systemImage: "folder",
+                              help: "Files"),
+                SidebarNavTab(id: "search",
+                              systemImage: "magnifyingglass",
+                              help: String(localized: "Search — search the workspace")),
+                SidebarNavTab(id: "git",
+                              systemImage: "arrow.triangle.branch",
+                              help: "Git"),
+                SidebarNavTab(id: "tags",
+                              systemImage: "tag",
+                              help: "Tags — frontmatter")
+            ],
+            selection: $tab
         )
-    }
-
-    private var navDivider: some View { SidebarNavDivider() }
-
-    private func navTabButton(id: String, systemImage: String, help: String,
-                              badge: Int = 0) -> some View {
-        SidebarNavTabButton(systemImage: systemImage,
-                            help: help,
-                            selected: tab == id,
-                            badge: badge) { tab = id }
     }
 
     // MARK: - Bottom bar (+ · Filter · eye)
