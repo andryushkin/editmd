@@ -16,12 +16,12 @@
     },
     {
       "id" : "m1783719031925ju78",
-      "mts" : 1783719031925,
+      "mts" : 1784405810207,
       "note" : "ыыы",
       "prefix" : "photo.png) in the same line.\n\n",
       "quote" : "> This is a blockquote.\n>\n> > It can span multiple lines",
       "start" : 406,
-      "status" : "open",
+      "status" : "resolved",
       "thread" : [
 
       ],
@@ -30,12 +30,12 @@
     },
     {
       "id" : "m1783720823217u0c9",
-      "mts" : 1783720823217,
+      "mts" : 1784405810907,
       "note" : "заголовок 3",
       "prefix" : "# **Heading 1**\n## ",
       "quote" : "Heading 2",
       "start" : 19,
-      "status" : "open",
+      "status" : "resolved",
       "thread" : [
 
       ],
@@ -43,5 +43,5 @@
       "type" : "comment"
     }
   ],
-  "rev" : 4
+  "rev" : 6
 }
