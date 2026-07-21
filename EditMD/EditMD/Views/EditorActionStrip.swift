@@ -180,8 +180,6 @@ struct EditorActionStrip: View {
             .padding(.leading, lead)
             .padding(.trailing, stripTrail)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.top, SidebarChrome.barPaddingTop)
-            .padding(.bottom, SidebarChrome.barPaddingBottom)
             // Sits in the left margin, centred over the numbers column — the
             // rail is reserved either way, so it never moves.
             .overlay(alignment: .leading) {
@@ -540,19 +538,15 @@ struct EditorActionStrip: View {
 
     // MARK: Chrome
 
-    private var stripHeight: CGFloat {
-        SidebarChrome.barPaddingTop
-            + SidebarChrome.barPaddingBottom
-            + 8
-            + SidebarChrome.iconButtonHeight
-    }
+    private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
-    /// Full-width toolbar backing. `.bar` material gives the standard
-    /// translucent toolbar look and tracks light/dark on its own, so no baked
-    /// appearance. Drawn behind everything, spanning padding included.
+    /// Full-width toolbar backing. The same opaque window-chrome fill as the
+    /// sidebar bands flanking this strip — `.bar` material is translucent and
+    /// went near-black over a dark editor, visually detaching the tools from
+    /// the band the three panes share.
     private var stripBar: some View {
         Rectangle()
-            .fill(.bar)
+            .fill(Color(nsColor: .windowBackgroundColor))
     }
 
     /// Preview reports nothing — its column is centred in CSS, and the rail
@@ -570,9 +564,10 @@ struct EditorActionStrip: View {
 
     /// One tool group: accessory-bar controls packed tight, no background —
     /// the system style draws hover/pressed/on shapes per control, so the
-    /// capsule wells and hand-drawn hairlines are gone.
+    /// capsule wells and hand-drawn hairlines are gone. Zero spacing: each
+    /// control already carries the style's own padding.
     private func cluster<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 2) { content() }
+        HStack(spacing: 0) { content() }
     }
 }
 

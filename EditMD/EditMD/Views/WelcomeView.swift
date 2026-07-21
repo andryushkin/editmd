@@ -65,12 +65,7 @@ struct WelcomeCard: View {
         return bodyOrigin + insetH
     }
 
-    private var stripHeight: CGFloat {
-        SidebarChrome.barPaddingTop
-            + SidebarChrome.barPaddingBottom
-            + 8
-            + SidebarChrome.iconButtonHeight
-    }
+    private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
     /// Recent rows: workspaces first, then history files not already covered
     /// (session visits). Capped for a clean home screen.
@@ -158,8 +153,6 @@ struct WelcomeCard: View {
             }
             .padding(.leading, lead)
             .padding(.trailing, lead)
-            .padding(.top, SidebarChrome.barPaddingTop)
-            .padding(.bottom, SidebarChrome.barPaddingBottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .frame(height: stripHeight)

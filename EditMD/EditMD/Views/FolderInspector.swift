@@ -295,8 +295,7 @@ struct FolderInspectorPanel: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, SidebarChrome.barPaddingTop)
-        .padding(.bottom, SidebarChrome.barPaddingBottom)
+        .frame(height: SidebarChrome.barHeight)
     }
 
     /// Shown while the first content walk runs. On a big tree the walk is not

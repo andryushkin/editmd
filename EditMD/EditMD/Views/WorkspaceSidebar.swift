@@ -263,8 +263,7 @@ struct WorkspaceSidebar: View {
         VStack(spacing: 0) {
             navigatorToolbar
                 .padding(.horizontal, SidebarChrome.barPaddingH)
-                .padding(.top, SidebarChrome.barPaddingTop)
-                .padding(.bottom, SidebarChrome.barPaddingBottom)
+                .frame(height: SidebarChrome.barHeight)
 
             Group {
                 switch tab {

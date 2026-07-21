@@ -354,8 +354,7 @@ struct FolderInfoCard: View {
         // Same left rail as title / first grid icon / section headers.
         .padding(.leading, contentLeading + contentIconRail)
         .padding(.trailing, contentLeading)
-        .padding(.top, SidebarChrome.barPaddingTop)
-        .padding(.bottom, SidebarChrome.barPaddingBottom)
+        .frame(height: SidebarChrome.barHeight)
     }
 
     /// Preview horizontal field (Settings ▸ Preview ▸ inset).

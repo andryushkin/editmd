@@ -38,15 +38,15 @@ struct AccessoryBarButton: View {
     }
 
     @ViewBuilder private var label: some View {
+        // No extra frame: the accessory style pads its own hit target, and a
+        // minWidth on top of that read as visibly oversized buttons.
         switch glyph {
         case .symbol(let name):
             Image(systemName: name)
                 .font(.system(size: 12, weight: .medium))
-                .frame(minWidth: 16)
         case .text(let title):
             Text(title)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .frame(minWidth: 16)
         }
     }
 }
@@ -63,7 +63,6 @@ struct AccessoryBarMenu<Content: View>: View {
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .frame(minWidth: 16)
         }
         .menuStyle(.button)
         .buttonStyle(.accessoryBar)

@@ -46,12 +46,14 @@ func copyPathToPasteboard(_ url: URL) {
 /// Metrics and well color shared by the Files/Outline strip and the folder
 /// info action strip so both sit on one horizontal band.
 enum SidebarChrome {
-    /// Outer padding around the top navigator / action strip (must match
-    /// between sidebars and folder-info). Standard breathing room around a
-    /// stock control — the old hand-drawn capsule sat flush at 0/0.
+    /// Outer horizontal padding of the top navigator / action strips.
     static let barPaddingH: CGFloat = 8
-    static let barPaddingTop: CGFloat = 6
-    static let barPaddingBottom: CGFloat = 4
+
+    /// One fixed height for EVERY top band (sidebar navigators, editor strip,
+    /// folder-info actions, welcome shortcuts): the bands sit side by side on
+    /// one row, so equal heights + vertical centring keep their controls on a
+    /// single line regardless of control kind.
+    static let barHeight: CGFloat = 34
 
     /// Gap from the bottom of the top chrome to the first workspace row /
     /// folder-info title. Matches Files tab: LazyVStack vertical pad (6) +
@@ -142,7 +144,9 @@ struct SidebarNavStrip: NSViewRepresentable {
     /// Sidebars stretch the strip across the pane (`fillEqually`); the editor
     /// mode switcher keeps its intrinsic width (`fit`) at the strip's edge.
     var fillsWidth: Bool = true
-    var controlSize: NSControl.ControlSize = .large
+    /// `.regular` everywhere: the navigators and the mode switcher share one
+    /// row of bands, so one control size keeps them reading as siblings.
+    var controlSize: NSControl.ControlSize = .regular
 
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl()
