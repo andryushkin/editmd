@@ -431,6 +431,33 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertNil(classifyMarkdownLine("  # indented").headingLevel)
     }
 
+    /// Review P1: paragraph ranges carry the line terminator, transformLines'
+    /// lines never do — the classifier must normalize to the logical line.
+    func testClassifierNormalizesTrailingNewline() {
+        XCTAssertTrue(classifyMarkdownLine(">\n").quote)
+        XCTAssertNil(classifyMarkdownLine("#\n").headingLevel,
+                     "The heading \\s+ must not be satisfied by the terminator")
+        XCTAssertNil(classifyMarkdownLine("-\n").headingLevel)
+        XCTAssertFalse(classifyMarkdownLine("-\n").bullet)
+        XCTAssertFalse(classifyMarkdownLine("1.\n").numbered)
+        XCTAssertTrue(classifyMarkdownLine("- item\n").bullet)
+        XCTAssertEqual(classifyMarkdownLine("# Title\r\n").headingLevel, 1)
+    }
+
+    /// Review P1: the Setext fallback must demand the literal underline —
+    /// cmark also calls `  # indented` a heading, the toggle grammar doesn't.
+    func testSetextUnderlineShape() {
+        XCTAssertTrue(isSetextUnderline("==="))
+        XCTAssertTrue(isSetextUnderline("-"))
+        XCTAssertTrue(isSetextUnderline("  ==  "))
+        XCTAssertTrue(isSetextUnderline("===\n"))
+        XCTAssertFalse(isSetextUnderline("    ==="), "4 spaces = code block")
+        XCTAssertFalse(isSetextUnderline("=-="))
+        XCTAssertFalse(isSetextUnderline("== =="))
+        XCTAssertFalse(isSetextUnderline(""))
+        XCTAssertFalse(isSetextUnderline("text"))
+    }
+
     func testUniformStatesRequireEveryLine() {
         // H1 + plain paragraph — the caret-probe bug lit H1 here.
         let mixed = uniformBlockStates(["# Title", "plain text"])

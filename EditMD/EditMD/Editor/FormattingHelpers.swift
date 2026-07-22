@@ -198,7 +198,15 @@ struct SourceLineBlock: Equatable {
 /// are checklists, not bullets — as in `transformLines`. Setext headings have
 /// no line prefix; the caller resolves them from the highlighter spans.
 func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
-    let line = String(line)
+    // Normalize to the logical line `transformLines` operates on: it splits
+    // by "\n" first, so its lines never carry a terminator. A paragraph range
+    // does — ">\n" failed the literal ">" check while "#\n" passed the
+    // heading `\s+` via the newline, flipping both states against the action
+    // (review P1). For terminator-free input this trim is a no-op.
+    var line = String(line)
+    while let last = line.unicodeScalars.last, CharacterSet.newlines.contains(last) {
+        line.unicodeScalars.removeLast()
+    }
     var out = SourceLineBlock()
     out.quote = line.hasPrefix("> ") || line == ">"
     if let match = firstMatch(headingPrefixPattern, in: line) {
@@ -212,6 +220,24 @@ func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
         out.numbered = true
     }
     return out
+}
+
+/// CommonMark setext underline: up to 3 leading spaces, then a run of all
+/// `=` or all `-`, optional trailing whitespace. Confirms that a heading the
+/// highlighter reported is genuinely the two-line Setext form — an ATX
+/// heading the strict toggle grammar rejected (0–3 space indent, bare `#`)
+/// must not light through the span fallback (review P1).
+func isSetextUnderline(_ line: some StringProtocol) -> Bool {
+    var s = Substring(line)
+    while let last = s.unicodeScalars.last,
+          CharacterSet.whitespacesAndNewlines.contains(last) {
+        s = s.dropLast()
+    }
+    let indent = s.prefix(while: { $0 == " " })
+    guard indent.count <= 3 else { return false }
+    s = s.dropFirst(indent.count)
+    guard let marker = s.first, marker == "=" || marker == "-" else { return false }
+    return s.allSatisfy { $0 == marker }
 }
 
 /// Reduces two per-line classifications to their uniform intersection —
