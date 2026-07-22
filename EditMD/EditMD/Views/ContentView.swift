@@ -281,13 +281,14 @@ struct ContentView: View {
         // Leaving Preview retires its ⌘F find bar and highlights.
         if newMode != .preview { previewFind.close() }
         if newMode != .visual {
-            stripActions.insertTable = nil
+            // Row/column ops exist only on Visual's native tables. Table and
+            // formula *insertion* is dual-mode: leave those closures for the
+            // next mode's publish to rebind, so the Insert buttons don't go
+            // briefly dead on Source↔Split switches.
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
             stripActions.tableAddColumn = nil
             stripActions.tableDeleteColumn = nil
-            stripActions.insertInlineFormula = nil
-            stripActions.insertBlockFormula = nil
         }
         storedMode = newMode.rawValue
     }

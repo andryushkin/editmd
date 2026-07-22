@@ -305,13 +305,19 @@ struct EditorActionStrip: View {
 
     @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem]) -> some View {
         if group == .insert {
-            // Image / divider / code block are one-tap; table and formula stay
-            // menus in the strip; the "…" menu flattens them into plain items.
+            // Image / divider / code block are one-tap; formula stays a menu.
+            // Table is a menu only where the row/column ops exist (Visual) —
+            // a one-item menu in Source would cost an extra click over the
+            // sibling buttons. The "…" menu flattens everything into items.
             cluster {
                 ForEach(items.filter { Self.insertButtonIDs.contains($0.id) }) { item in
                     itemButton(item)
                 }
-                tableMenu
+                if showTableOps {
+                    tableMenu
+                } else if let table = items.first(where: { $0.id == "table" }) {
+                    itemButton(table)
+                }
                 formulaMenu
             }
         } else if group == .cleanup {

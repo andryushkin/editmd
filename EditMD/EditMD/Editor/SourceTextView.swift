@@ -994,20 +994,29 @@ struct SourceTextView: NSViewRepresentable {
             let selected = selection.length > 0 ? ns.substring(with: selection) : nil
             let inner: String
             let insert: String
+            let bodyOffset: Int
             if display {
                 inner = selected ?? "E = mc^2"
                 insert = blockSnippet("$$\n\(inner)\n$$", in: ns, replacing: selection)
+                // blockSnippet's prefix is 0–2 newlines before the literal
+                // "$$\n"; count them instead of searching for `inner` (which
+                // could match inside the fence for degenerate selections).
+                let inserted = insert as NSString
+                var prefix = 0
+                while prefix < inserted.length, inserted.character(at: prefix) == 0x0A {
+                    prefix += 1
+                }
+                bodyOffset = prefix + 3
             } else {
                 inner = (selected ?? "x").replacingOccurrences(of: "\n", with: " ")
                 insert = "$\(inner)$"
+                bodyOffset = 1
             }
             guard textView.shouldChangeText(in: selection, replacementString: insert) else { return }
             textView.replaceCharacters(in: selection, with: insert)
             textView.didChangeText()
-            let body = (insert as NSString).range(of: inner)
-            textView.setSelectedRange(body.location != NSNotFound
-                ? NSRange(location: selection.location + body.location, length: body.length)
-                : NSRange(location: selection.location + (insert as NSString).length, length: 0))
+            textView.setSelectedRange(NSRange(location: selection.location + bodyOffset,
+                                              length: (inner as NSString).length))
         }
 
         /// Block-element insertion shared by divider / table template: the

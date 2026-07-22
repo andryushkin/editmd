@@ -24,7 +24,7 @@ struct FormatActions {
     var canDecreaseFontSize: Bool
     /// Toggles task-list on the selected paragraphs / lines.
     var toggleChecklist: (() -> Void)? = nil
-    /// Visual mode only: add/edit/remove a link on the selection (⌘K).
+    /// Add/edit/remove a link on the selection (⌘K) — Source and Visual.
     var editLink: (() -> Void)? = nil
     // Format-menu block/inline commands (v25). Optional: a mode publishes
     // only what it implements, the menu item disables on nil.
@@ -49,13 +49,15 @@ struct FormatActions {
     var toggleNumberedList: (() -> Void)? = nil
     var toggleQuote: (() -> Void)? = nil
     var toggleCodeBlock: (() -> Void)? = nil
-    // Visual table tools (nil in Source / Preview)
+    // Table tools. Insertion works in both editing modes (Source inserts a
+    // raw markdown template); row/column ops are Visual-only (nil elsewhere).
     var insertTable: (() -> Void)? = nil
     var tableAddRow: (() -> Void)? = nil
     var tableDeleteRow: (() -> Void)? = nil
     var tableAddColumn: (() -> Void)? = nil
     var tableDeleteColumn: (() -> Void)? = nil
-    /// Insert `$…$` / `$$…$$` templates at the caret (Visual).
+    /// Insert `$…$` / `$$…$$` at the caret — Source as raw text, Visual as a
+    /// rendered attachment.
     var insertInlineFormula: (() -> Void)? = nil
     var insertBlockFormula: (() -> Void)? = nil
 }
