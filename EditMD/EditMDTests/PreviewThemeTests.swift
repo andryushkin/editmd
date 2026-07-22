@@ -85,11 +85,47 @@ final class PreviewThemeTests: XCTestCase {
         let theme = PreviewTheme.preset(named: "typora")
         let page = previewHTMLPage(markdown: "[l](https://e)", fontSize: 14,
                                    fontFamily: theme.cssFontFamily(userFamily: ""),
-                                   themeCSS: theme.css)
+                                   themeCSS: theme.pageCSS(userFamily: ""))
         XCTAssertTrue(page.contains("Open Sans"), page)
         // Typora's Github-theme link blue and quote gray survive into the page.
-        XCTAssertTrue(page.contains("#4183C4"), page)
-        XCTAssertTrue(page.contains("border-left: 4px solid #dfe2e5"), page)
+        XCTAssertTrue(page.contains("#4183C4"))
+        XCTAssertTrue(page.contains("border-left: 4px solid #dfe2e5"))
+    }
+
+    func testTyporaThemeBundlesOpenSansAsDataURIFaces() {
+        let css = PreviewTheme.preset(named: "typora").pageCSS(userFamily: "")
+        // The CSP allows only `font-src data:` — a file/https URL would never
+        // load, so the faces must carry the actual woff payload.
+        XCTAssertTrue(css.contains("@font-face"))
+        XCTAssertTrue(css.contains("data:font/woff;base64,"))
+        XCTAssertEqual(css.components(separatedBy: "@font-face").count - 1, 4, "4 faces expected")
+        XCTAssertGreaterThan(css.count, 300_000, "bundled woff payload missing")
+    }
+
+    func testTyporaThemeDarkBlockIsNightNotRecoloredGithub() {
+        let theme = PreviewTheme.preset(named: "typora")
+        let css = theme.css
+        // Night structure: heading family, underlined gray links, square
+        // bullets, #333 code panels — not just darker Github grays.
+        XCTAssertTrue(css.contains("Lucida Grande"))
+        XCTAssertTrue(css.contains("color: #e0e0e0; text-decoration: underline"))
+        XCTAssertTrue(css.contains("list-style: square"))
+        XCTAssertTrue(css.contains("background: #333"))
+        // Night body font applies only while the user keeps the default family.
+        XCTAssertTrue(theme.pageCSS(userFamily: "").contains(
+            "@media (prefers-color-scheme: dark) { body { font-family: \"Helvetica Neue\""))
+        XCTAssertFalse(theme.pageCSS(userFamily: "Avenir").contains("body { font-family:"))
+    }
+
+    func testThemePreferredGeometryAppliesOnlyOverStockDefaults() {
+        let typora = PreviewTheme.preset(named: "typora")
+        XCTAssertEqual(typora.resolvedFontSize(user: 15, stockDefault: 15), 16)
+        XCTAssertEqual(typora.resolvedFontSize(user: 18, stockDefault: 15), 18)
+        XCTAssertEqual(typora.resolvedColumnWidth(user: 736, stockDefault: 736), 860)
+        // 0 = "full width" is a deliberate user choice, not the stock default.
+        XCTAssertEqual(typora.resolvedColumnWidth(user: 0, stockDefault: 736), 0)
+        XCTAssertEqual(PreviewTheme.standard.resolvedFontSize(user: 15, stockDefault: 15), 15)
+        XCTAssertEqual(PreviewTheme.standard.resolvedColumnWidth(user: 736, stockDefault: 736), 736)
     }
 
     // MARK: - Settings persistence

@@ -42,6 +42,7 @@
 		1CFD35C0DD0E6F82F3D45EFD /* LinkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FDEDA9BAE4A39EA48A9EAD3 /* LinkEdit.swift */; };
 		1E1C496DB940AEC5A01CD263 /* ClaudeIDETools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7534B860CEE234DA0F13BA8B /* ClaudeIDETools.swift */; };
 		1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75D9EDD5F391199A959F85D /* GitCLITests.swift */; };
+		1FADA243D146E995B05E2AFF /* opensans-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 7A643ECA46C69BFB2A077F38 /* opensans-LICENSE.txt */; };
 		21577D8F9B1EC7A8D3E178A5 /* SearchQueryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0DE4EC9E426532AD54632F /* SearchQueryTests.swift */; };
 		21CCD5D29689C467770C05BE /* ClaudeIDEServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */; };
 		22FE563AAF328F7A5FEE963B /* MarkdownLint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA44CE853828E5B49C3A9C8B /* MarkdownLint.swift */; };
@@ -143,6 +144,7 @@
 		9394D13968558A466BCE684D /* DocumentHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 024AED6109F576DBA3DB2F7E /* DocumentHistoryTests.swift */; };
 		93AE968FA5677C1963ADBE69 /* WikiCompletionUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90DE6F43F9765940A444EF4 /* WikiCompletionUI.swift */; };
 		942F6ED1880BF19C1F50EC3F /* WikiLinkCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41663DF9728FB291C9E32A3 /* WikiLinkCore.swift */; };
+		952D881AE9E17AE746ED5855 /* opensans-400.woff in Resources */ = {isa = PBXBuildFile; fileRef = 50FED2E7600FFD0E7024A637 /* opensans-400.woff */; };
 		959F2DEF3ADC7D1773FE3D70 /* AgentHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10EBA0DFA736319C4CF0087 /* AgentHooksInstaller.swift */; };
 		95AD15B507D87764513299CF /* ExternalChangeUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4BFA16F2BD79EB5E242DF6E /* ExternalChangeUI.swift */; };
 		97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826B3718B5967A1074331A2A /* WikiCompletionTests.swift */; };
@@ -157,6 +159,7 @@
 		9EA2ADDCB04A2B828EE8D901 /* WikiLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */; };
 		9F3996BF85F4FE45A02A506D /* SourceHighlightedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B23C6D487F593E5628D2CE /* SourceHighlightedString.swift */; };
 		A1E0387908EC017E0C7505F1 /* WikiCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947ED99781268CA58CDB8346 /* WikiCompletion.swift */; };
+		A276625BAB166C008431F657 /* opensans-400i.woff in Resources */ = {isa = PBXBuildFile; fileRef = C405EA37EB9EF6ECAEEB7979 /* opensans-400i.woff */; };
 		A2B82C150B409D73B61F0A72 /* Frontmatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84362F5BA6CE4C1C72878EF0 /* Frontmatter.swift */; };
 		A311AB99C16B0D0C796F2CA1 /* PreviewTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AC3F8E6AD27CC5138046DE /* PreviewTheme.swift */; };
 		A7BB185C6BCFA933B20F387B /* SearchQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F1DD229BD0098840E86A20F /* SearchQuery.swift */; };
@@ -178,6 +181,7 @@
 		B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFAB2E84EB730567221C4320 /* AppDelegate.swift */; };
 		B8C565E206D80AB162BE9AFF /* MarkdownHTMLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D846CE48E058A5CF592086 /* MarkdownHTMLTests.swift */; };
 		B8CAF95FD16B223634751E50 /* AgentActivityUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05BD6FEE37D46DDCB2327414 /* AgentActivityUI.swift */; };
+		B8CBE7BDC31AE5B642B517FF /* opensans-700i.woff in Resources */ = {isa = PBXBuildFile; fileRef = DF7E7E392BC5206401995548 /* opensans-700i.woff */; };
 		BAFF684102D19DA2B37C89B6 /* VaultLint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDB8AB2EE2DAC64CCEF5EDE1 /* VaultLint.swift */; };
 		BB135A18ACEE195F4A339EDD /* MarkdownOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */; };
 		BB65AFBF1498D96409CBE1EB /* ReviewSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84C5B36355BBCE350A32F650 /* ReviewSidebar.swift */; };
@@ -187,6 +191,7 @@
 		C6F637E34B80A58ECDDF7D7F /* ControlProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9917191640BDEC49A4A21EBD /* ControlProtocol.swift */; };
 		C76AF6181F2FDFCAEECCDB39 /* ControlLinkCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB38BB35DC1E81EC65DCEFF1 /* ControlLinkCommands.swift */; };
 		C8D7751F66CA0117C9E55A9D /* katex.js in Resources */ = {isa = PBXBuildFile; fileRef = 7CAB5B4807D5CB206D4DE973 /* katex.js */; };
+		C8F91EB59B4374C0087C10B1 /* opensans-700.woff in Resources */ = {isa = PBXBuildFile; fileRef = 74431274A3DB5CA3FD2CE085 /* opensans-700.woff */; };
 		CC0D3C752A0045479253A106 /* TableEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2146619F703F2694F0B6E2 /* TableEditingTests.swift */; };
 		CC5DCB8C753404B2696E4CB0 /* ClaudeIDEBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31548F0C4231C7F51D2F326 /* ClaudeIDEBridge.swift */; };
 		CD19F7C49BC20737F3FB0E27 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 30DF9127E3E644FF1BE638F3 /* Localizable.xcstrings */; };
@@ -310,6 +315,7 @@
 		4F1DD229BD0098840E86A20F /* SearchQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQuery.swift; sourceTree = "<group>"; };
 		5095045B9037F0630921FB05 /* LinkIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndexTests.swift; sourceTree = "<group>"; };
 		50BA444A2429A2E9B1751007 /* KaTeXResources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaTeXResources.swift; sourceTree = "<group>"; };
+		50FED2E7600FFD0E7024A637 /* opensans-400.woff */ = {isa = PBXFileReference; path = "opensans-400.woff"; sourceTree = "<group>"; };
 		52D121A56408289D8F49E90D /* DocumentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentStore.swift; sourceTree = "<group>"; };
 		55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighterTests.swift; sourceTree = "<group>"; };
 		557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocolTests.swift; sourceTree = "<group>"; };
@@ -333,12 +339,14 @@
 		712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeDocumentTests.swift; sourceTree = "<group>"; };
 		71DD337B681C18F411D1F203 /* LinkIndexPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkIndexPersistence.swift; sourceTree = "<group>"; };
 		73443608878228D727F6A239 /* MarkdownHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHighlighter.swift; sourceTree = "<group>"; };
+		74431274A3DB5CA3FD2CE085 /* opensans-700.woff */ = {isa = PBXFileReference; path = "opensans-700.woff"; sourceTree = "<group>"; };
 		749088093E0AF04AA2B75E48 /* TextDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDiffTests.swift; sourceTree = "<group>"; };
 		7515C3219FEEA448EFDED1F9 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		7534B860CEE234DA0F13BA8B /* ClaudeIDETools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDETools.swift; sourceTree = "<group>"; };
 		76CFD41043AC7BDE423F87F1 /* EditorMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorMode.swift; sourceTree = "<group>"; };
 		774FD08C74111F4D5BCA6D4F /* EditorSettingsMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSettingsMigrationTests.swift; sourceTree = "<group>"; };
 		7876EB215E777CB863F2221B /* katex.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = katex.css; sourceTree = "<group>"; };
+		7A643ECA46C69BFB2A077F38 /* opensans-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "opensans-LICENSE.txt"; sourceTree = "<group>"; };
 		7C0DE4EC9E426532AD54632F /* SearchQueryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchQueryTests.swift; sourceTree = "<group>"; };
 		7CAB5B4807D5CB206D4DE973 /* katex.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = katex.js; sourceTree = "<group>"; };
 		7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
@@ -408,6 +416,7 @@
 		BEA29A71738433F0E90E2E0C /* WorkspaceSearchSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSearchSidebar.swift; sourceTree = "<group>"; };
 		C0992CECE61C61FF3A2B9A98 /* reference.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = reference.md; sourceTree = "<group>"; };
 		C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFieldGeometry.swift; sourceTree = "<group>"; };
+		C405EA37EB9EF6ECAEEB7979 /* opensans-400i.woff */ = {isa = PBXFileReference; path = "opensans-400i.woff"; sourceTree = "<group>"; };
 		C4747C247B5CF59D5F73A751 /* SplitScrollSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitScrollSync.swift; sourceTree = "<group>"; };
 		C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorFormat.swift; sourceTree = "<group>"; };
 		CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLintTests.swift; sourceTree = "<group>"; };
@@ -430,6 +439,7 @@
 		DD16A03238CB74404043EB7D /* TagsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsSidebar.swift; sourceTree = "<group>"; };
 		DDB8AB2EE2DAC64CCEF5EDE1 /* VaultLint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLint.swift; sourceTree = "<group>"; };
 		DF74ADCECE6AA6FC05531DAD /* VisualEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEditingTests.swift; sourceTree = "<group>"; };
+		DF7E7E392BC5206401995548 /* opensans-700i.woff */ = {isa = PBXFileReference; path = "opensans-700i.woff"; sourceTree = "<group>"; };
 		E1C4048D4712E4A97A674F83 /* MarkdownTableGridTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTableGridTests.swift; sourceTree = "<group>"; };
 		E31548F0C4231C7F51D2F326 /* ClaudeIDEBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEBridge.swift; sourceTree = "<group>"; };
 		E376139687B7CCA83695B07F /* KitchenSink.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = KitchenSink.md; sourceTree = "<group>"; };
@@ -542,6 +552,18 @@
 				65C7C369C30DEA414280104E /* Views */,
 			);
 			path = EditMD;
+			sourceTree = "<group>";
+		};
+		3D584D4A46616423058BB578 /* opensans */ = {
+			isa = PBXGroup;
+			children = (
+				50FED2E7600FFD0E7024A637 /* opensans-400.woff */,
+				C405EA37EB9EF6ECAEEB7979 /* opensans-400i.woff */,
+				74431274A3DB5CA3FD2CE085 /* opensans-700.woff */,
+				DF7E7E392BC5206401995548 /* opensans-700i.woff */,
+				7A643ECA46C69BFB2A077F38 /* opensans-LICENSE.txt */,
+			);
+			path = opensans;
 			sourceTree = "<group>";
 		};
 		45E6B646C8ADB31C025E3FCA /* pi */ = {
@@ -846,6 +868,7 @@
 				9B9948AFAA8B73B67EC4C32F /* agent-skill */,
 				A6E814B53C4CD81F115C3363 /* agent-status */,
 				0C87D668957C96EC7A6C264F /* katex */,
+				3D584D4A46616423058BB578 /* opensans */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -993,6 +1016,11 @@
 				44CAD674868F9034C05C6BCA /* integration.sh in Resources */,
 				186E6C22B5D0D627F9A7A735 /* katex.css in Resources */,
 				C8D7751F66CA0117C9E55A9D /* katex.js in Resources */,
+				952D881AE9E17AE746ED5855 /* opensans-400.woff in Resources */,
+				A276625BAB166C008431F657 /* opensans-400i.woff in Resources */,
+				C8F91EB59B4374C0087C10B1 /* opensans-700.woff in Resources */,
+				B8CBE7BDC31AE5B642B517FF /* opensans-700i.woff in Resources */,
+				1FADA243D146E995B05E2AFF /* opensans-LICENSE.txt in Resources */,
 				1819F939907785E77FE0D6A1 /* prompts.md in Resources */,
 				D5149561D6042C237D8D2A08 /* reference.md in Resources */,
 				44208BFA83E5D0FC4556FA93 /* troubleshooting.md in Resources */,

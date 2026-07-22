@@ -16,6 +16,21 @@ struct PreviewTheme {
     /// when the user hasn't picked an explicit Preview font family.
     /// `nil` = keep the default system sans stack.
     let bodyFontStack: String?
+    /// Dark-appearance body stack, for themes whose reference dark look is a
+    /// different design with a different family (Typora: Github body is Open
+    /// Sans, Night is Helvetica Neue). Emitted by `pageCSS` as a dark-media
+    /// rule — and only while the user hasn't picked an explicit family, so a
+    /// user choice keeps winning in both appearances. `nil` = one stack.
+    let darkBodyFontStack: String?
+    /// `@font-face` rules for stack members macOS doesn't ship. Faces embed
+    /// bundled files as `data:` URIs: the page CSP allows only
+    /// `font-src data:`, an external font URL would never load.
+    let fontFacesCSS: String
+    /// Reference base font size / reading-column width, for themes ported
+    /// from a source that fixes its page geometry. Resolved by the
+    /// `resolved*` helpers; `nil` = keep whatever the user has.
+    let preferredFontSize: CGFloat?
+    let preferredColumnWidth: CGFloat?
     /// Rules appended after the page's base CSS (including its dark-mode
     /// block) and before the user's element CSS — later rules win at equal
     /// specificity. Themes deliberately do not set the page background or the
@@ -23,11 +38,49 @@ struct PreviewTheme {
     /// General ▸ Text color override must keep winning.
     let css: String
 
+    init(id: String, title: String, bodyFontStack: String?,
+         darkBodyFontStack: String? = nil, fontFacesCSS: String = "",
+         preferredFontSize: CGFloat? = nil, preferredColumnWidth: CGFloat? = nil,
+         css: String) {
+        self.id = id
+        self.title = title
+        self.bodyFontStack = bodyFontStack
+        self.darkBodyFontStack = darkBodyFontStack
+        self.fontFacesCSS = fontFacesCSS
+        self.preferredFontSize = preferredFontSize
+        self.preferredColumnWidth = preferredColumnWidth
+        self.css = css
+    }
+
     /// Resolved body `font-family` for the page: an explicit user family
     /// always beats the theme's stack.
     func cssFontFamily(userFamily: String) -> String {
         if !userFamily.isEmpty { return "\"\(userFamily)\", -apple-system, sans-serif" }
         return bodyFontStack ?? "-apple-system, \"Helvetica Neue\", sans-serif"
+    }
+
+    /// The theme's complete CSS layer for a page render: bundled font faces,
+    /// the look itself, and — while the user keeps the default font — the
+    /// dark-appearance body family. `css` alone stays the pure look.
+    func pageCSS(userFamily: String) -> String {
+        var out = fontFacesCSS + css
+        if userFamily.isEmpty, let dark = darkBodyFontStack {
+            out += "\n@media (prefers-color-scheme: dark) { body { font-family: \(dark); } }"
+        }
+        return out
+    }
+
+    /// Preferred geometry applies only while the user's value still equals
+    /// the stock Preview default — an explicit user change always wins, the
+    /// same contract `cssFontFamily` uses for the empty family.
+    func resolvedFontSize(user: CGFloat, stockDefault: CGFloat) -> CGFloat {
+        guard user == stockDefault, let preferred = preferredFontSize else { return user }
+        return preferred
+    }
+
+    func resolvedColumnWidth(user: CGFloat, stockDefault: CGFloat) -> CGFloat {
+        guard user == stockDefault, let preferred = preferredColumnWidth else { return user }
+        return preferred
     }
 }
 
@@ -154,16 +207,22 @@ extension PreviewTheme {
         """
     )
 
-    /// Typora's default look — the "Github" theme from
-    /// typora/typora-default-themes: bold headings on hairline rules, the
-    /// #4183C4 link blue, bordered light-gray code panels with a 3px radius,
-    /// plain gray quote text without a wash, and fully bordered tables with a
-    /// painted header row. Dark values come from Typora's own Night theme
-    /// palette (#474d54 borders, #9DA2A6 muted text).
+    /// Typora's default pair from typora/typora-default-themes — two designs,
+    /// not one recolored: light is the "Github" theme (bold Open Sans headings
+    /// on #eee hairlines, #4183C4 links, bordered gray code panels, striped
+    /// tables), dark is Typora's dark default "Night" (normal-weight Lucida
+    /// Grande headings without rules, #e0e0e0 underlined links, indented
+    /// 2px-bar quotes, #333 code panels, square bullets, zebra off). Night's
+    /// own #363B40 page background is NOT ported: themes keep the system
+    /// Canvas. Reference geometry 16px/860px comes from github.css.
     static let typora = PreviewTheme(
         id: "typora",
         title: String(localized: "Typora"),
         bodyFontStack: "\"Open Sans\", \"Clear Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        darkBodyFontStack: "\"Helvetica Neue\", Helvetica, Arial, \"Segoe UI Emoji\", \"SF Pro\", sans-serif",
+        fontFacesCSS: openSansFontFaces,
+        preferredFontSize: 16,
+        preferredColumnWidth: 860,
         css: """
         h1, h2, h3, h4, h5, h6 { font-weight: bold; line-height: 1.4; margin: 1rem 0; }
         h1 { font-size: 2.25em; line-height: 1.2; }
@@ -191,19 +250,69 @@ extension PreviewTheme {
         tbody tr:nth-child(odd) { background: none; }
         tbody tr:nth-child(even) { background: #f8f8f8; }
         @media (prefers-color-scheme: dark) {
-            h1, h2 { border-bottom-color: #474d54; }
-            h6 { color: #9DA2A6; }
-            a { color: #81b1db; }
-            code { border-color: #474d54; background: rgba(255,255,255,0.06); }
-            pre { background: rgba(255,255,255,0.05); border-color: #474d54; }
-            blockquote { border-left-color: #474d54; color: #9DA2A6; }
-            hr { background-color: #474d54; }
-            th, td { border-color: #474d54; }
-            thead { background: rgba(255,255,255,0.05); }
-            tbody tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+            h1, h2, h3, h4, h5, h6 { font-family: "Lucida Grande", "Corbel", sans-serif; font-weight: normal; color: #DEDEDE; }
+            h1 { font-size: 2.5rem; line-height: 2.75rem; margin: 2em 0 1.5rem; letter-spacing: -1.5px; }
+            h2 { font-size: 1.63rem; line-height: 1.875rem; margin: 0 0 1.5rem; letter-spacing: -1px; font-weight: bold; }
+            h3 { font-size: 1.17rem; line-height: 1.5rem; margin: 0 0 1.5rem; letter-spacing: -1px; font-weight: bold; }
+            h4 { font-size: 1.12rem; line-height: 1.375rem; margin: 0 0 1.5rem; color: white; }
+            h5 { font-size: 0.97rem; line-height: 1.25rem; margin: 0 0 1.5rem; font-weight: bold; }
+            h6 { font-size: 0.93rem; line-height: 1rem; margin: 0 0 0.75rem; color: white; }
+            h1, h2 { border-bottom: none; padding-bottom: 0; }
+            p { margin: 1rem 0; }
+            a { color: #e0e0e0; text-decoration: underline; }
+            strong { color: #DEDEDE; }
+            code { border: none; border-radius: 0; background: rgba(0,0,0,0.05); padding: 2px 5px; font-size: 0.875em; font-family: Monaco, Consolas, "Andale Mono", "DejaVu Sans Mono", monospace; }
+            pre { background: #333; border: none; border-radius: 0; padding: 10px 10px 10px 30px; }
+            pre code { font-size: 0.875em; }
+            blockquote { border-left: 2px solid #474d54; padding: 0 0 0 30px; margin: 35px 0 1.5rem 1.875rem; color: #9DA2A6; }
+            hr { background-color: #474d54; margin: 24px 0; }
+            ul { list-style: square; }
+            th, td { border: 1px solid #474d54; padding: 5px 10px; vertical-align: top; }
+            th { color: #DEDEDE; }
+            thead { background: none; }
+            tbody tr:nth-child(even) { background: none; }
         }
         """
     )
+
+    /// Open Sans faces for the Typora/Github stack, bundled from Typora's own
+    /// theme repo (`Resources/opensans/`, Apache 2.0) because macOS doesn't
+    /// ship the family — without them the theme silently fell back to
+    /// Helvetica Neue, changing metrics and line breaks. The unicode-range
+    /// mirrors github.css: latin/latin-ext only, so Cyrillic falls back to
+    /// Helvetica Neue exactly like in Typora itself.
+    private static let openSansFontFaces: String = {
+        let range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, "
+            + "U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, "
+            + "U+FFFD, U+0100-024F, U+0259, U+1E00-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, "
+            + "U+2113, U+2C60-2C7F, U+A720-A7FF"
+        let faces: [(file: String, weight: String, style: String, locals: String)] = [
+            ("opensans-400", "normal", "normal", "local('Open Sans Regular'), local('OpenSans-Regular')"),
+            ("opensans-400i", "normal", "italic", "local('Open Sans Italic'), local('OpenSans-Italic')"),
+            ("opensans-700", "bold", "normal", "local('Open Sans Bold'), local('OpenSans-Bold')"),
+            ("opensans-700i", "bold", "italic", "local('Open Sans Bold Italic'), local('OpenSans-BoldItalic')"),
+        ]
+        var css = ""
+        for face in faces {
+            // Like KaTeX: the build may flatten Resources subfolders into the
+            // bundle root, so try the subdirectory first, then flat.
+            guard let url = Bundle.main.url(forResource: face.file, withExtension: "woff",
+                                            subdirectory: "opensans")
+                    ?? Bundle.main.url(forResource: face.file, withExtension: "woff"),
+                  let data = try? Data(contentsOf: url) else { continue }
+            css += """
+            @font-face {
+                font-family: 'Open Sans';
+                font-style: \(face.style);
+                font-weight: \(face.weight);
+                src: \(face.locals), url(data:font/woff;base64,\(data.base64EncodedString())) format('woff');
+                unicode-range: \(range);
+            }
+
+            """
+        }
+        return css
+    }()
 
     /// Selection order for the Settings ▸ Preview picker.
     static let allPresets: [PreviewTheme] = [

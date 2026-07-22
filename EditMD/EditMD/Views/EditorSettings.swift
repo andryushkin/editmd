@@ -609,8 +609,7 @@ final class EditorSettings: ObservableObject {
         visual = storedVisual
         visualSpacing = Self.load(Keys.visualSpacing) ?? VisualSpacingSettings(scale: 1.0)
         visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
-        preview = Self.load(Keys.preview) ?? ModeSettings(
-            fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
+        preview = Self.load(Keys.preview) ?? Self.previewDefaults()
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
         // didSet observers don't fire during init — flush the migrated value
         // and the stamp explicitly (fresh installs get stamped too).
@@ -622,6 +621,13 @@ final class EditorSettings: ObservableObject {
     /// Preview's 736pt; `0` (full width) stays available in Settings.
     private static func visualDefaults() -> ModeSettings {
         ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 736)
+    }
+
+    /// Stock Preview defaults — also the reference point for `PreviewTheme`
+    /// preferred geometry: a theme's size/width applies only while the user's
+    /// value still equals these.
+    static func previewDefaults() -> ModeSettings {
+        ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
     }
 
     /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a
@@ -665,7 +671,7 @@ final class EditorSettings: ObservableObject {
         visualTableEditor = VisualTableEditorSettings()
     }
     func resetPreview() {
-        preview = ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
+        preview = Self.previewDefaults()
         previewTypography = PreviewTypographySettings(lineHeight: 1.6)
     }
 
