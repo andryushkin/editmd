@@ -15,6 +15,8 @@ final class EditorStripActions {
     var toggleStrikethrough: (() -> Void)?
     var toggleCodeSpan: (() -> Void)?
     var toggleHighlight: (() -> Void)?
+    /// Add/edit a link on the selection (⌘K) — both editing modes.
+    var editLink: (() -> Void)?
     /// Heading 1…3 (Title / Heading / Subheading).
     var setHeading: ((Int) -> Void)?
     /// Plain paragraph (strip structure).
@@ -30,7 +32,8 @@ final class EditorStripActions {
     var toggleQuote: (() -> Void)?
     var insertImage: (() -> Void)?
 
-    // Visual-only
+    // Table / formula insertion works in both editing modes (Source inserts
+    // raw markdown templates); the row/column ops stay Visual-only.
     var insertTable: (() -> Void)?
     var tableAddRow: (() -> Void)?
     var tableDeleteRow: (() -> Void)?
@@ -57,30 +60,32 @@ final class EditorStripActions {
 /// switcher must never be overlapped.
 struct EditorActionStrip: View {
     nonisolated private static let editingToolIDs =
-        [StripGroup.inline, .paragraph, .lists].flatMap(\.toolIDs)
-    nonisolated private static let visualExtraToolIDs = StripGroup.extras.toolIDs
+        [StripGroup.inline, .headings, .lists, .insert, .cleanup].flatMap(\.toolIDs)
 
     /// Pure, mode-aware source of truth for the tools the strip renders.
     /// Full Preview exposes only review-oriented actions; Split keeps Source
     /// editing tools and appends Review for selections from either pane.
+    /// Both editing modes get the whole Insert group; the native table
+    /// row/column ops (`table.*`) exist only where `showTableOps`.
     nonisolated static func toolIDs(for mode: EditorMode,
-                                    showVisualExtras: Bool,
+                                    showTableOps: Bool,
                                     showReviewAction: Bool) -> [String] {
         if mode == .preview {
             return ["strike", "highlight"] + (showReviewAction ? ["review"] : [])
                 + StripGroup.theme.toolIDs
         }
-        let extras = mode == .visual && showVisualExtras ? visualExtraToolIDs : []
+        let editing = showTableOps ? editingToolIDs
+            : editingToolIDs.filter { !$0.hasPrefix("table.") }
         let review = mode == .split && showReviewAction ? StripGroup.review.toolIDs : []
-        return editingToolIDs + review + extras
+        return editing + review
     }
 
     /// Actual pill order used by layout and overflow planning.
     nonisolated static func groupIDs(for mode: EditorMode,
-                                     showVisualExtras: Bool,
+                                     showTableOps: Bool,
                                      showReviewAction: Bool) -> [String] {
         let ids = Set(toolIDs(for: mode,
-                              showVisualExtras: showVisualExtras,
+                              showTableOps: showTableOps,
                               showReviewAction: showReviewAction))
         return StripGroup.allCases.compactMap { group in
             group.toolIDs.contains(where: ids.contains) ? group.rawValue : nil
@@ -107,9 +112,10 @@ struct EditorActionStrip: View {
     /// Preview only: its rail (numbers + gap) widens the text's left padding,
     /// and nobody reports the result — so the strip adds it itself.
     var previewRailWidth: CGFloat = 0
-    /// Table + formula tools (Visual only). Driven by mode, not by nil-ing
-    /// closures on the actions bag.
-    var showVisualExtras: Bool = false
+    /// Native table row/column ops (Visual only). Driven by mode, not by
+    /// nil-ing closures on the actions bag. Table/formula *insertion* shows in
+    /// both editing modes regardless.
+    var showTableOps: Bool = false
     /// Review compose exists only in the main workspace window, which owns the
     /// Review sidebar. Lite windows keep this false and omit the button.
     var showReviewAction: Bool = false
@@ -242,7 +248,7 @@ struct EditorActionStrip: View {
 
     private var activeGroups: [StripGroup] {
         Self.groupIDs(for: mode,
-                      showVisualExtras: showVisualExtras,
+                      showTableOps: showTableOps,
                       showReviewAction: showReviewAction)
             .compactMap(StripGroup.init(rawValue:))
     }
@@ -293,13 +299,26 @@ struct EditorActionStrip: View {
 
     // MARK: Groups
 
+    /// Insert items drawn as direct buttons; table/formula collapse into the
+    /// two menus next to them (the "…" overflow flattens everything).
+    private static let insertButtonIDs: Set<String> = ["image", "divider", "codeblock"]
+
     @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem]) -> some View {
-        if group == .extras {
-            // Table / formula stay menus in the strip; the "…" menu flattens
-            // them into plain items.
+        if group == .insert {
+            // Image / divider / code block are one-tap; table and formula stay
+            // menus in the strip; the "…" menu flattens them into plain items.
             cluster {
+                ForEach(items.filter { Self.insertButtonIDs.contains($0.id) }) { item in
+                    itemButton(item)
+                }
                 tableMenu
                 formulaMenu
+            }
+        } else if group == .cleanup {
+            // One eraser menu; the three utilities read by name instead of the
+            // old T / Aa / aA glyph triple (and flatten into "…" as items).
+            cluster {
+                cleanupMenu
             }
         } else if group == .theme {
             // One palette button; the presets live in its menu (and flatten
@@ -407,10 +426,9 @@ struct EditorActionStrip: View {
                           help: String(localized: "Highlight (==…==)"), menuIcon: "highlighter",
                           active: activeFormats.highlight,
                           action: { actions.run(actions.toggleHighlight) }),
-                StripItem(id: "image", glyph: .symbol("photo.badge.plus"),
-                          title: String(localized: "Add Image"), help: String(localized: "Add Image…"),
-                          menuIcon: "photo.badge.plus",
-                          action: { actions.run(actions.insertImage) }),
+                StripItem(id: "link", glyph: .symbol("link"), title: String(localized: "Link"),
+                          help: String(localized: "Add or Edit Link (⌘K)"), menuIcon: "link",
+                          action: { actions.run(actions.editLink) }),
             ]
         case .review:
             items = [
@@ -420,7 +438,7 @@ struct EditorActionStrip: View {
                     help: String(localized: "Add Review Mark from Selection"),
                     menuIcon: "plus.bubble", action: addReviewMark),
             ]
-        case .paragraph:
+        case .headings:
             items = [
                 StripItem(id: "h1", glyph: .text("H1"), title: String(localized: "Heading 1"),
                           help: String(localized: "Heading 1 (#)"), menuIcon: "textformat.size.larger",
@@ -434,25 +452,21 @@ struct EditorActionStrip: View {
                           help: String(localized: "Heading 3 (###)"), menuIcon: "textformat.size.smaller",
                           active: activeFormats.headingLevel == 3,
                           action: { runHeading(3) }),
-                StripItem(id: "plain", glyph: .text("T"), title: String(localized: "Clear Inline Formatting"),
+            ]
+        case .cleanup:
+            // Feeds the "…" overflow menu; the strip itself renders the group
+            // as `cleanupMenu`, not from these items.
+            items = [
+                StripItem(id: "plain", glyph: .symbol("eraser"), title: String(localized: "Clear Inline Formatting"),
                           help: String(localized: "Plain text (clear inline formatting)"), menuIcon: "eraser",
                           action: { actions.run(actions.clearInlineFormatting) }),
-                StripItem(id: "body", glyph: .text("Aa"), title: String(localized: "Clear Heading/List"),
+                StripItem(id: "body", glyph: .symbol("paragraphsign"), title: String(localized: "Clear Heading/List"),
                           help: String(localized: "Clear Heading/List"), menuIcon: "paragraphsign",
                           action: { actions.run(actions.setBody) }),
                 StripItem(id: "case", glyph: .text("aA"), title: String(localized: "Letter Case"),
                           help: String(localized: "Letter case: UPPER → lower → Capitalized"),
                           menuIcon: "characters.uppercase",
                           action: { actions.run(actions.cycleCase) }),
-                StripItem(id: "divider", glyph: .symbol("minus"), title: String(localized: "Divider Line"),
-                          help: String(localized: "Divider Line (---)"), menuIcon: "minus",
-                          action: { actions.run(actions.insertDivider) }),
-                StripItem(id: "codeblock",
-                          glyph: .symbol("chevron.left.forwardslash.chevron.right"),
-                          title: String(localized: "Code Block"), help: String(localized: "Code Block"),
-                          menuIcon: "chevron.left.forwardslash.chevron.right",
-                          active: activeFormats.codeBlock,
-                          action: { actions.run(actions.toggleCodeBlock) }),
             ]
         case .lists:
             items = [
@@ -487,8 +501,21 @@ struct EditorActionStrip: View {
                           active: current == preset.id,
                           action: { EditorSettings.shared.previewTypography.theme = preset.id })
             }
-        case .extras:
+        case .insert:
             items = [
+                StripItem(id: "image", glyph: .symbol("photo.badge.plus"),
+                          title: String(localized: "Add Image"), help: String(localized: "Add Image…"),
+                          menuIcon: "photo.badge.plus",
+                          action: { actions.run(actions.insertImage) }),
+                StripItem(id: "divider", glyph: .symbol("minus"), title: String(localized: "Divider Line"),
+                          help: String(localized: "Divider Line (---)"), menuIcon: "minus",
+                          action: { actions.run(actions.insertDivider) }),
+                StripItem(id: "codeblock",
+                          glyph: .symbol("chevron.left.forwardslash.chevron.right"),
+                          title: String(localized: "Code Block"), help: String(localized: "Code Block"),
+                          menuIcon: "chevron.left.forwardslash.chevron.right",
+                          active: activeFormats.codeBlock,
+                          action: { actions.run(actions.toggleCodeBlock) }),
                 StripItem(id: "table", glyph: .symbol("tablecells"),
                           title: String(localized: "Insert 3×3 Table"), help: String(localized: "Table"),
                           menuIcon: "tablecells",
@@ -520,7 +547,7 @@ struct EditorActionStrip: View {
             ]
         }
         let allowed = Set(Self.toolIDs(for: mode,
-                                       showVisualExtras: showVisualExtras,
+                                       showTableOps: showTableOps,
                                        showReviewAction: showReviewAction))
         return items.filter { allowed.contains($0.id) }
     }
@@ -534,27 +561,41 @@ struct EditorActionStrip: View {
                            active: item.active, action: item.action)
     }
 
-    // MARK: Table menu (Visual)
+    // MARK: Table menu (insertion everywhere, row/column ops Visual-only)
 
     private var tableMenu: some View {
         AccessoryBarMenu(systemImage: "tablecells",
                          help: String(localized: "Table")) {
             Button("Insert 3×3 Table") { actions.run(actions.insertTable) }
-            Divider()
-            Button("Add Row") { actions.run(actions.tableAddRow) }
-            Button("Delete Row") { actions.run(actions.tableDeleteRow) }
-            Button("Add Column") { actions.run(actions.tableAddColumn) }
-            Button("Delete Column") { actions.run(actions.tableDeleteColumn) }
+            if showTableOps {
+                Divider()
+                Button("Add Row") { actions.run(actions.tableAddRow) }
+                Button("Delete Row") { actions.run(actions.tableDeleteRow) }
+                Button("Add Column") { actions.run(actions.tableAddColumn) }
+                Button("Delete Column") { actions.run(actions.tableDeleteColumn) }
+            }
         }
     }
 
-    // MARK: Formula menu (Visual)
+    // MARK: Formula menu (both editing modes)
 
     private var formulaMenu: some View {
         AccessoryBarMenu(systemImage: "function",
                          help: String(localized: "Formula")) {
             Button("Inline Formula  $…$") { actions.run(actions.insertInlineFormula) }
             Button("Block Formula  $$…$$") { actions.run(actions.insertBlockFormula) }
+        }
+    }
+
+    // MARK: Cleanup menu (clear ×2 + letter case)
+
+    private var cleanupMenu: some View {
+        AccessoryBarMenu(systemImage: "eraser",
+                         help: String(localized: "Cleanup")) {
+            Button("Clear Inline Formatting") { actions.run(actions.clearInlineFormatting) }
+            Button("Clear Heading/List") { actions.run(actions.setBody) }
+            Divider()
+            Button("Letter case: UPPER → lower → Capitalized") { actions.run(actions.cycleCase) }
         }
     }
 
@@ -614,32 +655,34 @@ struct EditorActionStrip: View {
 
 /// Tool groups, in strip order. The trailing ones collapse into "…" first.
 private enum StripGroup: String, CaseIterable, Identifiable {
-    case inline, paragraph, lists, review, extras, theme
+    case inline, headings, lists, insert, cleanup, review, theme
 
     var id: String { rawValue }
 
     /// Section header inside the "…" menu.
     var title: String {
         switch self {
-        case .inline:    return String(localized: "Inline Styles")
-        case .review:    return "Review"
-        case .paragraph: return String(localized: "Paragraph")
-        case .lists:     return String(localized: "Lists")
-        case .extras:    return String(localized: "Tables & Formulas")
-        case .theme:     return String(localized: "Theme")
+        case .inline:   return String(localized: "Inline Styles")
+        case .headings: return String(localized: "Headings")
+        case .lists:    return String(localized: "Lists")
+        case .insert:   return String(localized: "Insert")
+        case .cleanup:  return String(localized: "Cleanup")
+        case .review:   return "Review"
+        case .theme:    return String(localized: "Theme")
         }
     }
 
     var toolIDs: [String] {
         switch self {
-        case .inline: return ["bold", "italic", "strike", "code", "highlight", "image"]
-        case .review: return ["review"]
-        case .paragraph:
-            return ["h1", "h2", "h3", "plain", "body", "case", "divider", "codeblock"]
+        case .inline: return ["bold", "italic", "strike", "code", "highlight", "link"]
+        case .headings: return ["h1", "h2", "h3"]
         case .lists: return ["bullet", "checklist", "numbered", "quote"]
-        case .extras:
-            return ["table", "table.addRow", "table.delRow", "table.addColumn",
+        case .insert:
+            return ["image", "divider", "codeblock",
+                    "table", "table.addRow", "table.delRow", "table.addColumn",
                     "table.delColumn", "math.inline", "math.block"]
+        case .cleanup: return ["plain", "body", "case"]
+        case .review: return ["review"]
         case .theme:
             return PreviewTheme.allPresets.map { "theme.\($0.id)" }
         }

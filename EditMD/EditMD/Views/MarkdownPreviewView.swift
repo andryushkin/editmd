@@ -713,6 +713,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
             actions.toggleBold = nil
             actions.toggleItalic = nil
             actions.toggleCodeSpan = nil
+            actions.editLink = nil
             actions.setHeading = nil
             actions.setBody = nil
             actions.toggleCodeBlock = nil

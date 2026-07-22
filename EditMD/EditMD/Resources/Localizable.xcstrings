@@ -7815,6 +7815,36 @@
           }
         }
       }
+    },
+    "Add or Edit Link (⌘K)": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить или изменить ссылку (⌘K)"
+          }
+        }
+      }
+    },
+    "Insert": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставка"
+          }
+        }
+      }
+    },
+    "Cleanup": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистка"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

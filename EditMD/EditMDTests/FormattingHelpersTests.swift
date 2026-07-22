@@ -378,6 +378,18 @@ final class DividerSnippetTests: XCTestCase {
     func testAtLineStartAfterSingleNewline() {
         XCTAssertEqual(insert("para\nnext", at: 5), "para\n\n---\n\nnext")
     }
+
+    /// The generalized `blockSnippet` gives a multi-line body (table template,
+    /// `$$…$$`) the same one-blank-line separation as the divider.
+    func testBlockSnippetSeparatesMultiLineBody() {
+        let ns = "para\nnext" as NSString
+        let range = NSRange(location: 5, length: 0)
+        let body = "| a |\n| --- |"
+        XCTAssertEqual(ns.replacingCharacters(
+                           in: range,
+                           with: blockSnippet(body, in: ns, replacing: range)),
+                       "para\n\n| a |\n| --- |\n\nnext")
+    }
 }
 
 // MARK: - cycleCaseAttributed (B5, Visual)

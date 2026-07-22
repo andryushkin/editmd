@@ -42,7 +42,7 @@ final class VisualEditingTests: XCTestCase {
 
     func testPreviewActionStripContainsOnlyReviewSelectionToolsAndThemes() {
         let ids = EditorActionStrip.toolIDs(
-            for: .preview, showVisualExtras: false, showReviewAction: true)
+            for: .preview, showTableOps: false, showReviewAction: true)
 
         let themeIDs = PreviewTheme.allPresets.map { "theme.\($0.id)" }
         XCTAssertEqual(ids, ["strike", "highlight", "review"] + themeIDs)
@@ -50,11 +50,12 @@ final class VisualEditingTests: XCTestCase {
                        "Preview toggles existing task boxes in-page; it must not create lists")
         XCTAssertFalse(ids.contains("bold"))
         XCTAssertFalse(ids.contains("h1"))
+        XCTAssertFalse(ids.contains("link"))
     }
 
     func testPreviewWithoutSidebarOmitsReviewAction() {
         let ids = EditorActionStrip.toolIDs(
-            for: .preview, showVisualExtras: false, showReviewAction: false)
+            for: .preview, showTableOps: false, showReviewAction: false)
         XCTAssertEqual(Array(ids.prefix(2)), ["strike", "highlight"])
         XCTAssertFalse(ids.contains("review"))
         XCTAssertTrue(ids.contains("theme.default"))
@@ -63,46 +64,54 @@ final class VisualEditingTests: XCTestCase {
     func testThemeGroupStaysOutOfEditingModes() {
         for mode in [EditorMode.source, .visual, .split] {
             XCTAssertFalse(EditorActionStrip.toolIDs(
-                for: mode, showVisualExtras: true, showReviewAction: true)
+                for: mode, showTableOps: true, showReviewAction: true)
                 .contains { $0.hasPrefix("theme.") }, "\(mode)")
         }
     }
 
     func testSourceAndVisualKeepTheirEditingProfilesWithoutCopy() {
+        // Callers pass showTableOps: mode == .visual — mirror that here.
         let source = EditorActionStrip.toolIDs(
-            for: .source, showVisualExtras: true, showReviewAction: true)
+            for: .source, showTableOps: false, showReviewAction: true)
         let visual = EditorActionStrip.toolIDs(
-            for: .visual, showVisualExtras: true, showReviewAction: true)
+            for: .visual, showTableOps: true, showReviewAction: true)
 
         XCTAssertTrue(source.contains("bold"))
         XCTAssertTrue(source.contains("image"))
+        XCTAssertTrue(source.contains("link"))
         XCTAssertFalse(source.contains("review"))
         XCTAssertFalse(source.contains("copy"))
-        XCTAssertFalse(source.contains("table"))
+        // Insert group shows in both modes: Source gets markdown templates.
+        XCTAssertTrue(source.contains("table"))
+        XCTAssertTrue(source.contains("math.inline"))
         XCTAssertTrue(visual.contains("table"))
         XCTAssertTrue(visual.contains("image"))
+        XCTAssertTrue(visual.contains("link"))
         XCTAssertFalse(visual.contains("copy"))
-        // Column ops are Visual-only, via the strip Table menu / "…" overflow.
+        // Row/column ops are Visual-only, via the strip Table menu / "…" overflow.
         XCTAssertTrue(visual.contains("table.addColumn"))
         XCTAssertTrue(visual.contains("table.delColumn"))
         XCTAssertFalse(source.contains("table.addColumn"))
+        XCTAssertFalse(source.contains("table.delRow"))
     }
 
     func testSplitAddsReviewToSourceEditingProfile() {
         let ids = EditorActionStrip.toolIDs(
-            for: .split, showVisualExtras: false, showReviewAction: true)
+            for: .split, showTableOps: false, showReviewAction: true)
 
         XCTAssertTrue(ids.contains("bold"))
         XCTAssertTrue(ids.contains("review"))
-        XCTAssertFalse(ids.contains("table"))
+        XCTAssertTrue(ids.contains("table"),
+                      "Split edits through Source — the insert templates apply")
+        XCTAssertFalse(ids.contains("table.addRow"))
         XCTAssertEqual(EditorActionStrip.groupIDs(
-            for: .split, showVisualExtras: false, showReviewAction: true),
-                       ["inline", "paragraph", "lists", "review"])
+            for: .split, showTableOps: false, showReviewAction: true),
+                       ["inline", "headings", "lists", "insert", "cleanup", "review"])
     }
 
     func testSplitWithoutSidebarOmitsReviewAction() {
         XCTAssertFalse(EditorActionStrip.toolIDs(
-            for: .split, showVisualExtras: false, showReviewAction: false)
+            for: .split, showTableOps: false, showReviewAction: false)
             .contains("review"))
     }
 
@@ -114,6 +123,8 @@ final class VisualEditingTests: XCTestCase {
         actions.toggleChecklist = {}
         actions.setHeading = { _ in }
         actions.insertImage = {}
+        actions.editLink = {}
+        actions.insertTable = {}
 
         MarkdownPreviewView.Coordinator().bindToolbar(actions)
 
@@ -124,6 +135,8 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertNil(actions.toggleChecklist)
         XCTAssertNil(actions.setHeading)
         XCTAssertNil(actions.insertImage)
+        XCTAssertNil(actions.editLink)
+        XCTAssertNil(actions.insertTable)
     }
 
     // MARK: - Image insertion

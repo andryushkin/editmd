@@ -942,7 +942,10 @@ struct SourceTextView: NSViewRepresentable {
                 toggleBulletList: { [weak self] in self?.transformSelectedLines(.bullet) },
                 toggleNumberedList: { [weak self] in self?.transformSelectedLines(.ordered) },
                 toggleQuote: { [weak self] in self?.transformSelectedLines(.quote) },
-                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() }
+                toggleCodeBlock: { [weak self] in self?.fenceSelectedLines() },
+                insertTable: { [weak self] in self?.insertTableTemplate() },
+                insertInlineFormula: { [weak self] in self?.insertFormulaTemplate(display: false) },
+                insertBlockFormula: { [weak self] in self?.insertFormulaTemplate(display: true) }
             )
             DispatchQueue.main.async { [parent] in
                 parent.onFormatActions(actions)
@@ -965,9 +968,59 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         private func insertDivider() {
-            guard let textView else { return }
+            insertBlockMarkdown("---")
+        }
+
+        /// Same 3-column shape as Visual's `insertEmptyTable`, as raw pipes.
+        private func insertTableTemplate() {
+            insertBlockMarkdown("""
+            |   |   |   |
+            | --- | --- | --- |
+            |   |   |   |
+            |   |   |   |
+            """)
+        }
+
+        /// Wraps the selection (or a placeholder) in `$…$` / `$$…$$` and leaves
+        /// the TeX body selected so typing replaces it. Raw-text counterpart of
+        /// Visual's rendered-attachment template.
+        private func insertFormulaTemplate(display: Bool) {
+            guard let textView, !textView.caretInsideFence() else {
+                NSSound.beep()
+                return
+            }
+            let selection = textView.selectedRange()
+            let ns = textView.string as NSString
+            let selected = selection.length > 0 ? ns.substring(with: selection) : nil
+            let inner: String
+            let insert: String
+            if display {
+                inner = selected ?? "E = mc^2"
+                insert = blockSnippet("$$\n\(inner)\n$$", in: ns, replacing: selection)
+            } else {
+                inner = (selected ?? "x").replacingOccurrences(of: "\n", with: " ")
+                insert = "$\(inner)$"
+            }
+            guard textView.shouldChangeText(in: selection, replacementString: insert) else { return }
+            textView.replaceCharacters(in: selection, with: insert)
+            textView.didChangeText()
+            let body = (insert as NSString).range(of: inner)
+            textView.setSelectedRange(body.location != NSNotFound
+                ? NSRange(location: selection.location + body.location, length: body.length)
+                : NSRange(location: selection.location + (insert as NSString).length, length: 0))
+        }
+
+        /// Block-element insertion shared by divider / table template: the
+        /// snippet replaces the selection with one blank line each side. The
+        /// fence guard is the same contextual rule as paste — Source never
+        /// inserts structure inside a code fence.
+        private func insertBlockMarkdown(_ body: String) {
+            guard let textView, !textView.caretInsideFence() else {
+                NSSound.beep()
+                return
+            }
             let range = textView.selectedRange()
-            let insert = dividerSnippet(in: textView.string as NSString, replacing: range)
+            let insert = blockSnippet(body, in: textView.string as NSString, replacing: range)
             guard textView.shouldChangeText(in: range, replacementString: insert) else { return }
             textView.replaceCharacters(in: range, with: insert)
             textView.didChangeText()

@@ -591,7 +591,7 @@ struct ContentView: View {
                                   railGap: mode == .preview
                                       ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
                                   previewRailWidth: mode == .preview ? previewRailWidth : 0,
-                                  showVisualExtras: mode == .visual,
+                                  showTableOps: mode == .visual,
                                   showReviewAction: allowsSidebar,
                                   addReviewMark: requestReviewMark,
                                   activeFormats: activeFormats,
@@ -658,7 +658,7 @@ struct ContentView: View {
                 onStatsUpdate: { w, c in wordCount = w; charCount = c },
                 onFormatActions: { actions in
                     formatActions = actions
-                    bindStrip(from: actions, visualExtras: true)
+                    bindStrip(from: actions)
                 },
                 onActiveFormats: { activeFormats = $0 },
                 onTextLeading: { editorTextLeading = $0 }
@@ -687,7 +687,7 @@ struct ContentView: View {
             onStatsUpdate: { w, c in wordCount = w; charCount = c },
             onFormatActions: { actions in
                 formatActions = actions
-                bindStrip(from: actions, visualExtras: false)
+                bindStrip(from: actions)
             },
             onLintUpdate: { summary in lintSummary = summary },
             onActiveFormats: { activeFormats = $0 },
@@ -696,13 +696,17 @@ struct ContentView: View {
         )
     }
 
-    /// Mirrors FormatActions into the shared strip bag.
-    private func bindStrip(from fa: FormatActions, visualExtras: Bool) {
+    /// Mirrors FormatActions into the shared strip bag. Straight copy of every
+    /// field: a mode that doesn't implement an action published nil, so the
+    /// strip inherits exactly the publisher's capabilities (Source's table
+    /// row/column ops stay nil; its insertTable is the markdown template).
+    private func bindStrip(from fa: FormatActions) {
         stripActions.toggleBold = fa.toggleBold
         stripActions.toggleItalic = fa.toggleItalic
         stripActions.toggleStrikethrough = fa.toggleStrikethrough
         stripActions.toggleCodeSpan = fa.toggleCodeSpan
         stripActions.toggleHighlight = fa.toggleHighlight
+        stripActions.editLink = fa.editLink
         stripActions.setHeading = fa.setHeading
         stripActions.setBody = fa.setBody
         stripActions.clearInlineFormatting = fa.clearInlineFormatting
@@ -714,23 +718,13 @@ struct ContentView: View {
         stripActions.toggleNumberedList = fa.toggleNumberedList
         stripActions.toggleQuote = fa.toggleQuote
         stripActions.insertImage = fa.insertImage
-        if visualExtras {
-            stripActions.insertTable = fa.insertTable
-            stripActions.tableAddRow = fa.tableAddRow
-            stripActions.tableDeleteRow = fa.tableDeleteRow
-            stripActions.tableAddColumn = fa.tableAddColumn
-            stripActions.tableDeleteColumn = fa.tableDeleteColumn
-            stripActions.insertInlineFormula = fa.insertInlineFormula
-            stripActions.insertBlockFormula = fa.insertBlockFormula
-        } else {
-            stripActions.insertTable = nil
-            stripActions.tableAddRow = nil
-            stripActions.tableDeleteRow = nil
-            stripActions.tableAddColumn = nil
-            stripActions.tableDeleteColumn = nil
-            stripActions.insertInlineFormula = nil
-            stripActions.insertBlockFormula = nil
-        }
+        stripActions.insertTable = fa.insertTable
+        stripActions.tableAddRow = fa.tableAddRow
+        stripActions.tableDeleteRow = fa.tableDeleteRow
+        stripActions.tableAddColumn = fa.tableAddColumn
+        stripActions.tableDeleteColumn = fa.tableDeleteColumn
+        stripActions.insertInlineFormula = fa.insertInlineFormula
+        stripActions.insertBlockFormula = fa.insertBlockFormula
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }
 
