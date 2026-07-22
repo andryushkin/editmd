@@ -88,10 +88,7 @@ struct AccessoryBarMenu<Content: View>: View {
         Menu {
             content
         } label: {
-            // The chevron is drawn by hand: `.menuIndicator(.visible)` is
-            // silently dropped under `.buttonStyle(.accessoryBar)`, so the
-            // system indicator never appears (seen by eye, plan 12.3).
-            HStack(spacing: 2) {
+            Group {
                 switch glyph {
                 case .symbol(let name):
                     Image(systemName: name)
@@ -100,11 +97,6 @@ struct AccessoryBarMenu<Content: View>: View {
                     Text(title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                 }
-                if showsIndicator {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
             }
             .frame(minHeight: AccessoryBarButton.glyphMinHeight)
         }
@@ -112,6 +104,20 @@ struct AccessoryBarMenu<Content: View>: View {
         .buttonStyle(.accessoryBar)
         .menuIndicator(.hidden)
         .fixedSize()
+        // Disclosure badge OUTSIDE the Menu: `.menuIndicator(.visible)` is
+        // silently dropped under this style combo, and anything composed into
+        // the label beyond the first element is flattened away by the AppKit
+        // bridge — both discovered by eye (plan 12.3). The corner chevron in
+        // our own view tree survives, and doesn't widen the measured pill.
+        .overlay(alignment: .bottomTrailing) {
+            if showsIndicator {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .offset(x: -1.5, y: -2.5)
+                    .allowsHitTesting(false)
+            }
+        }
         .editMDHelp(help)
     }
 }
