@@ -821,7 +821,8 @@ private final class VisualRenderer {
                 if text.string.utf16.contains(mathSentinelUnit) { attrs[.mdMath] = 1 }
                 out.append(NSAttributedString(string: source, attributes: attrs))
             } else {
-                appendTextWithHighlights(text.string, block: block, styles: styles, link: link)
+                appendDisplayTextStampingEscapedLiterals(
+                    text.string, source: source, block: block, styles: styles, link: link)
             }
             return
         }
@@ -872,6 +873,46 @@ private final class VisualRenderer {
         if cursor < ns.length {
             appendTextWithHighlights(
                 ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),
+                block: block, styles: styles, link: link)
+        }
+    }
+
+    /// Backslash-escaped configured markers (`\[x\]`) display as plain `[x]`
+    /// but must keep their escape on serialize — otherwise saving would turn
+    /// the author's literal into a live widget. Stamp them with a
+    /// non-interactive payload carrying the verbatim escaped source; the gaps
+    /// stay on the unescaped display path.
+    private func appendDisplayTextStampingEscapedLiterals(
+        _ display: String, source: String, block: MDBlock,
+        styles: MDInlineStyle, link: String?) {
+        let literals = link == nil && !styles.contains(.code)
+            ? pluginSnapshot.escapedLiteralTokens(in: display, matching: source)
+            : []
+        guard !literals.isEmpty else {
+            appendTextWithHighlights(display, block: block, styles: styles, link: link)
+            return
+        }
+        let ns = display as NSString
+        var cursor = 0
+        for literal in literals where literal.range.location >= cursor {
+            if literal.range.location > cursor {
+                appendTextWithHighlights(
+                    ns.substring(with: NSRange(location: cursor,
+                                               length: literal.range.location - cursor)),
+                    block: block, styles: styles, link: link)
+            }
+            let attrs = baseAttributes(block: block, styles: styles, link: link)
+            out.append(builtInPluginTokenAttributedString(
+                literal.payload,
+                font: attrs[.font] as? NSFont ?? style.font(for: styles,
+                                                            blockKind: block.kind),
+                textColor: attrs[.foregroundColor] as? NSColor ?? .labelColor,
+                attributes: attrs))
+            cursor = NSMaxRange(literal.range)
+        }
+        if cursor < ns.length {
+            appendTextWithHighlights(
+                ns.substring(from: cursor),
                 block: block, styles: styles, link: link)
         }
     }

@@ -6,7 +6,9 @@ import Foundation
 /// document model still stores the table verbatim as a `.raw` island, so this
 /// structure is display-only and never feeds serialization (round-trip stays
 /// driven by the raw markdown). Cell strings keep their inline markdown; the
-/// only unescaping done is `\|` → `|` and `\\` → `\` (GFM cell escapes).
+/// only unescaping done is `\|` → `|` (the structural pipe). Every other
+/// backslash pair (`\_`, `\[`, `\\`…) is a markdown escape that stays verbatim —
+/// re-escaping those backslashes made every grid mutation grow `\_` → `\\_`.
 struct TableGrid: Equatable {
     enum Alignment: Equatable { case leading, center, trailing }
 
@@ -118,12 +120,26 @@ func serializeGFMTable(_ grid: TableGrid) -> String {
         return row + Array(repeating: "", count: columns - row.count)
     }
 
+    // Inverse of `splitTableRow`: escape bare structural pipes, keep every
+    // existing backslash pair (a markdown escape) verbatim. Doubling those
+    // backslashes corrupted `\_`/`\[` cells on every mutation.
     func escapeCell(_ cell: String) -> String {
         var out = ""
-        for ch in cell {
-            if ch == "\\" { out += "\\\\"; continue }
-            if ch == "|" { out += "\\|"; continue }
-            out.append(ch)
+        let chars = Array(cell)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\\", i + 1 < chars.count {
+                out.append(c)
+                out.append(chars[i + 1])
+                i += 2
+            } else if c == "|" {
+                out += "\\|"
+                i += 1
+            } else {
+                out.append(c)
+                i += 1
+            }
         }
         return out
     }
@@ -157,7 +173,9 @@ func serializeGFMTable(_ grid: TableGrid) -> String {
 /// Splits one GFM table row into trimmed cells. Honors `\|` as a literal pipe
 /// (used in our vault to keep wiki-link aliases inside table cells) and drops
 /// the empty leading/trailing cells produced by border pipes, while preserving
-/// genuinely-empty interior cells.
+/// genuinely-empty interior cells. Every other backslash pair passes through
+/// verbatim — it is a markdown escape the cell's inline renderer resolves —
+/// but is consumed as a pair so `\\|` still splits on its structural pipe.
 func splitTableRow(_ line: String) -> [String] {
     var cells: [String] = []
     var current = ""
@@ -167,9 +185,14 @@ func splitTableRow(_ line: String) -> [String] {
         let c = chars[i]
         if c == "\\", i + 1 < chars.count {
             let next = chars[i + 1]
-            if next == "|" { current.append("|"); i += 2; continue }
-            if next == "\\" { current.append("\\"); i += 2; continue }
-            current.append(c); i += 1; continue
+            if next == "|" {
+                current.append("|")
+            } else {
+                current.append(c)
+                current.append(next)
+            }
+            i += 2
+            continue
         }
         if c == "|" {
             cells.append(current); current = ""; i += 1; continue

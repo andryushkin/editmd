@@ -294,7 +294,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// every display ↔ markdown map stays in document coordinates.
         private func serializeStorageWithFrontmatter(_ storage: NSTextStorage)
             -> MarkdownSerialization {
-            let detailed = serializeAttributedToMarkdownDetailed(storage)
+            let detailed = serializeAttributedToMarkdownDetailed(
+                storage, pluginSnapshot: builtInPluginSnapshot)
             guard let frontmatterBlock, !frontmatterBlock.isEmpty else { return detailed }
             let markdown = composeDocumentWithFrontmatter(frontmatterBlock,
                                                           body: detailed.markdown)

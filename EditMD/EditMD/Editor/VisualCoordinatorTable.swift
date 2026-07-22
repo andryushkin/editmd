@@ -95,7 +95,8 @@ extension VisualMarkdownView.Coordinator {
         let range = tableRange(group: group, in: storage)
         guard range.length > 0 else { return false }
         let tableAttr = storage.attributedSubstring(from: range)
-        guard var grid = parseGFMTable(serializeAttributedToMarkdown(tableAttr)) else { return false }
+        guard var grid = parseGFMTable(serializeAttributedToMarkdown(
+            tableAttr, pluginSnapshot: builtInPluginSnapshot)) else { return false }
         guard mutate(&grid), !grid.headers.isEmpty else { return false }
 
         var rendered = renderForInsertion(serializeGFMTable(grid), into: storage)

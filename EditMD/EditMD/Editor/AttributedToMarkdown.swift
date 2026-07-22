@@ -18,11 +18,15 @@ struct MarkdownSerialization {
     let displayParagraphRanges: [NSRange]
 }
 
-func serializeAttributedToMarkdown(_ attr: NSAttributedString) -> String {
-    serializeAttributedToMarkdownDetailed(attr).markdown
+func serializeAttributedToMarkdown(
+    _ attr: NSAttributedString,
+    pluginSnapshot: BuiltInPluginSnapshot = .empty) -> String {
+    serializeAttributedToMarkdownDetailed(attr, pluginSnapshot: pluginSnapshot).markdown
 }
 
-func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> MarkdownSerialization {
+func serializeAttributedToMarkdownDetailed(
+    _ attr: NSAttributedString,
+    pluginSnapshot: BuiltInPluginSnapshot = .empty) -> MarkdownSerialization {
     let nsText = attr.string as NSString
     guard nsText.length > 0 else {
         return MarkdownSerialization(
@@ -76,7 +80,8 @@ func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> Markdo
                   paragraphs[j].block.group == block.group {
                 columns = cols
                 let text = serializeInlines(attr, in: paragraphs[j].range,
-                                            block: paragraphs[j].block)
+                                            block: paragraphs[j].block,
+                                            pluginSnapshot: pluginSnapshot)
                 cells.append((row, column, text, alignment))
                 j += 1
             }
@@ -90,7 +95,8 @@ func serializeAttributedToMarkdownDetailed(_ attr: NSAttributedString) -> Markdo
             i += 1
         default:
             let prefix = linePrefix(block) + kindPrefix(block.kind)
-            let inline = serializeInlines(attr, in: range, block: block)
+            let inline = serializeInlines(attr, in: range, block: block,
+                                          pluginSnapshot: pluginSnapshot)
             pieces.append((prefix + escapeLeading(inline, kind: block.kind), block, i..<(i + 1)))
             i += 1
         }
@@ -312,7 +318,8 @@ private struct InlineRun {
 }
 
 private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
-                              block: MDBlock) -> String {
+                              block: MDBlock,
+                              pluginSnapshot: BuiltInPluginSnapshot = .empty) -> String {
     guard range.length > 0 else { return "" }
     let nsText = attr.string as NSString
 
@@ -378,7 +385,28 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
         }
 
         if let token = run.builtInPluginToken {
-            result += token.state.source
+            // Typing next to a token run inherits its attribute and merges
+            // into the same run; emitting only `state.source` would silently
+            // drop those characters. The token's own display is the icon text
+            // (attachments show as U+FFFC) — anything beyond it is ordinary
+            // typed content.
+            let display: String
+            switch token.state.icon {
+            case .emoji(let value), .text(let value): display = value
+            case .sfSymbol: display = mdObjectChar
+            }
+            if run.text == display {
+                result += token.state.source
+            } else if run.text.hasPrefix(display) {
+                result += token.state.source
+                result += escapeInline(String(run.text.dropFirst(display.count)),
+                                       continuationPrefix: continuationPrefix,
+                                       escapePipes: escapePipes)
+            } else {
+                result += escapeInline(run.text,
+                                       continuationPrefix: continuationPrefix,
+                                       escapePipes: escapePipes)
+            }
         } else if let wiki = run.wikiLink {
             // Round-trip source of truth: re-emit the verbatim inner text, never
             // reconstruct from parsed fields. After marker management so bold/
@@ -407,8 +435,10 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
         } else if run.styles.contains(.rawHTML) {
             result += run.text
         } else {
-            let escaped = escapeInline(run.text, continuationPrefix: continuationPrefix,
-                                       escapePipes: escapePipes)
+            let escaped = escapeInlinePreservingPluginTokens(
+                run.text, continuationPrefix: continuationPrefix,
+                escapePipes: escapePipes,
+                pluginSnapshot: run.link == nil ? pluginSnapshot : .empty)
             if let calloutType = block.calloutType, result.isEmpty {
                 let escapedMarker = "\\[!\(calloutType)\\]"
                 if escaped.hasPrefix(escapedMarker) {
@@ -482,6 +512,54 @@ private func codeSpan(_ text: String) -> String {
 
 /// Escapes markdown-significant characters in plain text. U+2028 (hard break)
 /// becomes the backslash form, re-applying the quote/indent prefix.
+/// Escapes plain text while keeping configured plugin token sources (`[x]`)
+/// verbatim. Visual has no way to TYPE a semantic token run, so a token typed
+/// or pasted as plain text must survive serialization and become a live
+/// widget on the next render — exactly what the same bytes mean in Source
+/// mode. Escaped literals never reach this path: the renderer stamps them
+/// with a payload run that re-emits the author's `\[x\]`.
+private func escapeInlinePreservingPluginTokens(
+    _ text: String, continuationPrefix: String, escapePipes: Bool,
+    pluginSnapshot: BuiltInPluginSnapshot) -> String {
+    let candidates = pluginSnapshot.tokenCandidates(in: text)
+    guard !candidates.isEmpty else {
+        return escapeInline(text, continuationPrefix: continuationPrefix,
+                            escapePipes: escapePipes)
+    }
+    let ns = text as NSString
+    var out = ""
+    var cursor = 0
+    for candidate in candidates {
+        let range = candidate.range
+        guard range.location >= cursor else { continue }
+        // Keep the native meaning of adjacent syntax — the same adjacency
+        // rules as the document scan (`![x]`, `[x](…)`, `[x][…]`, `[x]:`) —
+        // plus a preceding backslash: an escape typed in Visual stays one.
+        if range.location > 0 {
+            let previous = ns.character(at: range.location - 1)
+            if previous == 0x21 || previous == 0x5C { continue }
+        }
+        if NSMaxRange(range) < ns.length {
+            let next = ns.character(at: NSMaxRange(range))
+            if next == 0x28 || next == 0x5B || next == 0x3A { continue }
+        }
+        if range.location > cursor {
+            out += escapeInline(
+                ns.substring(with: NSRange(location: cursor,
+                                           length: range.location - cursor)),
+                continuationPrefix: continuationPrefix, escapePipes: escapePipes)
+        }
+        out += candidate.payload.state.source
+        cursor = NSMaxRange(range)
+    }
+    if cursor < ns.length {
+        out += escapeInline(ns.substring(from: cursor),
+                            continuationPrefix: continuationPrefix,
+                            escapePipes: escapePipes)
+    }
+    return out
+}
+
 private func escapeInline(_ text: String, continuationPrefix: String,
                           escapePipes: Bool = false) -> String {
     // A `$` reaching here is literal text — real math lives in separate

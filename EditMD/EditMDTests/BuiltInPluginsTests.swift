@@ -263,6 +263,63 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertFalse(serialized.contains(#"\["#), serialized)
     }
 
+    func testTypedPlainTokenSerializesVerbatimOutsideNativeSyntax() {
+        let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
+        let typed = NSAttributedString(string: "see [X] here, not ![X] or [X](url)")
+        let serialized = serializeAttributedToMarkdown(typed, pluginSnapshot: snapshot)
+
+        XCTAssertTrue(serialized.contains("see [X] here"), serialized)
+        XCTAssertTrue(serialized.contains(#"!\[X\]"#), serialized)
+        XCTAssertTrue(serialized.contains(#"\[X\]\(url)"#) ||
+                      serialized.contains(#"\[X\](url)"#), serialized)
+        // Without an active plugin the old escaping stands.
+        XCTAssertEqual(serializeAttributedToMarkdown(NSAttributedString(string: "[X]")),
+                       #"\[X\]"#)
+    }
+
+    func testEscapedLiteralMarkerRoundTripsAndStaysInert() throws {
+        let markdown = frontmatter + "\nprose \\[X\\] stays literal"
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        let attributed = renderMarkdownToAttributed(markdown)
+
+        let literalRange = (attributed.string as NSString).range(of: "[X]")
+        XCTAssertNotEqual(literalRange.location, NSNotFound, attributed.string)
+        let payload = try XCTUnwrap(attributed.attribute(
+            .mdBuiltInPluginToken, at: literalRange.location,
+            effectiveRange: nil) as? BuiltInPluginTokenPayload)
+        XCTAssertFalse(payload.isInteractive)
+        XCTAssertEqual(payload.state.source, "\\[X\\]")
+
+        XCTAssertEqual(
+            composeDocumentWithFrontmatter(
+                frontmatter,
+                body: serializeAttributedToMarkdown(attributed, pluginSnapshot: snapshot)),
+            frontmatter + "\n\nprose \\[X\\] stays literal")
+    }
+
+    func testTableRebuildPipelineIsByteStableForEscapesAndTokens() throws {
+        // The full Visual insert-row pipeline: serialize the rendered table →
+        // grid mutation → re-render the fragment → serialize. Tokens stay
+        // tokens, `\_` escapes stay single — this exact path used to produce
+        // `\[X\]` and `vitamin\\\_d`.
+        let body = "| S | V |\n| --- | --- |\n| [X] | vitamin\\_d |"
+        let markdown = frontmatter + "\n" + body
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        let serializedTable = serializeAttributedToMarkdown(
+            renderMarkdownToAttributed(markdown), pluginSnapshot: snapshot)
+        XCTAssertEqual(serializedTable, body)
+
+        var grid = try XCTUnwrap(parseGFMTable(serializedTable))
+        grid.insertRow(at: 1)
+        let fragment = serializeGFMTable(grid)
+        let rerendered = renderMarkdownToAttributed(
+            fragment,
+            pluginSnapshot: BuiltInPluginRegistry.snapshot(forFragment: fragment,
+                                                           in: snapshot))
+        XCTAssertEqual(serializeAttributedToMarkdown(rerendered, pluginSnapshot: snapshot),
+                       body + "\n|  |  |")
+    }
+
     func testVisualRoundTripNeverSerializesSentinelsForInactiveCoreCheckboxes() {
         let markdown = frontmatter + "\n- [ ] open\n- [x] done"
         let attributed = renderMarkdownToAttributed(markdown)

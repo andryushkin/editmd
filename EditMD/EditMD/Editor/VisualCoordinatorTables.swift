@@ -129,6 +129,22 @@ extension VisualMarkdownView.Coordinator {
             for cell in cells { alignmentByColumn[cell.column] = cell.alignment }
 
             let insertion = NSMutableAttributedString()
+            // A document-closing table has no "\n" after its last cell. The
+            // first inserted newline would then terminate THAT cell instead of
+            // forming the new row's first cell — the row would come up one
+            // paragraph short and its first column would not exist at all.
+            let lastText = (storage.string as NSString).substring(with: last.range)
+            if !lastText.hasSuffix("\n") {
+                var closing = MDBlock(kind: .tableCell(row: last.row, column: last.column,
+                                                       columns: columns,
+                                                       alignment: last.alignment))
+                closing.group = group
+                insertion.append(NSAttributedString(string: "\n", attributes: [
+                    .font: visualStyle.font(for: [], blockKind: closing.kind),
+                    .foregroundColor: NSColor.labelColor,
+                    .mdBlock: closing,
+                ]))
+            }
             for column in 0..<columns {
                 var cellBlock = MDBlock(kind: .tableCell(row: newRow, column: column,
                                                          columns: columns,

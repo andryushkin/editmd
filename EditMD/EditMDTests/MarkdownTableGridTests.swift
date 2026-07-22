@@ -166,6 +166,8 @@ final class MarkdownTableGridTests: XCTestCase {
     // MARK: editable grid + serialization
 
     func testSerializePreservesAlignmentsAndEscapes() {
+        // Cell strings are inline markdown: a bare pipe gets the structural
+        // escape, an existing backslash pair passes through verbatim.
         let grid = TableGrid(
             headers: ["A", "B"],
             rows: [["x|y", #"a\b"#]],
@@ -173,8 +175,26 @@ final class MarkdownTableGridTests: XCTestCase {
         )
         XCTAssertEqual(
             serializeGFMTable(grid),
-            "| A | B |\n| :-: | --: |\n| x\\|y | a\\\\b |"
+            "| A | B |\n| :-: | --: |\n| x\\|y | a\\b |"
         )
+    }
+
+    func testGridMutationKeepsMarkdownEscapesVerbatim() throws {
+        // `\_` / `\[` are markdown escapes inside cell markdown. Re-escaping
+        // their backslashes made every row op grow them: `\_` → `\\_` → `\\\\_`.
+        let raw = "| A |\n| --- |\n| vitamin\\_d |\n| pdf\\_x \\[9\\] |"
+        var grid = try XCTUnwrap(parseGFMTable(raw))
+        grid.insertRow(at: 0)
+        let serialized = serializeGFMTable(grid)
+        XCTAssertTrue(serialized.contains("| vitamin\\_d |"), serialized)
+        XCTAssertTrue(serialized.contains("| pdf\\_x \\[9\\] |"), serialized)
+        XCTAssertEqual(serializeGFMTable(try XCTUnwrap(parseGFMTable(serialized))),
+                       serialized)
+    }
+
+    func testSplitTreatsEscapedBackslashPipeAsBoundary() {
+        // `\\|` = literal backslash, then a STRUCTURAL pipe: three cells.
+        XCTAssertEqual(splitTableRow(#"| a\\ | b | c |"#), [#"a\\"#, "b", "c"])
     }
 
     func testUpdateInsertDeleteRowFlow() {
@@ -207,7 +227,7 @@ final class MarkdownTableGridTests: XCTestCase {
         grid.insertRow(at: 1)
         grid.updateCell(row: 2, column: 1, value: #"a\b"#)
         let serialized = serializeGFMTable(grid)
-        XCTAssertEqual(serialized, "| A | B |\n| --- | --: |\n| x\\|y | 2 |\n|  | a\\\\b |")
+        XCTAssertEqual(serialized, "| A | B |\n| --- | --: |\n| x\\|y | 2 |\n|  | a\\b |")
         let reparsed = try XCTUnwrap(parseGFMTable(serialized))
         XCTAssertEqual(reparsed.alignments, [.leading, .trailing])
         XCTAssertEqual(reparsed.rows, [["x|y", "2"], ["", #"a\b"#]])

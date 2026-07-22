@@ -190,11 +190,51 @@ struct BuiltInPluginSnapshot: Sendable {
         return result
     }
 
+    /// Backslash-escaped configured markers in a Text node, in DISPLAY
+    /// coordinates: candidates in `displaySource` aligned against the raw
+    /// `source`, keeping only occurrences whose source form carries an escape.
+    /// Each result is a non-interactive token whose payload `source` is the
+    /// VERBATIM escaped form — Visual stamps these on render so serialization
+    /// reproduces the author's escape instead of reviving a live widget.
+    func escapedLiteralTokens(in displaySource: String,
+                              matching source: String) -> [BuiltInPluginToken] {
+        guard displaySource != source else { return [] }
+        let displayed = tokenCandidates(in: displaySource)
+        guard !displayed.isEmpty else { return [] }
+
+        let ns = source as NSString
+        var displayIndex = 0
+        var result: [BuiltInPluginToken] = []
+        for occurrence in configuredMarkerOccurrences(in: source) {
+            while displayIndex < displayed.count,
+                  displayed[displayIndex].payload.state.source != occurrence.source {
+                displayIndex += 1
+            }
+            guard displayIndex < displayed.count else { break }
+            if !occurrence.isExactSourceToken {
+                let candidate = displayed[displayIndex]
+                let state = BuiltInPluginTokenState(
+                    source: ns.substring(with: occurrence.range),
+                    label: "Escaped checkbox marker",
+                    icon: .text(candidate.payload.state.source),
+                    strikethrough: false)
+                result.append(BuiltInPluginToken(
+                    range: candidate.range,
+                    payload: BuiltInPluginTokenPayload(
+                        pluginID: candidate.payload.pluginID,
+                        states: [state], stateIndex: 0, isInteractive: false),
+                    isListMarker: false))
+            }
+            displayIndex += 1
+        }
+        return result
+    }
+
     private func configuredMarkerOccurrences(in source: String)
-        -> [(source: String, isExactSourceToken: Bool)] {
+        -> [(source: String, isExactSourceToken: Bool, range: NSRange)] {
         guard !interactivePayloadBySource.isEmpty else { return [] }
         let ns = source as NSString
-        var result: [(String, Bool)] = []
+        var result: [(String, Bool, NSRange)] = []
         var offset = 0
         while offset < ns.length {
             guard ns.character(at: offset) == 0x5B else {
@@ -202,18 +242,26 @@ struct BuiltInPluginSnapshot: Sendable {
                 continue
             }
 
+            // An odd run of backslashes directly before `[` escapes it.
+            var backslashes = 0
+            while offset - backslashes - 1 >= 0,
+                  ns.character(at: offset - backslashes - 1) == 0x5C {
+                backslashes += 1
+            }
+            let openEscaped = backslashes % 2 == 1
+
             // Common and semantically active form: exact three UTF-16 units.
-            if offset + 3 <= ns.length {
+            if !openEscaped, offset + 3 <= ns.length {
                 let exactRange = NSRange(location: offset, length: 3)
                 let exact = ns.substring(with: exactRange)
                 if interactivePayloadBySource[exact] != nil {
-                    result.append((exact, true))
+                    result.append((exact, true, exactRange))
                     offset += 3
                     continue
                 }
             }
 
-            // cmark can unescape the marker or closing bracket. Record that
+            // cmark can unescape the brackets or the marker. Record that
             // displayed occurrence for alignment, but never make it a widget.
             var markerLocation = offset + 1
             var markerEscaped = false
@@ -238,7 +286,11 @@ struct BuiltInPluginSnapshot: Sendable {
             }
             let normalized = "[\(marker)]"
             if interactivePayloadBySource[normalized] != nil {
-                result.append((normalized, !markerEscaped && !closingEscaped))
+                let start = openEscaped ? offset - 1 : offset
+                result.append((normalized,
+                               !openEscaped && !markerEscaped && !closingEscaped,
+                               NSRange(location: start,
+                                       length: closingLocation + 1 - start)))
             }
             offset = closingLocation + 1
         }
