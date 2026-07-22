@@ -81,6 +81,17 @@ final class PreviewThemeTests: XCTestCase {
         XCTAssertTrue(page.contains("font-style: italic"), page)
     }
 
+    func testTyporaThemePageUsesOpenSansStackAndGithubTokens() {
+        let theme = PreviewTheme.preset(named: "typora")
+        let page = previewHTMLPage(markdown: "[l](https://e)", fontSize: 14,
+                                   fontFamily: theme.cssFontFamily(userFamily: ""),
+                                   themeCSS: theme.css)
+        XCTAssertTrue(page.contains("Open Sans"), page)
+        // Typora's Github-theme link blue and quote gray survive into the page.
+        XCTAssertTrue(page.contains("#4183C4"), page)
+        XCTAssertTrue(page.contains("border-left: 4px solid #dfe2e5"), page)
+    }
+
     // MARK: - Settings persistence
 
     func testPreviewTypographySettingsDecodeWithoutThemeField() throws {

@@ -154,9 +154,60 @@ extension PreviewTheme {
         """
     )
 
+    /// Typora's default look — the "Github" theme from
+    /// typora/typora-default-themes: bold headings on hairline rules, the
+    /// #4183C4 link blue, bordered light-gray code panels with a 3px radius,
+    /// plain gray quote text without a wash, and fully bordered tables with a
+    /// painted header row. Dark values come from Typora's own Night theme
+    /// palette (#474d54 borders, #9DA2A6 muted text).
+    static let typora = PreviewTheme(
+        id: "typora",
+        title: String(localized: "Typora"),
+        bodyFontStack: "\"Open Sans\", \"Clear Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        css: """
+        h1, h2, h3, h4, h5, h6 { font-weight: bold; line-height: 1.4; margin: 1rem 0; }
+        h1 { font-size: 2.25em; line-height: 1.2; }
+        h2 { font-size: 1.75em; line-height: 1.225; }
+        h3 { font-size: 1.5em; line-height: 1.43; }
+        h4 { font-size: 1.25em; }
+        h5 { font-size: 1em; }
+        h6 { font-size: 1em; color: #777; opacity: 1; }
+        h1, h2 { border-bottom: 1px solid #eee; padding-bottom: 0; }
+        h1 code, h2 code, h3 code, h4 code, h5 code, h6 code { font-size: inherit; }
+        p { margin: 0.8em 0; }
+        ul, ol { margin: 0.8em 0; padding-left: 30px; }
+        li > ul, li > ol { margin: 0; }
+        a { color: #4183C4; }
+        code { border: 1px solid #e7eaed; background: #f3f4f4; border-radius: 3px; padding: 0 2px; font-size: 0.9em; }
+        pre { background: #f8f8f8; border: 1px solid #e7eaed; border-radius: 3px; padding: 8px 12px 6px; }
+        pre code { border: none; font-size: 0.9em; }
+        blockquote { border-left: 4px solid #dfe2e5; border-radius: 0; background: none; padding: 0 15px; color: #777777; opacity: 1; }
+        blockquote.callout { color: inherit; }
+        hr { border: none; height: 2px; background-color: #e7e7e7; margin: 16px 0; }
+        table { margin: 0.8em 0; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { font-weight: bold; }
+        thead { background: #f8f8f8; }
+        tbody tr:nth-child(odd) { background: none; }
+        tbody tr:nth-child(even) { background: #f8f8f8; }
+        @media (prefers-color-scheme: dark) {
+            h1, h2 { border-bottom-color: #474d54; }
+            h6 { color: #9DA2A6; }
+            a { color: #81b1db; }
+            code { border-color: #474d54; background: rgba(255,255,255,0.06); }
+            pre { background: rgba(255,255,255,0.05); border-color: #474d54; }
+            blockquote { border-left-color: #474d54; color: #9DA2A6; }
+            hr { background-color: #474d54; }
+            th, td { border-color: #474d54; }
+            thead { background: rgba(255,255,255,0.05); }
+            tbody tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+        }
+        """
+    )
+
     /// Selection order for the Settings ▸ Preview picker.
     static let allPresets: [PreviewTheme] = [
-        .standard, .minimal, .literary, .academic, .technical,
+        .standard, .minimal, .literary, .academic, .technical, .typora,
     ]
 
     /// Looks up a theme by its persisted id, falling back to the default look

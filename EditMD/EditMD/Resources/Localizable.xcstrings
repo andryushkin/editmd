@@ -7445,6 +7445,16 @@
         }
       }
     },
+    "Typora" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Typora"
+          }
+        }
+      }
+    },
     "Ultra Light" : {
       "localizations" : {
         "ru" : {
