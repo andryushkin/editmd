@@ -137,6 +137,10 @@ struct EditorActionStrip: View {
 
     private static let modeKey = "__mode"
     private static let overflowKey = "__overflow"
+    /// The terminal (lane-alone) overflow pill: wider than "…" because of the
+    /// glyph + chevron, so it is measured separately and planning reserves
+    /// the larger of the two.
+    private static let soloOverflowKey = "__overflow.solo"
     private static let gutterKey = "__gutter"
     /// Measurement key suffix for a group's compact representation.
     private static let compactKeySuffix = ".compact"
@@ -186,7 +190,8 @@ struct EditorActionStrip: View {
                 budget: toolLaneWidth - 2 * Self.toolWellPaddingH,
                 groupGap: Self.groupGap,
                 overflowGap: Self.overflowGap,
-                overflowWidth: widths[Self.overflowKey] ?? 0,
+                overflowWidth: max(widths[Self.overflowKey] ?? 0,
+                                   widths[Self.soloOverflowKey] ?? 0),
                 items: groups.map { group in
                     StripLayoutItem(
                         id: group.rawValue,
@@ -217,7 +222,8 @@ struct EditorActionStrip: View {
                     }
                     if !overflowGroups.isEmpty {
                         overflowPill(overflowGroups, itemsByID: itemsByID,
-                                     nodesByGroup: nodesByGroup)
+                                     nodesByGroup: nodesByGroup,
+                                     collapsedAlone: visibleGroups.isEmpty)
                     }
                 }
                 // Compact metrics: at .regular the accessory buttons carry
@@ -416,6 +422,9 @@ struct EditorActionStrip: View {
             }
             overflowPill([], itemsByID: itemsByID, nodesByGroup: nodesByGroup)
                 .measureWidth(key: Self.overflowKey)
+            overflowPill([], itemsByID: itemsByID, nodesByGroup: nodesByGroup,
+                         collapsedAlone: true)
+                .measureWidth(key: Self.soloOverflowKey)
             modePill.measureWidth(key: Self.modeKey)
             gutterPill.measureWidth(key: Self.gutterKey)
         }
@@ -515,11 +524,19 @@ struct EditorActionStrip: View {
         return "H"
     }
 
+    /// `collapsedAlone` — terminal state, the pill is the whole lane: a bare
+    /// "…" next to nothing reads as noise, so it becomes the system text-
+    /// format glyph with a visible chevron (user call, 12.3): "the tools
+    /// live in here". Next to visible groups it stays the quiet "…".
     private func overflowPill(_ groups: [StripGroup],
                               itemsByID: [String: StripItem],
-                              nodesByGroup: [String: [StripCommandNode]]) -> some View {
-        AccessoryBarMenu(systemImage: "ellipsis",
-                         help: String(localized: "More Tools")) {
+                              nodesByGroup: [String: [StripCommandNode]],
+                              collapsedAlone: Bool = false) -> some View {
+        AccessoryBarMenu(systemImage: collapsedAlone ? "textformat" : "ellipsis",
+                         help: collapsedAlone
+                             ? String(localized: "Formatting Tools")
+                             : String(localized: "More Tools"),
+                         showsIndicator: collapsedAlone) {
             ForEach(groups) { group in
                 Section(group.title) {
                     menuRows(nodesByGroup[group.rawValue] ?? [], itemsByID: itemsByID)

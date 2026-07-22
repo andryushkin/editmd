@@ -3034,6 +3034,16 @@
         }
       }
     },
+    "Formatting Tools" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инструменты форматирования"
+          }
+        }
+      }
+    },
     "Formula" : {
       "localizations" : {
         "ru" : {
