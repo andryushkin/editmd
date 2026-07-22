@@ -37,17 +37,24 @@ struct AccessoryBarButton: View {
         .editMDHelp(help)
     }
 
+    /// Uniform label height: a squat glyph (the divider's bare "—") otherwise
+    /// shrinks the accessory backplate to a thin capsule next to full-height
+    /// neighbours (12.3 eye-feedback). Height only — width stays intrinsic
+    /// (a minWidth read as visibly oversized buttons).
+    static let glyphMinHeight: CGFloat = 13
+
     @ViewBuilder private var label: some View {
-        // No extra frame: the accessory style pads its own hit target, and a
-        // minWidth on top of that read as visibly oversized buttons.
-        switch glyph {
-        case .symbol(let name):
-            Image(systemName: name)
-                .font(.system(size: 12, weight: .medium))
-        case .text(let title):
-            Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+        Group {
+            switch glyph {
+            case .symbol(let name):
+                Image(systemName: name)
+                    .font(.system(size: 12, weight: .medium))
+            case .text(let title):
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            }
         }
+        .frame(minHeight: Self.glyphMinHeight)
     }
 }
 
@@ -99,6 +106,7 @@ struct AccessoryBarMenu<Content: View>: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(minHeight: AccessoryBarButton.glyphMinHeight)
         }
         .menuStyle(.button)
         .buttonStyle(.accessoryBar)
