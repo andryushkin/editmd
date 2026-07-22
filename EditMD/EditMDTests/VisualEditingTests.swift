@@ -40,6 +40,18 @@ final class VisualEditingTests: XCTestCase {
             stripWidth: 500, editingPaneWidth: 700), 500)
     }
 
+    /// Plan 12.0: the tool lane runs from the field's left edge to the mode
+    /// switch — the text column's trailing margin must not shrink it.
+    func testToolLaneRunsFromLeadToModeSwitch() {
+        // Wide window: everything after lead/mode metrics belongs to the lane.
+        XCTAssertEqual(EditorActionStrip.resolvedToolLaneWidth(
+            stripWidth: 1500, lead: 90, trailingInset: 14, modeWidth: 130, modeGap: 8),
+            1500 - 90 - 14 - 130 - 8)
+        // Narrow window clamps at zero instead of going negative.
+        XCTAssertEqual(EditorActionStrip.resolvedToolLaneWidth(
+            stripWidth: 200, lead: 90, trailingInset: 14, modeWidth: 130, modeGap: 8), 0)
+    }
+
     func testPreviewActionStripContainsOnlyReviewSelectionToolsAndThemes() {
         let ids = EditorActionStrip.toolIDs(
             for: .preview, showTableOps: false, showReviewAction: true)

@@ -155,19 +155,16 @@ struct EditorActionStrip: View {
                 stripWidth: geo.size.width, editingPaneWidth: editingPaneWidth)
             let field = field(for: editingWidth)
             let lead = field.textLeading
-            // The strip is one bar spanning Source + Preview, so the tools flow
-            // across the whole width up to the mode switch — they no longer stop
-            // at the split divider. Clipping them to the Source pane left the bar
-            // half empty while groups collapsed into "…" with room to spare.
-            // `laneBeforeMode` already reserves the switch's width, so overflow
-            // triggers only when the full-width lane is genuinely too tight.
-            let fieldTrail = max(field.textTrailing, SidebarChrome.barPaddingH)
-            let stripTrail = editingPaneWidth == nil
-                ? fieldTrail : SidebarChrome.barPaddingH
+            // The strip is one bar: the tools flow from the field's left edge
+            // across the whole width up to the mode switch. The right boundary
+            // is ALWAYS the switch (plan 12.0) — it used to be the text
+            // column's trailing margin in non-split, which parked a dead zone
+            // on wide windows and collapsed groups into "…" with room to spare.
+            let stripTrail = SidebarChrome.barPaddingH
             let modeWidth = widths[Self.modeKey] ?? 0
-            let laneBeforeMode = max(0, geo.size.width - lead - stripTrail
-                                       - modeWidth - Self.groupSpacing)
-            let toolLaneWidth = laneBeforeMode
+            let toolLaneWidth = Self.resolvedToolLaneWidth(
+                stripWidth: geo.size.width, lead: lead, trailingInset: stripTrail,
+                modeWidth: modeWidth, modeGap: Self.groupSpacing)
             // The well's own horizontal padding eats into the lane before any
             // group does — without this the "…" collapse triggers a dozen
             // points late and the last group clips under the switcher.
@@ -242,6 +239,17 @@ struct EditorActionStrip: View {
     nonisolated static func resolvedEditingPaneWidth(stripWidth: CGFloat,
                                                      editingPaneWidth: CGFloat?) -> CGFloat {
         min(max(0, editingPaneWidth ?? stripWidth), max(0, stripWidth))
+    }
+
+    /// Tool-lane width: everything between the field's left edge and the mode
+    /// switch. All metrics are explicit (plan 12.0) — the lane must NOT depend
+    /// on the text column's trailing margin.
+    nonisolated static func resolvedToolLaneWidth(stripWidth: CGFloat,
+                                                  lead: CGFloat,
+                                                  trailingInset: CGFloat,
+                                                  modeWidth: CGFloat,
+                                                  modeGap: CGFloat) -> CGFloat {
+        max(0, stripWidth - lead - trailingInset - modeWidth - modeGap)
     }
 
     // MARK: Overflow planning
