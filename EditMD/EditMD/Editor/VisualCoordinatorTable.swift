@@ -49,8 +49,14 @@ extension VisualMarkdownView.Coordinator {
     /// render's group ids past every group already present. Without the shift
     /// a pasted table/list starts at group 1 and can collide with an existing
     /// group — the serializer would glue adjacent same-group blocks together.
+    /// Plugin tokens activate from the document snapshot: the fragment has no
+    /// frontmatter of its own, and losing the semantic runs would make the
+    /// next serialization escape every token (`[x]` → `\[x\]`).
     func renderForInsertion(_ markdown: String, into storage: NSTextStorage) -> NSAttributedString {
-        let rendered = renderMarkdownToAttributed(markdown, style: visualStyle)
+        let rendered = renderMarkdownToAttributed(
+            markdown, style: visualStyle,
+            pluginSnapshot: BuiltInPluginRegistry.snapshot(
+                forFragment: markdown, in: builtInPluginSnapshot))
         let base = uniqueGroup(in: storage) - 1
         guard base > 0, rendered.length > 0 else { return rendered }
         let mutable = NSMutableAttributedString(attributedString: rendered)

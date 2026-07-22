@@ -350,6 +350,28 @@ enum BuiltInPluginRegistry {
         })
     }
 
+    /// Snapshot for a markdown FRAGMENT rendered for insertion into a document
+    /// whose activations are `document` (table rebuilds, paste). The fragment
+    /// carries no frontmatter, so activation comes from the document and only
+    /// token ranges are rescanned locally. Without this a re-rendered fragment
+    /// loses its semantic runs and serialization escapes tokens to `\[x\]`.
+    static func snapshot(forFragment fragment: String,
+                         in document: BuiltInPluginSnapshot) -> BuiltInPluginSnapshot {
+        guard !fragment.isEmpty, !document.activations.isEmpty else { return .empty }
+        return BuiltInPluginSnapshot(activations: document.activations.compactMap {
+            activation -> BuiltInPluginActivation? in
+            guard activation.descriptor.id == MultiCheckboxPlugin.pluginID,
+                  let initial = activation.initialChecklistPayload else { return nil }
+            let tokens = MultiCheckboxPlugin.scanTokens(
+                in: fragment,
+                configuration: MultiCheckboxConfiguration(states: initial.states))
+            return BuiltInPluginActivation(
+                descriptor: activation.descriptor, tokens: tokens,
+                ownsCoreCheckboxSyntax: activation.ownsCoreCheckboxSyntax,
+                initialChecklistPayload: initial)
+        })
+    }
+
     static func ownsCoreCheckboxSyntax(in markdown: String) -> Bool {
         plugins.contains {
             $0.ownsCoreCheckboxSyntax && $0.isEnabled(in: markdown)
@@ -558,6 +580,9 @@ struct MultiCheckboxPlugin: BuiltInMarkdownPlugin {
     let ownsCoreCheckboxSyntax = true
 
     private static let initialStateLines = [
+        #"- marker: " ""#,
+        #"  label: To do"#,
+        #"  icon: "sf:square""#,
         #"- marker: "-""#,
         #"  label: Not started"#,
         #"  icon: "sf:circle""#,

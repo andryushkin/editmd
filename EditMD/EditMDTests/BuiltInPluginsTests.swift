@@ -226,6 +226,43 @@ final class BuiltInPluginsTests: XCTestCase {
             frontmatter + "\n\n- [-] queued\n\nprose [?]\n\n| S |\n| --- |\n| [X] |")
     }
 
+    func testFragmentSnapshotReusesDocumentActivationWithLocalOffsets() {
+        let document = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
+        let fragment = "| S |\n| --- |\n| [X] |"
+        let snapshot = BuiltInPluginRegistry.snapshot(forFragment: fragment, in: document)
+
+        XCTAssertEqual(snapshot.tokens.map { $0.payload.state.source }, ["[X]"])
+        XCTAssertEqual(snapshot.tokens.first?.range,
+                       (fragment as NSString).range(of: "[X]"))
+        XCTAssertTrue(BuiltInPluginRegistry.snapshot(forFragment: fragment,
+                                                     in: .empty).tokens.isEmpty)
+        XCTAssertTrue(BuiltInPluginRegistry.snapshot(forFragment: "",
+                                                     in: document).tokens.isEmpty)
+    }
+
+    func testTableRowDeleteRerenderKeepsPluginTokensUnescaped() throws {
+        // Mirrors Visual's rebuildNativeTable pipeline: serialize the rendered
+        // table → grid mutation → re-render the fragment with the document's
+        // plugin snapshot → serialize. Tokens must stay verbatim, not `\[X\]`.
+        let markdown = frontmatter
+            + "\n| S | V |\n| --- | --- |\n| [X] | one |\n| [?] | two |"
+        let serializedTable = serializeAttributedToMarkdown(
+            renderMarkdownToAttributed(markdown))
+        var grid = try XCTUnwrap(parseGFMTable(serializedTable))
+        XCTAssertTrue(grid.deleteRow(at: 1))
+
+        let fragment = serializeGFMTable(grid)
+        let document = BuiltInPluginRegistry.snapshot(for: markdown)
+        let rerendered = renderMarkdownToAttributed(
+            fragment,
+            pluginSnapshot: BuiltInPluginRegistry.snapshot(forFragment: fragment,
+                                                           in: document))
+        let serialized = serializeAttributedToMarkdown(rerendered)
+
+        XCTAssertTrue(serialized.contains("| [X] | one |"), serialized)
+        XCTAssertFalse(serialized.contains(#"\["#), serialized)
+    }
+
     func testVisualRoundTripNeverSerializesSentinelsForInactiveCoreCheckboxes() {
         let markdown = frontmatter + "\n- [ ] open\n- [x] done"
         let attributed = renderMarkdownToAttributed(markdown)
@@ -506,29 +543,31 @@ struct BuiltInPluginPreviewConfigurationTests {
             expectedSource: "[-]") == nil)
     }
 
-    @Test func installsSmallestValidTemplateWithoutFrontmatter() throws {
+    @Test func installsTemplateWithEmptyBoxFirstWithoutFrontmatter() throws {
         let updated = try #require(BuiltInPluginRegistry.installPlugin(
             id: MultiCheckboxPlugin.pluginID, in: "# Existing title"))
         let configuration = try #require(MultiCheckboxPlugin.configuration(in: updated))
 
-        #expect(configuration.states.count == 1)
-        #expect(configuration.states[0].source == "[-]")
-        #expect(configuration.states[0].icon == .sfSymbol("circle"))
+        #expect(configuration.states.map(\.source) == ["[ ]", "[-]"])
+        #expect(configuration.states[0].label == "To do")
+        #expect(configuration.states[0].icon == .sfSymbol("square"))
+        #expect(configuration.states[1].icon == .sfSymbol("circle"))
         #expect(updated.hasSuffix("# Existing title"))
         #expect(BuiltInPluginRegistry.declaredPluginIDs(in: updated)
             == Set([MultiCheckboxPlugin.pluginID]))
         #expect(BuiltInPluginRegistry.installPlugin(
             id: MultiCheckboxPlugin.pluginID, in: updated) == nil)
-        let tokenDocument = updated + "\n[-] One state"
+        let tokenDocument = updated + "\n[-] One item"
         let offset = (tokenDocument as NSString).range(of: "[-]", options: .backwards).location
-        #expect(BuiltInPluginRegistry.cycleToken(in: tokenDocument, at: offset) == nil)
+        let cycled = try #require(BuiltInPluginRegistry.cycleToken(in: tokenDocument,
+                                                                   at: offset))
+        #expect(cycled.hasSuffix("[ ] One item"))
         let html = markdownHTMLBody(tokenDocument)
         #expect(html.contains("class=\"multi-checkbox\""))
-        #expect(html.contains("disabled aria-disabled=\"true\""))
+        #expect(!html.contains("disabled aria-disabled=\"true\""))
         let token = try #require(BuiltInPluginRegistry.snapshot(for: tokenDocument)
             .token(startingAt: offset))
-        #expect(token.payload.isInteractive)
-        #expect(!token.payload.canCycle)
+        #expect(token.payload.canCycle)
     }
 
     @Test func duplicateMarkersProduceVisibleConfigurationDiagnostic() throws {
@@ -608,22 +647,22 @@ struct BuiltInPluginPreviewConfigurationTests {
         let updated = try #require(BuiltInPluginRegistry.installPlugin(
             id: MultiCheckboxPlugin.pluginID, in: markdown))
 
-        #expect(MultiCheckboxPlugin.configuration(in: updated)?.states.count == 1)
+        #expect(MultiCheckboxPlugin.configuration(in: updated)?.states.count == 2)
         #expect(updated.contains("title: Existing") || updated.contains("another-setting: true")
                 || updated.contains("another-plugin:"))
         #expect(updated.hasSuffix("Body"))
     }
 
-    @Test func addStateTurnsInitialTemplateIntoTwoStateCycle() throws {
+    @Test func addStateAppendsAfterInstalledTemplate() throws {
         let installed = try #require(BuiltInPluginRegistry.installPlugin(
             id: MultiCheckboxPlugin.pluginID, in: "Body"))
         let updated = try #require(BuiltInPluginRegistry.addConfigurationState(
             pluginID: MultiCheckboxPlugin.pluginID, in: installed))
         let configuration = try #require(MultiCheckboxPlugin.configuration(in: updated))
 
-        #expect(configuration.states.map(\.source) == ["[-]", "[x]"])
-        #expect(configuration.states[1].label == "State 2")
+        #expect(configuration.states.map(\.source) == ["[ ]", "[-]", "[x]"])
+        #expect(configuration.states[2].label == "State 3")
         #expect(BuiltInPluginRegistry.checklistCards(in: updated)
-            .first?.states.count == 2)
+            .first?.states.count == 3)
     }
 }
