@@ -241,12 +241,16 @@ func isSetextUnderline(_ line: some StringProtocol) -> Bool {
 }
 
 /// Setext heading level for the paragraph, or nil. Demands BOTH the
-/// highlighter's heading span (cmark's verdict) and that the underline is the
-/// LAST LINE OF THAT SAME SPAN: a bare `#` followed by `---` is an empty ATX
-/// heading plus a thematic break — two constructs a next-line peek glued back
-/// together (review P1). Anchoring at the span's end also lights every line
-/// of a multi-line Setext title (`Foo *bar\nbaz*\n====`), not just the one
-/// right above the underline (review P2).
+/// highlighter's heading span (cmark's verdict) and the underline INSIDE that
+/// same span: a bare `#` followed by `---` is an empty ATX heading plus a
+/// thematic break — two constructs a next-line peek glued back together
+/// (review P1). Every line of a multi-line Setext title lights (review P2).
+///
+/// The anchor walks the span's lines for the FIRST underline-shaped one and
+/// lights only paragraphs at or before it: swift-markdown's heading range can
+/// bleed into the NEXT block when no blank line follows the underline
+/// (`Title\n===\nbody` reports one heading span over all three lines), so
+/// "last line of the span" is not trustworthy.
 func setextHeadingLevel(spans: [Span], paragraph: NSRange, text: NSString) -> Int? {
     guard let span = spans.first(where: { span in
         if case .headingBody = span.kind {
@@ -255,10 +259,17 @@ func setextHeadingLevel(spans: [Span], paragraph: NSRange, text: NSString) -> In
         }
         return false
     }), case .headingBody(let level) = span.kind, span.range.length > 0 else { return nil }
-    let lastIndex = min(NSMaxRange(span.range), text.length) - 1
-    guard lastIndex >= span.range.location else { return nil }
-    let lastLine = text.paragraphRange(for: NSRange(location: lastIndex, length: 0))
-    return isSetextUnderline(text.substring(with: lastLine)) ? level : nil
+    var location = span.range.location
+    let spanEnd = min(NSMaxRange(span.range), text.length)
+    while location < spanEnd {
+        let line = text.paragraphRange(for: NSRange(location: location, length: 0))
+        if isSetextUnderline(text.substring(with: line)) {
+            return paragraph.location < NSMaxRange(line) ? level : nil
+        }
+        if NSMaxRange(line) == location { break }
+        location = NSMaxRange(line)
+    }
+    return nil
 }
 
 /// Reduces two per-line classifications to their uniform intersection —

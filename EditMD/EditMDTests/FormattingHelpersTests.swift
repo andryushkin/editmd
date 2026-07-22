@@ -473,6 +473,8 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertEqual(levels(of: "# ATX\nbody"), [nil, nil])
         // Setext H2 via dashes.
         XCTAssertEqual(levels(of: "Sub\n---"), [2, 2])
+        // Body after the underline stays outside the heading span.
+        XCTAssertEqual(levels(of: "Title\n===\nbody"), [1, 1, nil])
     }
 
     /// Review P1: the Setext fallback must demand the literal underline —
