@@ -138,7 +138,13 @@ struct EditorActionStrip: View {
     private static let modeKey = "__mode"
     private static let overflowKey = "__overflow"
     private static let gutterKey = "__gutter"
+    /// Gap to the strip's service neighbours: mode switch, "…", gutter toggle.
     private static let groupSpacing: CGFloat = 8
+    /// Semantic boundary between tool groups inside the well (plan 12.1 —
+    /// proximity grouping instead of hairlines; 12 pt, art-locked).
+    private static let groupGap: CGFloat = 12
+    /// Gap before the "…" overflow pill (service control, not a group).
+    private static let overflowGap: CGFloat = 8
     /// Inner horizontal pad of the shared tool well.
     private static let toolWellPaddingH: CGFloat = 6
     /// Optical nudge for the toggle: half the empty space around its glyph.
@@ -171,9 +177,13 @@ struct EditorActionStrip: View {
             let plan = plan(available: toolLaneWidth - 2 * Self.toolWellPaddingH,
                             groups: groups)
             HStack(alignment: .center, spacing: 0) {
-                HStack(alignment: .center, spacing: Self.groupSpacing) {
-                    ForEach(plan.visible) { group in
-                        groupPill(group, items: itemsByGroup[group] ?? [])
+                // groupGap separates semantic groups; the "…" pill is a
+                // service control and sits at the tighter overflowGap.
+                HStack(alignment: .center, spacing: Self.overflowGap) {
+                    HStack(alignment: .center, spacing: Self.groupGap) {
+                        ForEach(plan.visible) { group in
+                            groupPill(group, items: itemsByGroup[group] ?? [])
+                        }
                     }
                     if !plan.overflow.isEmpty {
                         overflowPill(plan.overflow, itemsByGroup: itemsByGroup)
@@ -268,14 +278,14 @@ struct EditorActionStrip: View {
         let measured = groups.map { widths[$0.rawValue] ?? 0 }
         guard !measured.contains(where: { $0 <= 0 }) else { return (groups, []) }
         let total = measured.reduce(0, +)
-            + Self.groupSpacing * CGFloat(max(0, groups.count - 1))
+            + Self.groupGap * CGFloat(max(0, groups.count - 1))
         if total <= available { return (groups, []) }
 
-        let budget = available - (widths[Self.overflowKey] ?? 0) - Self.groupSpacing
+        let budget = available - (widths[Self.overflowKey] ?? 0) - Self.overflowGap
         var visible: [StripGroup] = []
         var used: CGFloat = 0
         for (group, width) in zip(groups, measured) {
-            let cost = visible.isEmpty ? width : width + Self.groupSpacing
+            let cost = visible.isEmpty ? width : width + Self.groupGap
             guard used + cost <= budget else { break }
             visible.append(group)
             used += cost
