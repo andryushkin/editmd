@@ -170,9 +170,12 @@ private func plainTextAsCellMarkdown(_ text: String) -> String {
     text.contains("\\") ? text.replacingOccurrences(of: "\\", with: "\\\\") : text
 }
 
-private func inlineMarkdown(_ node: XMLNode) -> String {
+private func inlineMarkdown(_ node: XMLNode, insideCode: Bool = false) -> String {
     guard let element = node as? XMLElement else {
-        return plainTextAsCellMarkdown(node.stringValue ?? "")
+        let text = node.stringValue ?? ""
+        // Inside a code wrapper the text lands in a `code span`, where
+        // CommonMark keeps backslashes literal — doubling would show `\\`.
+        return insideCode ? text : plainTextAsCellMarkdown(text)
     }
     let name = (element.name ?? "").lowercased()
     if name == "br" { return " " }
@@ -181,7 +184,10 @@ private func inlineMarkdown(_ node: XMLNode) -> String {
         let alt = element.attribute(forName: "alt")?.stringValue ?? ""
         return src.isEmpty ? alt : "![\(alt)](\(src)) "
     }
-    let inner = (element.children ?? []).map(inlineMarkdown).joined()
+    let isCodeWrapper = ["code", "tt", "kbd", "samp"].contains(name)
+    let inner = (element.children ?? [])
+        .map { inlineMarkdown($0, insideCode: insideCode || isCodeWrapper) }
+        .joined()
     switch name {
     case "b", "strong":
         return wrapped(inner, in: "**")
@@ -191,7 +197,12 @@ private func inlineMarkdown(_ node: XMLNode) -> String {
         return wrapped(inner, in: "~~")
     case "code", "tt", "kbd", "samp":
         let trimmed = inner.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty || trimmed.contains("`") ? inner : "`\(trimmed)`"
+        guard !trimmed.isEmpty, !trimmed.contains("`") else {
+            // No code span possible — the raw text re-enters the plain
+            // inline-markdown context and needs its escaping after all.
+            return insideCode ? inner : plainTextAsCellMarkdown(inner)
+        }
+        return "`\(trimmed)`"
     case "a":
         let href = element.attribute(forName: "href")?.stringValue ?? ""
         let text = inner.trimmingCharacters(in: .whitespaces)

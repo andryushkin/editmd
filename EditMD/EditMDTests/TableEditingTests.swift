@@ -270,6 +270,18 @@ final class TableClipboardHTMLTests: XCTestCase {
         XCTAssertTrue(md?.contains("a\\|b") == true, "\(md ?? "")")
     }
 
+    func testBackslashDoublingIsCodeContextAware() {
+        // Plain text needs doubled backslashes (inline-markdown cell
+        // contract); a code span keeps them literal, so doubling there would
+        // display `\\` — codex review, round 3.
+        let html = "<table><tr><th>Plain</th><th>Code</th></tr>" +
+                   "<tr><td>C:\\dir\\_x</td><td><code>C:\\dir\\_x</code></td></tr></table>"
+        let md = markdownTablesFromHTML(html)
+        XCTAssertTrue(md?.contains("| C:\\\\dir\\\\_x |") == true, "\(md ?? "")")
+        XCTAssertTrue(md?.contains("`C:\\dir\\_x`") == true, "\(md ?? "")")
+        XCTAssertTrue(md?.contains("`C:\\\\") != true, "\(md ?? "")")
+    }
+
     func testSingleColumnTableRejected() {
         // A copied Excel cell/column arrives as a 1-column <table> — that
         // should stay plain text, not become a degenerate pipe table.
