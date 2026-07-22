@@ -263,6 +263,40 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertFalse(serialized.contains(#"\["#), serialized)
     }
 
+    func testTokenRunSerializesThroughSFSymbolTextFallback() {
+        // An unresolvable SF Symbol renders the token as its source TEXT, not
+        // as an attachment. Serialization must still recognize that run as
+        // the token — review follow-up (codex P1).
+        let state = BuiltInPluginTokenState(source: "[X]", label: "Done",
+                                            icon: .sfSymbol("no.such.symbol.zzz"),
+                                            strikethrough: false)
+        let payload = BuiltInPluginTokenPayload(pluginID: MultiCheckboxPlugin.pluginID,
+                                                states: [state], stateIndex: 0)
+        let rendered = builtInPluginTokenAttributedString(
+            payload, font: .systemFont(ofSize: 14), textColor: .labelColor)
+        XCTAssertEqual(rendered.string, "[X]")
+        XCTAssertEqual(serializeAttributedToMarkdown(rendered), "[X]")
+    }
+
+    func testTextMergedIntoTokenRunKeepsBothTokenAndText() {
+        // Typing at a paragraph start inherits the following token's
+        // attribute; typing after a token inherits it too. Neither side may
+        // be dropped, and U+FFFC must never leak — review follow-up (codex P2).
+        let states = [BuiltInPluginTokenState(source: "[?]", label: "Review",
+                                              icon: .emoji("❓"), strikethrough: false)]
+        let payload = BuiltInPluginTokenPayload(pluginID: MultiCheckboxPlugin.pluginID,
+                                                states: states, stateIndex: 0)
+        let merged = NSMutableAttributedString(string: "abc❓xyz")
+        merged.addAttribute(.mdBuiltInPluginToken, value: payload,
+                            range: NSRange(location: 0, length: merged.length))
+        XCTAssertEqual(serializeAttributedToMarkdown(merged), "abc[?]xyz")
+
+        let leaked = NSMutableAttributedString(string: "no icon here\u{FFFC}")
+        leaked.addAttribute(.mdBuiltInPluginToken, value: payload,
+                            range: NSRange(location: 0, length: leaked.length))
+        XCTAssertEqual(serializeAttributedToMarkdown(leaked), "no icon here")
+    }
+
     func testTypedPlainTokenSerializesVerbatimOutsideNativeSyntax() {
         let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
         let typed = NSAttributedString(string: "see [X] here, not ![X] or [X](url)")

@@ -386,26 +386,34 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
 
         if let token = run.builtInPluginToken {
             // Typing next to a token run inherits its attribute and merges
-            // into the same run; emitting only `state.source` would silently
-            // drop those characters. The token's own display is the icon text
-            // (attachments show as U+FFFC) — anything beyond it is ordinary
-            // typed content.
-            let display: String
+            // into the same run (before the token at a paragraph start, after
+            // it elsewhere); emitting only `state.source` would silently drop
+            // those characters. The token's own display is the icon text; an
+            // SF Symbol shows as the U+FFFC attachment char, or as the source
+            // text when the symbol name does not resolve on this system.
+            let displays: [String]
             switch token.state.icon {
-            case .emoji(let value), .text(let value): display = value
-            case .sfSymbol: display = mdObjectChar
+            case .emoji(let value), .text(let value):
+                displays = [value]
+            case .sfSymbol:
+                displays = [mdObjectChar, token.state.source]
             }
-            if run.text == display {
+            func plain(_ text: Substring) -> String {
+                escapeInline(String(text), continuationPrefix: continuationPrefix,
+                             escapePipes: escapePipes)
+            }
+            if displays.contains(run.text) {
                 result += token.state.source
-            } else if run.text.hasPrefix(display) {
+            } else if let range = displays.lazy
+                .compactMap({ run.text.range(of: $0) }).first {
+                result += plain(run.text[..<range.lowerBound])
                 result += token.state.source
-                result += escapeInline(String(run.text.dropFirst(display.count)),
-                                       continuationPrefix: continuationPrefix,
-                                       escapePipes: escapePipes)
+                result += plain(run.text[range.upperBound...])
             } else {
-                result += escapeInline(run.text,
-                                       continuationPrefix: continuationPrefix,
-                                       escapePipes: escapePipes)
+                // Attribute leaked onto unrelated text — the attachment char
+                // must never reach the markdown file.
+                result += plain(Substring(
+                    run.text.replacingOccurrences(of: mdObjectChar, with: "")))
             }
         } else if let wiki = run.wikiLink {
             // Round-trip source of truth: re-emit the verbatim inner text, never
