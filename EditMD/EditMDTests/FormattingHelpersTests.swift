@@ -392,6 +392,51 @@ final class DividerSnippetTests: XCTestCase {
     }
 }
 
+// MARK: - Source block states (strip toggles)
+
+final class SourceLineBlockTests: XCTestCase {
+
+    func testClassifiesPrefixes() {
+        XCTAssertEqual(classifyMarkdownLine("## Title").headingLevel, 2)
+        XCTAssertNil(classifyMarkdownLine("#NoSpace").headingLevel)
+        XCTAssertNil(classifyMarkdownLine("####### seven").headingLevel)
+        XCTAssertTrue(classifyMarkdownLine("- item").bullet)
+        XCTAssertTrue(classifyMarkdownLine("  * indented").bullet)
+        XCTAssertFalse(classifyMarkdownLine("-no space").bullet)
+        XCTAssertTrue(classifyMarkdownLine("- [x] done").checklist)
+        XCTAssertFalse(classifyMarkdownLine("- [x] done").bullet,
+                       "Task lines are checklists, not bullets")
+        XCTAssertTrue(classifyMarkdownLine("3. third").numbered)
+        XCTAssertTrue(classifyMarkdownLine("12) twelfth").numbered)
+        XCTAssertFalse(classifyMarkdownLine("3.14 pi").numbered)
+        XCTAssertTrue(classifyMarkdownLine("> quoted").quote)
+    }
+
+    func testQuoteMarkersPeelBeforeInnerBlocks() {
+        let nested = classifyMarkdownLine("> # Quoted title")
+        XCTAssertTrue(nested.quote)
+        XCTAssertEqual(nested.headingLevel, 1)
+        let list = classifyMarkdownLine("> > - deep")
+        XCTAssertTrue(list.quote)
+        XCTAssertTrue(list.bullet)
+    }
+
+    func testUniformStatesRequireEveryLine() {
+        // H1 + plain paragraph — the caret-probe bug lit H1 here.
+        let mixed = uniformBlockStates(["# Title", "plain text"])
+        XCTAssertNil(mixed.headingLevel)
+        XCTAssertFalse(mixed.quote)
+
+        let allBullets = uniformBlockStates(["- a", "- b"])
+        XCTAssertTrue(allBullets.bullet)
+
+        let sameLevel = uniformBlockStates(["## a", "## b"])
+        XCTAssertEqual(sameLevel.headingLevel, 2)
+        XCTAssertNil(uniformBlockStates(["## a", "# b"]).headingLevel)
+        XCTAssertEqual(uniformBlockStates([String]()), SourceLineBlock())
+    }
+}
+
 // MARK: - cycleCaseAttributed (B5, Visual)
 
 final class CycleCaseAttributedTests: XCTestCase {

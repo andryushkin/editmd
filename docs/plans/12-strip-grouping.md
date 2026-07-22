@@ -158,7 +158,7 @@ gutter  inline           headings   lists        insert         cleanup    mode-
 | --- | --- | --- | --- |
 | cleanup | нет (уже одна кнопка-меню) | — | 0 |
 | theme | нет (уже одна кнопка-меню) | — | 1 |
-| insert | `plus`▾ — меню: Image / Divider / Code Block / подменю Table / подменю Formula | 0 | 2 |
+| insert | `plus.square.dashed`▾ — меню: Image / Divider / Code Block / подменю Table / подменю Formula | 0 | 2 |
 | lists | `list.bullet`▾ — toggle-пункты четырёх видов, системный checkmark на активных | 1 | 3 |
 | headings | динамический глиф `H1`/`H2`/`H3`▾ (вне заголовка — нейтральный), toggle-пункты уровней 1–3 | 2 | 4 |
 | review | нет (одна кнопка) | — | 5 |
@@ -337,8 +337,8 @@ UI-рендер каждого представления обходит дер�
 - Набор действий во всех ступенях идентичен: `toolIDs(for:)` проверяет состав, тест
   дерева команд — `flatten(full) == flatten(compact) == flatten(overflow)` по четырём
   режимам, отдельный тест планировщика — представление и порядок.
-- Compact-кнопки: системный menu indicator, явный accessibility label, tooltip,
-  keyboard focus.
+- Compact-кнопки: chevron-бейдж в углу (системный menu indicator мёртв — см. гочу в
+  «Решениях 12.3»), явный accessibility label, tooltip, keyboard focus.
 - Активные Heading/List в compact-меню — toggle-пункты с системным checkmark; повторный
   клик снимает стиль; Quote и активный список отмечены одновременно.
 - Compact headings показывает активный уровень в глифе; смена уровня не меняет ширину

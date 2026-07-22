@@ -178,6 +178,80 @@ func blockSnippet(_ body: String, in text: NSString, replacing range: NSRange) -
     return prefix + body + suffix
 }
 
+// MARK: - Source block states (strip toggles)
+
+/// Block-level markers of one raw markdown line, by prefix.
+struct SourceLineBlock: Equatable {
+    var headingLevel: Int? = nil
+    var quote = false
+    var bullet = false
+    var numbered = false
+    var checklist = false
+}
+
+/// Classifies one raw markdown line for the strip's block toggles. Quote
+/// markers peel off first, so `> # H` reports quote + heading. Task lines are
+/// checklists, not bullets (mirrors Visual's block kinds). Continuation lines
+/// of a wrapped list item carry no marker and classify as plain — the
+/// uniform-across-lines rule then reads them as "not a list", which is the
+/// honest failure mode for a prefix-based scan.
+func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
+    var out = SourceLineBlock()
+    var s = Substring(line)
+    s = s.drop(while: { $0 == " " || $0 == "\t" })
+    while s.first == ">" {
+        out.quote = true
+        s = s.dropFirst().drop(while: { $0 == " " || $0 == "\t" })
+    }
+    if s.first == "#" {
+        let hashes = s.prefix(while: { $0 == "#" })
+        if hashes.count <= 6, s.dropFirst(hashes.count).first == " " {
+            out.headingLevel = hashes.count
+        }
+        return out
+    }
+    if let marker = s.first, "-*+".contains(marker), s.dropFirst().first == " " {
+        let rest = s.dropFirst(2).drop(while: { $0 == " " })
+        if rest.count >= 3, rest.first == "[" {
+            let mark = rest[rest.index(rest.startIndex, offsetBy: 1)]
+            if mark == " " || mark == "x" || mark == "X",
+               rest[rest.index(rest.startIndex, offsetBy: 2)] == "]" {
+                out.checklist = true
+                return out
+            }
+        }
+        out.bullet = true
+        return out
+    }
+    let digits = s.prefix(while: \.isNumber)
+    if !digits.isEmpty, digits.count <= 9 {
+        let after = s.dropFirst(digits.count)
+        if let punct = after.first, punct == "." || punct == ")",
+           after.dropFirst().first == " " {
+            out.numbered = true
+        }
+    }
+    return out
+}
+
+/// Uniform block states across the selected lines: a state is on only when
+/// EVERY line carries it — the same all-paragraphs rule Visual applies, so
+/// the strip's toggle checkmarks describe the whole selection, not just the
+/// caret line.
+func uniformBlockStates(_ lines: [some StringProtocol]) -> SourceLineBlock {
+    guard let first = lines.first else { return SourceLineBlock() }
+    var acc = classifyMarkdownLine(first)
+    for line in lines.dropFirst() {
+        let next = classifyMarkdownLine(line)
+        if acc.headingLevel != next.headingLevel { acc.headingLevel = nil }
+        acc.quote = acc.quote && next.quote
+        acc.bullet = acc.bullet && next.bullet
+        acc.numbered = acc.numbered && next.numbered
+        acc.checklist = acc.checklist && next.checklist
+    }
+    return acc
+}
+
 // MARK: - Case cycle (B5)
 
 /// The transform `cycleCase` picked for the current selection state.

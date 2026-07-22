@@ -278,10 +278,13 @@ struct ContentView: View {
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
-        // Active formats are published per editor, and a mode that doesn't
-        // compute a field must not inherit the previous mode's value: Source
-        // reports inline styles only, so H1 lit in Visual stayed lit across
-        // the switch forever (its dedup guard never fires on "no change").
+        // Active formats are published per editor, and a mode must not
+        // inherit fields the incoming editor won't recompute (Source's list
+        // states are prefix-based, Visual's block-model — they disagree on
+        // edge cases; historically a Visual H1 stayed lit in Source forever).
+        // Belt: reset here. Braces: each coordinator force-emits its first
+        // computed value and drops publishes queued after its view left the
+        // window, so a stale async can't re-inject flags past this reset.
         activeFormats = ActiveInlineFormats()
         // Leaving Preview retires its ⌘F find bar and highlights.
         if newMode != .preview { previewFind.close() }

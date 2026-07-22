@@ -603,7 +603,10 @@ struct VisualMarkdownView: NSViewRepresentable {
             wikiCompletion.update(fileURL: parent.fileURL)
         }
 
-        private var lastPublishedFormats = ActiveInlineFormats()
+        /// nil until the first publish — the first computed value must always
+        /// emit, even when it equals the default (it overrides whatever a
+        /// previous mode left in the shared state).
+        private var lastPublishedFormats: ActiveInlineFormats?
 
         private func publishActiveFormats() {
             guard let textView, let storage = textView.textStorage else { return }
@@ -674,7 +677,12 @@ struct VisualMarkdownView: NSViewRepresentable {
             guard fmt != lastPublishedFormats else { return }
             lastPublishedFormats = fmt
             let callback = parent.onActiveFormats
-            DispatchQueue.main.async { callback?(fmt) }
+            DispatchQueue.main.async { [weak self] in
+                // A publish queued by an outgoing editor must not land after
+                // the mode switch reset the shared state (review fix).
+                guard self?.textView?.window != nil else { return }
+                callback?(fmt)
+            }
         }
 
         func textView(_ view: NSTextView, shouldChangeTextIn affectedRange: NSRange,

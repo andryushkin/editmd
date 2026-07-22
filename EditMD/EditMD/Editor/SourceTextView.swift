@@ -323,7 +323,10 @@ struct SourceTextView: NSViewRepresentable {
         /// `==…==` runs of the last highlighted text — recomputed with the
         /// spans cache, NEVER on selection change (no O(text) per caret move).
         var cachedHighlightMarks: [HighlightMarkMatch] = []
-        var lastPublishedFormats = ActiveInlineFormats()
+        /// nil until the first publish — the first computed value must always
+        /// emit, even when it equals the default (it overrides whatever a
+        /// previous mode left in the shared state).
+        var lastPublishedFormats: ActiveInlineFormats?
         /// Wiki `[[` autocomplete (plan 03).
         lazy var wikiCompletion = WikiCompletionController(
             apply: { [weak self] tv, range, replacement in
@@ -625,7 +628,17 @@ struct SourceTextView: NSViewRepresentable {
             applyLintUnderlines(lintDiagnostics)
         }
 
-        /// Active formats from `cachedSpans` only — never re-runs collectSpans.
+        /// Lines whose block states describe the WHOLE selection stop being
+        /// computed past this many lines: ⌘A on a huge file must not classify
+        /// every line on each selection change. Beyond the cap the block
+        /// toggles read "off" — honest degradation.
+        private static let blockStateLineCap = 512
+
+        /// Active formats: inline styles from `cachedSpans` at the caret;
+        /// block states (heading/quote/lists/code) computed structurally over
+        /// every selected line, mirroring Visual's all-paragraphs rule — a
+        /// caret-point probe lit H1 for a selection that also covered plain
+        /// paragraphs (review fix).
         private func publishActiveFormats() {
             guard let textView else { return }
             let pos = textView.selectedRange().location
@@ -641,16 +654,12 @@ struct SourceTextView: NSViewRepresentable {
                 case .italicBody, .italicMarker: fmt.italic = true
                 case .code, .codeMarker: fmt.code = true
                 case .strikethroughBody, .strikethroughMarker: fmt.strikethrough = true
-                // Block states the spans identify unambiguously — the strip
-                // toggles light in Source too (12.3 eye-feedback). Lists stay
-                // off: no span kind covers a whole item with its kind.
-                case .headingBody(let level): fmt.headingLevel = level
-                case .quoteBody, .quoteMarker: fmt.quote = true
-                case .codeBlockBody, .codeBlockFence: fmt.codeBlock = true
                 default: break
                 }
             }
             let selection = textView.selectedRange()
+            applyBlockStates(&fmt, selection: selection,
+                             in: textView.string as NSString)
             let highlightProbe = selection.length == 0
                 ? NSRange(location: pos, length: 0) : selection
             fmt.highlight = cachedHighlightMarks.contains { mark in
@@ -666,7 +675,48 @@ struct SourceTextView: NSViewRepresentable {
             guard fmt != lastPublishedFormats else { return }
             lastPublishedFormats = fmt
             let callback = parent.onActiveFormats
-            DispatchQueue.main.async { callback?(fmt) }
+            DispatchQueue.main.async { [weak self] in
+                // A publish queued by an outgoing editor must not land after
+                // the mode switch reset the shared state (review fix).
+                guard self?.textView?.window != nil else { return }
+                callback?(fmt)
+            }
+        }
+
+        /// Selected paragraph ranges → uniform block states + span-based code
+        /// block coverage (fences need context a line prefix can't see).
+        private func applyBlockStates(_ fmt: inout ActiveInlineFormats,
+                                      selection: NSRange, in nsText: NSString) {
+            var lineRanges: [NSRange] = []
+            var location = nsText.paragraphRange(
+                for: NSRange(location: min(selection.location, nsText.length),
+                             length: 0)).location
+            let selectionEnd = max(NSMaxRange(selection), location + 1)
+            while location < selectionEnd && location <= nsText.length {
+                let paragraph = nsText.paragraphRange(
+                    for: NSRange(location: location, length: 0))
+                lineRanges.append(paragraph)
+                if lineRanges.count > Self.blockStateLineCap { return }
+                if NSMaxRange(paragraph) == location { break }
+                location = NSMaxRange(paragraph)
+            }
+            let block = uniformBlockStates(lineRanges.map { nsText.substring(with: $0) })
+            fmt.headingLevel = block.headingLevel
+            fmt.quote = block.quote
+            fmt.bulletList = block.bullet
+            fmt.numberedList = block.numbered
+            fmt.checklist = block.checklist
+            fmt.codeBlock = !lineRanges.isEmpty && lineRanges.allSatisfy { paragraph in
+                cachedSpans.contains { span in
+                    switch span.kind {
+                    case .codeBlockBody, .codeBlockFence:
+                        return NSIntersectionRange(span.range, paragraph).length > 0
+                            || NSLocationInRange(paragraph.location, span.range)
+                    default:
+                        return false
+                    }
+                }
+            }
         }
 
         /// The shared caret dance: clamp to the current text, select, reveal
