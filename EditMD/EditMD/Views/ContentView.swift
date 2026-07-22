@@ -278,6 +278,11 @@ struct ContentView: View {
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
+        // Active formats are published per editor, and a mode that doesn't
+        // compute a field must not inherit the previous mode's value: Source
+        // reports inline styles only, so H1 lit in Visual stayed lit across
+        // the switch forever (its dedup guard never fires on "no change").
+        activeFormats = ActiveInlineFormats()
         // Leaving Preview retires its ⌘F find bar and highlights.
         if newMode != .preview { previewFind.close() }
         if newMode != .visual {

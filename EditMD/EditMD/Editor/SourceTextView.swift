@@ -641,6 +641,12 @@ struct SourceTextView: NSViewRepresentable {
                 case .italicBody, .italicMarker: fmt.italic = true
                 case .code, .codeMarker: fmt.code = true
                 case .strikethroughBody, .strikethroughMarker: fmt.strikethrough = true
+                // Block states the spans identify unambiguously — the strip
+                // toggles light in Source too (12.3 eye-feedback). Lists stay
+                // off: no span kind covers a whole item with its kind.
+                case .headingBody(let level): fmt.headingLevel = level
+                case .quoteBody, .quoteMarker: fmt.quote = true
+                case .codeBlockBody, .codeBlockFence: fmt.codeBlock = true
                 default: break
                 }
             }
