@@ -190,8 +190,8 @@ struct EditorActionStrip: View {
                 budget: toolLaneWidth - 2 * Self.toolWellPaddingH,
                 groupGap: Self.groupGap,
                 overflowGap: Self.overflowGap,
-                overflowWidth: max(widths[Self.overflowKey] ?? 0,
-                                   widths[Self.soloOverflowKey] ?? 0),
+                overflowWidth: widths[Self.overflowKey] ?? 0,
+                soloOverflowWidth: widths[Self.soloOverflowKey] ?? 0,
                 items: groups.map { group in
                     StripLayoutItem(
                         id: group.rawValue,
@@ -206,17 +206,21 @@ struct EditorActionStrip: View {
             let overflowGroups = groups.filter { displayByID[$0.rawValue] == .overflow }
             HStack(alignment: .center, spacing: 0) {
                 // groupGap separates semantic groups; the "…" pill is a
-                // service control and sits at the tighter overflowGap.
+                // service control and sits at the tighter overflowGap. The
+                // group container renders only when non-empty: an empty HStack
+                // still counts as a sibling and its spacing shifted the lone
+                // terminal pill into the clip (review fix).
                 HStack(alignment: .center, spacing: Self.overflowGap) {
-                    HStack(alignment: .center, spacing: Self.groupGap) {
-                        ForEach(visibleGroups) { group in
-                            if displayByID[group.rawValue] == .compact {
-                                compactPill(group, itemsByID: itemsByID,
-                                            nodes: nodesByGroup[group.rawValue] ?? [])
-                            } else {
-                                groupPill(group, items: itemsByGroup[group] ?? [],
-                                          itemsByID: itemsByID,
-                                          nodes: nodesByGroup[group.rawValue] ?? [])
+                    if !visibleGroups.isEmpty {
+                        HStack(alignment: .center, spacing: Self.groupGap) {
+                            ForEach(visibleGroups) { group in
+                                if displayByID[group.rawValue] == .compact {
+                                    compactPill(group, itemsByID: itemsByID,
+                                                nodes: nodesByGroup[group.rawValue] ?? [])
+                                } else {
+                                    groupPill(group, itemsByID: itemsByID,
+                                              nodes: nodesByGroup[group.rawValue] ?? [])
+                                }
                             }
                         }
                     }
@@ -271,8 +275,8 @@ struct EditorActionStrip: View {
                                           clearance)))
             }
             .background(alignment: .leading) {
-                measurementLayer(groups: groups, itemsByGroup: itemsByGroup,
-                                 itemsByID: itemsByID, nodesByGroup: nodesByGroup)
+                measurementLayer(groups: groups, itemsByID: itemsByID,
+                                 nodesByGroup: nodesByGroup)
             }
             // One deliberate toolbar backing across the whole width. The tools
             // flow across Source + Preview up to the reserved mode switch;
@@ -306,10 +310,15 @@ struct EditorActionStrip: View {
     /// The result keeps the input order — group order is part of the UI
     /// contract. The cost of a candidate state is recomputed from scratch on
     /// every step: sequential subtraction goes wrong exactly at the threshold.
+    /// `soloOverflowWidth` — the terminal pill (textformat + chevron) is wider
+    /// than the plain "…", but it only ever appears with NO visible groups, so
+    /// its width must not be reserved by ordinary overflow states (and the
+    /// group gap disappears with the groups). nil → same as `overflowWidth`.
     nonisolated static func layoutPlan(budget: CGFloat,
                                        groupGap: CGFloat,
                                        overflowGap: CGFloat,
                                        overflowWidth: CGFloat,
+                                       soloOverflowWidth: CGFloat? = nil,
                                        items: [StripLayoutItem])
         -> [(id: String, display: StripGroupDisplay)] {
         guard !items.isEmpty else { return [] }
@@ -318,6 +327,7 @@ struct EditorActionStrip: View {
         guard !items.contains(where: { $0.fullWidth <= 0 }) else {
             return items.map { ($0.id, .full) }
         }
+        let soloWidth = soloOverflowWidth ?? overflowWidth
         var display = Dictionary(uniqueKeysWithValues:
             items.map { ($0.id, StripGroupDisplay.full) })
         func cost() -> CGFloat {
@@ -327,8 +337,11 @@ struct EditorActionStrip: View {
                     ? (item.compactWidth ?? item.fullWidth) : item.fullWidth)
             }
             let overflowing = visible.count < items.count
+            let overflowCost: CGFloat = overflowing
+                ? (visible.isEmpty ? soloWidth : overflowGap + overflowWidth)
+                : 0
             return total + groupGap * CGFloat(max(0, visible.count - 1))
-                + (overflowing ? overflowGap + overflowWidth : 0)
+                + overflowCost
         }
         let byCompression = items
             .filter { $0.compressionRank != nil }
@@ -371,10 +384,14 @@ struct EditorActionStrip: View {
                     .filter(allowed.contains).map { StripCommandNode(id: $0) }
                 let math = ["math.inline", "math.block"]
                     .filter(allowed.contains).map { StripCommandNode(id: $0) }
+                // A submenu node with no allowed commands is dropped whole —
+                // an empty node would surface its structural id as a fake
+                // leaf in `flattenedCommandIDs` (review fix).
                 children = ["image", "divider", "codeblock"].filter(allowed.contains)
                     .map { StripCommandNode(id: $0) }
                     + [StripCommandNode(id: "table.menu", children: table),
                        StripCommandNode(id: "math.menu", children: math)]
+                        .filter { !$0.children.isEmpty }
             } else {
                 children = group.toolIDs.filter(allowed.contains)
                     .map { StripCommandNode(id: $0) }
@@ -405,13 +422,11 @@ struct EditorActionStrip: View {
     /// representations of the compressible groups are always measured, so the
     /// plan is a deterministic function of the lane width.
     private func measurementLayer(groups: [StripGroup],
-                                  itemsByGroup: [StripGroup: [StripItem]],
                                   itemsByID: [String: StripItem],
                                   nodesByGroup: [String: [StripCommandNode]]) -> some View {
         HStack(spacing: Self.groupGap) {
             ForEach(groups) { group in
-                groupPill(group, items: itemsByGroup[group] ?? [],
-                          itemsByID: itemsByID,
+                groupPill(group, itemsByID: itemsByID,
                           nodes: nodesByGroup[group.rawValue] ?? [])
                     .measureWidth(key: group.rawValue)
             }
@@ -438,33 +453,16 @@ struct EditorActionStrip: View {
 
     // MARK: Groups
 
-    /// Full representation of one group. Content comes from the command tree:
-    /// a leaf renders as a one-tap button, a submenu node as a chevron-free
-    /// menu; a submenu with a single command (Source's Table) renders as a
-    /// direct button — a one-item menu would cost an extra click.
-    @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem],
+    /// Full representation of one group. EVERY branch walks the command tree
+    /// (review fix — the ordinary groups used to render a parallel items
+    /// array, so the flatten invariant wasn't actually proven): a leaf renders
+    /// as a one-tap button, a submenu node as a chevron-free menu; a submenu
+    /// with a single command (Source's Table) renders as a direct button — a
+    /// one-item menu would cost an extra click.
+    @ViewBuilder private func groupPill(_ group: StripGroup,
                                         itemsByID: [String: StripItem],
                                         nodes: [StripCommandNode]) -> some View {
-        if group == .insert {
-            cluster {
-                ForEach(nodes, id: \.id) { node in
-                    if node.isLeaf {
-                        if let item = itemsByID[node.id] {
-                            itemButton(item)
-                        }
-                    } else if node.children.count == 1,
-                              let only = node.children.first,
-                              let item = itemsByID[only.id] {
-                        itemButton(item)
-                    } else {
-                        AccessoryBarMenu(systemImage: Self.submenuIcon(node.id),
-                                         help: Self.submenuTitle(node.id)) {
-                            menuRows(node.children, itemsByID: itemsByID)
-                        }
-                    }
-                }
-            }
-        } else if group == .cleanup {
+        if group == .cleanup {
             // One eraser menu; the three utilities read by name instead of the
             // old T / Aa / aA glyph triple (and flatten into "…" as items).
             cluster {
@@ -482,8 +480,21 @@ struct EditorActionStrip: View {
             }
         } else {
             cluster {
-                ForEach(items) { item in
-                    itemButton(item)
+                ForEach(nodes, id: \.id) { node in
+                    if node.isLeaf {
+                        if let item = itemsByID[node.id] {
+                            itemButton(item)
+                        }
+                    } else if node.children.count == 1,
+                              let only = node.children.first,
+                              let item = itemsByID[only.id] {
+                        itemButton(item)
+                    } else {
+                        AccessoryBarMenu(systemImage: Self.submenuIcon(node.id),
+                                         help: Self.submenuTitle(node.id)) {
+                            menuRows(node.children, itemsByID: itemsByID)
+                        }
+                    }
                 }
             }
         }
@@ -556,6 +567,12 @@ struct EditorActionStrip: View {
         ForEach(nodes, id: \.id) { node in
             if node.isLeaf {
                 if let item = itemsByID[node.id] {
+                    menuRow(item)
+                }
+            } else if node.children.count == 1, let only = node.children.first {
+                // Same rule as the full pill: a one-command submenu (Source's
+                // Table) flattens into a direct row — no extra click.
+                if let item = itemsByID[only.id] {
                     menuRow(item)
                 }
             } else {
@@ -782,6 +799,14 @@ struct EditorActionStrip: View {
                                        showTableOps: showTableOps,
                                        showReviewAction: showReviewAction))
         return items.filter { allowed.contains($0.id) }
+    }
+
+    /// StripItem ids one group actually builds — test seam for the invariant
+    /// "every command-tree leaf has a StripItem" (`StripGroup` is private, so
+    /// the group is addressed by its raw id).
+    func itemIDs(forGroupID id: String) -> [String] {
+        guard let group = StripGroup(rawValue: id) else { return [] }
+        return items(for: group).map(\.id)
     }
 
     private func runHeading(_ level: Int) {

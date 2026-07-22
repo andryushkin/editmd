@@ -95,6 +95,56 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertTrue(planned.allSatisfy { $0.display == .overflow })
     }
 
+    /// Review fix: ordinary overflow states reserve the plain "…" width, not
+    /// the wider terminal pill; the terminal state costs soloWidth alone (the
+    /// group gap disappears with the groups).
+    func testPlannerSoloOverflowWidthOnlyAppliesToTerminalState() {
+        let items = [
+            StripLayoutItem(id: "a", fullWidth: 100, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 0),
+            StripLayoutItem(id: "b", fullWidth: 50, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 1),
+        ]
+        // "a" out: 50 + 8 + 30 = 88 — must fit at exactly 88 even though the
+        // solo pill is 60 (the old max() made this 118 and dropped "b" too).
+        let partial = Dictionary(uniqueKeysWithValues: EditorActionStrip.layoutPlan(
+            budget: 88, groupGap: 12, overflowGap: 8,
+            overflowWidth: 30, soloOverflowWidth: 60, items: items))
+        XCTAssertEqual(partial["a"], .overflow)
+        XCTAssertEqual(partial["b"], .full)
+        // Terminal: only the solo pill remains — no gap, no groups.
+        let terminal = EditorActionStrip.layoutPlan(
+            budget: 60, groupGap: 12, overflowGap: 8,
+            overflowWidth: 30, soloOverflowWidth: 60, items: items)
+        XCTAssertTrue(terminal.allSatisfy { $0.display == .overflow })
+    }
+
+    /// Review fix: the flatten invariant holds only if every command-tree
+    /// leaf actually resolves to a StripItem — a missing item would silently
+    /// vanish from every representation.
+    @MainActor
+    func testEveryCommandTreeLeafHasAStripItem() {
+        let configs: [(EditorMode, Bool, Bool)] = [
+            (.source, false, true), (.visual, true, true),
+            (.split, false, true), (.preview, false, true),
+        ]
+        for (mode, tableOps, review) in configs {
+            let strip = EditorActionStrip(
+                actions: EditorStripActions(), insetH: 0, columnWidth: 0,
+                showTableOps: tableOps, showReviewAction: review,
+                mode: mode, setEditorMode: { _ in },
+                showLineNumbers: false, toggleLineNumbers: {})
+            let built = Set(EditorActionStrip.groupIDs(
+                for: mode, showTableOps: tableOps, showReviewAction: review)
+                .flatMap { strip.itemIDs(forGroupID: $0) })
+            let leaves = EditorActionStrip.flattenedCommandIDs(
+                EditorActionStrip.commandTree(for: mode, showTableOps: tableOps,
+                                              showReviewAction: review))
+            XCTAssertEqual(Set(leaves).subtracting(built), [],
+                           "\(mode): tree leaves without a StripItem")
+        }
+    }
+
     func testPlannerShowsAllFullOnFirstUnmeasuredFrame() {
         var items = plannerItems()
         items[0] = StripLayoutItem(id: "inline", fullWidth: 0, compactWidth: nil,
