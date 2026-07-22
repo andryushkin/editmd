@@ -215,6 +215,14 @@ final class TableClipboardTSVTests: XCTestCase {
         XCTAssertNil(tableGridFromTSV("a\tb\nno tab here\nc\td"))
         XCTAssertNil(tableGridFromTSV(""))
     }
+
+    func testPlainTextBackslashesBecomeCellMarkdown() throws {
+        // Grid cells hold inline markdown; a literal `\` from Excel plain
+        // text must be doubled or `\_` would turn into a markdown escape.
+        let grid = try XCTUnwrap(tableGridFromTSV("Path\tNote\nC:\\dir\\_x\tok"))
+        XCTAssertEqual(grid.rows, [["C:\\\\dir\\\\_x", "ok"]])
+        XCTAssertTrue(serializeGFMTable(grid).contains("| C:\\\\dir\\\\_x | ok |"))
+    }
 }
 
 // MARK: - Clipboard: HTML

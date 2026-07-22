@@ -826,9 +826,12 @@ private final class VisualRenderer {
             }
             return
         }
-        // Matches present: split source by match ranges; plain gaps use source
-        // substrings (pre-existing wiki path). Highlights still run on gaps.
-        // Document order; on overlap ($ inside [[…]] etc.) the earlier wins.
+        // Matches present: split source by match ranges. Gaps come from the
+        // SOURCE slice, so backslash escapes must be resolved for display
+        // here (serialization re-escapes them; leaving them raw grew one
+        // backslash per save) and escaped markers stamped like the no-match
+        // path. Highlights still run on gaps. Document order; on overlap
+        // ($ inside [[…]] etc.) the earlier wins.
         enum SourcePiece {
             case wiki(WikiLinkMatch)
             case math(MDMathSpan)
@@ -841,13 +844,17 @@ private final class VisualRenderer {
         pieces.sort { $0.range.location < $1.range.location }
         let ns = source as NSString
         var cursor = 0
+        func appendGap(_ gapRange: NSRange) {
+            let gapSource = ns.substring(with: gapRange)
+            appendDisplayTextStampingEscapedLiterals(
+                unescapeMarkdownPunctuation(gapSource), source: gapSource,
+                block: block, styles: styles, link: link)
+        }
         for (range, piece) in pieces {
             guard range.location >= cursor else { continue }
             if range.location > cursor {
-                appendTextWithHighlights(
-                    ns.substring(with: NSRange(location: cursor,
-                                               length: range.location - cursor)),
-                    block: block, styles: styles, link: link)
+                appendGap(NSRange(location: cursor,
+                                  length: range.location - cursor))
             }
             var attrs = baseAttributes(block: block, styles: styles, link: link)
             switch piece {
@@ -871,10 +878,32 @@ private final class VisualRenderer {
             cursor = NSMaxRange(range)
         }
         if cursor < ns.length {
-            appendTextWithHighlights(
-                ns.substring(with: NSRange(location: cursor, length: ns.length - cursor)),
-                block: block, styles: styles, link: link)
+            appendGap(NSRange(location: cursor, length: ns.length - cursor))
         }
+    }
+
+    private static let markdownEscapablePunctuation = Set(##"!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"##)
+
+    /// Resolves CommonMark backslash escapes (`\` + ASCII punctuation) the
+    /// way cmark's Text nodes do — for source slices that are displayed
+    /// directly. Backslashes before anything else stay literal.
+    private func unescapeMarkdownPunctuation(_ source: String) -> String {
+        guard source.contains("\\") else { return source }
+        var out = ""
+        var index = source.startIndex
+        while index < source.endIndex {
+            let ch = source[index]
+            let next = source.index(after: index)
+            if ch == "\\", next < source.endIndex,
+               Self.markdownEscapablePunctuation.contains(source[next]) {
+                out.append(source[next])
+                index = source.index(after: next)
+            } else {
+                out.append(ch)
+                index = next
+            }
+        }
+        return out
     }
 
     /// Backslash-escaped configured markers (`\[x\]`) display as plain `[x]`

@@ -356,6 +356,14 @@ final class RoundTripTests: XCTestCase {
         assertStable("**[[Note]]**")
     }
 
+    func testEscapesBesideWikiLinkStayByteStable() {
+        // A wiki-link puts its Text node on the matched-pieces path, whose
+        // gaps come from RAW source. Backslash escapes in those gaps must
+        // resolve for display and re-serialize byte-identically — they used
+        // to gain one backslash per save cycle.
+        assertStable("a \\_lit\\_ and [[Note]] tail \\[9\\]")
+    }
+
     func testWikiLinkIdempotent() {
         assertRoundTrip("Text with [[A]] and [[B|b]] links.")
     }

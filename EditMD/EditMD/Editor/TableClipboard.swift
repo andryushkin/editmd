@@ -7,8 +7,10 @@ import Foundation
 //    pasting an article that merely contains a table keeps the text path.
 //  • TSV (Excel/Numbers plain text) — every line carries a tab.
 //
-// Cell contents become inline markdown (b/i/code/a/img/del mapped); the grid
-// stores them unescaped — `serializeGFMTable` escapes pipes on output.
+// Cell contents become inline markdown (b/i/code/a/img/del mapped). Grid
+// cells hold INLINE MARKDOWN (see TableGrid) — plain clipboard text must have
+// its backslashes doubled here, or a literal `\` before punctuation would
+// turn into a markdown escape. `serializeGFMTable` escapes pipes on output.
 
 /// Decision funnel for paste: markdown for a clipboard payload that IS a
 /// table, nil otherwise. HTML wins over plain text (Excel provides both).
@@ -67,7 +69,9 @@ func tableGridFromTSV(_ text: String) -> TableGrid? {
     }
     guard lines.count >= 2, lines.allSatisfy({ $0.contains("\t") }) else { return nil }
     let rows = lines.map {
-        $0.components(separatedBy: "\t").map { $0.trimmingCharacters(in: .whitespaces) }
+        $0.components(separatedBy: "\t").map {
+            plainTextAsCellMarkdown($0.trimmingCharacters(in: .whitespaces))
+        }
     }
     let columns = rows.map(\.count).max() ?? 0
     guard columns >= 2 else { return nil }
@@ -160,9 +164,15 @@ private func cellMarkdown(_ node: XMLNode) -> String {
     collapsedWhitespace(inlineMarkdown(node)).trimmingCharacters(in: .whitespaces)
 }
 
+/// Plain clipboard text → grid-cell markdown: double the backslashes so a
+/// literal `\` survives the cell's inline-markdown contract.
+private func plainTextAsCellMarkdown(_ text: String) -> String {
+    text.contains("\\") ? text.replacingOccurrences(of: "\\", with: "\\\\") : text
+}
+
 private func inlineMarkdown(_ node: XMLNode) -> String {
     guard let element = node as? XMLElement else {
-        return node.stringValue ?? ""
+        return plainTextAsCellMarkdown(node.stringValue ?? "")
     }
     let name = (element.name ?? "").lowercased()
     if name == "br" { return " " }

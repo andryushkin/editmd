@@ -297,6 +297,23 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertEqual(serializeAttributedToMarkdown(leaked), "no icon here")
     }
 
+    func testMixedTokenAndEscapesInOneParagraphStayByteStable() throws {
+        // A live token puts the Text node on the matched-pieces path, whose
+        // gaps come from RAW source. Escapes in those gaps must display
+        // resolved and re-serialize byte-identically — this exact mix used to
+        // grow one backslash per save (codex review, round 2).
+        let body = "prose [X] and \\[X\\] plus \\_lit"
+        let markdown = frontmatter + "\n" + body
+        let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)
+        let attributed = renderMarkdownToAttributed(markdown)
+
+        XCTAssertFalse(attributed.string.contains("\\"), attributed.string)
+        let serialized = serializeAttributedToMarkdown(attributed, pluginSnapshot: snapshot)
+        XCTAssertEqual(serialized, body)
+        let again = renderMarkdownToAttributed(frontmatter + "\n" + serialized)
+        XCTAssertEqual(serializeAttributedToMarkdown(again, pluginSnapshot: snapshot), body)
+    }
+
     func testTypedPlainTokenSerializesVerbatimOutsideNativeSyntax() {
         let snapshot = BuiltInPluginRegistry.snapshot(for: frontmatter + "\nprose [?]")
         let typed = NSAttributedString(string: "see [X] here, not ![X] or [X](url)")

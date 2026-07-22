@@ -592,10 +592,16 @@ struct VisualMarkdownView: NSViewRepresentable {
             // Guard: setAttributedString fires selection sync (v22).
             guard !isMutating, let textView else { return }
             var attrs = textView.typingAttributes
-            if attrs[.mdLink] != nil || attrs[.mdImage] != nil || attrs[.mdWikiLink] != nil {
+            if attrs[.mdLink] != nil || attrs[.mdImage] != nil || attrs[.mdWikiLink] != nil
+                || attrs[.mdBuiltInPluginToken] != nil || attrs[.mdMathTex] != nil {
                 attrs[.mdLink] = nil
                 attrs[.mdImage] = nil
                 attrs[.mdWikiLink] = nil
+                // Token/formula runs serialize their PAYLOAD, not their text —
+                // typed characters merging into such a run would be dropped or
+                // reattached to the wrong occurrence.
+                attrs[.mdBuiltInPluginToken] = nil
+                attrs[.mdMathTex] = nil
                 textView.typingAttributes = attrs
             }
             storeCursor()
