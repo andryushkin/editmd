@@ -282,6 +282,18 @@ final class TableClipboardHTMLTests: XCTestCase {
         XCTAssertTrue(md?.contains("`C:\\\\") != true, "\(md ?? "")")
     }
 
+    func testNestedCodeWrappersProduceOneSpanWithRawBackslashes() {
+        // <kbd><code>…</code></kbd> must yield a single code span owned by
+        // the outermost wrapper — the inner one used to open a second span,
+        // pushing the outer into the plain-text fallback that doubled the
+        // backslashes (codex review, round 4).
+        let html = "<table><tr><th>K</th><th>V</th></tr>" +
+                   "<tr><td><kbd><code>C:\\dir\\_x</code></kbd></td><td>ok</td></tr></table>"
+        let md = markdownTablesFromHTML(html)
+        XCTAssertTrue(md?.contains("| `C:\\dir\\_x` |") == true, "\(md ?? "")")
+        XCTAssertTrue(md?.contains("\\\\") != true, "\(md ?? "")")
+    }
+
     func testSingleColumnTableRejected() {
         // A copied Excel cell/column arrives as a 1-column <table> — that
         // should stay plain text, not become a degenerate pipe table.

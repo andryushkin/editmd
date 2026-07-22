@@ -196,11 +196,14 @@ private func inlineMarkdown(_ node: XMLNode, insideCode: Bool = false) -> String
     case "del", "s", "strike":
         return wrapped(inner, in: "~~")
     case "code", "tt", "kbd", "samp":
+        // A nested code wrapper (<kbd><code>…) must not open a second span:
+        // the outermost wrapper owns the code context, its children stay raw.
+        if insideCode { return inner }
         let trimmed = inner.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, !trimmed.contains("`") else {
             // No code span possible — the raw text re-enters the plain
             // inline-markdown context and needs its escaping after all.
-            return insideCode ? inner : plainTextAsCellMarkdown(inner)
+            return plainTextAsCellMarkdown(inner)
         }
         return "`\(trimmed)`"
     case "a":
