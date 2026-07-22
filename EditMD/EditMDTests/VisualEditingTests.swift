@@ -40,6 +40,123 @@ final class VisualEditingTests: XCTestCase {
             stripWidth: 500, editingPaneWidth: 700), 500)
     }
 
+    // MARK: - Plan 12.2: layout planner
+
+    private func plannerItems() -> [StripLayoutItem] {
+        // Mirrors the Visual profile: inline, headings, lists, insert, cleanup.
+        [
+            StripLayoutItem(id: "inline", fullWidth: 180, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 6),
+            StripLayoutItem(id: "headings", fullWidth: 90, compactWidth: 34,
+                            compressionRank: 2, overflowRank: 4),
+            StripLayoutItem(id: "lists", fullWidth: 120, compactWidth: 34,
+                            compressionRank: 1, overflowRank: 3),
+            StripLayoutItem(id: "insert", fullWidth: 160, compactWidth: 34,
+                            compressionRank: 0, overflowRank: 2),
+            StripLayoutItem(id: "cleanup", fullWidth: 34, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 0),
+        ]
+    }
+
+    private func plan(_ budget: CGFloat,
+                      items: [StripLayoutItem]? = nil) -> [(id: String, display: StripGroupDisplay)] {
+        EditorActionStrip.layoutPlan(budget: budget, groupGap: 12, overflowGap: 8,
+                                     overflowWidth: 30, items: items ?? plannerItems())
+    }
+
+    func testPlannerKeepsEverythingFullWhenItFits() {
+        // Full cost: 180+90+120+160+34 + 12×4 = 632.
+        let planned = plan(632)
+        XCTAssertTrue(planned.allSatisfy { $0.display == .full })
+        XCTAssertEqual(planned.map(\.id), plannerItems().map(\.id),
+                       "Result order is part of the UI contract")
+    }
+
+    func testPlannerCompactsByRankBeforeOverflow() {
+        // One point short of full → only insert (rank 0) folds.
+        let planned = plan(631)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: planned)["insert"], .compact)
+        XCTAssertEqual(planned.filter { $0.display == .compact }.count, 1)
+        XCTAssertFalse(planned.contains { $0.display == .overflow })
+    }
+
+    func testPlannerOverflowsAfterCompactionExhausts() {
+        // All compact: 180+90→34+120→34+160→34+34 + 12×4 = 364. Below that the
+        // planner must start dropping groups into "…" — cleanup first.
+        let planned = plan(300)
+        let display = Dictionary(uniqueKeysWithValues: planned)
+        XCTAssertEqual(display["cleanup"], .overflow)
+        XCTAssertNotEqual(display["inline"], .overflow,
+                          "inline (overflowRank 6) must survive the longest")
+    }
+
+    func testPlannerTerminalStateIsAllOverflow() {
+        let planned = plan(10)
+        XCTAssertTrue(planned.allSatisfy { $0.display == .overflow })
+    }
+
+    func testPlannerShowsAllFullOnFirstUnmeasuredFrame() {
+        var items = plannerItems()
+        items[0] = StripLayoutItem(id: "inline", fullWidth: 0, compactWidth: nil,
+                                   compressionRank: nil, overflowRank: 6)
+        XCTAssertTrue(plan(10, items: items).allSatisfy { $0.display == .full })
+    }
+
+    func testPlannerPreviewProfileOrder() {
+        // Preview: inline (strike/highlight), review, theme. theme leaves
+        // first, review second, inline last.
+        let preview = [
+            StripLayoutItem(id: "inline", fullWidth: 70, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 6),
+            StripLayoutItem(id: "review", fullWidth: 34, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 5),
+            StripLayoutItem(id: "theme", fullWidth: 34, compactWidth: nil,
+                            compressionRank: nil, overflowRank: 1),
+        ]
+        // Full = 70+34+34+12×2 = 162; theme out = 70+34+12+8+30 = 154;
+        // review out too = 70+8+30 = 108.
+        let atTheme = Dictionary(uniqueKeysWithValues: plan(155, items: preview))
+        XCTAssertEqual(atTheme["theme"], .overflow)
+        XCTAssertEqual(atTheme["review"], .full)
+        let atReview = Dictionary(uniqueKeysWithValues: plan(120, items: preview))
+        XCTAssertEqual(atReview["review"], .overflow)
+        XCTAssertEqual(atReview["inline"], .full)
+    }
+
+    // MARK: - Plan 12.2: command tree — same action set in every representation
+
+    func testCommandTreeLeavesMatchToolIDsInEveryMode() {
+        let configs: [(EditorMode, Bool, Bool)] = [
+            (.source, false, true), (.visual, true, true),
+            (.split, false, true), (.preview, false, true),
+            (.preview, false, false),
+        ]
+        for (mode, tableOps, review) in configs {
+            let tree = EditorActionStrip.commandTree(
+                for: mode, showTableOps: tableOps, showReviewAction: review)
+            XCTAssertEqual(EditorActionStrip.flattenedCommandIDs(tree),
+                           EditorActionStrip.toolIDs(for: mode, showTableOps: tableOps,
+                                                     showReviewAction: review),
+                           "\(mode) tableOps=\(tableOps) review=\(review)")
+        }
+    }
+
+    func testCommandTreeNestsTableOpsOnlyUnderVisual() {
+        func tableNode(_ tree: [StripCommandNode]) -> StripCommandNode? {
+            tree.first { $0.id == "insert" }?
+                .children.first { $0.id == "table.menu" }
+        }
+        let visual = EditorActionStrip.commandTree(for: .visual, showTableOps: true,
+                                                   showReviewAction: false)
+        XCTAssertEqual(tableNode(visual)?.children.map(\.id),
+                       ["table", "table.addRow", "table.delRow",
+                        "table.addColumn", "table.delColumn"])
+        let source = EditorActionStrip.commandTree(for: .source, showTableOps: false,
+                                                   showReviewAction: false)
+        XCTAssertEqual(tableNode(source)?.children.map(\.id), ["table"],
+                       "Source folds the one-command Table node into a direct button")
+    }
+
     /// Plan 12.0: the tool lane runs from the field's left edge to the mode
     /// switch — the text column's trailing margin must not shrink it.
     func testToolLaneRunsFromLeadToModeSwitch() {

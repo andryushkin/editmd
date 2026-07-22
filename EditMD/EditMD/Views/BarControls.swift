@@ -52,21 +52,47 @@ struct AccessoryBarButton: View {
 }
 
 /// A menu presented from an accessory bar, styled like its buttons.
+/// `showsIndicator` — plan 12 grammar: a visible system chevron marks a
+/// COMPACT group (a whole tool group folded into one menu); the full-strip
+/// menus (Table / Formula / Cleanup) stay chevron-free as before.
 struct AccessoryBarMenu<Content: View>: View {
-    let systemImage: String
+    let glyph: AccessoryBarButton.Glyph
     let help: String
+    var showsIndicator: Bool = false
     @ViewBuilder var content: Content
+
+    init(systemImage: String, help: String, showsIndicator: Bool = false,
+         @ViewBuilder content: () -> Content) {
+        self.glyph = .symbol(systemImage)
+        self.help = help
+        self.showsIndicator = showsIndicator
+        self.content = content()
+    }
+
+    init(glyph: AccessoryBarButton.Glyph, help: String, showsIndicator: Bool = false,
+         @ViewBuilder content: () -> Content) {
+        self.glyph = glyph
+        self.help = help
+        self.showsIndicator = showsIndicator
+        self.content = content()
+    }
 
     var body: some View {
         Menu {
             content
         } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
+            switch glyph {
+            case .symbol(let name):
+                Image(systemName: name)
+                    .font(.system(size: 12, weight: .medium))
+            case .text(let title):
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            }
         }
         .menuStyle(.button)
         .buttonStyle(.accessoryBar)
-        .menuIndicator(.hidden)
+        .menuIndicator(showsIndicator ? .visible : .hidden)
         .fixedSize()
         .editMDHelp(help)
     }

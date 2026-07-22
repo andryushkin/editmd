@@ -138,6 +138,8 @@ struct EditorActionStrip: View {
     private static let modeKey = "__mode"
     private static let overflowKey = "__overflow"
     private static let gutterKey = "__gutter"
+    /// Measurement key suffix for a group's compact representation.
+    private static let compactKeySuffix = ".compact"
     /// Gap to the strip's service neighbours: mode switch, "…", gutter toggle.
     private static let groupSpacing: CGFloat = 8
     /// Semantic boundary between tool groups inside the well (plan 12.1 —
@@ -171,22 +173,51 @@ struct EditorActionStrip: View {
             let toolLaneWidth = Self.resolvedToolLaneWidth(
                 stripWidth: geo.size.width, lead: lead, trailingInset: stripTrail,
                 modeWidth: modeWidth, modeGap: Self.groupSpacing)
+            let itemsByID = Dictionary(uniqueKeysWithValues:
+                itemsByGroup.values.flatMap { $0 }.map { ($0.id, $0) })
+            let nodesByGroup = Dictionary(uniqueKeysWithValues:
+                Self.commandTree(for: mode, showTableOps: showTableOps,
+                                 showReviewAction: showReviewAction)
+                    .map { ($0.id, $0.children) })
             // The well's own horizontal padding eats into the lane before any
             // group does — without this the "…" collapse triggers a dozen
             // points late and the last group clips under the switcher.
-            let plan = plan(available: toolLaneWidth - 2 * Self.toolWellPaddingH,
-                            groups: groups)
+            let planned = Self.layoutPlan(
+                budget: toolLaneWidth - 2 * Self.toolWellPaddingH,
+                groupGap: Self.groupGap,
+                overflowGap: Self.overflowGap,
+                overflowWidth: widths[Self.overflowKey] ?? 0,
+                items: groups.map { group in
+                    StripLayoutItem(
+                        id: group.rawValue,
+                        fullWidth: widths[group.rawValue] ?? 0,
+                        compactWidth: group.compressionRank != nil
+                            ? widths[group.rawValue + Self.compactKeySuffix] : nil,
+                        compressionRank: group.compressionRank,
+                        overflowRank: group.overflowRank)
+                })
+            let displayByID = Dictionary(uniqueKeysWithValues: planned)
+            let visibleGroups = groups.filter { displayByID[$0.rawValue] != .overflow }
+            let overflowGroups = groups.filter { displayByID[$0.rawValue] == .overflow }
             HStack(alignment: .center, spacing: 0) {
                 // groupGap separates semantic groups; the "…" pill is a
                 // service control and sits at the tighter overflowGap.
                 HStack(alignment: .center, spacing: Self.overflowGap) {
                     HStack(alignment: .center, spacing: Self.groupGap) {
-                        ForEach(plan.visible) { group in
-                            groupPill(group, items: itemsByGroup[group] ?? [])
+                        ForEach(visibleGroups) { group in
+                            if displayByID[group.rawValue] == .compact {
+                                compactPill(group, itemsByID: itemsByID,
+                                            nodes: nodesByGroup[group.rawValue] ?? [])
+                            } else {
+                                groupPill(group, items: itemsByGroup[group] ?? [],
+                                          itemsByID: itemsByID,
+                                          nodes: nodesByGroup[group.rawValue] ?? [])
+                            }
                         }
                     }
-                    if !plan.overflow.isEmpty {
-                        overflowPill(plan.overflow, itemsByGroup: itemsByGroup)
+                    if !overflowGroups.isEmpty {
+                        overflowPill(overflowGroups, itemsByID: itemsByID,
+                                     nodesByGroup: nodesByGroup)
                     }
                 }
                 // Compact metrics: at .regular the accessory buttons carry
@@ -234,7 +265,8 @@ struct EditorActionStrip: View {
                                           clearance)))
             }
             .background(alignment: .leading) {
-                measurementLayer(groups: groups, itemsByGroup: itemsByGroup)
+                measurementLayer(groups: groups, itemsByGroup: itemsByGroup,
+                                 itemsByID: itemsByID, nodesByGroup: nodesByGroup)
             }
             // One deliberate toolbar backing across the whole width. The tools
             // flow across Source + Preview up to the reserved mode switch;
@@ -262,6 +294,97 @@ struct EditorActionStrip: View {
         max(0, stripWidth - lead - trailingInset - modeWidth - modeGap)
     }
 
+    /// Two-stage degradation (plan 12.2). All groups start full; while the
+    /// state doesn't fit the budget, groups fold into their compact menus by
+    /// `compressionRank`, then leave into the shared "…" by `overflowRank`.
+    /// The result keeps the input order — group order is part of the UI
+    /// contract. The cost of a candidate state is recomputed from scratch on
+    /// every step: sequential subtraction goes wrong exactly at the threshold.
+    nonisolated static func layoutPlan(budget: CGFloat,
+                                       groupGap: CGFloat,
+                                       overflowGap: CGFloat,
+                                       overflowWidth: CGFloat,
+                                       items: [StripLayoutItem])
+        -> [(id: String, display: StripGroupDisplay)] {
+        guard !items.isEmpty else { return [] }
+        // First frame: nothing measured yet — show everything full; the
+        // visible lane's `.clipped()` covers that one frame.
+        guard !items.contains(where: { $0.fullWidth <= 0 }) else {
+            return items.map { ($0.id, .full) }
+        }
+        var display = Dictionary(uniqueKeysWithValues:
+            items.map { ($0.id, StripGroupDisplay.full) })
+        func cost() -> CGFloat {
+            let visible = items.filter { display[$0.id] != .overflow }
+            let total = visible.reduce(CGFloat(0)) { sum, item in
+                sum + (display[item.id] == .compact
+                    ? (item.compactWidth ?? item.fullWidth) : item.fullWidth)
+            }
+            let overflowing = visible.count < items.count
+            return total + groupGap * CGFloat(max(0, visible.count - 1))
+                + (overflowing ? overflowGap + overflowWidth : 0)
+        }
+        let byCompression = items
+            .filter { $0.compressionRank != nil }
+            .sorted { ($0.compressionRank ?? .max) < ($1.compressionRank ?? .max) }
+        for item in byCompression {
+            guard cost() > budget else { break }
+            // An unmeasured compact width can't be planned — skip, the group
+            // will fall through to overflow if the lane stays too tight.
+            guard let compact = item.compactWidth, compact > 0 else { continue }
+            display[item.id] = .compact
+        }
+        for item in items.sorted(by: { $0.overflowRank < $1.overflowRank }) {
+            guard cost() > budget else { break }
+            display[item.id] = .overflow
+        }
+        return items.map { ($0.id, display[$0.id] ?? .full) }
+    }
+
+    /// Flattened action ids of a command (sub)tree, in menu order.
+    nonisolated static func flattenedCommandIDs(_ nodes: [StripCommandNode]) -> [String] {
+        nodes.flatMap { $0.isLeaf ? [$0.id] : flattenedCommandIDs($0.children) }
+    }
+
+    /// Group-level command tree: top-level nodes are the strip groups (id ==
+    /// group rawValue), children are the group's commands; Table and Formula
+    /// are submenus inside `insert`. Single source for every representation —
+    /// `flattenedCommandIDs(commandTree(…)) == toolIDs(…)` is tested.
+    nonisolated static func commandTree(for mode: EditorMode,
+                                        showTableOps: Bool,
+                                        showReviewAction: Bool) -> [StripCommandNode] {
+        let allowed = Set(toolIDs(for: mode, showTableOps: showTableOps,
+                                  showReviewAction: showReviewAction))
+        return groupIDs(for: mode, showTableOps: showTableOps,
+                        showReviewAction: showReviewAction).compactMap { groupID in
+            guard let group = StripGroup(rawValue: groupID) else { return nil }
+            let children: [StripCommandNode]
+            if group == .insert {
+                let table = ["table", "table.addRow", "table.delRow",
+                             "table.addColumn", "table.delColumn"]
+                    .filter(allowed.contains).map { StripCommandNode(id: $0) }
+                let math = ["math.inline", "math.block"]
+                    .filter(allowed.contains).map { StripCommandNode(id: $0) }
+                children = ["image", "divider", "codeblock"].filter(allowed.contains)
+                    .map { StripCommandNode(id: $0) }
+                    + [StripCommandNode(id: "table.menu", children: table),
+                       StripCommandNode(id: "math.menu", children: math)]
+            } else {
+                children = group.toolIDs.filter(allowed.contains)
+                    .map { StripCommandNode(id: $0) }
+            }
+            return StripCommandNode(id: groupID, children: children)
+        }
+    }
+
+    private static func submenuTitle(_ nodeID: String) -> String {
+        nodeID == "table.menu" ? String(localized: "Table") : String(localized: "Formula")
+    }
+
+    private static func submenuIcon(_ nodeID: String) -> String {
+        nodeID == "table.menu" ? "tablecells" : "function"
+    }
+
     // MARK: Overflow planning
 
     private var activeGroups: [StripGroup] {
@@ -271,38 +394,27 @@ struct EditorActionStrip: View {
             .compactMap(StripGroup.init(rawValue:))
     }
 
-    /// Greedy left-to-right fit. Until the measurement layer reports (first
-    /// frame) every group is shown — `.clipped()` covers that one frame.
-    private func plan(available: CGFloat, groups: [StripGroup])
-        -> (visible: [StripGroup], overflow: [StripGroup]) {
-        let measured = groups.map { widths[$0.rawValue] ?? 0 }
-        guard !measured.contains(where: { $0 <= 0 }) else { return (groups, []) }
-        let total = measured.reduce(0, +)
-            + Self.groupGap * CGFloat(max(0, groups.count - 1))
-        if total <= available { return (groups, []) }
-
-        let budget = available - (widths[Self.overflowKey] ?? 0) - Self.overflowGap
-        var visible: [StripGroup] = []
-        var used: CGFloat = 0
-        for (group, width) in zip(groups, measured) {
-            let cost = visible.isEmpty ? width : width + Self.groupGap
-            guard used + cost <= budget else { break }
-            visible.append(group)
-            used += cost
-        }
-        return (visible, groups.filter { !visible.contains($0) })
-    }
-
     /// Every pill laid out at its natural size, off-screen: a group that lives
-    /// in the "…" menu still needs a width, or it could never come back.
+    /// in the "…" menu still needs a width, or it could never come back. Both
+    /// representations of the compressible groups are always measured, so the
+    /// plan is a deterministic function of the lane width.
     private func measurementLayer(groups: [StripGroup],
-                                  itemsByGroup: [StripGroup: [StripItem]]) -> some View {
-        HStack(spacing: Self.groupSpacing) {
+                                  itemsByGroup: [StripGroup: [StripItem]],
+                                  itemsByID: [String: StripItem],
+                                  nodesByGroup: [String: [StripCommandNode]]) -> some View {
+        HStack(spacing: Self.groupGap) {
             ForEach(groups) { group in
-                groupPill(group, items: itemsByGroup[group] ?? [])
+                groupPill(group, items: itemsByGroup[group] ?? [],
+                          itemsByID: itemsByID,
+                          nodes: nodesByGroup[group.rawValue] ?? [])
                     .measureWidth(key: group.rawValue)
             }
-            overflowPill([], itemsByGroup: itemsByGroup)
+            ForEach(groups.filter { $0.compressionRank != nil }) { group in
+                compactPill(group, itemsByID: itemsByID,
+                            nodes: nodesByGroup[group.rawValue] ?? [])
+                    .measureWidth(key: group.rawValue + Self.compactKeySuffix)
+            }
+            overflowPill([], itemsByID: itemsByID, nodesByGroup: nodesByGroup)
                 .measureWidth(key: Self.overflowKey)
             modePill.measureWidth(key: Self.modeKey)
             gutterPill.measureWidth(key: Self.gutterKey)
@@ -317,36 +429,45 @@ struct EditorActionStrip: View {
 
     // MARK: Groups
 
-    /// Insert items drawn as direct buttons; table/formula collapse into the
-    /// two menus next to them (the "…" overflow flattens everything).
-    private static let insertButtonIDs: Set<String> = ["image", "divider", "codeblock"]
-
-    @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem]) -> some View {
+    /// Full representation of one group. Content comes from the command tree:
+    /// a leaf renders as a one-tap button, a submenu node as a chevron-free
+    /// menu; a submenu with a single command (Source's Table) renders as a
+    /// direct button — a one-item menu would cost an extra click.
+    @ViewBuilder private func groupPill(_ group: StripGroup, items: [StripItem],
+                                        itemsByID: [String: StripItem],
+                                        nodes: [StripCommandNode]) -> some View {
         if group == .insert {
-            // Image / divider / code block are one-tap; formula stays a menu.
-            // Table is a menu only where the row/column ops exist (Visual) —
-            // a one-item menu in Source would cost an extra click over the
-            // sibling buttons. The "…" menu flattens everything into items.
             cluster {
-                ForEach(items.filter { Self.insertButtonIDs.contains($0.id) }) { item in
-                    itemButton(item)
+                ForEach(nodes, id: \.id) { node in
+                    if node.isLeaf {
+                        if let item = itemsByID[node.id] {
+                            itemButton(item)
+                        }
+                    } else if node.children.count == 1,
+                              let only = node.children.first,
+                              let item = itemsByID[only.id] {
+                        itemButton(item)
+                    } else {
+                        AccessoryBarMenu(systemImage: Self.submenuIcon(node.id),
+                                         help: Self.submenuTitle(node.id)) {
+                            menuRows(node.children, itemsByID: itemsByID)
+                        }
+                    }
                 }
-                if showTableOps {
-                    tableMenu
-                } else if let table = items.first(where: { $0.id == "table" }) {
-                    itemButton(table)
-                }
-                formulaMenu
             }
         } else if group == .cleanup {
             // One eraser menu; the three utilities read by name instead of the
             // old T / Aa / aA glyph triple (and flatten into "…" as items).
             cluster {
-                cleanupMenu
+                AccessoryBarMenu(systemImage: "eraser",
+                                 help: String(localized: "Cleanup")) {
+                    menuRows(nodes, itemsByID: itemsByID)
+                }
             }
         } else if group == .theme {
             // One palette button; the presets live in its menu (and flatten
-            // into plain items inside "…").
+            // into plain items inside "…"). Themes are genuinely single-select,
+            // so the Picker stays (the toggle rule covers heading/list only).
             cluster {
                 themeMenu
             }
@@ -359,23 +480,90 @@ struct EditorActionStrip: View {
         }
     }
 
+    /// Compact representation (plan 12.2): the whole group folds into one
+    /// menu whose visible system chevron says "this is a menu".
+    @ViewBuilder private func compactPill(_ group: StripGroup,
+                                          itemsByID: [String: StripItem],
+                                          nodes: [StripCommandNode]) -> some View {
+        if group == .headings {
+            // Dynamic glyph: the active level shows before any click; width is
+            // reserved by the widest state so a level change never replans.
+            ZStack {
+                AccessoryBarMenu(glyph: .text("H3"), help: group.title,
+                                 showsIndicator: true) { EmptyView() }
+                    .hidden()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                AccessoryBarMenu(glyph: .text(compactHeadingsGlyph), help: group.title,
+                                 showsIndicator: true) {
+                    menuRows(nodes, itemsByID: itemsByID)
+                }
+            }
+        } else {
+            AccessoryBarMenu(glyph: group == .lists ? .symbol("list.bullet") : .symbol("plus"),
+                             help: group.title, showsIndicator: true) {
+                menuRows(nodes, itemsByID: itemsByID)
+            }
+        }
+    }
+
+    /// Neutral "H" outside a heading (12.3 may switch it to "¶" by eye).
+    private var compactHeadingsGlyph: String {
+        if let level = activeFormats.headingLevel, (1...3).contains(level) {
+            return "H\(level)"
+        }
+        return "H"
+    }
+
     private func overflowPill(_ groups: [StripGroup],
-                              itemsByGroup: [StripGroup: [StripItem]]) -> some View {
+                              itemsByID: [String: StripItem],
+                              nodesByGroup: [String: [StripCommandNode]]) -> some View {
         AccessoryBarMenu(systemImage: "ellipsis",
                          help: String(localized: "More Tools")) {
             ForEach(groups) { group in
                 Section(group.title) {
-                    ForEach(itemsByGroup[group] ?? []) { item in
-                        Button {
-                            item.action()
-                        } label: {
-                            Label(item.title, systemImage: item.menuIcon)
-                                // macOS menus drop the icon unless the
-                                // style asks for both.
-                                .labelStyle(.titleAndIcon)
+                    menuRows(nodesByGroup[group.rawValue] ?? [], itemsByID: itemsByID)
+                }
+            }
+        }
+    }
+
+    /// Menu rows for a command (sub)tree. The tree is at most two levels deep
+    /// by construction, so the recursion is written out explicitly (opaque
+    /// `some View` cannot recurse).
+    @ViewBuilder private func menuRows(_ nodes: [StripCommandNode],
+                                       itemsByID: [String: StripItem]) -> some View {
+        ForEach(nodes, id: \.id) { node in
+            if node.isLeaf {
+                if let item = itemsByID[node.id] {
+                    menuRow(item)
+                }
+            } else {
+                Menu(Self.submenuTitle(node.id)) {
+                    ForEach(node.children, id: \.id) { child in
+                        if let item = itemsByID[child.id] {
+                            menuRow(item)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Stateful command → Toggle (system checkmark, re-select clears, several
+    /// can be on at once — Quote plus a list). Momentary command → Button.
+    @ViewBuilder private func menuRow(_ item: StripItem) -> some View {
+        if let active = item.active {
+            Toggle(isOn: Binding(get: { active }, set: { _ in item.action() })) {
+                Text(item.title)
+            }
+        } else {
+            Button {
+                item.action()
+            } label: {
+                Label(item.title, systemImage: item.menuIcon)
+                    // macOS menus drop the icon unless the style asks for both.
+                    .labelStyle(.titleAndIcon)
             }
         }
     }
@@ -585,44 +773,6 @@ struct EditorActionStrip: View {
                            active: item.active, action: item.action)
     }
 
-    // MARK: Table menu (insertion everywhere, row/column ops Visual-only)
-
-    private var tableMenu: some View {
-        AccessoryBarMenu(systemImage: "tablecells",
-                         help: String(localized: "Table")) {
-            Button("Insert 3×3 Table") { actions.run(actions.insertTable) }
-            if showTableOps {
-                Divider()
-                Button("Add Row") { actions.run(actions.tableAddRow) }
-                Button("Delete Row") { actions.run(actions.tableDeleteRow) }
-                Button("Add Column") { actions.run(actions.tableAddColumn) }
-                Button("Delete Column") { actions.run(actions.tableDeleteColumn) }
-            }
-        }
-    }
-
-    // MARK: Formula menu (both editing modes)
-
-    private var formulaMenu: some View {
-        AccessoryBarMenu(systemImage: "function",
-                         help: String(localized: "Formula")) {
-            Button("Inline Formula  $…$") { actions.run(actions.insertInlineFormula) }
-            Button("Block Formula  $$…$$") { actions.run(actions.insertBlockFormula) }
-        }
-    }
-
-    // MARK: Cleanup menu (clear ×2 + letter case)
-
-    private var cleanupMenu: some View {
-        AccessoryBarMenu(systemImage: "eraser",
-                         help: String(localized: "Cleanup")) {
-            Button("Clear Inline Formatting") { actions.run(actions.clearInlineFormatting) }
-            Button("Clear Heading/List") { actions.run(actions.setBody) }
-            Divider()
-            Button("Letter case: UPPER → lower → Capitalized") { actions.run(actions.cycleCase) }
-        }
-    }
-
     // MARK: Preview theme menu (Preview)
 
     private var themeMenu: some View {
@@ -675,6 +825,38 @@ struct EditorActionStrip: View {
     }
 }
 
+// MARK: - Layout planner (plan 12.2)
+
+/// One group as the width planner sees it. Internal (not private) so the
+/// planner stays testable past the private `StripGroup`.
+struct StripLayoutItem: Equatable {
+    let id: String
+    let fullWidth: CGFloat
+    /// nil → the group has no compact representation.
+    let compactWidth: CGFloat?
+    /// Order of folding into a compact menu (smaller first); nil → never.
+    let compressionRank: Int?
+    /// Order of leaving into the shared "…" (smaller first).
+    let overflowRank: Int
+}
+
+enum StripGroupDisplay: Equatable {
+    case full, compact, overflow
+}
+
+// MARK: - Command tree (plan 12.2)
+
+/// One node of the command tree — the single source the full pills, compact
+/// menus and the "…" menu all render from. A leaf id is an action id from
+/// `toolIDs`; a node with children is a submenu (its id is structural).
+/// Depth is at most 2 (group → submenu → leaf) by construction.
+struct StripCommandNode: Equatable {
+    let id: String
+    var children: [StripCommandNode] = []
+
+    var isLeaf: Bool { children.isEmpty }
+}
+
 // MARK: - Strip model
 
 /// Tool groups, in strip order. The trailing ones collapse into "…" first.
@@ -709,6 +891,32 @@ private enum StripGroup: String, CaseIterable, Identifiable {
         case .review: return ["review"]
         case .theme:
             return PreviewTheme.allPresets.map { "theme.\($0.id)" }
+        }
+    }
+
+    // Plan 12.2 degradation policy (art-locked in the plan; do not reshuffle
+    // без записи решения). Inline and the single-button groups never compact.
+
+    /// Order of folding into a compact menu; nil → the group never compacts.
+    var compressionRank: Int? {
+        switch self {
+        case .insert: return 0
+        case .lists: return 1
+        case .headings: return 2
+        case .inline, .cleanup, .review, .theme: return nil
+        }
+    }
+
+    /// Order of leaving into the shared "…" (smaller leaves first).
+    var overflowRank: Int {
+        switch self {
+        case .cleanup: return 0
+        case .theme: return 1
+        case .insert: return 2
+        case .lists: return 3
+        case .headings: return 4
+        case .review: return 5
+        case .inline: return 6
         }
     }
 }
