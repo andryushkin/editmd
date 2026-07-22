@@ -240,6 +240,27 @@ func isSetextUnderline(_ line: some StringProtocol) -> Bool {
     return s.allSatisfy { $0 == marker }
 }
 
+/// Setext heading level for the paragraph, or nil. Demands BOTH the
+/// highlighter's heading span (cmark's verdict) and that the underline is the
+/// LAST LINE OF THAT SAME SPAN: a bare `#` followed by `---` is an empty ATX
+/// heading plus a thematic break — two constructs a next-line peek glued back
+/// together (review P1). Anchoring at the span's end also lights every line
+/// of a multi-line Setext title (`Foo *bar\nbaz*\n====`), not just the one
+/// right above the underline (review P2).
+func setextHeadingLevel(spans: [Span], paragraph: NSRange, text: NSString) -> Int? {
+    guard let span = spans.first(where: { span in
+        if case .headingBody = span.kind {
+            return NSIntersectionRange(span.range, paragraph).length > 0
+                || NSLocationInRange(paragraph.location, span.range)
+        }
+        return false
+    }), case .headingBody(let level) = span.kind, span.range.length > 0 else { return nil }
+    let lastIndex = min(NSMaxRange(span.range), text.length) - 1
+    guard lastIndex >= span.range.location else { return nil }
+    let lastLine = text.paragraphRange(for: NSRange(location: lastIndex, length: 0))
+    return isSetextUnderline(text.substring(with: lastLine)) ? level : nil
+}
+
 /// Reduces two per-line classifications to their uniform intersection —
 /// a state survives only when both lines carry it.
 func mergeUniformBlocks(_ a: SourceLineBlock, _ b: SourceLineBlock) -> SourceLineBlock {

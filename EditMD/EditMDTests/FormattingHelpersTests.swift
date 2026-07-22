@@ -444,6 +444,37 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertEqual(classifyMarkdownLine("# Title\r\n").headingLevel, 1)
     }
 
+    /// Anchoring at the covering span: the underline must close the SAME
+    /// heading span, and every line of a multi-line Setext title lights.
+    func testSetextHeadingLevelAgainstRealSpans() {
+        func levels(of text: String) -> [Int?] {
+            let spans = collectSpans(text)
+            let ns = text as NSString
+            var result: [Int?] = []
+            var location = 0
+            while location < ns.length {
+                let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
+                result.append(setextHeadingLevel(spans: spans, paragraph: paragraph,
+                                                 text: ns))
+                if NSMaxRange(paragraph) == location { break }
+                location = NSMaxRange(paragraph)
+            }
+            return result
+        }
+        // Canonical Setext: both the title and the underline light.
+        XCTAssertEqual(levels(of: "Title\n==="), [1, 1])
+        // Bare "#" + thematic break: an empty ATX heading and a separate
+        // construct — the next-line peek used to glue them into a fake H1.
+        XCTAssertEqual(levels(of: "#\n---"), [nil, nil])
+        // Multi-line Setext title: every line reports the level, so the
+        // uniform merge over a full-heading selection stays on.
+        XCTAssertEqual(levels(of: "Foo *bar\nbaz*\n===="), [1, 1, 1])
+        // ATX heading is not a Setext: prefix grammar owns it.
+        XCTAssertEqual(levels(of: "# ATX\nbody"), [nil, nil])
+        // Setext H2 via dashes.
+        XCTAssertEqual(levels(of: "Sub\n---"), [2, 2])
+    }
+
     /// Review P1: the Setext fallback must demand the literal underline —
     /// cmark also calls `  # indented` a heading, the toggle grammar doesn't.
     func testSetextUnderlineShape() {

@@ -704,13 +704,15 @@ struct SourceTextView: NSViewRepresentable {
             for paragraph in lineRanges {
                 var line = classifyMarkdownLine(nsText.substring(with: paragraph))
                 if line.headingLevel == nil, !line.quote,
-                   let setext = setextHeadingLevel(at: paragraph, in: nsText) {
+                   let setext = setextHeadingLevel(spans: cachedSpans,
+                                                   paragraph: paragraph,
+                                                   text: nsText) {
                     // Setext (`Title` + `===`) has no line prefix — only the
                     // highlighter's heading spans know the underline context.
-                    // The fallback demands the actual two-line underline form:
-                    // cmark also parses `  # indented` / bare `#` as headings,
-                    // but the toggles' grammar doesn't, and the checkmark must
-                    // match the press (review P1).
+                    // The pure helper demands the underline to close the SAME
+                    // span, so ATX variants the toggle grammar rejects
+                    // (`  # indented`, bare `#` before a thematic break)
+                    // stay unlit (review P1).
                     line.headingLevel = setext
                 }
                 uniform = uniform.map { mergeUniformBlocks($0, line) } ?? line
@@ -732,35 +734,6 @@ struct SourceTextView: NSViewRepresentable {
                     }
                 }
             }
-        }
-
-        /// Setext heading level for the paragraph, or nil. Requires BOTH the
-        /// highlighter's heading span (cmark's verdict) AND the literal
-        /// two-line underline shape: the span alone also covers ATX variants
-        /// the toggle grammar rejects (`  # indented`, bare `#`), which must
-        /// stay unlit.
-        private func setextHeadingLevel(at paragraph: NSRange,
-                                        in nsText: NSString) -> Int? {
-            guard let level = spanHeadingLevel(at: paragraph) else { return nil }
-            // Caret on the underline itself: it lives inside the heading span.
-            if isSetextUnderline(nsText.substring(with: paragraph)) { return level }
-            // Title line: the NEXT paragraph must be the underline.
-            let nextStart = NSMaxRange(paragraph)
-            guard nextStart < nsText.length else { return nil }
-            let next = nsText.paragraphRange(for: NSRange(location: nextStart, length: 0))
-            return isSetextUnderline(nsText.substring(with: next)) ? level : nil
-        }
-
-        /// Highlighter heading span covering the paragraph.
-        private func spanHeadingLevel(at paragraph: NSRange) -> Int? {
-            for span in cachedSpans {
-                if case .headingBody(let level) = span.kind,
-                   NSIntersectionRange(span.range, paragraph).length > 0
-                    || NSLocationInRange(paragraph.location, span.range) {
-                    return level
-                }
-            }
-            return nil
         }
 
         /// The shared caret dance: clamp to the current text, select, reveal
