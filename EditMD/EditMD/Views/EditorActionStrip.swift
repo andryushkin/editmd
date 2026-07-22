@@ -509,7 +509,10 @@ struct EditorActionStrip: View {
                 }
             }
         } else {
-            AccessoryBarMenu(glyph: group == .lists ? .symbol("list.bullet") : .symbol("plus"),
+            // Insert: plus in a dashed placeholder frame — "insert a block
+            // here" (user pick, 12.3; bare plus read as nothing).
+            AccessoryBarMenu(glyph: group == .lists ? .symbol("list.bullet")
+                                                    : .symbol("plus.square.dashed"),
                              help: group.title, showsIndicator: true) {
                 menuRows(nodes, itemsByID: itemsByID)
             }

@@ -81,18 +81,28 @@ struct AccessoryBarMenu<Content: View>: View {
         Menu {
             content
         } label: {
-            switch glyph {
-            case .symbol(let name):
-                Image(systemName: name)
-                    .font(.system(size: 12, weight: .medium))
-            case .text(let title):
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            // The chevron is drawn by hand: `.menuIndicator(.visible)` is
+            // silently dropped under `.buttonStyle(.accessoryBar)`, so the
+            // system indicator never appears (seen by eye, plan 12.3).
+            HStack(spacing: 2) {
+                switch glyph {
+                case .symbol(let name):
+                    Image(systemName: name)
+                        .font(.system(size: 12, weight: .medium))
+                case .text(let title):
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                }
+                if showsIndicator {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .menuStyle(.button)
         .buttonStyle(.accessoryBar)
-        .menuIndicator(showsIndicator ? .visible : .hidden)
+        .menuIndicator(.hidden)
         .fixedSize()
         .editMDHelp(help)
     }
