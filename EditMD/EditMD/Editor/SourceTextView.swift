@@ -700,7 +700,21 @@ struct SourceTextView: NSViewRepresentable {
                 if NSMaxRange(paragraph) == location { break }
                 location = NSMaxRange(paragraph)
             }
-            let block = uniformBlockStates(lineRanges.map { nsText.substring(with: $0) })
+            var uniform: SourceLineBlock?
+            for paragraph in lineRanges {
+                var line = classifyMarkdownLine(nsText.substring(with: paragraph))
+                if line.headingLevel == nil, !line.quote,
+                   let setext = spanHeadingLevel(at: paragraph) {
+                    // Setext (`Title` + `===`) has no line prefix — only the
+                    // highlighter's heading spans know the underline context
+                    // (review P2). ATX stays with the action grammar of
+                    // `classifyMarkdownLine`; quoted lines are excluded so
+                    // state keeps matching what the toggles recognize.
+                    line.headingLevel = setext
+                }
+                uniform = uniform.map { mergeUniformBlocks($0, line) } ?? line
+            }
+            let block = uniform ?? SourceLineBlock()
             fmt.headingLevel = block.headingLevel
             fmt.quote = block.quote
             fmt.bulletList = block.bullet
@@ -717,6 +731,19 @@ struct SourceTextView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        /// Highlighter heading span covering the paragraph — resolves Setext
+        /// headings the per-line prefix grammar cannot see.
+        private func spanHeadingLevel(at paragraph: NSRange) -> Int? {
+            for span in cachedSpans {
+                if case .headingBody(let level) = span.kind,
+                   NSIntersectionRange(span.range, paragraph).length > 0
+                    || NSLocationInRange(paragraph.location, span.range) {
+                    return level
+                }
+            }
+            return nil
         }
 
         /// The shared caret dance: clamp to the current text, select, reveal

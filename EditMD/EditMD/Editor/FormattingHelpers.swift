@@ -189,48 +189,40 @@ struct SourceLineBlock: Equatable {
     var checklist = false
 }
 
-/// Classifies one raw markdown line for the strip's block toggles. Quote
-/// markers peel off first, so `> # H` reports quote + heading. Task lines are
-/// checklists, not bullets (mirrors Visual's block kinds). Continuation lines
-/// of a wrapped list item carry no marker and classify as plain — the
-/// uniform-across-lines rule then reads them as "not a list", which is the
-/// honest failure mode for a prefix-based scan.
+/// Classifies one raw markdown line for the strip's block toggles, using THE
+/// SAME prefix patterns `transformLines` toggles by — the checkmark must
+/// mirror exactly what a press would recognize (review P1: a lenient scan
+/// lit H1 for `> # H` while the action prepended another `# `, and called
+/// `* [x]` a checklist while the checklist toggle only knows `- [ ]`).
+/// A heading nested in a quote therefore reads as quote only, and task lines
+/// are checklists, not bullets — as in `transformLines`. Setext headings have
+/// no line prefix; the caller resolves them from the highlighter spans.
 func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
+    let line = String(line)
     var out = SourceLineBlock()
-    var s = Substring(line)
-    s = s.drop(while: { $0 == " " || $0 == "\t" })
-    while s.first == ">" {
-        out.quote = true
-        s = s.dropFirst().drop(while: { $0 == " " || $0 == "\t" })
+    out.quote = line.hasPrefix("> ") || line == ">"
+    if let match = firstMatch(headingPrefixPattern, in: line) {
+        out.headingLevel = match.range(at: 1).length
     }
-    if s.first == "#" {
-        let hashes = s.prefix(while: { $0 == "#" })
-        if hashes.count <= 6, s.dropFirst(hashes.count).first == " " {
-            out.headingLevel = hashes.count
-        }
-        return out
-    }
-    if let marker = s.first, "-*+".contains(marker), s.dropFirst().first == " " {
-        let rest = s.dropFirst(2).drop(while: { $0 == " " })
-        if rest.count >= 3, rest.first == "[" {
-            let mark = rest[rest.index(rest.startIndex, offsetBy: 1)]
-            if mark == " " || mark == "x" || mark == "X",
-               rest[rest.index(rest.startIndex, offsetBy: 2)] == "]" {
-                out.checklist = true
-                return out
-            }
-        }
+    if firstMatch(checklistPrefixPattern, in: line) != nil {
+        out.checklist = true
+    } else if firstMatch(bulletPrefixPattern, in: line) != nil {
         out.bullet = true
-        return out
+    } else if firstMatch(orderedPrefixPattern, in: line) != nil {
+        out.numbered = true
     }
-    let digits = s.prefix(while: \.isNumber)
-    if !digits.isEmpty, digits.count <= 9 {
-        let after = s.dropFirst(digits.count)
-        if let punct = after.first, punct == "." || punct == ")",
-           after.dropFirst().first == " " {
-            out.numbered = true
-        }
-    }
+    return out
+}
+
+/// Reduces two per-line classifications to their uniform intersection —
+/// a state survives only when both lines carry it.
+func mergeUniformBlocks(_ a: SourceLineBlock, _ b: SourceLineBlock) -> SourceLineBlock {
+    var out = a
+    if out.headingLevel != b.headingLevel { out.headingLevel = nil }
+    out.quote = out.quote && b.quote
+    out.bullet = out.bullet && b.bullet
+    out.numbered = out.numbered && b.numbered
+    out.checklist = out.checklist && b.checklist
     return out
 }
 
@@ -240,16 +232,9 @@ func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
 /// caret line.
 func uniformBlockStates(_ lines: [some StringProtocol]) -> SourceLineBlock {
     guard let first = lines.first else { return SourceLineBlock() }
-    var acc = classifyMarkdownLine(first)
-    for line in lines.dropFirst() {
-        let next = classifyMarkdownLine(line)
-        if acc.headingLevel != next.headingLevel { acc.headingLevel = nil }
-        acc.quote = acc.quote && next.quote
-        acc.bullet = acc.bullet && next.bullet
-        acc.numbered = acc.numbered && next.numbered
-        acc.checklist = acc.checklist && next.checklist
+    return lines.dropFirst().reduce(classifyMarkdownLine(first)) {
+        mergeUniformBlocks($0, classifyMarkdownLine($1))
     }
-    return acc
 }
 
 // MARK: - Case cycle (B5)
@@ -357,8 +342,17 @@ private let checklistPrefixPattern = "^(\\s*)-\\s+\\[[ xX]\\]\\s+"
 private let bulletPrefixPattern = "^(\\s*)[-*+]\\s+"
 private let orderedPrefixPattern = "^(\\s*)\\d+[.)]\\s+"
 
+/// The four prefix grammars, compiled once — the strip's state classifier
+/// runs them per selected line on every selection change.
+private let compiledPrefixPatterns: [String: NSRegularExpression] = {
+    Dictionary(uniqueKeysWithValues: [
+        headingPrefixPattern, checklistPrefixPattern,
+        bulletPrefixPattern, orderedPrefixPattern,
+    ].map { ($0, try! NSRegularExpression(pattern: $0)) })
+}()
+
 private func firstMatch(_ pattern: String, in line: String) -> NSTextCheckingResult? {
-    let regex = try! NSRegularExpression(pattern: pattern)
+    let regex = compiledPrefixPatterns[pattern] ?? (try! NSRegularExpression(pattern: pattern))
     return regex.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length))
 }
 

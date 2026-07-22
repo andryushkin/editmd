@@ -412,13 +412,23 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertTrue(classifyMarkdownLine("> quoted").quote)
     }
 
-    func testQuoteMarkersPeelBeforeInnerBlocks() {
+    /// Review P1: the checkmark must recognize EXACTLY what the toggle press
+    /// recognizes (`transformLines` grammar) — no lenient extras.
+    func testClassifierMatchesTransformLinesGrammar() {
+        // A heading nested in a quote is quote-only: the heading toggle would
+        // prepend another "# " rather than remove the existing one.
         let nested = classifyMarkdownLine("> # Quoted title")
         XCTAssertTrue(nested.quote)
-        XCTAssertEqual(nested.headingLevel, 1)
-        let list = classifyMarkdownLine("> > - deep")
-        XCTAssertTrue(list.quote)
-        XCTAssertTrue(list.bullet)
+        XCTAssertNil(nested.headingLevel)
+        XCTAssertFalse(classifyMarkdownLine("> - listed").bullet)
+        // The checklist toggle only knows "- [ ]": a star task is a bullet.
+        let starTask = classifyMarkdownLine("* [x] done")
+        XCTAssertFalse(starTask.checklist)
+        XCTAssertTrue(starTask.bullet)
+        // Quote is the literal "> " / ">" prefix, headings sit at column 0.
+        XCTAssertFalse(classifyMarkdownLine(">tight").quote)
+        XCTAssertTrue(classifyMarkdownLine(">").quote)
+        XCTAssertNil(classifyMarkdownLine("  # indented").headingLevel)
     }
 
     func testUniformStatesRequireEveryLine() {
