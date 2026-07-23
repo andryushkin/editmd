@@ -47,8 +47,9 @@ regenerate rather than touching the `.xcodeproj`.
 ## Repository notes
 
 This is a personal project developed largely with AI agents. `CLAUDE.md` and
-`AGENTS.md` are the agent working guides, and `docs/` holds design history,
-plans, and research notes — mostly in Russian.
+`AGENTS.md` are the agent working guides, and [`docs/`](docs/README.md) holds
+domain documentation (architecture, vault, review, integration, testing)
+written for humans and agents alike.
 
 ## License
 

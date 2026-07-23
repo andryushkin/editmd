@@ -1,9 +1,10 @@
 # EditMD — working guide
 
-A short development handbook. The detailed decision log and investigation
-history (`HISTORY.md`) moved out of the repository on 2026-07-23 and lives in
-the author's vault; the future of in-repo docs is being redesigned. Do not
-re-add release chronology or one-off investigation details here.
+A short development handbook. Domain documentation lives in `docs/`
+(`docs/README.md` is the index) — read the relevant domain doc before changing
+a subsystem. The historical decision log is kept outside the repository in the
+author's vault. Do not re-add release chronology or one-off investigation
+details here.
 
 ## What this is
 
@@ -41,6 +42,8 @@ be added with a button or pasted from the clipboard.
 - `EditMD/EditMDTests/` — unit/integration tests.
 - `EditMD/project.yml` — the single source of the Xcode project structure;
   after changing targets/resources run xcodegen.
+- `docs/` — domain documentation for humans and agents (architecture, vault,
+  review, integration, testing); `docs/README.md` is the index.
 
 Dependencies: `swift-markdown`, `SwiftMath`, `HighlighterSwift`. KaTeX is
 bundled offline in `Resources/katex/`.
@@ -208,9 +211,10 @@ changes run the targeted tests, then the full suite and `git diff --check`.
   contextual guards must have direct tests.
 - On a hang, first capture `sample <pid> 3`, then optimize the confirmed hot
   path.
-- Durable new rules are added here briefly; detailed chronology and
-  investigation write-ups go to the decision log outside the repo (ask the
-  author where to record them until the docs redesign lands).
+- Durable new rules are added here briefly; subsystem explanations belong in
+  the matching `docs/` file and must be updated in the same change that alters
+  behavior; chronology and investigation write-ups go to the author's decision
+  log outside the repo.
 
 ## Known tails
 

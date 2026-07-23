@@ -14,6 +14,10 @@ history context is needed.
 
 ## Other documentation
 
+- `docs/` — domain documentation for humans and agents; `docs/README.md` is
+  the index. Read the file matching your task's subsystem (architecture,
+  vault, review, integration, testing) and update it in the same change when
+  you alter behavior it describes.
 - `THIRD_PARTY_NOTICES.md` — dependency licenses; update it when vendored
   assets or packages change.
 - `README.md` — the public face of the repository; keep build instructions
