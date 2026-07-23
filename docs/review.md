@@ -44,8 +44,11 @@ Author intent, processed by agents in priority order:
 | `comment` | neutral note |
 | `suggest` | an agent's track-changes edit (quote → replacement) |
 
-Accepted `suggest` edits are the only path that rewrites the file, and they go
-through `DocumentRegistry.applyAgentEdit`.
+Within review-mark processing, accepted `suggest` edits are the only path
+that rewrites the file, and they go through
+`DocumentRegistry.applyAgentEdit`. (Ordinary editing, IDE diff acceptance,
+and frontmatter edits modify the document through their own paths; marking
+itself never does.)
 
 ## Agent handoff
 

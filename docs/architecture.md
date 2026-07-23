@@ -62,6 +62,64 @@ Key round-trip contracts:
   remaps group ids so pasted content cannot collide with existing islands.
 - All offsets everywhere are **UTF-16** (NSString space).
 
+Source-editor contracts:
+
+- Source aligns tables **display-only** via the `.kern` attribute: the
+  markdown bytes never change, and `.kern` must be stripped from typing
+  attributes so it cannot leak into typed text.
+- `textView.string = …` and `setAttributedString` synchronously invoke the
+  selection delegate — read the caret position *before* replacing content.
+- Presentation attributes that affect layout must be storage attributes;
+  transient washes (review highlight) use temporary layout-manager attributes
+  that never touch the storage.
+
+Preview specifics: the page loads via `loadHTMLString` (no file base URL);
+schemeless local links are routed through the JS bridge — a path starting with
+`/` resolves from the vault root, a plain relative path from the document's
+folder. KaTeX is bundled offline (`Resources/katex/`), so the page needs no
+network.
+
+## Async editor state
+
+Caret-format state (`ActiveInlineFormats`) reaches the action strip through an
+async hop in every mode — Source/Visual via a main-queue dispatch, Preview via
+the WKWebView script-message queue — so a value computed before a mode switch
+can land after the switch reset the shared state. `Views/ActiveFormatsGate.swift`
+is the epoch gate that drops such stale publishes:
+
+- Every publisher sink is stamped with the epoch current at render;
+  `advance()` retires all sinks of the outgoing editor.
+- `noteMode(mode)` is called at the top of `editorArea`, **strictly before any
+  sink of that render pass is built**. Running inside view evaluation is what
+  guarantees the order "advance, then build this pass's sinks"; an
+  `.onChange` bump cannot (its ordering against child `body` evaluation is
+  unspecified and a late bump would retire fresh sinks).
+- The render-time funnel catches *every* writer of the shared mode default —
+  the strip and menus go through `setEditorMode`, but the control socket
+  (`editmdctl mode …`) writes UserDefaults directly and would otherwise never
+  advance the gate.
+- A file switch needs no epoch of its own: `.id(url)` recreates `ContentView`
+  and deallocates the gate; the weak reference in each sink drops late
+  publishes the same way.
+
+## Action strip
+
+`Views/EditorActionStrip.swift` plans its layout through testable value types
+(`StripLayoutItem`, `StripCommandNode`). Non-negotiables:
+
+- **Availability invariant**: window width never changes the *set* of
+  reachable commands. Degradation is two-stage — a group first compacts into a
+  single submenu button, then folds into the trailing "…" menu — and every
+  command stays reachable in every stage (the flatten of the command tree is
+  the proof surface, covered by tests).
+- The terminal (lane-alone) overflow pill is **wider** than the inline "…"
+  (icon + chevron), and the planner accounts for the two widths separately.
+- Widths are reserved by the widest state of a group so a degradation-level
+  change never causes a replan loop; a folded group still needs a measured
+  width or it could never come back.
+- Gutter-owned controls belong to the gutter lane and never collapse into "…";
+  the mode switcher is never overlapped.
+
 ## Paste
 
 Special paste is an ordered lazy funnel — Source: table → image → plain text;
@@ -75,7 +133,17 @@ so the ordinary paste still delivers the text flavor. Paste stays synchronous
 
 `markdownImageSyntax` is the single serializer of image markdown and
 `supportedImageMIMETypes` the single source of image extensions/UTTypes.
-Assets are deduplicated by content — size check first, then bytes.
+Assets are deduplicated by content — size check first, then bytes. For
+textbundle documents the disk defines which assets exist and
+`assetsFileWrapper` is mirrored through `addImageAssetWrapper`; when choosing
+a fresh asset name, any `fileExists` counts — including hidden files and
+symlinks.
+
+The image viewer (`Views/PDFViewerView.swift` and friends) revalidates by
+URL + `mtime` + size and reads files in a detached task. A URL change clears
+the previous image and shows loading; reloading the same URL keeps the old
+image until the new bytes arrive. The check is opportunistic — on
+`updateNSView`, not via a file watcher.
 
 ## Performance rules
 

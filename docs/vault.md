@@ -37,6 +37,20 @@ backlinks, and tag occurrences per file, refreshed by a file watcher.
 - A corrupt or foreign-version file is silently ignored and overwritten by
   the next successful scan.
 
+Loading is defensive, because the file is a cache that external tools may
+have touched:
+
+- Every path read from the file must be **relative and free of `..`
+  components** (`isSafeRelativePath`); cache entries are re-keyed to absolute
+  standardized URLs on load.
+- A single unsafe resolved/candidate path taints the *entire* resolve info of
+  its entry — the file degrades to a plain rescan for that entry rather than
+  trusting a partially valid record.
+- Cached link resolution is reused only while its `resolveFingerprint`
+  matches — the fingerprint covers **all** paths that could affect
+  resolution, so a rename anywhere in the vault invalidates dependent
+  entries instead of serving stale targets.
+
 External tools (the offline engine in `editmdctl`, wikillm-style agents) read
 the same file — see [integration.md](integration.md).
 

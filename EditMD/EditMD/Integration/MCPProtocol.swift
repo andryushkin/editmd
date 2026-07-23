@@ -209,8 +209,8 @@ enum MCPCodec {
 // MARK: - MCP tool results
 
 /// Every `tools/call` reply is an MCP content array whose single text item
-/// carries the real payload as a JSON **string** (protocol quirk — see
-/// `docs/research/claude-code-integration.md`, 2.4).
+/// carries the real payload as a JSON **string** (Claude Code protocol
+/// quirk — see `docs/integration.md`).
 enum MCPContent {
 
     static func text(_ string: String) -> JSONValue {

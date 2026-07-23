@@ -23,7 +23,11 @@ code wins and the doc must be fixed in the same change.
 
 ## Rules for writing here
 
-- English only, like every artifact in this repository.
+- English for all prose, like code comments and commit messages elsewhere in
+  the repository. This does **not** license removing intentional non-English
+  content: the ru localization catalog, Cyrillic test data and fixtures,
+  language-sensitive examples, and the Russian trigger phrases in the shipped
+  agent skill stay.
 - One domain per file; link between files instead of repeating content.
 - Reference code by path (`EditMD/EditMD/Editor/…`) so readers and agents can
   jump straight to it.

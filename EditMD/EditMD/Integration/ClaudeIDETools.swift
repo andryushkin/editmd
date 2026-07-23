@@ -2,8 +2,8 @@ import Foundation
 
 // The 12 standard IDE tools Claude Code calls over the WebSocket channel (v36).
 //
-// Names, parameters and response shapes follow the spec verbatim
-// (`docs/research/claude-code-integration.md`, 2.4) — including the two quirks:
+// Names, parameters and response shapes follow the Claude Code IDE protocol
+// verbatim (see `docs/integration.md`) — including the two quirks:
 //   * `close_tab` is snake_case while everything else is camelCase;
 //   * the useful payload is a JSON **string** inside `content[0].text`.
 //

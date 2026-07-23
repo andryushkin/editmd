@@ -8,8 +8,9 @@ import Security
 // cover the terminal's cwd, and dials 127.0.0.1:<port> with `authToken` in the
 // `x-claude-code-ide-authorization` header.
 //
-// Schema is verbatim from the spec (`docs/research/claude-code-integration.md`,
-// 2.1) — extra or renamed keys break discovery silently.
+// Schema is verbatim from the reverse-engineered Claude Code IDE protocol
+// (see `docs/integration.md`) — extra or renamed keys break discovery
+// silently.
 
 struct IDELockFileContents: Codable, Equatable, Sendable {
     var pid: Int32

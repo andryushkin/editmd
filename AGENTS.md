@@ -1,36 +1,30 @@
 # EditMD agent instructions
 
-## Mandatory entry point
+## Startup
 
-Before any work in this repository read `CLAUDE.md` in full. It is the
-project's primary up-to-date guide: architecture, verification commands,
-working rules, and invariants. Do not rely on this pointer alone — open the
-file explicitly at the start of a task.
+1. Read `CLAUDE.md` in full — the compressed working guide: project map,
+   build/test commands, non-negotiable invariants.
+2. Check `git status --short`. Preserve anything already dirty in the
+   worktree; never include someone else's changes in your commits.
+3. Open `docs/README.md` and read only the domain doc matching your task
+   (architecture, vault, review, integration, testing).
 
-The detailed decision log (`HISTORY.md`) moved out of the repository on
-2026-07-23 to the author's vault. If the current code contradicts something you
-believe was decided earlier, the code and `CLAUDE.md` win; ask the author when
-history context is needed.
+## Authority order
 
-## Other documentation
-
-- `docs/` — domain documentation for humans and agents; `docs/README.md` is
-  the index. Read the file matching your task's subsystem (architecture,
-  vault, review, integration, testing) and update it in the same change when
-  you alter behavior it describes.
-- `THIRD_PARTY_NOTICES.md` — dependency licenses; update it when vendored
-  assets or packages change.
-- `README.md` — the public face of the repository; keep build instructions
-  accurate.
+When sources disagree: the user's request → current code, tests, and
+`project.yml` → `CLAUDE.md` → domain docs. A doc that contradicts the code is
+a bug in the doc — fix it in the same change. The maintainer keeps a detailed
+decision log outside the repository; ask when historical context would change
+a decision.
 
 ## Execution
 
-- All repository artifacts are in English: code comments, docs, commit
-  messages.
-- `EditMD/project.yml` is the source of the project structure; do not edit the
-  generated `.xcodeproj` instead of it.
-- Preserve other people's changes in a dirty worktree and do not include them
-  in your commits.
-- After changes run the targeted tests, then the full suite in reasonable
-  proportion to the risk, and `git diff --check`.
-- Add durable new rules briefly to `CLAUDE.md`.
+- All prose in English (comments, docs, commits); see "Language policy" in
+  `CLAUDE.md` for the deliberate non-English exceptions.
+- `EditMD/project.yml` is the source of the project structure; regenerate
+  with xcodegen instead of editing the `.xcodeproj`.
+- Verify with `xcodebuild`, not single-file diagnostics. After changes:
+  targeted tests → full suite in proportion to risk → `git diff --check`.
+- Keep commits narrow and single-purpose.
+- When you change behavior a domain doc describes, update that doc in the
+  same change; add durable new rules briefly to `CLAUDE.md`.
