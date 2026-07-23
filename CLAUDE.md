@@ -95,5 +95,11 @@ skill.
   contextual guards must have direct tests.
 - On a hang, capture `sample <pid> 3` first, then optimize the confirmed hot
   path.
+- External contributions follow `CONTRIBUTING.md`: bugs → Issues, ideas and
+  questions → Discussions, anything beyond a small fix needs a discussion
+  before a PR. When triaging or drafting replies, apply that policy — a
+  design-based decline of clean code is a normal outcome. Never reply
+  publicly, close, or merge an outside issue/PR without the maintainer's
+  explicit approval.
 - Durable new rules are added here briefly; subsystem explanations belong in
   the matching `docs/` file; unfinished work is tracked in GitHub Issues.
