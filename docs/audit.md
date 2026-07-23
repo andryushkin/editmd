@@ -1,9 +1,20 @@
 # The auditor
 
-The auditor keeps the repository "in tonus": a fixed set of checks that any
+The auditor keeps the repository healthy: a fixed set of checks that any
 change must survive. Half is mechanical and scripted; half requires judgment
 and is executed by whoever reviews the change (usually an agent). Run it
 before pushing and at the end of any multi-commit sprint.
+
+## Layers
+
+- `scripts/audit.sh` — the deterministic core: side-effect free, fail-closed,
+  stable exit code. Runnable by a human, CI, a git hook, or any agent.
+- `docs/audit.md` (this file) — the public specification of the criteria.
+- `.agents/skills/editmd-audit/SKILL.md` — the agent orchestrator: runs the
+  script, walks the judgment list against the actual diff, verifies test
+  evidence, and emits a standard PASS/FAIL/WAIVED report. It never duplicates
+  the shell checks in prose — one implementation, one spec — and it is
+  read-only: an audit fixes nothing unless separately asked.
 
 ## Mechanical half
 
@@ -14,13 +25,15 @@ before pushing and at the end of any multi-commit sprint.
 Static checks, a few seconds, exit code 1 on any failure:
 
 1. **Language policy** — no Cyrillic outside the explicit allowlist
-   (localization catalog, "Русский" endonym, skill trigger phrases,
+   (localization catalog, the language-name endonym, skill trigger phrases,
    Cyrillic-folding sources, test data, the live root fixture).
 2. **Doc links resolve** — every relative link in `docs/*.md` and `README.md`
    points at an existing file.
-3. **Code→doc references exist** — every `docs/….md` path mentioned in app
-   sources, guides, or `project.yml` exists (stale references were a real
-   post-refactor bug).
+3. **Code→doc references exist** — every `docs/….md` path mentioned in
+   executable sources (app, `editmdctl`, `editmd-mcp`, scripts), guides, or
+   `project.yml` exists (stale references were a real post-refactor bug).
+   Tests and agent-skill examples are excluded by design — their `docs/…`
+   strings are sample vault paths, not repository references.
 4. **No xcodegen drift** — regenerating from `project.yml` leaves the
    committed `.xcodeproj` unchanged.
 5. **No secret patterns** in tracked files.
@@ -31,7 +44,8 @@ Static checks, a few seconds, exit code 1 on any failure:
    are compressed by design; growth is a smell that detail belongs in a
    domain doc.
 8. **No junk tracked** — `.DS_Store`, `xcuserdata/`, logs, smotr artifacts.
-9. **`git diff --check`** — no whitespace errors in the pending diff.
+9. **`git diff --check`** — no whitespace errors in the worktree, the staged
+   diff, or (when an upstream is configured) the outgoing commit range.
 
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).

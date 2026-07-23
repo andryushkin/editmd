@@ -25,8 +25,9 @@ a decision.
   with xcodegen instead of editing the `.xcodeproj`.
 - Verify with `xcodebuild`, not single-file diagnostics. After changes:
   targeted tests → full suite in proportion to risk → `git diff --check`.
-- Before pushing: `./scripts/audit.sh` plus the judgment list in
-  `docs/audit.md`.
+- Before pushing, use the project audit skill
+  (`.agents/skills/editmd-audit`) when available; otherwise run
+  `scripts/audit.sh` and follow `docs/audit.md`.
 - Keep commits narrow and single-purpose.
 - When you change behavior a domain doc describes, update that doc in the
   same change; add durable new rules briefly to `CLAUDE.md`.

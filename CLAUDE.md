@@ -38,8 +38,9 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 
 Verify real errors with `xcodebuild`, not single-file editor diagnostics.
 After changes: targeted tests → full suite (in proportion to risk) →
-`git diff --check`. Before pushing run `./scripts/audit.sh` and walk the
-judgment list in `docs/audit.md`. More in `docs/testing.md`.
+`git diff --check`. Before pushing, use the audit skill
+(`.agents/skills/editmd-audit`) when available; otherwise run
+`scripts/audit.sh` and follow `docs/audit.md`. More in `docs/testing.md`.
 
 ## Non-negotiable invariants
 
