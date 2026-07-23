@@ -1,16 +1,24 @@
 #!/bin/bash
-# Distribution build: Release EditMD.app with editmdctl embedded, signed with
-# Developer ID when one is present (ad-hoc otherwise), notarized when the
-# notarytool keychain profile exists, packaged as a DMG.
+# Distribution build: Release EditMD.app with editmdctl embedded, signed,
+# notarized, and packaged as a DMG.
 #
-# Usage: scripts/dist.sh
+# Default mode is fail-closed: it errors out unless a Developer ID
+# Application identity is present AND notarization succeeds — the resulting
+# DMG is safe to attach to a GitHub Release. `--adhoc` builds a local,
+# ad-hoc-signed DMG for testing the packaging itself; its filename says so
+# and it must never be distributed.
+#
+# Usage: scripts/dist.sh [--adhoc]
 #   EDITMD_NOTARY_PROFILE  notarytool keychain profile (default: editmd-notary)
 #
-# One-time notarization setup (app-specific password from appleid.apple.com):
+# One-time notarization setup (app-specific password from account.apple.com):
 #   xcrun notarytool store-credentials editmd-notary \
 #     --apple-id <apple-id> --team-id <team> --password <app-specific-password>
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+ADHOC=0
+[ "${1:-}" = "--adhoc" ] && ADHOC=1
 
 PROJECT=EditMD/EditMD.xcodeproj
 SPEC=EditMD/project.yml
@@ -22,16 +30,26 @@ PROFILE="${EDITMD_NOTARY_PROFILE:-editmd-notary}"
 
 VERSION=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"$/\1/p' "$SPEC" | head -1)
 [ -n "$VERSION" ] || { echo "error: MARKETING_VERSION not found in $SPEC"; exit 1; }
-DMG="$DIST/EditMD-v$VERSION.dmg"
+if [ "$ADHOC" = 1 ]; then
+    DMG="$DIST/EditMD-v$VERSION-adhoc.dmg"
+else
+    DMG="$DIST/EditMD-v$VERSION.dmg"
+fi
 
 IDENTITY=$(security find-identity -v -p codesigning \
     | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+if [ "$ADHOC" = 0 ] && [ -z "$IDENTITY" ]; then
+    echo "error: no Developer ID Application identity in the keychain."
+    echo "       A distributable build requires one. For a local packaging"
+    echo "       test use: scripts/dist.sh --adhoc"
+    exit 1
+fi
 
 echo "== EditMD dist v$VERSION"
-if [ -n "$IDENTITY" ]; then
-    echo "   signing: $IDENTITY"
+if [ "$ADHOC" = 1 ]; then
+    echo "   signing: AD-HOC — local test build, NOT distributable"
 else
-    echo "   signing: ad-hoc (no Developer ID Application identity found)"
+    echo "   signing: $IDENTITY"
 fi
 
 # -- Build ------------------------------------------------------------------
@@ -51,10 +69,10 @@ cp "$PRODUCTS/editmdctl" "$APP/Contents/MacOS/editmdctl"
 
 # -- Sign (inside out) ------------------------------------------------------
 sign() {
-    if [ -n "$IDENTITY" ]; then
-        codesign --force --timestamp --options runtime --sign "$IDENTITY" "$1"
-    else
+    if [ "$ADHOC" = 1 ]; then
         codesign --force --sign - "$1"
+    else
+        codesign --force --timestamp --options runtime --sign "$IDENTITY" "$1"
     fi
 }
 if [ -d "$APP/Contents/Frameworks" ]; then
@@ -67,16 +85,29 @@ sign "$APP"
 codesign --verify --strict --deep "$APP"
 echo "   codesign verify: OK"
 
-# -- Notarize the app -------------------------------------------------------
-NOTARIZED=0
-if [ -n "$IDENTITY" ] && xcrun notarytool history --keychain-profile "$PROFILE" \
-        >/dev/null 2>&1; then
+# -- Notarize (release mode; any failure aborts) ----------------------------
+notarize() {
+    # notarytool exits 0 even for an Invalid verdict — check the status line.
+    local out
+    if ! out=$(xcrun notarytool submit "$1" --keychain-profile "$PROFILE" \
+            --wait 2>&1); then
+        echo "$out"
+        echo "error: notarization submit failed — missing/expired profile"
+        echo "       '$PROFILE', network, or notary-service error. One-time"
+        echo "       setup is in the header of this script."
+        exit 1
+    fi
+    echo "$out"
+    if ! echo "$out" | grep -q "status: Accepted"; then
+        echo "error: notarization was not accepted; see the log above and"
+        echo "       'xcrun notarytool log <submission-id>'."
+        exit 1
+    fi
+}
+if [ "$ADHOC" = 0 ]; then
     ditto -c -k --keepParent "$APP" "$DIST/EditMD.zip"
-    xcrun notarytool submit "$DIST/EditMD.zip" --keychain-profile "$PROFILE" --wait
+    notarize "$DIST/EditMD.zip"
     xcrun stapler staple "$APP"
-    NOTARIZED=1
-else
-    echo "   notarization: SKIPPED (profile '$PROFILE' not set up — see header)"
 fi
 
 # -- DMG --------------------------------------------------------------------
@@ -86,13 +117,12 @@ ln -s /Applications "$DIST/dmg-stage/Applications"
 hdiutil create -volname "EditMD" -srcfolder "$DIST/dmg-stage" -ov -quiet \
     -format UDZO "$DMG"
 rm -rf "$DIST/dmg-stage"
-if [ -n "$IDENTITY" ]; then
+if [ "$ADHOC" = 0 ]; then
     codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-fi
-if [ "$NOTARIZED" = 1 ]; then
-    xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+    notarize "$DMG"
     xcrun stapler staple "$DMG"
+    echo "== Done: $DMG (signed + notarized, distributable)"
+else
+    echo "== Done: $DMG — AD-HOC test build, do NOT distribute"
 fi
-
-echo "== Done: $DMG"
 shasum -a 256 "$DMG"

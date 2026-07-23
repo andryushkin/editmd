@@ -45,14 +45,15 @@ audit passes and `main` is pushed. A release consists of:
 
 `scripts/dist.sh` produces the distributable artifact: a Release
 `EditMD.app` with `editmdctl` embedded next to the app executable (where
-`EditMDCtlInstaller` looks for it), signed and packaged into
-`dist/EditMD-v<version>.dmg`. Signing auto-detects a Developer ID
-Application identity and falls back to ad-hoc; notarization runs when the
-`editmd-notary` notarytool keychain profile exists and is skipped with a
-warning otherwise (setup command in the script header). The team id and
-credentials live in the local keychain, never in the repository. Attaching
-the DMG to the GitHub Release is part of cutting a release once
-distribution starts.
+`EditMDCtlInstaller` looks for it), signed, notarized, and packaged into
+`dist/EditMD-v<version>.dmg`. The default mode is fail-closed: it aborts
+unless a Developer ID Application identity is present and notarization is
+accepted, so a DMG it reports as done is by construction safe to attach to
+a GitHub Release. `--adhoc` builds a local packaging test
+(`…-adhoc.dmg`) that must never be distributed. The identity and the
+`editmd-notary` notarytool profile live in the local keychain, never in
+the repository (setup command in the script header). Attaching the DMG to
+the GitHub Release is part of cutting a release once distribution starts.
 
 ## Branching
 
