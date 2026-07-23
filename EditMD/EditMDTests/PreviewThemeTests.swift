@@ -154,6 +154,39 @@ final class PreviewThemeTests: XCTestCase {
         XCTAssertEqual(EditorSettings.migratedPreviewGeometry(stock, from: standard, to: minimal), stock)
     }
 
+    @MainActor
+    func testLegacyTyporaStartupUpgradesStockGeometry() {
+        // Install that picked typora before selection-time rewriting existed:
+        // stored geometry stayed stock, but rendered as 16/860 back then —
+        // the startup upgrade reproduces what the user saw.
+        let stock = EditorSettings.previewDefaults()
+        let upgraded = EditorSettings.legacyPreviewGeometryUpgrade(stock, activeThemeID: "typora")
+        XCTAssertEqual(upgraded.fontSize, 16)
+        XCTAssertEqual(upgraded.columnWidth, 860)
+
+        // Touched values and full width survive the upgrade.
+        var custom = stock
+        custom.fontSize = 18
+        custom.columnWidth = 0
+        let kept = EditorSettings.legacyPreviewGeometryUpgrade(custom, activeThemeID: "typora")
+        XCTAssertEqual(kept.fontSize, 18)
+        XCTAssertEqual(kept.columnWidth, 0)
+
+        // Themes without preferred geometry make the startup pass a no-op —
+        // including unknown/legacy ids, which resolve to the default look.
+        XCTAssertEqual(EditorSettings.legacyPreviewGeometryUpgrade(stock, activeThemeID: "minimal"), stock)
+        XCTAssertEqual(EditorSettings.legacyPreviewGeometryUpgrade(stock, activeThemeID: ""), stock)
+    }
+
+    @MainActor
+    func testPreviewGeometryBaselineStampIsCurrent() {
+        // Exact match on purpose (mirrors visualTypographyBaseline): changing
+        // theme geometry semantics without bumping the stamp — or bumping it
+        // accidentally, re-running the upgrade over deliberate stock values —
+        // must fail a test.
+        XCTAssertEqual(EditorSettings.previewGeometryBaseline, 1)
+    }
+
     // MARK: - Settings persistence
 
     func testPreviewTypographySettingsDecodeWithoutThemeField() throws {

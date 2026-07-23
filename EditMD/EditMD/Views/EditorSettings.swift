@@ -609,6 +609,7 @@ final class EditorSettings: ObservableObject {
         static let preview = "editorSettings.preview"
         static let previewTypography = "editorSettings.previewTypography"
         static let visualTypographyBaseline = "editorSettings.visualTypographyBaseline"
+        static let previewGeometryBaseline = "editorSettings.previewGeometryBaseline"
     }
 
     private init() {
@@ -625,10 +626,25 @@ final class EditorSettings: ObservableObject {
         visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
         preview = Self.load(Keys.preview) ?? Self.previewDefaults()
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
-        // didSet observers don't fire during init — flush the migrated value
-        // and the stamp explicitly (fresh installs get stamped too).
+        // Selection-time geometry rewriting (the previewTypography didSet)
+        // postdates the first typora-theme builds — installs that picked the
+        // theme back then still store stock 15/736, which those versions
+        // RENDERED as the theme's 16/860 via a since-removed render-time
+        // resolver. The one-time upgrade reproduces what those users saw;
+        // the stamp keeps a later deliberate 15/736 choice from being
+        // rewritten again on the next launch.
+        let previewStamp = UserDefaults.standard.integer(forKey: Keys.previewGeometryBaseline)
+        let needsPreviewGeometryUpgrade = previewStamp < Self.previewGeometryBaseline
+        if needsPreviewGeometryUpgrade {
+            preview = Self.legacyPreviewGeometryUpgrade(preview,
+                                                        activeThemeID: previewTypography.theme)
+        }
+        // didSet observers don't fire during init — flush the migrated values
+        // and the stamps explicitly (fresh installs get stamped too).
         if needsBaselineMigration { persist(visual, Keys.visual) }
+        if needsPreviewGeometryUpgrade { persist(preview, Keys.preview) }
         UserDefaults.standard.set(Self.visualTypographyBaseline, forKey: Keys.visualTypographyBaseline)
+        UserDefaults.standard.set(Self.previewGeometryBaseline, forKey: Keys.previewGeometryBaseline)
     }
 
     /// Baseline Visual defaults (plan 11): the prose reading column matches
@@ -662,6 +678,25 @@ final class EditorSettings: ObservableObject {
             next.columnWidth = new.preferredColumnWidth ?? stock.columnWidth
         }
         return next
+    }
+
+    /// Stamp for the one-time startup upgrade below (1 = typora
+    /// selection-time geometry, 2026-07-23). Bump only when a later change
+    /// must rewrite stored Preview geometry again.
+    static let previewGeometryBaseline = 1
+
+    /// Startup upgrade for installs that picked a geometry-preferring theme
+    /// before selection-time rewriting existed: stock values are treated as
+    /// untouched (`from: .standard`), which reproduces exactly what those
+    /// versions rendered — their render-time resolver mapped stored stock
+    /// 15/736 to the active theme's preferred numbers, so an honored
+    /// deliberate 15/736 under typora did not exist yet. Gated by
+    /// `previewGeometryBaseline`, so post-upgrade stock choices are never
+    /// rewritten on later launches.
+    static func legacyPreviewGeometryUpgrade(_ stored: ModeSettings,
+                                             activeThemeID: String) -> ModeSettings {
+        migratedPreviewGeometry(stored, from: .standard,
+                                to: PreviewTheme.preset(named: activeThemeID))
     }
 
     /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a
