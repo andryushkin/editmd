@@ -4,9 +4,11 @@
 
 Copyright © 2013–2020 Khan Academy and other contributors.
 
-Bundled offline in `EditMD/Resources/katex/` (minified JS + CSS with fonts
-inlined as data: URIs) for math rendering in Preview. Licensed under the MIT
-License: https://github.com/KaTeX/KaTeX/blob/main/LICENSE
+Version 0.16.22 is bundled offline in `EditMD/Resources/katex/` (minified JS +
+CSS with fonts inlined as data: URIs) for math rendering in Preview. Licensed
+under the MIT License — the full text ships alongside the files as
+`katex-LICENSE.txt` (and in the app bundle):
+https://github.com/KaTeX/KaTeX/blob/v0.16.22/LICENSE
 
 ## swift-markdown
 
@@ -54,8 +56,8 @@ https://github.com/highlightjs/highlight.js/blob/main/LICENSE
 Copyright © Google (designed by Steve Matteson).
 
 Four WOFF faces (regular/italic/bold/bold-italic, latin + latin-ext) are
-bundled in `EditMD/Resources/opensans/` for the Typora Preview theme, taken
-from Typora's default-themes repository
+bundled in `EditMD/Resources/opensans/` for the "Night" Preview theme (a port
+of Typora's default theme pair), taken from Typora's default-themes repository
 (https://github.com/typora/typora-default-themes, `themes/github/`).
 Licensed under the Apache License 2.0 — full text ships alongside the fonts
 as `opensans-LICENSE.txt`.

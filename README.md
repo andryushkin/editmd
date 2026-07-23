@@ -32,7 +32,8 @@ everything else is a view of it.
 
 ## Build
 
-Requires macOS 14+, Xcode 16+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requires macOS 14+, Xcode 26+ (Swift 6.2), and
+[XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 xcodegen generate --spec EditMD/project.yml

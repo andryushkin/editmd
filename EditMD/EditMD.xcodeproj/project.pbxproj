@@ -207,6 +207,7 @@
 		D5149561D6042C237D8D2A08 /* reference.md in Resources */ = {isa = PBXBuildFile; fileRef = C0992CECE61C61FF3A2B9A98 /* reference.md */; };
 		D5AA69E012EE62FC6CDB2811 /* hooks.fragment.json in Resources */ = {isa = PBXBuildFile; fileRef = DBC28EEF1DCFD0D801EB4E4F /* hooks.fragment.json */; };
 		D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */; };
+		D8B5C3AD7B4487201D0A2B6F /* katex-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 27E82A0F4F1660860F876997 /* katex-LICENSE.txt */; };
 		D8DDBACA66BC7E909E514061 /* LinkGraphEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CA4996EFB22C0BE541058D /* LinkGraphEngine.swift */; };
 		D94A6524993EEBECE6CEBE28 /* VisualCoordinatorFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */; };
 		DA424E58D0274B4EB89F9151 /* DocumentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */; };
@@ -289,6 +290,7 @@
 		24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterEdit.swift; sourceTree = "<group>"; };
 		24CE99A0AC7E04E47BF21BF1 /* PasteLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteLinkTests.swift; sourceTree = "<group>"; };
 		2621A82FDDEF41681AC8F3B0 /* ControlRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRouter.swift; sourceTree = "<group>"; };
+		27E82A0F4F1660860F876997 /* katex-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "katex-LICENSE.txt"; sourceTree = "<group>"; };
 		299C8B043AA3EB547F3F8B71 /* FocusedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedValues.swift; sourceTree = "<group>"; };
 		2C803DB18A964AA7724C35CE /* FileMoveActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMoveActions.swift; sourceTree = "<group>"; };
 		2F5C9AB47EBD2CE8A4C2E8EC /* SearchMatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchMatchTests.swift; sourceTree = "<group>"; };
@@ -513,6 +515,7 @@
 		0C87D668957C96EC7A6C264F /* katex */ = {
 			isa = PBXGroup;
 			children = (
+				27E82A0F4F1660860F876997 /* katex-LICENSE.txt */,
 				7876EB215E777CB863F2221B /* katex.css */,
 				7CAB5B4807D5CB206D4DE973 /* katex.js */,
 			);
@@ -1020,6 +1023,7 @@
 				306320E68714D8C69F0D62A8 /* icon.png in Resources */,
 				D3F93533F340110079AB1BCC /* integration.fish in Resources */,
 				44CAD674868F9034C05C6BCA /* integration.sh in Resources */,
+				D8B5C3AD7B4487201D0A2B6F /* katex-LICENSE.txt in Resources */,
 				186E6C22B5D0D627F9A7A735 /* katex.css in Resources */,
 				C8D7751F66CA0117C9E55A9D /* katex.js in Resources */,
 				952D881AE9E17AE746ED5855 /* opensans-400.woff in Resources */,

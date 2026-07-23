@@ -14,5 +14,6 @@ EditMD/build/
 # graphify knowledge-graph output (generated, local-only)
 graphify-out/
 
-# local research clones of third-party editors (not part of the project)
-research/
+# local research clones of third-party editors (not part of the project);
+# anchored so docs/research/ stays tracked
+/research/
