@@ -101,5 +101,8 @@ skill.
   design-based decline of clean code is a normal outcome. Never reply
   publicly, close, or merge an outside issue/PR without the maintainer's
   explicit approval.
+- Releases follow `docs/releasing.md`: version bumps in `project.yml` are
+  routine, but `CHANGELOG.md` sections, tags, and GitHub Releases are cut
+  only on the maintainer's explicit request (`.agents/skills/editmd-release`).
 - Durable new rules are added here briefly; subsystem explanations belong in
   the matching `docs/` file; unfinished work is tracked in GitHub Issues.
