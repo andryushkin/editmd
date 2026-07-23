@@ -206,8 +206,10 @@ extension PreviewTheme {
     /// own #363B40 page background is NOT ported: themes keep the system
     /// Canvas. Reference geometry 16px/860px comes from github.css.
     static let typora = PreviewTheme(
+        // The id stays "typora": it is persisted in user settings and keyed by
+        // the legacy geometry startup upgrade; only the display name is "Night".
         id: "typora",
-        title: String(localized: "Typora"),
+        title: String(localized: "Night"),
         bodyFontStack: "\"Open Sans\", \"Clear Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
         darkBodyFontStack: "\"Helvetica Neue\", Helvetica, Arial, \"Segoe UI Emoji\", \"SF Pro\", sans-serif",
         fontFacesCSS: openSansFontFaces,

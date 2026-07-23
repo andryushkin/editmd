@@ -10,7 +10,6 @@
 
 - `docs/todo.md` — актуальные хвосты и roadmap; читай при планировании новых работ.
 - `docs/design/index.md` и `docs/design/*.html` — визуальные макеты экранов; читай при изменениях layout/UI.
-- `visual-audit.md` — контракт и аудит Visual/WYSIWYG; читай при изменениях рендера или round-trip Visual.
 - `docs/research/claude-code-integration.md` и `docs/plan-claude-code-integration.md` — IDE/MCP/control integration.
 - `docs/research/tables-and-wikilinks.md` — исследования таблиц и wiki-links.
 - `docs/plan-code-syntax-highlighting.md` и `docs/plan-live-preview-innerhtml.md` — контекст соответствующих спринтов; сверяй планы с текущим кодом и `HISTORY.md`, потому что часть шагов уже завершена.

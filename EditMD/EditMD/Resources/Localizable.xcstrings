@@ -4611,6 +4611,16 @@
         }
       }
     },
+    "Night" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ночная"
+          }
+        }
+      }
+    },
     "no" : {
       "localizations" : {
         "ru" : {
@@ -7441,16 +7451,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Типографика"
-          }
-        }
-      }
-    },
-    "Typora" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Typora"
           }
         }
       }
