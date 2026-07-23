@@ -17,11 +17,14 @@ report.
 
 1. **Load context.** Read `CLAUDE.md` and `docs/audit.md`. The doc is the
    specification; this skill only orchestrates it.
-2. **Fix the scope.** Record `git status --short`, the current branch, the
-   upstream (`git rev-parse --abbrev-ref @{upstream}`, may be absent), and
-   the commit range under audit: outgoing commits (`@{upstream}..HEAD`) plus
-   any staged/unstaged changes. If there is nothing to audit, say so and
-   stop.
+2. **Fix the scope.** Record `git status --short` and the current branch,
+   then resolve the audit base the same way the script does: explicit
+   `AUDIT_BASE` → the branch upstream (`git rev-parse --abbrev-ref
+   @{upstream}`) → `origin/<branch>`. The range under audit is
+   `<base>..HEAD` plus any staged/unstaged changes. If no base resolves,
+   the audit's verdict is FAIL (state "cannot determine range") — never
+   silently audit a smaller scope. If the range and worktree are both
+   empty, say so and stop.
 3. **Run the mechanical half:** `./scripts/audit.sh`. Never re-implement its
    checks by hand; if the script cannot run, that is a FAIL of the audit
    itself. Quote failing check names verbatim.

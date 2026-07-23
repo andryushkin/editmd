@@ -26,7 +26,9 @@ Static checks, a few seconds, exit code 1 on any failure:
 
 1. **Language policy** — no Cyrillic outside the explicit allowlist
    (localization catalog, the language-name endonym, skill trigger phrases,
-   Cyrillic-folding sources, test data, the live root fixture).
+   Cyrillic-folding sources, test data, the live root fixture). Only
+   `SKILL.md` files of project skills are exempt — they carry bilingual
+   trigger phrases; their body prose staying English is judgment item 5.
 2. **Doc links resolve** — every relative link in `docs/*.md` and `README.md`
    points at an existing file.
 3. **Code→doc references exist** — every `docs/….md` path mentioned in
@@ -34,8 +36,11 @@ Static checks, a few seconds, exit code 1 on any failure:
    `project.yml` exists (stale references were a real post-refactor bug).
    Tests and agent-skill examples are excluded by design — their `docs/…`
    strings are sample vault paths, not repository references.
-4. **No xcodegen drift** — regenerating from `project.yml` leaves the
-   committed `.xcodeproj` unchanged.
+4. **No xcodegen drift** — `project.yml` regenerates to the current
+   `.xcodeproj`, verified by generating inside a temporary clone of
+   `EditMD/` and comparing byte-for-byte (both directions: changed files and
+   files the generator would no longer produce). The working tree is never
+   written, so an interrupted audit cannot leave it modified.
 5. **No secret patterns** in tracked files.
 6. **Third-party notices coverage** — every SwiftPM pin has a section in
    `THIRD_PARTY_NOTICES.md`; vendored license files (KaTeX, Open Sans) are in
@@ -45,7 +50,10 @@ Static checks, a few seconds, exit code 1 on any failure:
    domain doc.
 8. **No junk tracked** — `.DS_Store`, `xcuserdata/`, logs, smotr artifacts.
 9. **`git diff --check`** — no whitespace errors in the worktree, the staged
-   diff, or (when an upstream is configured) the outgoing commit range.
+   diff, or the outgoing commit range. The audit base resolves as: explicit
+   `AUDIT_BASE` env var → the branch upstream → `origin/<branch>`; when no
+   base can be determined the check FAILs rather than silently shrinking its
+   scope.
 
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).

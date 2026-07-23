@@ -25,7 +25,7 @@ cyr=$(grep_tracked -P '\p{Cyrillic}' -- \
     ':!EditMD/EditMD/Resources/Localizable.xcstrings' \
     ':!EditMD/EditMD/Views/AppLanguage.swift' \
     ':!EditMD/EditMD/Resources/agent-skill/SKILL.md' \
-    ':!.agents/skills/' \
+    ':!.agents/skills/*/SKILL.md' \
     ':!EditMD/EditMD/Editor/SearchMatch.swift' \
     ':!EditMD/EditMD/Editor/SearchQuery.swift' \
     ':!EditMD/EditMDTests/' \
@@ -40,11 +40,15 @@ else fail "cyrillic-outside-allowlist" "git grep errored ($st)"; fi
 badlinks=""
 for f in docs/*.md README.md; do
     [ -f "$f" ] || { badlinks="$badlinks missing:$f"; continue; }
+    raw=$(grep -o '](\([^)]*\))' "$f" 2>/dev/null)
+    st=$?
+    [ $st -gt 1 ] && { badlinks="$badlinks grep-error:$f"; continue; }
     while IFS= read -r target; do
+        [ -z "$target" ] && continue
         case "$target" in http*|\#*|mailto:*) continue ;; esac
         rel="${target%%#*}"
         [ -e "$(dirname "$f")/$rel" ] || [ -e "$rel" ] || badlinks="$badlinks $f->$target"
-    done < <(grep -o '](\([^)]*\))' "$f" 2>/dev/null | sed 's/^](//; s/)$//')
+    done <<< "$(printf '%s\n' "$raw" | sed 's/^](//; s/)$//')"
 done
 if [ -z "$badlinks" ]; then pass "doc-links-resolve"; else fail "doc-links-resolve" $badlinks; fi
 
@@ -64,28 +68,39 @@ else
     if [ -z "$badrefs" ]; then pass "code-doc-refs-exist"; else fail "code-doc-refs-exist" $badrefs; fi
 fi
 
-# 4. xcodegen drift: project.yml must regenerate to the committed .xcodeproj.
-#    The current project dir is snapshotted first and restored afterwards, so
-#    the auditor never leaves the working tree modified.
+# 4. xcodegen drift: project.yml must regenerate to the current .xcodeproj.
+#    Generation happens in a temporary CoW clone of EditMD/ — the working
+#    tree is never written, so an interruption cannot leave it modified.
 proj=EditMD/EditMD.xcodeproj
 if ! command -v xcodegen > /dev/null; then
     fail "xcodegen-no-drift" "xcodegen not installed"
 elif [ ! -d "$proj" ]; then
     fail "xcodegen-no-drift" "$proj missing"
 else
-    saved=$(mktemp -d)
-    if cp -R "$proj" "$saved/"; then
-        if xcodegen generate --spec EditMD/project.yml --quiet > /dev/null 2>&1; then
-            drift=$(git status --porcelain "$proj")
-            if [ -z "$drift" ]; then pass "xcodegen-no-drift"; else fail "xcodegen-no-drift" $drift; fi
-        else
-            fail "xcodegen-no-drift" "xcodegen generate failed"
-        fi
-        rm -rf "$proj" && mv "$saved/EditMD.xcodeproj" "$proj"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    if { cp -cR EditMD "$tmp/EditMD" 2>/dev/null || cp -R EditMD "$tmp/EditMD"; } \
+        && rm -rf "$tmp/EditMD/EditMD.xcodeproj" \
+        && xcodegen generate --spec "$tmp/EditMD/project.yml" --quiet > /dev/null 2>&1; then
+        drift=""
+        # Every generated file must match the worktree byte-for-byte…
+        while IFS= read -r g; do
+            rel="${g#"$tmp/EditMD/EditMD.xcodeproj/"}"
+            cmp -s "$g" "$proj/$rel" || drift="$drift $rel"
+        done < <(find "$tmp/EditMD/EditMD.xcodeproj" -type f)
+        # …and every tracked project file (minus SPM state, which Xcode owns)
+        # must still be produced by the generator.
+        while IFS= read -r t; do
+            rel="${t#"$proj/"}"
+            case "$rel" in *xcshareddata/swiftpm/*) continue ;; esac
+            [ -f "$tmp/EditMD/EditMD.xcodeproj/$rel" ] || drift="$drift missing:$rel"
+        done < <(git ls-files "$proj")
+        if [ -z "$drift" ]; then pass "xcodegen-no-drift"; else fail "xcodegen-no-drift" $drift; fi
     else
-        fail "xcodegen-no-drift" "could not snapshot $proj"
+        fail "xcodegen-no-drift" "could not clone EditMD/ or xcodegen generate failed"
     fi
-    rm -rf "$saved"
+    rm -rf "$tmp"
+    trap - EXIT
 fi
 
 # 5. Secret patterns in tracked files.
@@ -122,19 +137,39 @@ else
 fi
 
 # 8. Junk files never tracked.
-junk=$(git ls-files | grep -E '\.DS_Store|xcuserdata/|\.log$|\.smotr')
-if [ -z "$junk" ]; then pass "no-junk-tracked"; else fail "no-junk-tracked" $junk; fi
-
-# 9. Whitespace errors: unstaged, staged, and (when an upstream exists) the
-#    outgoing commit range — a pre-push audit must see already-committed
-#    whitespace too.
-ws=""
-git diff --check > /dev/null 2>&1 || ws="worktree"
-git diff --check --cached > /dev/null 2>&1 || ws="$ws staged"
-if up=$(git rev-parse --verify --quiet '@{upstream}'); then
-    git diff --check "$up" HEAD > /dev/null 2>&1 || ws="$ws outgoing"
+tracked=$(git ls-files)
+if [ $? -ne 0 ]; then
+    fail "no-junk-tracked" "git ls-files errored"
+else
+    junk=$(printf '%s\n' "$tracked" | grep -E '\.DS_Store|xcuserdata/|\.log$|\.smotr')
+    if [ -z "$junk" ]; then pass "no-junk-tracked"; else fail "no-junk-tracked" $junk; fi
 fi
-if [ -z "$ws" ]; then pass "git-diff-check"; else fail "git-diff-check" $ws; fi
+
+# 9. Whitespace errors: unstaged, staged, and the outgoing commit range.
+#    The audit base resolves as: explicit $AUDIT_BASE → the branch upstream →
+#    origin/<branch>. A pre-push audit without any determinable base is a
+#    FAIL, not a silent skip.
+base=""
+if [ -n "${AUDIT_BASE:-}" ]; then
+    if git rev-parse --verify --quiet "$AUDIT_BASE" > /dev/null; then base=$AUDIT_BASE
+    else base="__invalid__"; fi
+elif git rev-parse --verify --quiet '@{upstream}' > /dev/null; then
+    base='@{upstream}'
+else
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    if git rev-parse --verify --quiet "origin/$branch" > /dev/null; then base="origin/$branch"; fi
+fi
+if [ "$base" = "__invalid__" ]; then
+    fail "git-diff-check" "AUDIT_BASE='$AUDIT_BASE' does not resolve"
+elif [ -z "$base" ]; then
+    fail "git-diff-check" "no audit base: set an upstream or AUDIT_BASE"
+else
+    ws=""
+    git diff --check > /dev/null 2>&1 || ws="worktree"
+    git diff --check --cached > /dev/null 2>&1 || ws="$ws staged"
+    git diff --check "$base" HEAD > /dev/null 2>&1 || ws="$ws outgoing($base)"
+    if [ -z "$ws" ]; then pass "git-diff-check (base: $base)"; else fail "git-diff-check" $ws; fi
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then
