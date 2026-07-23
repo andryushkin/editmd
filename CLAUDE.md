@@ -38,7 +38,8 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 
 Verify real errors with `xcodebuild`, not single-file editor diagnostics.
 After changes: targeted tests → full suite (in proportion to risk) →
-`git diff --check`. More in `docs/testing.md`.
+`git diff --check`. Before pushing run `./scripts/audit.sh` and walk the
+judgment list in `docs/audit.md`. More in `docs/testing.md`.
 
 ## Non-negotiable invariants
 
@@ -79,8 +80,9 @@ test-host `-AppleLanguages (en)`) in `docs/architecture.md` § Localization.
 
 English for all prose: code comments, documentation, commit messages, string
 literals in code that are not data. Deliberate exceptions that must **not** be
-"cleaned up": the ru localization catalog and the "Русский" endonym, Cyrillic
-test data and fixtures (they cover UTF-16 and case-folding paths),
+"cleaned up": the ru localization catalog and the language-name endonym in
+`AppLanguage.swift`, Cyrillic test data and fixtures (they cover UTF-16 and
+case-folding paths),
 language-sensitive examples, and Russian trigger phrases in the shipped agent
 skill.
 

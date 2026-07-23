@@ -116,7 +116,7 @@ At the workspace root. Shape:
   "created": 1710000000000,
   "count": 2,
   "marks": [
-    {"file": "docs/a.md", "kind": "md", "id": "…", "type": "comment", "status": "open"}
+    {"file": "notes/a.md", "kind": "md", "id": "…", "type": "comment", "status": "open"}
   ]
 }
 ```

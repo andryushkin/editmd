@@ -66,7 +66,8 @@ whose only link points to itself counts as both an orphan and `selfWikiLink`.
 Workspace search (`Views/WorkspaceSearchModel.swift`, `Editor/SearchQuery.swift`,
 `Editor/SearchMatch.swift`) supports tokens, quoted phrases, and filters
 (`path:`, `type:`, `tag:`, `is:modified`, `after:`). Matching uses a
-hand-rolled scalar fold covering ASCII and Cyrillic (including Ё) instead of
+hand-rolled scalar fold covering ASCII and Cyrillic (including Yo, U+0401)
+instead of
 Foundation case-insensitive search — the fold table is the invariant to extend
 when broader coverage is needed, not a switch to Foundation (performance).
 

@@ -5,7 +5,7 @@ import Foundation
 /// Cheap file facts used before content is read.
 struct SearchFileMeta: Equatable, Sendable {
     let url: URL
-    /// Path relative to the owning workspace root (`docs/a.md`), no leading slash.
+    /// Path relative to the owning workspace root (`notes/a.md`), no leading slash.
     let relativePath: String
     let fileName: String
     /// Lowercased extension without dot (`md`).
