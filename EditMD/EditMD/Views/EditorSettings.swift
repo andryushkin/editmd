@@ -583,7 +583,21 @@ final class EditorSettings: ObservableObject {
         didSet { persist(visualTableEditor, Keys.visualTableEditor) }
     }
     @Published var preview: ModeSettings { didSet { persist(preview, Keys.preview) } }
-    @Published var previewTypography: PreviewTypographySettings { didSet { persist(previewTypography, Keys.previewTypography) } }
+    @Published var previewTypography: PreviewTypographySettings {
+        didSet {
+            persist(previewTypography, Keys.previewTypography)
+            // Selecting a theme writes its reference geometry into the real
+            // Preview settings, so sliders show exactly what Preview draws
+            // and every consumer (action strip, PDF) reads one truth.
+            if oldValue.theme != previewTypography.theme {
+                let migrated = Self.migratedPreviewGeometry(
+                    preview,
+                    from: PreviewTheme.preset(named: oldValue.theme),
+                    to: PreviewTheme.preset(named: previewTypography.theme))
+                if migrated != preview { preview = migrated }
+            }
+        }
+    }
 
     private enum Keys {
         static let general = "editorSettings.general"
@@ -628,6 +642,26 @@ final class EditorSettings: ObservableObject {
     /// value still equals these.
     static func previewDefaults() -> ModeSettings {
         ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
+    }
+
+    /// Theme switch: values are rewritten to the incoming theme's effective
+    /// defaults only while they still equal the OUTGOING theme's — anything
+    /// the user touched stays, including explicitly picking the stock
+    /// numbers while another theme is active. This runs once at selection
+    /// time (not at render time), which is what lets a user on the Typora
+    /// theme deliberately choose 15 pt / 736 pt and see exactly that.
+    static func migratedPreviewGeometry(_ current: ModeSettings,
+                                        from old: PreviewTheme,
+                                        to new: PreviewTheme) -> ModeSettings {
+        let stock = previewDefaults()
+        var next = current
+        if current.fontSize == (old.preferredFontSize ?? stock.fontSize) {
+            next.fontSize = new.preferredFontSize ?? stock.fontSize
+        }
+        if current.columnWidth == (old.preferredColumnWidth ?? stock.columnWidth) {
+            next.columnWidth = new.preferredColumnWidth ?? stock.columnWidth
+        }
+        return next
     }
 
     /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a

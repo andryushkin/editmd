@@ -25,16 +25,13 @@ enum PDFExporter {
         let settings = EditorSettings.shared.preview
         let general = EditorSettings.shared.general
         let theme = PreviewTheme.preset(named: EditorSettings.shared.previewTypography.theme)
-        let stock = EditorSettings.previewDefaults()
-        let column = theme.resolvedColumnWidth(user: settings.columnWidth,
-                                               stockDefault: stock.columnWidth)
         let html = previewHTMLPage(
             markdown: markdown,
-            fontSize: theme.resolvedFontSize(user: settings.fontSize, stockDefault: stock.fontSize),
+            fontSize: settings.fontSize,
             insetH: settings.insetH,
             insetV: settings.insetV,
             lineHeight: EditorSettings.shared.previewTypography.lineHeight,
-            columnWidth: column > 0 ? column : 720,
+            columnWidth: settings.columnWidth > 0 ? settings.columnWidth : 720,
             fontFamily: theme.cssFontFamily(userFamily: settings.fontFamily),
             fontWeight: settings.fontWeight.cssValue,
             elements: settings.elements,

@@ -111,21 +111,47 @@ final class PreviewThemeTests: XCTestCase {
         XCTAssertTrue(css.contains("color: #e0e0e0; text-decoration: underline"))
         XCTAssertTrue(css.contains("list-style: square"))
         XCTAssertTrue(css.contains("background: #333"))
+        // Night vertical rhythm and full-width tables (night.css:242).
+        XCTAssertTrue(css.contains("p { margin: 0 0 1.5rem; }"))
+        XCTAssertTrue(css.contains("ul, ol { margin: 0 0 1.5rem; }"))
+        XCTAssertTrue(css.contains("table { margin: 0 0 1.5rem; display: table; width: 100%;"))
         // Night body font applies only while the user keeps the default family.
         XCTAssertTrue(theme.pageCSS(userFamily: "").contains(
             "@media (prefers-color-scheme: dark) { body { font-family: \"Helvetica Neue\""))
         XCTAssertFalse(theme.pageCSS(userFamily: "Avenir").contains("body { font-family:"))
     }
 
-    func testThemePreferredGeometryAppliesOnlyOverStockDefaults() {
+    @MainActor
+    func testThemeSwitchMigratesGeometryOnlyWhileOnThemeDefaults() {
         let typora = PreviewTheme.preset(named: "typora")
-        XCTAssertEqual(typora.resolvedFontSize(user: 15, stockDefault: 15), 16)
-        XCTAssertEqual(typora.resolvedFontSize(user: 18, stockDefault: 15), 18)
-        XCTAssertEqual(typora.resolvedColumnWidth(user: 736, stockDefault: 736), 860)
-        // 0 = "full width" is a deliberate user choice, not the stock default.
-        XCTAssertEqual(typora.resolvedColumnWidth(user: 0, stockDefault: 736), 0)
-        XCTAssertEqual(PreviewTheme.standard.resolvedFontSize(user: 15, stockDefault: 15), 15)
-        XCTAssertEqual(PreviewTheme.standard.resolvedColumnWidth(user: 736, stockDefault: 736), 736)
+        let standard = PreviewTheme.standard
+        let stock = EditorSettings.previewDefaults()
+
+        // Stock geometry follows the selected theme in both directions.
+        let toTypora = EditorSettings.migratedPreviewGeometry(stock, from: standard, to: typora)
+        XCTAssertEqual(toTypora.fontSize, 16)
+        XCTAssertEqual(toTypora.columnWidth, 860)
+        let backToStock = EditorSettings.migratedPreviewGeometry(toTypora, from: typora, to: standard)
+        XCTAssertEqual(backToStock.fontSize, 15)
+        XCTAssertEqual(backToStock.columnWidth, 736)
+
+        // Values the user touched survive — including explicitly re-picking
+        // the stock numbers while the Typora theme is active.
+        var chosen = stock
+        chosen.fontSize = 15
+        chosen.columnWidth = 736
+        let kept = EditorSettings.migratedPreviewGeometry(chosen, from: typora, to: standard)
+        XCTAssertEqual(kept.fontSize, 15)
+        XCTAssertEqual(kept.columnWidth, 736)
+
+        // 0 = "full width" is a deliberate choice, never rewritten.
+        var wide = stock
+        wide.columnWidth = 0
+        XCTAssertEqual(EditorSettings.migratedPreviewGeometry(wide, from: standard, to: typora).columnWidth, 0)
+
+        // Switching between two themes without preferred geometry is a no-op.
+        let minimal = PreviewTheme.preset(named: "minimal")
+        XCTAssertEqual(EditorSettings.migratedPreviewGeometry(stock, from: standard, to: minimal), stock)
     }
 
     // MARK: - Settings persistence

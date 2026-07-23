@@ -404,15 +404,13 @@ struct MarkdownPreviewView: NSViewRepresentable {
         let settings = EditorSettings.shared.preview
         let general = EditorSettings.shared.general
         let theme = PreviewTheme.preset(named: EditorSettings.shared.previewTypography.theme)
-        let stock = EditorSettings.previewDefaults()
         return previewHTMLPageRender(
             markdown: content,
-            fontSize: theme.resolvedFontSize(user: settings.fontSize, stockDefault: stock.fontSize),
+            fontSize: settings.fontSize,
             insetH: settings.insetH,
             insetV: settings.insetV,
             lineHeight: EditorSettings.shared.previewTypography.lineHeight,
-            columnWidth: theme.resolvedColumnWidth(user: settings.columnWidth,
-                                                   stockDefault: stock.columnWidth),
+            columnWidth: settings.columnWidth,
             fontFamily: theme.cssFontFamily(userFamily: settings.fontFamily),
             fontWeight: settings.fontWeight.cssValue,
             elements: settings.elements,

@@ -27,8 +27,10 @@ struct PreviewTheme {
     /// `font-src data:`, an external font URL would never load.
     let fontFacesCSS: String
     /// Reference base font size / reading-column width, for themes ported
-    /// from a source that fixes its page geometry. Resolved by the
-    /// `resolved*` helpers; `nil` = keep whatever the user has.
+    /// from a source that fixes its page geometry. Written into the real
+    /// Preview settings once, at selection time, by
+    /// `EditorSettings.migratedPreviewGeometry` — render paths always read
+    /// plain settings. `nil` = keep whatever the user has.
     let preferredFontSize: CGFloat?
     let preferredColumnWidth: CGFloat?
     /// Rules appended after the page's base CSS (including its dark-mode
@@ -70,18 +72,6 @@ struct PreviewTheme {
         return out
     }
 
-    /// Preferred geometry applies only while the user's value still equals
-    /// the stock Preview default — an explicit user change always wins, the
-    /// same contract `cssFontFamily` uses for the empty family.
-    func resolvedFontSize(user: CGFloat, stockDefault: CGFloat) -> CGFloat {
-        guard user == stockDefault, let preferred = preferredFontSize else { return user }
-        return preferred
-    }
-
-    func resolvedColumnWidth(user: CGFloat, stockDefault: CGFloat) -> CGFloat {
-        guard user == stockDefault, let preferred = preferredColumnWidth else { return user }
-        return preferred
-    }
 }
 
 // MARK: - Built-in catalog
@@ -258,15 +248,17 @@ extension PreviewTheme {
             h5 { font-size: 0.97rem; line-height: 1.25rem; margin: 0 0 1.5rem; font-weight: bold; }
             h6 { font-size: 0.93rem; line-height: 1rem; margin: 0 0 0.75rem; color: white; }
             h1, h2 { border-bottom: none; padding-bottom: 0; }
-            p { margin: 1rem 0; }
+            p { margin: 0 0 1.5rem; }
             a { color: #e0e0e0; text-decoration: underline; }
             strong { color: #DEDEDE; }
             code { border: none; border-radius: 0; background: rgba(0,0,0,0.05); padding: 2px 5px; font-size: 0.875em; font-family: Monaco, Consolas, "Andale Mono", "DejaVu Sans Mono", monospace; }
-            pre { background: #333; border: none; border-radius: 0; padding: 10px 10px 10px 30px; }
+            pre { background: #333; border: none; border-radius: 0; padding: 10px 10px 10px 30px; margin: 0 0 20px; }
             pre code { font-size: 0.875em; }
-            blockquote { border-left: 2px solid #474d54; padding: 0 0 0 30px; margin: 35px 0 1.5rem 1.875rem; color: #9DA2A6; }
+            blockquote { border-left: 2px solid #474d54; padding: 0 0 0 30px; margin: 35px 0 1.875rem 1.875rem; color: #9DA2A6; }
             hr { background-color: #474d54; margin: 24px 0; }
             ul { list-style: square; }
+            ul, ol { margin: 0 0 1.5rem; }
+            table { margin: 0 0 1.5rem; display: table; width: 100%; max-width: 100%; }
             th, td { border: 1px solid #474d54; padding: 5px 10px; vertical-align: top; }
             th { color: #DEDEDE; }
             thead { background: none; }
