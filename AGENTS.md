@@ -28,6 +28,8 @@ a decision.
 - Before pushing, use the project audit skill
   (`.agents/skills/editmd-audit`) when available; otherwise run
   `scripts/audit.sh` and follow `docs/audit.md`.
+- To close a session, use `.agents/skills/editmd-end`: it verifies and
+  writes the handoff but never commits, pushes, or files issues on its own.
 - Keep commits narrow and single-purpose.
 - When you change behavior a domain doc describes, update that doc in the
   same change; add durable new rules briefly to `CLAUDE.md`.
