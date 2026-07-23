@@ -41,6 +41,19 @@ audit passes and `main` is pushed. A release consists of:
 - Published sections are never rewritten; a correction gets its own entry in
   the next release.
 
+## Distribution build
+
+`scripts/dist.sh` produces the distributable artifact: a Release
+`EditMD.app` with `editmdctl` embedded next to the app executable (where
+`EditMDCtlInstaller` looks for it), signed and packaged into
+`dist/EditMD-v<version>.dmg`. Signing auto-detects a Developer ID
+Application identity and falls back to ad-hoc; notarization runs when the
+`editmd-notary` notarytool keychain profile exists and is skipped with a
+warning otherwise (setup command in the script header). The team id and
+credentials live in the local keychain, never in the repository. Attaching
+the DMG to the GitHub Release is part of cutting a release once
+distribution starts.
+
 ## Branching
 
 Trunk-based: `main` is the only permanent branch, history is linear, and a

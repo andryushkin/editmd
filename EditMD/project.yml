@@ -1,6 +1,6 @@
 name: EditMD
 options:
-  bundleIdPrefix: com.editmd
+  bundleIdPrefix: andryushkin
   developmentLanguage: en
   deploymentTarget:
     macOS: "14.0"
