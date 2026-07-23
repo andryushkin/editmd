@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import os
 
-let reviewLog = Logger(subsystem: "com.editmd.app", category: "review")
+let reviewLog = Logger(subsystem: "andryushkin.EditMD", category: "review")
 
 struct ReviewControlMarkWriteResult: Equatable, Sendable {
     let url: URL

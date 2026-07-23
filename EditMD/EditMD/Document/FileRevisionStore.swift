@@ -65,7 +65,7 @@ final class FileRevisionStore: @unchecked Sendable {
     private let lock = NSLock()
     /// pathKey → last successful record time (for debounce).
     private var lastRecordAt: [String: Date] = [:]
-    private let log = Logger(subsystem: "com.editmd.app", category: "FileRevisionStore")
+    private let log = Logger(subsystem: "andryushkin.EditMD", category: "FileRevisionStore")
 
     /// - Parameter rootURL: Override store root (tests). Nil → Application Support.
     init(rootURL: URL? = nil) {

@@ -6,7 +6,7 @@ import os
 // Typing can drive CPU toward 100% when a per-keystroke phase (synchronous
 // highlight, Visual serialization, stats) turns heavy. This mirrors how agterm
 // and the rest of EditMD surface diagnostics: Apple unified logging under the
-// `com.editmd.app` subsystem plus os_signpost intervals for Instruments — not
+// `andryushkin.EditMD` subsystem plus os_signpost intervals for Instruments — not
 // bespoke NSLog or an on-screen HUD.
 //
 // Two audiences, always on (signposts are near-free until an Instruments trace
@@ -15,13 +15,13 @@ import os
 //     per edit with a nested interval per phase.
 //   • Console / `log show` — a `.warning` fires only for a slow keystroke,
 //     naming the total and the heaviest phases:
-//       log show --predicate 'subsystem == "com.editmd.app" && category == "typing"' --last 5m
+//       log show --predicate 'subsystem == "andryushkin.EditMD" && category == "typing"' --last 5m
 //
 // Tune the threshold without a rebuild:
-//   defaults write com.editmd.app EditMDTypingBudgetMs 8
+//   defaults write andryushkin.EditMD EditMDTypingBudgetMs 8
 
-let typingLog = Logger(subsystem: "com.editmd.app", category: "typing")
-let typingSignposter = OSSignposter(subsystem: "com.editmd.app", category: "typing")
+let typingLog = Logger(subsystem: "andryushkin.EditMD", category: "typing")
+let typingSignposter = OSSignposter(subsystem: "andryushkin.EditMD", category: "typing")
 
 /// A keystroke costing more than this logs a breakdown. Defaults to one dropped
 /// 60 fps frame (16 ms); overridable via the `EditMDTypingBudgetMs` default.

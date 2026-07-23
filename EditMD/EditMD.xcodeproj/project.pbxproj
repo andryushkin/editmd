@@ -1303,7 +1303,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMDTests;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.2;
@@ -1321,7 +1321,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.ctl;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.editmdctl;
 				PRODUCT_NAME = editmdctl;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -1341,7 +1341,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMDTests;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.2;
@@ -1497,7 +1497,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.47.10;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1516,7 +1516,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.ctl;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.editmdctl;
 				PRODUCT_NAME = editmdctl;
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -1541,7 +1541,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.47.10;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.app;
+				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1560,7 +1560,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.mcp;
+				PRODUCT_BUNDLE_IDENTIFIER = "andryushkin.editmd-mcp";
 				PRODUCT_NAME = "editmd-mcp";
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -1578,7 +1578,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.editmd.mcp;
+				PRODUCT_BUNDLE_IDENTIFIER = "andryushkin.editmd-mcp";
 				PRODUCT_NAME = "editmd-mcp";
 				SDKROOT = macosx;
 				SWIFT_STRICT_CONCURRENCY = complete;

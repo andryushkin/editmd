@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import os
 
-let controlLog = Logger(subsystem: "com.editmd.app", category: "control")
+let controlLog = Logger(subsystem: "andryushkin.EditMD", category: "control")
 
 /// Executes control-channel commands on the main actor (v38).
 /// Keeps disk IO off-main where practical; pure decoding is in ControlProtocol.

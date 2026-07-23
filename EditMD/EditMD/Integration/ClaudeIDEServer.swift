@@ -13,7 +13,7 @@ import os
 // queue and the server is an `actor`. The only bridge into the UI is the
 // request handler, which the caller supplies (see `ClaudeIDEService`).
 
-let claudeIDELog = Logger(subsystem: "com.editmd.app", category: "claude-ide")
+let claudeIDELog = Logger(subsystem: "andryushkin.EditMD", category: "claude-ide")
 
 /// Header the CLI must present on the WebSocket upgrade.
 let claudeIDEAuthHeader = "x-claude-code-ide-authorization"
