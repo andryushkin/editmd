@@ -98,7 +98,7 @@ struct FolderTreeStats: Equatable, Sendable {
     var subfolderCount: Int
     /// Direct child folders that contain markdown somewhere (main grid).
     var directMarkdownFolders: [URL]
-    /// Direct child folders with no markdown in the tree (bottom section, like «Скрытые»).
+    /// Direct child folders with no markdown in the tree (bottom section, like "Hidden").
     var directEmptyFolders: [URL]
     /// Full nested tree of folders that contain markdown (D8).
     var folderTree: [FolderTreeNode] = []

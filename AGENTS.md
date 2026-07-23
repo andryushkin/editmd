@@ -1,26 +1,32 @@
 # EditMD agent instructions
 
-## Обязательная точка входа
+## Mandatory entry point
 
-Перед любой работой в репозитории полностью прочитай `CLAUDE.md`. Это главный актуальный гайд проекта: архитектура, команды проверки, рабочие правила и инварианты. Не полагайся на одну эту ссылку — открой файл явно в начале задачи.
+Before any work in this repository read `CLAUDE.md` in full. It is the
+project's primary up-to-date guide: architecture, verification commands,
+working rules, and invariants. Do not rely on this pointer alone — open the
+file explicitly at the start of a task.
 
-Перед изменением конкретной подсистемы найди и прочитай относящийся к ней раздел в `docs/HISTORY.md`. Там хранятся причины решений, история регрессий и локальные gotchas. Если текущий код расходится с историей, приоритет у кода и `CLAUDE.md`; историю обнови вместе с изменением поведения.
+The detailed decision log (`HISTORY.md`) moved out of the repository on
+2026-07-23 to the author's vault. If the current code contradicts something you
+believe was decided earlier, the code and `CLAUDE.md` win; ask the author when
+history context is needed.
 
-## Остальная документация — по области задачи
+## Other documentation
 
-- `docs/todo.md` — актуальные хвосты и roadmap; читай при планировании новых работ.
-- `docs/design/index.md` и `docs/design/*.html` — визуальные макеты экранов; читай при изменениях layout/UI.
-- `docs/research/claude-code-integration.md` и `docs/plan-claude-code-integration.md` — IDE/MCP/control integration.
-- `docs/research/tables-and-wikilinks.md` — исследования таблиц и wiki-links.
-- `docs/plan-code-syntax-highlighting.md` и `docs/plan-live-preview-innerhtml.md` — контекст соответствующих спринтов; сверяй планы с текущим кодом и `HISTORY.md`, потому что часть шагов уже завершена.
-- `docs/review/README.md` — workflow review/smotr.
-- `THIRD_PARTY_NOTICES.md` — лицензии зависимостей; обновляй при изменении vendored assets или packages.
+- `THIRD_PARTY_NOTICES.md` — dependency licenses; update it when vendored
+  assets or packages change.
+- `README.md` — the public face of the repository; keep build instructions
+  accurate.
 
-Не загружай все документы без разбора: после обязательных `CLAUDE.md` и релевантного раздела `HISTORY.md` открывай только материалы, нужные текущей задаче.
+## Execution
 
-## Выполнение
-
-- `EditMD/project.yml` — источник структуры проекта; не правь сгенерированный `.xcodeproj` вместо него.
-- Сохраняй чужие изменения в dirty worktree и не включай их в свои коммиты.
-- После изменений запускай целевые тесты, затем полный suite в разумной пропорции к риску и `git diff --check`.
-- Новые устойчивые правила добавляй кратко в `CLAUDE.md`; подробную хронологию и выводы расследований — в `docs/HISTORY.md`.
+- All repository artifacts are in English: code comments, docs, commit
+  messages.
+- `EditMD/project.yml` is the source of the project structure; do not edit the
+  generated `.xcodeproj` instead of it.
+- Preserve other people's changes in a dirty worktree and do not include them
+  in your commits.
+- After changes run the targeted tests, then the full suite in reasonable
+  proportion to the risk, and `git diff --check`.
+- Add durable new rules briefly to `CLAUDE.md`.

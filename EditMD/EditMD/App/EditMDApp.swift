@@ -58,7 +58,7 @@ struct EditMDApp: App {
         PDFExporter.export(markdown: content, suggestedName: name, fileURL: url)
     }
 
-    /// Help ▸ Демо-разметка (D7): copy bundle KitchenSink.md to a temp file and
+    /// Help ▸ Demo Markup (D7): copy bundle KitchenSink.md to a temp file and
     /// open in a lite window so all three modes can be smoke-tested.
     @MainActor private func openKitchenSinkDemo() {
         guard let src = Bundle.main.url(forResource: "KitchenSink", withExtension: "md")

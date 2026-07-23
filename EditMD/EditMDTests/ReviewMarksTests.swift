@@ -28,7 +28,7 @@ final class ReviewMarksTests: XCTestCase {
             {
               "id": "v1783456135040wthy",
               "type": "element",
-              "note": "количество не нужно",
+              "note": "count not needed",
               "status": "resolved",
               "ts": 1783456135040,
               "mts": 1783456749941,
@@ -37,7 +37,7 @@ final class ReviewMarksTests: XCTestCase {
               "selector": "body > div:nth-of-type(2) > span",
               "quote": "4",
               "thread": [
-                {"role": "claude", "text": "Убрал счётчики.", "ts": 1783456749941}
+                {"role": "claude", "text": "Removed the counters.", "ts": 1783456749941}
               ]
             }
           ]
@@ -49,7 +49,7 @@ final class ReviewMarksTests: XCTestCase {
 
         let m = reDoc.marks[0]
         XCTAssertEqual(m.id, "v1783456135040wthy")
-        XCTAssertEqual(m.note, "количество не нужно")
+        XCTAssertEqual(m.note, "count not needed")
         XCTAssertEqual(m.status, "resolved")
         // Unknown html fields preserved verbatim in `extra`.
         XCTAssertEqual(m.extra["vtype"], .string("element"))
@@ -382,10 +382,10 @@ final class ReviewMarksTests: XCTestCase {
             data = Data("""
             {"rev":2,"marks":[
               {"id":"m1","type":"comment","quote":"# **Heading 1**","prefix":"",
-               "start":0,"note":"привет","status":"open","ts":1,"mts":1,"thread":[]},
+               "start":0,"note":"hello","status":"open","ts":1,"mts":1,"thread":[]},
               {"id":"m2","type":"comment","quote":"> This is a blockquote.",
                "prefix":"photo.png) in the same line.\\n\\n","start":406,
-               "note":"ыыы","status":"open","ts":2,"mts":2,"thread":[]}
+               "note":"hmm","status":"open","ts":2,"mts":2,"thread":[]}
             ]}
             """.utf8)
         }
@@ -557,7 +557,7 @@ final class ReviewMarksTests: XCTestCase {
         let id = model.addMark(
             anchor: .init(quote: "world", prefix: "hello ", start: 6),
             type: .question, note: "q")
-        model.reply(to: id, text: "ответ")
+        model.reply(to: id, text: "reply")
         model.setStatus(id, .resolved)
         await model.flushPipeline()
 

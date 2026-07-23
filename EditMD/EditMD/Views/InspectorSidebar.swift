@@ -30,7 +30,7 @@ struct InspectorSidebar: View {
     let onJump: (Int) -> Void
     /// Open a file in the main window (links / backlinks targets).
     let onOpen: (URL) -> Void
-    /// Switch to Source and place the caret (Properties «Открыть в Source»).
+    /// Switch to Source and place the caret (Properties "Open in Source").
     var onOpenInSource: ((Int) -> Void)? = nil
     /// History restore (stage 5); optional until wired.
     var onHistoryRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
@@ -687,7 +687,7 @@ private struct FileInfoPanel: View {
     // MARK: - Path / disk / stats
 
     /// Parent folder as `~/…/` (tilde + trailing slash). File name is the
-    /// separate «Имя» row — path is location, not basename.
+    /// separate "Name" row — path is location, not basename.
     private func displayPath(for url: URL) -> String {
         let dir = url.standardizedFileURL.deletingLastPathComponent()
         var path = (dir.path as NSString).abbreviatingWithTildeInPath

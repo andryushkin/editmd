@@ -1,35 +1,53 @@
-# EditMD — рабочий гайд
+# EditMD — working guide
 
-Короткая памятка для разработки. История решений и подробные gotchas находятся в `docs/HISTORY.md`; перед изменением конкретной подсистемы читай её раздел там. Не возвращай сюда хронологию релизов и одноразовые детали расследований.
+A short development handbook. The detailed decision log and investigation
+history (`HISTORY.md`) moved out of the repository on 2026-07-23 and lives in
+the author's vault; the future of in-repo docs is being redesigned. Do not
+re-add release chronology or one-off investigation details here.
 
-## Что это
+## What this is
 
-Нативный Markdown-редактор для macOS на SwiftUI + AppKit/TextKit 1. Главное окно меняет файл внутри workspace, lite-окна открываются через `WindowGroup(for: URL)`. `DocumentRegistry` владеет моделями, autosave и внешними изменениями; source of truth — markdown-строка в `MarkdownDocument`.
+A native Markdown editor for macOS built on SwiftUI + AppKit/TextKit 1. The
+main window swaps files within a workspace; lite windows open via
+`WindowGroup(for: URL)`. `DocumentRegistry` owns the models, autosave, and
+external changes; the source of truth is the markdown string in
+`MarkdownDocument`.
 
-Три режима:
+Three modes:
 
-- **Source** — сырой markdown, подсветка и lint: `SourceTextView.swift`, `MarkdownHighlighter.swift`, `MarkdownLint.swift`.
-- **Visual** — attributed WYSIWYG с синхронной сериализацией: `MarkdownToAttributed.swift`, `AttributedToMarkdown.swift`, `Visual*.swift`.
-- **Preview** — в основном read-only HTML в WKWebView; интерактивны task/status-токены: `MarkdownHTML.swift`, `MarkdownPreviewView.swift`.
+- **Source** — raw markdown with highlighting and lint: `SourceTextView.swift`,
+  `MarkdownHighlighter.swift`, `MarkdownLint.swift`.
+- **Visual** — attributed WYSIWYG with synchronous serialization:
+  `MarkdownToAttributed.swift`, `AttributedToMarkdown.swift`, `Visual*.swift`.
+- **Preview** — mostly read-only HTML in a WKWebView; task/status tokens are
+  interactive: `MarkdownHTML.swift`, `MarkdownPreviewView.swift`.
 
-Сайдбар: Files / Outline / Git / Review / Tags. Сплит Source/Visual + live Preview включается ⌥⌘P. PDF и локальные изображения открываются read-only; изображения можно добавить кнопкой или вставить из буфера.
+Sidebar: Files / Outline / Git / Review / Tags. The Source/Visual split with
+live Preview toggles with ⌥⌘P. PDFs and local images open read-only; images can
+be added with a button or pasted from the clipboard.
 
-## Карта проекта
+## Project map
 
-- `EditMD/EditMD/App/` — lifecycle, окна, File/Format/View commands, роутинг открытия.
-- `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`, `DocumentRegistry`.
-- `EditMD/EditMD/Editor/` — Source/Visual, round-trip, таблицы, формулы, подсветка, lint, review, diff, PDF export.
-- `EditMD/EditMD/Views/` — layout, Preview, сайдбары, настройки, PDF/image viewer (`PDFViewerView.swift`).
-- `EditMD/EditMD/Integration/` — Claude IDE WebSocket/MCP, diff approval, control socket, skill installer.
+- `EditMD/EditMD/App/` — lifecycle, windows, File/Format/View commands, open
+  routing.
+- `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`,
+  `DocumentRegistry`.
+- `EditMD/EditMD/Editor/` — Source/Visual, round-trip, tables, formulas,
+  highlighting, lint, review, diff, PDF export.
+- `EditMD/EditMD/Views/` — layout, Preview, sidebars, settings, PDF/image
+  viewer (`PDFViewerView.swift`).
+- `EditMD/EditMD/Integration/` — Claude IDE WebSocket/MCP, diff approval,
+  control socket, skill installer.
 - `EditMD/EditMDTests/` — unit/integration tests.
-- `EditMD/project.yml` — единственный источник структуры Xcode-проекта; после изменения состава targets/resources запускай xcodegen.
-- `docs/HISTORY.md` — история фич, расследований и локальных gotchas.
+- `EditMD/project.yml` — the single source of the Xcode project structure;
+  after changing targets/resources run xcodegen.
 
-Зависимости: `swift-markdown`, `SwiftMath`, `HighlighterSwift`. KaTeX лежит офлайн в `Resources/katex/`.
+Dependencies: `swift-markdown`, `SwiftMath`, `HighlighterSwift`. KaTeX is
+bundled offline in `Resources/katex/`.
 
-## Сборка и тесты
+## Build and test
 
-Из корня репозитория:
+From the repository root:
 
 ```bash
 xcodegen generate --spec EditMD/project.yml
@@ -37,78 +55,164 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platform=macOS' test
 ```
 
-Схема уже отключает code coverage. Реальные ошибки проверяй через `xcodebuild`, а не по diagnostics одного открытого Swift-файла. После правок запускай целевые тесты, затем полный suite и `git diff --check`.
+The scheme already disables code coverage. Verify real errors through
+`xcodebuild`, not through the diagnostics of a single open Swift file. After
+changes run the targeted tests, then the full suite and `git diff --check`.
 
-## Главные инварианты
+## Key invariants
 
-### Документ и окна
+### Document and windows
 
-- Одна модель на URL живёт в `DocumentRegistry`; открытые редакторы acquire/release её по идентичности.
-- Правки агента и review suggestions применяются только через `DocumentRegistry.applyAgentEdit`, иначе file watcher примет их за внешнее изменение.
-- Собственный flush обновляет `knownModDate` и re-arm watch.
-- `ReferenceFileDocument` callbacks nonisolated; `FileWrapper` не `Sendable`, поэтому snapshot остаётся `@unchecked Sendable`.
-- Стандартные Cut/Copy/Paste/Undo идут через responder chain; действия конкретного редактора — через focused values.
+- One model per URL lives in `DocumentRegistry`; open editors acquire/release
+  it by identity.
+- Agent edits and review suggestions are applied only through
+  `DocumentRegistry.applyAgentEdit`, otherwise the file watcher treats them as
+  an external change.
+- Our own flush updates `knownModDate` and re-arms the watch.
+- `ReferenceFileDocument` callbacks are nonisolated; `FileWrapper` is not
+  `Sendable`, so the snapshot stays `@unchecked Sendable`.
+- Standard Cut/Copy/Paste/Undo go through the responder chain; actions of a
+  specific editor go through focused values.
 
 ### Source / Visual / Preview
 
-- Сквозная markdown-фича имеет три независимых пути: Source=`collectSpans`, Visual=`VisualRenderer`, Preview=`HTMLBodyVisitor`. Проверяй все три и round-trip.
-- Плагины EditMD — только встроенные Swift-типы из `BuiltInPluginRegistry`, с активацией на документ через frontmatter. Не добавляй загрузку JavaScript, внешних bundle или скачанного executable code; semantic token обязан сохранять UTF-16 offsets и пройти Source/Visual/Preview + round-trip.
-- Меню добавления плагина живёт в панели «Свойства» правого инспектора (registry-driven). Инсталляция обязана быть undoable, не дублировать уже объявленный блок и корректно встраиваться в существующий frontmatter.
-- `.raw` — дословный source of truth для островов. Display-текст таблиц может отличаться, сериализатор читает payload `.raw`.
-- Frontmatter не отображается ни в Visual, ни в Preview — им владеет панель «Свойства». Рендер Visual пропускает блок, а координатор препендит verbatim-блок при сериализации через `composeDocumentWithFrontmatter`; байтовая точность блока обязательна.
-- Формулы парсятся по маскированному тексту с сохранением UTF-16 offsets; Visual хранит исходный TeX в `.mdMathTex`.
-- Rendered-вставки Visual проходят только через `renderForInsertion`, который remap-ит group id. Нативные таблицы перестраиваются через `TableGrid`, island-таблицы — через `replaceTableIsland`.
-- Тяжёлые payload нельзя хешировать внутри значений атрибутов NSTextStorage. `MDBlock.hash(into:)` обязан быть O(1).
-- `maxNativeTableCells` и `markdownIsHeavy` решают разные задачи и не должны связываться.
-- Source display-only выравнивает таблицы через `.kern`; не меняй байты markdown и чисти `.kern` из typing attributes.
-- `textView.string = …` и `setAttributedString` синхронно вызывают selection delegate: позицию считывай до замены.
-- Presentation-атрибуты Source, меняющие layout, должны быть storage attributes; review wash — temporary layout-manager attributes.
+- A cross-cutting markdown feature has three independent paths:
+  Source=`collectSpans`, Visual=`VisualRenderer`, Preview=`HTMLBodyVisitor`.
+  Check all three plus the round-trip.
+- EditMD plugins are built-in Swift types from `BuiltInPluginRegistry` only,
+  activated per document via frontmatter. Do not add loading of JavaScript,
+  external bundles, or downloaded executable code; a semantic token must
+  preserve UTF-16 offsets and pass Source/Visual/Preview + round-trip.
+- The add-plugin menu lives in the right inspector's "Properties" panel
+  (registry-driven). Installation must be undoable, must not duplicate an
+  already-declared block, and must merge correctly into existing frontmatter.
+- `.raw` is the verbatim source of truth for islands. Table display text may
+  differ; the serializer reads the `.raw` payload.
+- Frontmatter is rendered neither in Visual nor in Preview — the "Properties"
+  panel owns it. The Visual render skips the block, and the coordinator
+  prepends the verbatim block during serialization via
+  `composeDocumentWithFrontmatter`; byte-exactness of the block is mandatory.
+- Formulas are parsed over masked text preserving UTF-16 offsets; Visual keeps
+  the original TeX in `.mdMathTex`.
+- Rendered Visual insertions go only through `renderForInsertion`, which remaps
+  group ids. Native tables are rebuilt through `TableGrid`, island tables
+  through `replaceTableIsland`.
+- Heavy payloads must not be hashed inside NSTextStorage attribute values.
+  `MDBlock.hash(into:)` must be O(1).
+- `maxNativeTableCells` and `markdownIsHeavy` solve different problems and must
+  not be coupled.
+- Source aligns tables display-only via `.kern`; do not change the markdown
+  bytes and strip `.kern` from typing attributes.
+- `textView.string = …` and `setAttributedString` synchronously invoke the
+  selection delegate: read the caret position before replacing.
+- Source presentation attributes that change layout must be storage
+  attributes; the review wash uses temporary layout-manager attributes.
 
-### Paste и изображения
+### Paste and images
 
-- Special-paste — упорядоченный lazy funnel. **Source:** table → image → plain text. **Visual:** markdown/table → image → plain text. Image detection не должна первой съедать TIFF/PDF-preview из Word/Excel/Numbers.
-- Один контекстный guard обслуживает paste и кнопку. Source не вставляет структуру внутри fence; Visual не вставляет её в `codeBlock`, `tableCell` и `.raw`.
-- Ошибка сохранения изображения возвращает `false`, чтобы обычный paste получил текстовую часть буфера. Не помечай payload обработанным, если вставка не состоялась.
-- `markdownImageSyntax` — общий сериализатор image markdown. `supportedImageMIMETypes` — единый источник расширений, picker types и Preview MIME.
-- Assets дедуплицируются по содержимому: сначала размер, затем байты. Не читай каждую картинку целиком без size-фильтра.
-- Для textbundle диск определяет существующие assets, `assetsFileWrapper` зеркалится через `addImageAssetWrapper`. При выборе нового имени учитывай любой `fileExists`, включая скрытые файлы и симлинки.
-- Image viewer сверяет URL + `mtime` + size и читает файл в detached task. Смена URL очищает чужую картинку и показывает loading; reload того же URL сохраняет старое изображение до результата. Проверка оппортунистическая — при `updateNSView`, не через file watcher.
-- Не делай синхронный disk I/O в `updateNSView`/SwiftUI `body`. Paste остаётся синхронным ради честного plain-text fallback, поэтому его файловый scan должен быть минимальным.
+- Special paste is an ordered lazy funnel. **Source:** table → image → plain
+  text. **Visual:** markdown/table → image → plain text. Image detection must
+  not eat the TIFF/PDF preview from Word/Excel/Numbers first.
+- One contextual guard serves both paste and the button. Source does not
+  insert structure inside a fence; Visual does not insert it into `codeBlock`,
+  `tableCell`, or `.raw`.
+- An image-save failure returns `false` so the ordinary paste gets the text
+  part of the clipboard. Do not mark a payload as handled if the insertion did
+  not happen.
+- `markdownImageSyntax` is the shared serializer of image markdown.
+  `supportedImageMIMETypes` is the single source of extensions, picker types,
+  and Preview MIME.
+- Assets are deduplicated by content: size first, then bytes. Do not read every
+  image fully without the size filter.
+- For textbundle the disk defines existing assets; `assetsFileWrapper` is
+  mirrored through `addImageAssetWrapper`. When picking a new name respect any
+  `fileExists`, including hidden files and symlinks.
+- The image viewer compares URL + `mtime` + size and reads the file in a
+  detached task. A URL change clears the other file's image and shows loading;
+  a reload of the same URL keeps the old image until the result. The check is
+  opportunistic — on `updateNSView`, not via a file watcher.
+- No synchronous disk I/O in `updateNSView`/SwiftUI `body`. Paste stays
+  synchronous for the honest plain-text fallback, so its file scan must be
+  minimal.
 
-### Производительность и UI
+### Performance and UI
 
-- Disk/Process/полный diff не запускаются на main и не вычисляются из SwiftUI `body`. Для папок, git, review anchors и highlight используй cache + background refresh.
-- Highlight.js не работает блокирующе на каждом keystroke: editor path использует cache/stale-while-revalidate; blocking допустим для разового HTML/export.
-- Light/dark выбирается на отрисовке: dynamic `NSColor`, обе code-палитры, tint формул. Не запекай глобальный `NSApp.effectiveAppearance` в контент окна.
-- Номера строк рисуются в левом text inset, не в `NSRulerView`. Геометрия strip/gutter берётся из `EditorFieldGeometry`, не дублируется по режимам.
-- `NSTextView.isFlipped == true`. Overlay-вью переиспользуй через pool; add/remove subview из каждого layout создаёт цикл.
-- Для Swift 6 AppKit delegate методов, не аннотированных `@MainActor`, используй `nonisolated` + `MainActor.assumeIsolated` только когда AppKit гарантирует main thread.
+- Disk/Process/full diff never run on main and are not computed from a SwiftUI
+  `body`. For folders, git, review anchors, and highlight use cache +
+  background refresh.
+- Highlight.js does not run blocking on every keystroke: the editor path uses
+  cache/stale-while-revalidate; blocking is acceptable for one-off HTML/export.
+- Light/dark is chosen at draw time: dynamic `NSColor`, both code palettes,
+  formula tint. Do not bake the global `NSApp.effectiveAppearance` into window
+  content.
+- Line numbers are drawn in the left text inset, not in an `NSRulerView`.
+  Strip/gutter geometry comes from `EditorFieldGeometry` and is not duplicated
+  per mode.
+- `NSTextView.isFlipped == true`. Reuse overlay views through a pool;
+  add/remove subview from every layout pass creates a cycle.
+- For Swift 6 AppKit delegate methods not annotated `@MainActor`, use
+  `nonisolated` + `MainActor.assumeIsolated` only when AppKit guarantees the
+  main thread.
 
-### Локализация
+### Localization
 
-- Development language — английский; все user-facing строки в коде — английские литералы (SwiftUI-ключи или `String(localized:)` для plain String/AppKit). Русский живёт переводом в `Resources/Localizable.xcstrings`.
-- Новая user-facing строка обязана получить ru-перевод в каталоге; формат-спецификаторы перевода должны совпадать с ключом (Int32 в интерполяции кастуй в `Int`).
-- Протокольные сообщения MCP/control/логи не локализуются — их читает агент.
-- Выбор языка: Settings ▸ General ▸ Language пишет `AppleLanguages` (см. `AppLanguage.swift`), применяется после перезапуска. Тест-хост форсирует en через scheme-аргумент `-AppleLanguages (en)` — строковые ассерты пишутся по-английски.
+- The development language is English; all user-facing strings in code are
+  English literals (SwiftUI keys or `String(localized:)` for plain
+  String/AppKit). Russian lives as translations in
+  `Resources/Localizable.xcstrings`.
+- A new user-facing string must get a ru translation in the catalog; the
+  translation's format specifiers must match the key (cast Int32 in
+  interpolation to `Int`).
+- MCP/control protocol messages and logs are not localized — agents read them.
+- Language choice: Settings ▸ General ▸ Language writes `AppleLanguages` (see
+  `AppLanguage.swift`), applied after restart. The test host forces en via the
+  scheme argument `-AppleLanguages (en)` — string assertions are written in
+  English.
 
-### Preview, review и integration
+### Preview, review, and integration
 
-- Preview грузится через `loadHTMLString`; schemeless local links обрабатывает JS bridge. Vault-root path начинается с `/`, обычный относительный — от папки документа.
-- Настройки активного встроенного плагина редактируются в панели «Свойства» и меняют только registry-whitelisted поля frontmatter (`updateConfiguration`) через обычный undo path — никаких произвольных YAML paths/ranges.
-- Review sidecar сохраняет smotr-схему без потерь; offsets — UTF-16. Persist/reload идёт строго FIFO, anchors считаются один раз off-main и кэшируются.
-- Физическая смена path сначала получает FIFO permit `ReviewModel`, затем без suspension ставит `AppState` gates и резервирует в `DocumentRegistry` сначала все destinations, потом все sources; завершение обязано передать точные relocate/drop outcomes всем трём координаторам.
-- `openDiff` — blocking tool: continuation завершается ровно один раз для Accept/Reject/close/disconnect/timeout.
-- IDE/control services не запускаются под XCTest. Control router двухфазный: main state + deferred disk work; socket clients конкурентные и не блокируют main.
-- Ядро линк-графа (`LinkGraphEngine`, `WikiLinkCore`, persistence, vault-lint, search) компилируется и в target `editmdctl` (offline-движок, план 10): файлы из его списка в `project.yml` обязаны оставаться без AppKit и app-моделей. Wire-шейпы vault-graph-ответов — только через общий `ControlGraphPayload.swift`; IDE MCP `tools/list` не расширяется (CLI обрывает handshake на незнакомых инструментах).
+- Preview loads via `loadHTMLString`; schemeless local links are handled by the
+  JS bridge. A vault-root path starts with `/`; an ordinary relative path is
+  resolved from the document's folder.
+- Settings of an active built-in plugin are edited in the "Properties" panel
+  and change only registry-whitelisted frontmatter fields
+  (`updateConfiguration`) through the ordinary undo path — no arbitrary YAML
+  paths/ranges.
+- The review sidecar preserves the smotr schema losslessly; offsets are UTF-16.
+  Persist/reload is strictly FIFO; anchors are computed once off-main and
+  cached.
+- A physical path change first takes the `ReviewModel` FIFO permit, then
+  without suspension sets the `AppState` gates and reserves in
+  `DocumentRegistry` first all destinations, then all sources; completion must
+  hand exact relocate/drop outcomes to all three coordinators.
+- `openDiff` is a blocking tool: the continuation completes exactly once for
+  Accept/Reject/close/disconnect/timeout.
+- IDE/control services do not start under XCTest. The control router is
+  two-phase: main state + deferred disk work; socket clients are concurrent and
+  do not block main.
+- The link-graph core (`LinkGraphEngine`, `WikiLinkCore`, persistence,
+  vault-lint, search) also compiles into the `editmdctl` target (the offline
+  engine): files on its list in `project.yml` must stay free of AppKit and app
+  models. Wire shapes of vault-graph responses go only through the shared
+  `ControlGraphPayload.swift`; the IDE MCP `tools/list` is not extended (the
+  CLI aborts the handshake on unknown tools).
 
-## Рабочие правила
+## Working rules
 
-- Не редактируй сгенерированный `.xcodeproj` вместо `project.yml`.
-- Не смешивай несвязанные изменения и не трогай чужой dirty worktree.
-- Общую логику выноси в testable pure/internal functions; paste routing и контекстные guards должны иметь прямые тесты.
-- При зависании сначала снимай `sample <pid> 3`, затем оптимизируй подтверждённый hot path.
-- Исторические детали, завершённые расследования и списки версий добавляй в `docs/HISTORY.md`, а не раздувай этот файл.
+- All repository artifacts are in English: code comments, docs, commit
+  messages. (The author is addressed in Russian in chat; the repo stays
+  English.)
+- Do not edit the generated `.xcodeproj` instead of `project.yml`.
+- Do not mix unrelated changes and do not touch someone else's dirty worktree.
+- Extract shared logic into testable pure/internal functions; paste routing and
+  contextual guards must have direct tests.
+- On a hang, first capture `sample <pid> 3`, then optimize the confirmed hot
+  path.
+- Durable new rules are added here briefly; detailed chronology and
+  investigation write-ups go to the decision log outside the repo (ask the
+  author where to record them until the docs redesign lands).
 
-## Известные хвосты
+## Known tails
 
-Перенос широких ячеек Visual-grid. (Поиск ⌘F внутри Preview сделан в 0.47.0; remote images в Visual и drag-and-drop изображений — в 0.46.0.)
+Wrapping of wide Visual-grid cells. (Find-in-Preview shipped in 0.47.0; remote
+images in Visual and image drag-and-drop in 0.46.0.)

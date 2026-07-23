@@ -17,11 +17,11 @@ func canApplyHistoryRestore(previewBaseline: String, currentContent: String) -> 
 
 // MARK: - Panel
 
-/// Right-inspector «История» tab: unsaved buffer, local revisions, git log.
+/// Right-inspector "History" tab: unsaved buffer, local revisions, git log.
 struct FileHistoryPanel: View {
     let fileURL: URL?
     @ObservedObject var document: MarkdownDocument
-    /// When set, «Восстановить…» is offered on revision diffs (stage 5).
+    /// When set, "Restore…" is offered on revision diffs (stage 5).
     var onRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @ObservedObject private var gitCache = FileHistoryGitCache.shared

@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Тонкий лаунчер: движок общий (~/Server/smotr), корень проекта — от места этого файла.
-ENGINE="${SMOTR_HOME:-$HOME/Server/smotr}/serve.py"
-PROJECT="$(cd "$(dirname "$0")/../.." && pwd)"   # docs/review/run → корень проекта
-exec python3 "$ENGINE" --root "$PROJECT" "$@"

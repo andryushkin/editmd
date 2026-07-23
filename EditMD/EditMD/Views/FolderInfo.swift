@@ -263,7 +263,7 @@ struct FolderInfoCard: View {
         }
     }
 
-    /// Always async: cache hit paints immediately; miss shows «Подсчитывается…»
+    /// Always async: cache hit paints immediately; miss shows "Counting…"
     /// while a utility Task walks the tree (cancellable on folder/epoch change).
     private func reloadTreeStats() {
         let path = folderURL.standardizedFileURL.path
@@ -479,7 +479,7 @@ struct FolderInfoCard: View {
     // MARK: Content grid (direct children + hidden section)
 
     /// Main grid: folders with md + visible files.
-    /// Bottom sections (like hidden files): «Пустые папки», then «Скрытые».
+    /// Bottom sections (like hidden files): "Empty Folders", then "Hidden".
     private var contentList: some View {
         let _ = workspace.contentEpoch
         let folders = currentStats?.directMarkdownFolders ?? []

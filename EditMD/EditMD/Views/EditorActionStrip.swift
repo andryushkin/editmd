@@ -840,7 +840,7 @@ struct EditorActionStrip: View {
     private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
     /// Full-width strip backing. `windowBackgroundColor` matches the sidebar
-    /// panes; on macOS 26 it равно `textBackgroundColor`, so the strip reads
+    /// panes; on macOS 26 it equals `textBackgroundColor`, so the strip reads
     /// flush with a default-themed editor — deliberate after the explicit
     /// band tint was rejected by eye.
     private var stripBar: some View {
@@ -940,7 +940,8 @@ private enum StripGroup: String, CaseIterable, Identifiable {
     }
 
     // Plan 12.2 degradation policy (art-locked in the plan; do not reshuffle
-    // без записи решения). Inline and the single-button groups never compact.
+    // without recording the decision). Inline and the single-button groups
+    // never compact.
 
     /// Order of folding into a compact menu; nil → the group never compacts.
     var compressionRank: Int? {

@@ -466,7 +466,7 @@ final class VisualNSTextView: NSTextView {
     }
 
     /// Raw `[text](destination)` under the cursor — scheme URLs and local
-    /// paths alike; the coordinator decides how to open (v: pdf-спринт).
+    /// paths alike; the coordinator decides how to open (v: PDF sprint).
     private func linkDestination(at point: NSPoint) -> String? {
         guard let storage = textStorage,
               let charIndex = hitCharacterIndex(at: point, attribute: .mdLink)

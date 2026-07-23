@@ -1,12 +1,12 @@
 import SwiftUI
 import AppKit
 
-/// Right-inspector «Свойства» tab: YAML frontmatter as a form.
+/// Right-inspector "Properties" tab: YAML frontmatter as a form.
 /// Simple fields commit on Enter/blur via `applyDocumentEdit`; complex fields
 /// are read-only with a jump to Source.
 struct PropertiesPanel: View {
     @ObservedObject var document: MarkdownDocument
-    /// When set, «Открыть в Source» jumps to the field line.
+    /// When set, "Open in Source" jumps to the field line.
     var onOpenInSource: ((Int) -> Void)? = nil
 
     @State private var draftScalars: [String: String] = [:]
@@ -608,7 +608,7 @@ private enum AddFieldType: String, CaseIterable {
 
 // MARK: - Plugin cards
 
-/// One active plugin's settings: state rows plus «+ Состояние». The click
+/// One active plugin's settings: state rows plus "+ State". The click
 /// cycle in the document follows the state order in frontmatter.
 private struct PluginChecklistCardView: View {
     let card: BuiltInPluginChecklistCard

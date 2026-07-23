@@ -128,7 +128,7 @@ func sidebarMoveFiles(
     return visible + remainder
 }
 
-/// Title for the per-row «Переместить…» context item. The count comes from the
+/// Title for the per-row "Move…" context item. The count comes from the
 /// selection alone: `sidebarMoveFiles` returns the whole selection when the
 /// anchor is selected and `[anchor]` otherwise, so the visible order is not
 /// needed. SwiftUI builds `.contextMenu` content eagerly for EVERY row —
@@ -526,7 +526,7 @@ struct WorkspaceSidebar: View {
             .buttonStyle(.plain)
 
             // Name: open card + ensure expanded. Re-click while already the
-            // active selection AND expanded → collapse (повторное нажатие).
+            // active selection AND expanded → collapse (second press).
             // A first click on an already-expanded folder never collapses.
             Button {
                 if selected && expanded {

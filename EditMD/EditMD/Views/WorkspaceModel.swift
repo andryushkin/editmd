@@ -989,7 +989,7 @@ final class WorkspaceModel: ObservableObject {
     // MARK: - Loose files
 
     /// Records a file opened outside any workspace so it shows under
-    /// "Открытые файлы". No-op for files that belong to an adopted folder.
+    /// "Open Files". No-op for files that belong to an adopted folder.
     func noteOpened(_ url: URL) {
         let std = url.standardizedFileURL
         // Nested files under a workspace root are also not "loose".

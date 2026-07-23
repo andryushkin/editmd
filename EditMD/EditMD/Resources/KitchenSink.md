@@ -4,11 +4,11 @@ tags: [demo, markup, editmd]
 author: EditMD
 ---
 
-# Kitchen Sink — демо-разметка
+# Kitchen Sink — demo markup
 
-Файл для проверки **всех** режимов: Source · Visual · Preview.
+A file for checking **all** modes: Source · Visual · Preview.
 
-## Заголовки
+## Headings
 
 # H1
 ## H2
@@ -19,32 +19,32 @@ author: EditMD
 
 ## Inline
 
-Обычный текст, **жирный**, *курсив*, ***оба***, ~~зачёркнутый~~, `инлайн-код`, ==выделение==.
+Plain text, **bold**, *italic*, ***both***, ~~strikethrough~~, `inline code`, ==highlight==.
 
-Ссылка: [EditMD](https://example.com) и wiki-link [[Note|alias]].
+Link: [EditMD](https://example.com) and wiki-link [[Note|alias]].
 
-## Списки
+## Lists
 
-- маркированный
-  - вложенный
-- ещё пункт
+- bulleted
+  - nested
+- another item
 
-1. нумерованный
-2. второй
-   1. вложенный
+1. numbered
+2. second
+   1. nested
 
-- [ ] задача
-- [x] сделано
+- [ ] task
+- [x] done
 
-## Цитаты
+## Quotes
 
-> Внешняя цитата
+> Outer quote
 >
-> > Вложенная цитата
+> > Nested quote
 >
-> снова внешняя
+> outer again
 
-## Код
+## Code
 
 ```swift
 func hello() {
@@ -60,21 +60,21 @@ items:
   - two
 ```
 
-## Таблица
+## Table
 
 | Left | Center | Right |
 | :--- | :----: | ----: |
 | a | b | c |
 | **bold** | `code` | 42 |
 
-## Разделитель
+## Divider
 
 ---
 
-## Картинка
+## Image
 
 ![placeholder](icon.png)
 
-## Смешанный абзац
+## Mixed paragraph
 
-Текст после таблицы и разделителя — smoke для C1–C4.
+Text after the table and divider — smoke for C1–C4.

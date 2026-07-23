@@ -27,13 +27,13 @@ packages:
   swift-markdown:
     url: https://github.com/apple/swift-markdown
     from: "0.7.3"
-  # Нативный LaTeX-типограф (порт iosMath) — рендер формул в Visual
-  # (NSTextAttachment-картинки; Preview остаётся на KaTeX).
+  # Native LaTeX typesetter (iosMath port) — renders formulas in Visual
+  # (NSTextAttachment images; Preview stays on KaTeX).
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath
     from: "1.0.0"
-  # Обёртка highlight.js в JavaScriptCore — подсветка код-блоков во всех
-  # трёх режимах (Source/Visual красят storage, Preview/PDF — HTML-спаны).
+  # highlight.js wrapped in JavaScriptCore — fenced-code highlighting in all
+  # three modes (Source/Visual color the storage, Preview/PDF emit HTML spans).
   HighlighterSwift:
     url: https://github.com/smittytone/HighlighterSwift
     from: "3.1.0"
@@ -62,7 +62,7 @@ targets:
         CURRENT_PROJECT_VERSION: "425"
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
-        # App icon: EditMD/Resources/AppIcon.icns (from docs/img/icon.png master)
+        # App icon: EditMD/Resources/AppIcon.icns
         INFOPLIST_KEY_CFBundleIconFile: AppIcon
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         CODE_SIGN_STYLE: Automatic
@@ -147,8 +147,9 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         GENERATE_INFOPLIST_FILE: YES
 
-# Схема генерируется здесь же — раньше её автосоздавал Xcode в xcuserdata,
-# и любой `xcodegen generate` её терял (xcodebuild: "does not contain a scheme").
+# The scheme is generated right here — Xcode used to auto-create it in
+# xcuserdata, and any `xcodegen generate` lost it (xcodebuild: "does not
+# contain a scheme").
 schemes:
   EditMD:
     build:

@@ -193,7 +193,7 @@ final class DocumentRegistry {
         entries[url.standardizedFileURL]?.document.content
     }
 
-    /// Last disk text we synced for an open file (History «Не сохранено»).
+    /// Last disk text we synced for an open file (History "Unsaved Changes").
     func knownDiskContent(of url: URL) -> String? {
         entries[url.standardizedFileURL]?.knownDiskContent
     }
