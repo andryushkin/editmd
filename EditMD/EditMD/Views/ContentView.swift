@@ -279,6 +279,9 @@ struct ContentView: View {
 
     /// Switch editor mode after flushing any coalesced typing onto the
     /// document undo stack (so ⌘Z still works after Source↔Visual↔Preview).
+    /// Only the synchronous belt lives here; the idempotent tail of every
+    /// transition runs in `modeDidChange()` — the `storedMode` observation
+    /// that also catches writers bypassing this func (control socket).
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
@@ -286,16 +289,29 @@ struct ContentView: View {
         // inherit fields the incoming editor won't recompute (Source's list
         // states are prefix-based, Visual's block-model — they disagree on
         // edge cases; historically a Visual H1 stayed lit in Source forever).
-        // Belt: reset here. Braces: advancing the gate retires every sink the
-        // outgoing editor still holds, so a publish already queued (Source/
-        // Visual main-queue hop, Preview's WebKit message queue) can't
-        // re-inject flags past this reset. Each coordinator force-emits its
-        // first computed value, so the incoming mode repopulates the strip.
+        // Advance + reset must stay synchronous with the write: a publish
+        // already sitting on the main queue can run before SwiftUI commits
+        // the change, and `modeDidChange` only cleans up at the commit.
         formatsGate.advance()
         activeFormats = ActiveInlineFormats()
+        storedMode = newMode.rawValue
+    }
+
+    /// Idempotent tail of a mode transition, hooked to `storedMode` itself so
+    /// it runs for EVERY writer of the shared default: the strip/menu go
+    /// through `setEditorMode`, but the control socket (`editmdctl mode …`)
+    /// writes UserDefaults directly and used to bypass the reset entirely.
+    private func modeDidChange() {
+        document.commitContentEdit()
+        // The render pass accompanying this change advanced the gate
+        // (`noteMode`), so a queued stale publish that slipped in before the
+        // commit is wiped by this reset, and one arriving after it is dropped
+        // by epoch. Each coordinator force-emits its first computed value, so
+        // the incoming mode repopulates the strip.
+        activeFormats = ActiveInlineFormats()
         // Leaving Preview retires its ⌘F find bar and highlights.
-        if newMode != .preview { previewFind.close() }
-        if newMode != .visual {
+        if mode != .preview { previewFind.close() }
+        if mode != .visual {
             // Row/column ops exist only on Visual's native tables. Table and
             // formula *insertion* is dual-mode: leave those closures for the
             // next mode's publish to rebind, so the Insert buttons don't go
@@ -305,7 +321,6 @@ struct ContentView: View {
             stripActions.tableAddColumn = nil
             stripActions.tableDeleteColumn = nil
         }
-        storedMode = newMode.rawValue
     }
 
     var body: some View {
@@ -403,6 +418,7 @@ struct ContentView: View {
         .onDisappear {
             document.commitContentEdit()
         }
+        .onChange(of: storedMode) { modeDidChange() }
         .sheet(isPresented: $showExternalDiff) {
             if let notice = externalChanges.notice(for: fileURL) {
                 UnifiedDiffSheet(notice: notice, onClose: { showExternalDiff = false })
@@ -597,6 +613,8 @@ struct ContentView: View {
 
     @ViewBuilder private var editorArea: some View {
         GeometryReader { geo in
+            // Must precede every sink built below — see `noteMode`.
+            let _ = formatsGate.noteMode(mode)
             let splitEditorWidth = max(160, geo.size.width * splitFraction)
             VStack(spacing: 0) {
                 EditorActionStrip(actions: stripActions,

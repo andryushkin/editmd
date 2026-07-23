@@ -12,9 +12,26 @@ import Foundation
 @MainActor
 final class ActiveFormatsGate {
     private(set) var epoch: UInt64 = 0
+    /// Mode last seen at render (`noteMode`).
+    private var notedMode: EditorMode?
 
     /// Retire every sink created so far (mode switch).
     func advance() { epoch &+= 1 }
+
+    /// Render-time funnel: called at the top of `editorArea`, strictly before
+    /// any sink of that pass is built. Catches EVERY writer of the shared
+    /// mode default — the strip/menu go through `setEditorMode`, but the
+    /// control socket (`editmdctl mode …`) writes UserDefaults directly and
+    /// would otherwise never advance the gate. Running during view evaluation
+    /// guarantees the order "advance, then build this pass's sinks"; an
+    /// `.onChange` bump could not (its ordering against child body evaluation
+    /// is unspecified, and a late bump would retire the fresh sinks).
+    func noteMode(_ mode: EditorMode) {
+        guard notedMode != mode else { return }
+        let isFirstObservation = notedMode == nil
+        notedMode = mode
+        if !isFirstObservation { advance() }
+    }
 
     /// Wraps `deliver` with the current epoch. The returned closure is handed
     /// to AppKit/WebKit publishers that only ever call it on the main thread

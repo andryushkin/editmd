@@ -51,6 +51,55 @@ final class ActiveFormatsGateTests: XCTestCase {
         XCTAssertEqual(received, [])
     }
 
+    // MARK: noteMode — the render-time funnel
+
+    func testNoteModeFirstObservationKeepsInitialSinks() {
+        // First render: noteMode records the initial mode; sinks built later
+        // in the same pass must stay valid.
+        let gate = ActiveFormatsGate()
+        gate.noteMode(.preview)
+        var received: [ActiveInlineFormats] = []
+        let sink = gate.sink { received.append($0) }
+        sink(bold)
+        XCTAssertEqual(received, [bold])
+    }
+
+    func testNoteModeSameModeKeepsSinks() {
+        // Re-render without a mode change (resize, unrelated state) must not
+        // retire the live editor's sink.
+        let gate = ActiveFormatsGate()
+        gate.noteMode(.source)
+        var received: [ActiveInlineFormats] = []
+        let sink = gate.sink { received.append($0) }
+        gate.noteMode(.source)
+        sink(bold)
+        XCTAssertEqual(received, [bold])
+    }
+
+    func testNoteModeTransitionRetiresSinksWithoutAdvance() {
+        // Models the control-socket path: `editmdctl mode …` writes the
+        // UserDefaults key directly, so `setEditorMode` never runs — the
+        // render pass observing the new mode must retire the old mode's
+        // sinks by itself.
+        let gate = ActiveFormatsGate()
+        gate.noteMode(.preview)
+        var received: [ActiveInlineFormats] = []
+        let sink = gate.sink { received.append($0) }
+        gate.noteMode(.source)
+        sink(bold)
+        XCTAssertEqual(received, [], "Preview's queued WebKit publish must not land in Source")
+    }
+
+    func testNoteModeTransitionNewSinkDelivers() {
+        let gate = ActiveFormatsGate()
+        gate.noteMode(.preview)
+        gate.noteMode(.source)
+        var received: [ActiveInlineFormats] = []
+        let sink = gate.sink { received.append($0) }
+        sink(bold)
+        XCTAssertEqual(received, [bold])
+    }
+
     func testDeallocatedGateDropsPublishes() {
         // File switch: `.id(url)` recreates ContentView and releases the gate;
         // a coordinator still holding the sink must deliver nothing.
