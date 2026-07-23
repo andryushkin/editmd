@@ -166,6 +166,7 @@
 		A92278AA0EEA988369A4681E /* FolderInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84C0B8966D5BA1D2F0C75FE /* FolderInfo.swift */; };
 		AA1618A105AF5DD84C831328 /* SidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */; };
 		AC6A28B189A470215072FBD5 /* MarkdownOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BB22DFCCB3F3272CD7D6D97 /* MarkdownOutline.swift */; };
+		ADCE8E656B5D2C574940BC16 /* ActiveFormatsGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1BC9BF1D3CAE691CF9E5FA4 /* ActiveFormatsGate.swift */; };
 		AE63AA9462C8A9C0070EA515 /* AgentActivityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0429CEF6CB09D827B5023C /* AgentActivityModel.swift */; };
 		AE70BF4EFA05D3F9D47C3737 /* LineChangeTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924C134CF1B39721A832117A /* LineChangeTrackerTests.swift */; };
 		AEE90365F1090C16D6BD55B2 /* LinkIndexPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DD337B681C18F411D1F203 /* LinkIndexPersistence.swift */; };
@@ -220,6 +221,7 @@
 		E2830B1049758784FCE6E3D8 /* DocumentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB83AB3017722A54EA6CFB17 /* DocumentHistory.swift */; };
 		E2CAF068D57D960523A6D671 /* TagScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A36F400AB7AB26E43FEBF3C /* TagScan.swift */; };
 		E48458C5519A874FB25441FB /* WorkspaceSearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9ED6E1B1B01C53E6210BD88 /* WorkspaceSearchModel.swift */; };
+		E69A222BBC4E6472D45AA955 /* ActiveFormatsGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5887325E36632E1163DD6876 /* ActiveFormatsGateTests.swift */; };
 		E766B8DC9A8DCFF0048B5748 /* SkillInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13117B53A0709929BE14082 /* SkillInstaller.swift */; };
 		E7ABF3D07D89C3AD4E34DEFC /* EditorSettingsMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774FD08C74111F4D5BCA6D4F /* EditorSettingsMigrationTests.swift */; };
 		E7C7AFCDD89E1CBC12830916 /* DocumentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D121A56408289D8F49E90D /* DocumentStore.swift */; };
@@ -321,6 +323,7 @@
 		557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocolTests.swift; sourceTree = "<group>"; };
 		56FF3BD17201E239817B79BA /* EditMDApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMDApp.swift; sourceTree = "<group>"; };
 		57F65113867F0DDDF47D9686 /* GitUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitUI.swift; sourceTree = "<group>"; };
+		5887325E36632E1163DD6876 /* ActiveFormatsGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveFormatsGateTests.swift; sourceTree = "<group>"; };
 		5892181628091BA354F2A95C /* FileHistoryGitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHistoryGitTests.swift; sourceTree = "<group>"; };
 		595F4B28DB90BCE4977FB81A /* SourceListContinuation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceListContinuation.swift; sourceTree = "<group>"; };
 		5DA91453B35A74566DC42AA2 /* SidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSnapshot.swift; sourceTree = "<group>"; };
@@ -399,6 +402,7 @@
 		B07A13AEA492FEA0C2B1942F /* TextDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDiff.swift; sourceTree = "<group>"; };
 		B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EditMDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10EBA0DFA736319C4CF0087 /* AgentHooksInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHooksInstaller.swift; sourceTree = "<group>"; };
+		B1BC9BF1D3CAE691CF9E5FA4 /* ActiveFormatsGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveFormatsGate.swift; sourceTree = "<group>"; };
 		B234CF39EFCF142DB6D3CE00 /* IntegrationsSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsSettingsTab.swift; sourceTree = "<group>"; };
 		B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualNSTextView.swift; sourceTree = "<group>"; };
 		B5D846CE48E058A5CF592086 /* MarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLTests.swift; sourceTree = "<group>"; };
@@ -657,6 +661,7 @@
 		65C7C369C30DEA414280104E /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				B1BC9BF1D3CAE691CF9E5FA4 /* ActiveFormatsGate.swift */,
 				05BD6FEE37D46DDCB2327414 /* AgentActivityUI.swift */,
 				829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */,
 				1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */,
@@ -803,6 +808,7 @@
 		BB2D9D688B6394A586DDEF3F /* EditMDTests */ = {
 			isa = PBXGroup;
 			children = (
+				5887325E36632E1163DD6876 /* ActiveFormatsGateTests.swift */,
 				BB9FCF038DB3199144216643 /* AgentActivityTests.swift */,
 				801C9AFE83EDECE7C97BC89A /* BuiltInPluginsTests.swift */,
 				BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */,
@@ -1034,6 +1040,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E69A222BBC4E6472D45AA955 /* ActiveFormatsGateTests.swift in Sources */,
 				30E56B4AF5BC704D47F080ED /* AgentActivityTests.swift in Sources */,
 				73D504649C18E31F0D670301 /* BuiltInPluginsTests.swift in Sources */,
 				21CCD5D29689C467770C05BE /* ClaudeIDEServerTests.swift in Sources */,
@@ -1093,6 +1100,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				67619EC701156B09166789B6 /* AIProposalChrome.swift in Sources */,
+				ADCE8E656B5D2C574940BC16 /* ActiveFormatsGate.swift in Sources */,
 				AE63AA9462C8A9C0070EA515 /* AgentActivityModel.swift in Sources */,
 				B8CAF95FD16B223634751E50 /* AgentActivityUI.swift in Sources */,
 				959F2DEF3ADC7D1773FE3D70 /* AgentHooksInstaller.swift in Sources */,

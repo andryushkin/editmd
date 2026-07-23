@@ -237,6 +237,10 @@ struct ContentView: View {
     @State private var stripActions = EditorStripActions()
     /// B6: strip B/I/`/S accent state (updated from editor caret callbacks).
     @State private var activeFormats = ActiveInlineFormats()
+    /// Epoch gate over `activeFormats` writes: publishes queued by an outgoing
+    /// editor (Source/Visual main-queue hop, Preview's WebKit message queue)
+    /// are dropped once the mode switches — see `setEditorMode`.
+    @State private var formatsGate = ActiveFormatsGate()
     /// ⌘F find state for full Preview mode (sprint 5). Driven by the Edit ▸ Find
     /// menu via a focused value, and by the overlaid `PreviewFindBar`.
     @StateObject private var previewFind = PreviewFindModel()
@@ -282,9 +286,12 @@ struct ContentView: View {
         // inherit fields the incoming editor won't recompute (Source's list
         // states are prefix-based, Visual's block-model — they disagree on
         // edge cases; historically a Visual H1 stayed lit in Source forever).
-        // Belt: reset here. Braces: each coordinator force-emits its first
-        // computed value and drops publishes queued after its view left the
-        // window, so a stale async can't re-inject flags past this reset.
+        // Belt: reset here. Braces: advancing the gate retires every sink the
+        // outgoing editor still holds, so a publish already queued (Source/
+        // Visual main-queue hop, Preview's WebKit message queue) can't
+        // re-inject flags past this reset. Each coordinator force-emits its
+        // first computed value, so the incoming mode repopulates the strip.
+        formatsGate.advance()
         activeFormats = ActiveInlineFormats()
         // Leaving Preview retires its ⌘F find bar and highlights.
         if newMode != .preview { previewFind.close() }
@@ -618,7 +625,7 @@ struct ContentView: View {
                                         positionStore: positionStore,
                                         onRequestEdit: { setEditorMode(.visual) },
                                         toolbarActions: stripActions,
-                                        onActiveFormats: { activeFormats = $0 },
+                                        onActiveFormats: formatsGate.sink { activeFormats = $0 },
                                         findModel: previewFind)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(alignment: .topTrailing) {
@@ -669,7 +676,7 @@ struct ContentView: View {
                     formatActions = actions
                     bindStrip(from: actions)
                 },
-                onActiveFormats: { activeFormats = $0 },
+                onActiveFormats: formatsGate.sink { activeFormats = $0 },
                 onTextLeading: { editorTextLeading = $0 }
             )
         case .preview:
@@ -699,7 +706,7 @@ struct ContentView: View {
                 bindStrip(from: actions)
             },
             onLintUpdate: { summary in lintSummary = summary },
-            onActiveFormats: { activeFormats = $0 },
+            onActiveFormats: formatsGate.sink { activeFormats = $0 },
             onVisibleOffset: visibleOffset,
             onTextLeading: { editorTextLeading = $0 }
         )
