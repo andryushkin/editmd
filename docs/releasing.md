@@ -41,6 +41,37 @@ audit passes and `main` is pushed. A release consists of:
 - Published sections are never rewritten; a correction gets its own entry in
   the next release.
 
+## Branching
+
+Trunk-based: `main` is the only permanent branch, history is linear, and a
+release is a tag on `main`. A branch is a short-lived isolation tool, not
+project structure — it lives days, merges, and is deleted. The cases that
+warrant one:
+
+- **Experiment** that may not survive — branch, then merge or delete; `main`
+  never sees the failed attempt.
+- **Long refactor** that would leave `main` unbuildable for days — branch so
+  `main` stays releasable throughout.
+- **External PR** — contributors bring branches from their forks; they are
+  merged with **squash and merge** only (the sole merge method enabled on
+  GitHub), keeping history linear.
+- **Hotfix for a released version** while `main` carries unreleased work —
+  the one case a branch starts from a tag, not from `main`:
+
+  ```bash
+  git switch -c hotfix-0.48.1 v0.48.0
+  # fix, commit, then:
+  git tag -a v0.48.1 -m "Version 0.48.1"
+  git push origin hotfix-0.48.1 v0.48.1
+  git switch main && git merge hotfix-0.48.1
+  ```
+
+  When `main` is green and releasable, a patch release is cut from `main`
+  directly — no branch needed.
+
+Published tags are never moved or deleted: a broken release is superseded by
+the next patch version, not re-tagged.
+
 ## Process
 
 The project skill `.agents/skills/editmd-release` orchestrates a release:
