@@ -51,6 +51,14 @@ This is a personal project developed largely with AI agents. `CLAUDE.md` and
 domain documentation (architecture, vault, review, integration, testing)
 written for humans and agents alike.
 
+## Contributing
+
+Bug reports and ideas are the contributions that help most: bugs go to
+[Issues](https://github.com/andryushkin/editmd/issues), ideas and questions to
+[Discussions](https://github.com/andryushkin/editmd/discussions).
+[CONTRIBUTING.md](CONTRIBUTING.md) has the details, including the deliberately
+narrow pull-request policy.
+
 ## License
 
 [MIT](LICENSE). Bundled third-party components (KaTeX, Open Sans, highlight.js

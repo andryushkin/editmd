@@ -1,0 +1,37 @@
+name: Bug report
+description: Something broke, renders wrong, or corrupts markdown
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Markdown to reproduce
+      description: A minimal markdown snippet that triggers the problem, if it involves rendering or round-trip.
+      render: markdown
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      multiple: true
+      options:
+        - Source
+        - Visual
+        - Preview
+        - Split view
+        - Not mode-specific
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: EditMD and macOS versions
+      placeholder: "EditMD 0.47.10, macOS 15.5"
+    validations:
+      required: true

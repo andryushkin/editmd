@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💡 Feature idea
+    url: https://github.com/andryushkin/editmd/discussions/categories/ideas
+    about: Features start as a conversation, not an issue — share the problem and the idea here.
+  - name: ❓ Question
+    url: https://github.com/andryushkin/editmd/discussions/categories/q-a
+    about: Ask anything about using or building EditMD.
