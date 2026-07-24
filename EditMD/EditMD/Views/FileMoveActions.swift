@@ -63,16 +63,6 @@ enum FileMoveRecoveryResolution: Equatable, Sendable {
     case unresolved
 }
 
-/// Both spellings of a case-only rename resolve to the same directory entry
-/// on a case-insensitive volume, so a file/sidecar case mismatch after a
-/// failed rollback is still one coherent document — not a split state.
-private func isCaseOnlyAlias(_ lhs: URL, _ rhs: URL) -> Bool {
-    lhs.deletingLastPathComponent().path == rhs.deletingLastPathComponent().path
-        && lhs.lastPathComponent != rhs.lastPathComponent
-        && lhs.lastPathComponent.caseInsensitiveCompare(rhs.lastPathComponent)
-            == .orderedSame
-}
-
 func fileMoveRecoveryResolutions(
     for rawFiles: [URL],
     after error: Error
@@ -91,15 +81,17 @@ func fileMoveRecoveryResolutions(
         let source = state.move.source.standardizedFileURL
         guard resolutions[source] != nil else { continue }
 
-        let caseOnly = isCaseOnlyAlias(state.move.source, state.move.destination)
-        // Case-only: the sidecar is accounted for under either spelling.
+        // `caseOnlyAliased` is volume-confirmed at state-capture time: both
+        // spellings are one directory entry, so the sidecar is accounted for
+        // under either name. On a case-sensitive volume the flag is false
+        // and a split file/sidecar state stays unresolved.
         let sidecarAccountedFor = !state.expectedReviewSidecar
             || state.reviewSidecarAtSource || state.reviewSidecarAtDestination
-        let sidecarCanStayAtSource = caseOnly
+        let sidecarCanStayAtSource = state.caseOnlyAliased
             ? sidecarAccountedFor
             : !state.reviewSidecarAtDestination
                 && (!state.expectedReviewSidecar || state.reviewSidecarAtSource)
-        let sidecarCanStayAtDestination = caseOnly
+        let sidecarCanStayAtDestination = state.caseOnlyAliased
             ? sidecarAccountedFor
             : !state.reviewSidecarAtSource
                 && (!state.expectedReviewSidecar || state.reviewSidecarAtDestination)

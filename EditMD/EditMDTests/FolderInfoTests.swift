@@ -853,6 +853,10 @@ struct FileRenameTests {
             try FileManager.default.moveItem(at: from, to: to)
         }
 
+        // Actual volume semantics: only a case-insensitive volume resolves
+        // both spellings to the same directory entry.
+        let volumeAliases = FileManager.default.fileExists(atPath: destination.path)
+
         do {
             _ = try await model.renameFileOnDisk(
                 source, to: "NOTE.md", moveItem: failingMove)
@@ -869,11 +873,16 @@ struct FileRenameTests {
             #expect(state.fileAtDestination)
             #expect(state.reviewSidecarAtSource)
             #expect(!state.reviewSidecarAtDestination)
-            // For a case-only pair the sidecar's spelling is not a split
-            // state — the classifier follows the sole surviving spelling.
+            #expect(state.caseOnlyAliased == volumeAliases)
+            // Case-insensitive volume: both spellings are one entry, so the
+            // old-spelling sidecar still belongs to the survivor and the
+            // classifier follows it. Case-sensitive volume: the sidecar is
+            // genuinely unreachable from the new spelling — split state
+            // stays unresolved.
             let resolution = fileMoveRecoveryResolutions(
                 for: [source], after: error)[source]
-            #expect(resolution == .destination(destination))
+            #expect(resolution == (volumeAliases
+                ? .destination(destination) : .unresolved))
         }
 
         // Sidebar state migrated to the surviving spelling.

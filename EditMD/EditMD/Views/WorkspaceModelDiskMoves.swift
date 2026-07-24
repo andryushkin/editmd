@@ -24,6 +24,13 @@ struct FileMoveRollbackState: Equatable, Sendable {
     let fileAtDestination: Bool
     let reviewSidecarAtSource: Bool
     let reviewSidecarAtDestination: Bool
+    /// True only when the VOLUME resolves the source and destination
+    /// spellings to the same directory entry (case-only rename on a
+    /// case-insensitive volume) — probed at state-capture time, never
+    /// inferred from the strings: on a case-sensitive volume the two
+    /// spellings are genuinely different entries and a split file/sidecar
+    /// state must stay unresolved.
+    var caseOnlyAliased = false
 
     var fileRemainsAtDestination: Bool {
         fileAtDestination && !fileAtSource
@@ -479,12 +486,22 @@ extension WorkspaceModel {
     ) -> FileMoveRollbackState {
         let oldSidecar = ReviewSidecar.url(for: move.source)
         let newSidecar = ReviewSidecar.url(for: move.destination)
+        // Same-parent case-only spellings, confirmed as ONE directory entry
+        // by the volume itself. The name check keeps hardlinked distinct
+        // names from masquerading as a case alias.
+        let caseOnlyPair = move.source.deletingLastPathComponent().path
+            == move.destination.deletingLastPathComponent().path
+            && move.source.lastPathComponent != move.destination.lastPathComponent
+            && move.source.lastPathComponent.caseInsensitiveCompare(
+                move.destination.lastPathComponent) == .orderedSame
         return FileMoveRollbackState(
             move: move,
             expectedReviewSidecar: expectedReviewSidecar,
             fileAtSource: directoryEntryExists(move.source),
             fileAtDestination: directoryEntryExists(move.destination),
             reviewSidecarAtSource: directoryEntryExists(oldSidecar),
-            reviewSidecarAtDestination: directoryEntryExists(newSidecar))
+            reviewSidecarAtDestination: directoryEntryExists(newSidecar),
+            caseOnlyAliased: caseOnlyPair
+                && sameFilesystemItem(move.source, move.destination))
     }
 }
