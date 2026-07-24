@@ -22,6 +22,17 @@ settings:
     # separate key and does NOT silence that recommendation on its own.
     STRING_CATALOG_GENERATE_SYMBOLS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
+    # A real development identity rather than ad-hoc, because the system binds
+    # a Files-and-Folders grant to the code signature: an ad-hoc signature is
+    # identified by its cdhash, which changes on every rebuild, so the app had
+    # to ask for `~/Documents` again after each build. A development identity
+    # is designated by its certificate instead, so the grant survives.
+    # Project-wide, not per-target: a test bundle whose team differs from its
+    # host app cannot be dlopen'd into it. `dist.sh` re-signs the shipped app
+    # with Developer ID and does not read these.
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: DZQ4PU9975
+    CODE_SIGN_IDENTITY: Apple Development
 
 packages:
   swift-markdown:
@@ -65,8 +76,6 @@ targets:
         # App icon: EditMD/Resources/AppIcon.icns
         INFOPLIST_KEY_CFBundleIconFile: AppIcon
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_EMIT_LOC_STRINGS: YES
