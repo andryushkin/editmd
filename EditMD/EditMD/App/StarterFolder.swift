@@ -20,6 +20,9 @@ enum StarterFolder {
     /// `StarterFolderOwner` the moment the directory exists — before the guide
     /// is copied into it — so a failed copy still leaves clips a home.
     static let folderKey = "starter.folder"
+    /// Document identifier of that folder, where the volume provides one: a
+    /// path is not an identity, and the thing at that path can be replaced.
+    static let folderIDKey = "starter.folderID"
 
     /// Also the default destination for web clips (`ClipDestination`).
     static var defaultURL: URL {
@@ -132,14 +135,54 @@ enum StarterFolder {
         throw SeedError.noFreeFolderName
     }
 
+    /// Filesystem identity of a directory: survives renames and moves, and
+    /// changes when the thing at a path is replaced by another one. `nil` on
+    /// volumes that do not provide it.
+    static func identity(of url: URL) -> Int? {
+        probe(url).flatMap {
+            (try? $0.resourceValues(forKeys: [.documentIdentifierKey]))?.documentIdentifier
+        }
+    }
+
+    /// A URL instance with nothing cached on it. `URL` memoizes the resource
+    /// values it has been asked for, so a URL kept across a deletion happily
+    /// reports the directory it used to point at — which is exactly the case
+    /// these checks exist for.
+    private static func probe(_ url: URL) -> URL? {
+        var probe = URL(fileURLWithPath: url.path, isDirectory: false)
+        probe.removeAllCachedResourceValues()
+        return probe
+    }
+
+    /// Is the recorded folder still the one EditMD made?
+    ///
+    /// Checked on **every** ask, not only when the folder is first chosen: a
+    /// user can delete it and leave a symlink in its place, and a recorded
+    /// path would otherwise walk straight through it into the target. Where
+    /// the volume provides a document identifier, it must also be the same
+    /// directory we created; where it does not, the structural check stands
+    /// alone rather than migrating the folder on every launch.
+    static func isRecordedFolderOurs(_ url: URL, recordedIdentity: Int?) -> Bool {
+        guard let probe = probe(url),
+              let values = try? probe.resourceValues(
+                forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .documentIdentifierKey]),
+              values.isSymbolicLink != true, values.isDirectory == true
+        else { return false }
+        guard let recordedIdentity, let current = values.documentIdentifier else {
+            return true
+        }
+        return current == recordedIdentity
+    }
+
     /// A directory of that name is nobody's only when it holds **nothing at
     /// all**. Hidden entries count: a `.git` or `.obsidian` inside means the
     /// folder is somebody's vault, and skipping hidden files would have made
     /// EditMD seed straight into it. A symlink is never adopted either,
     /// whatever it points at — the target is not ours to fill.
     static func isAdoptableEmptyDirectory(_ url: URL) -> Bool {
-        let values = try? url.resourceValues(
-            forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        let values = probe(url).flatMap {
+            try? $0.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        }
         guard values?.isSymbolicLink != true, values?.isDirectory == true,
               let entries = try? FileManager.default.contentsOfDirectory(atPath: url.path)
         else { return false }
@@ -188,9 +231,10 @@ enum StarterFolder {
     /// Writes the bundled documents into `root`, creating it and `Guide/`.
     /// Returns the files it created.
     ///
-    /// Never overwrites: a document the user has already edited (or a clip
-    /// that happens to share a name) wins over the bundled copy, so running
-    /// this twice is safe and lossless.
+    /// Never overwrites, and never gives up on the rest because of one file:
+    /// a document the user has already edited — or a clip that took the name,
+    /// possibly while this very copy was running — wins over the bundled
+    /// version, and the remaining documents still land.
     @discardableResult
     static func seedContents(at root: URL, bundle: Bundle = .main) throws -> [URL] {
         let manager = FileManager.default
@@ -203,9 +247,16 @@ enum StarterFolder {
             try manager.createDirectory(
                 at: target.deletingLastPathComponent(),
                 withIntermediateDirectories: true)
-            guard !manager.fileExists(atPath: target.path) else { continue }
-            try manager.copyItem(at: source, to: target)
-            created.append(target.standardizedFileURL)
+            do {
+                try manager.copyItem(at: source, to: target)
+                created.append(target.standardizedFileURL)
+            } catch let error as NSError where error.isFileExists {
+                // The existing file wins — including one a clip created a
+                // moment ago, between a check and a copy. Testing first and
+                // copying second would have made that race abort the whole
+                // seed and lose the documents after it.
+                continue
+            }
         }
         return created
     }
@@ -226,6 +277,7 @@ actor StarterFolderOwner {
     private let preferred: URL
     private let defaultsSuite: String?
     private var resolved: URL?
+    private var resolvedIdentity: Int?
 
     /// `defaultsSuite` is a name rather than a `UserDefaults` so the actor
     /// stays free of shared mutable state it does not own; `nil` is `.standard`.
@@ -244,16 +296,34 @@ actor StarterFolderOwner {
     /// written into it — a guide that fails to copy must not cost the clips
     /// their home.
     func folder() throws -> URL {
-        if let resolved { return resolved }
         let store = defaults
+        // Re-checked every time, cache included: what sits at that path can be
+        // deleted, replaced, or turned into a symlink between two clips.
+        if let resolved,
+           StarterFolder.isRecordedFolderOurs(resolved, recordedIdentity: resolvedIdentity) {
+            return resolved
+        }
         if let stored = store.string(forKey: StarterFolder.folderKey), !stored.isEmpty {
             let url = StarterFolder.normalized(URL(fileURLWithPath: stored))
-            resolved = url
-            return url
+            let identity = store.object(forKey: StarterFolder.folderIDKey) as? Int
+            if StarterFolder.isRecordedFolderOurs(url, recordedIdentity: identity) {
+                resolved = url
+                resolvedIdentity = identity
+                return url
+            }
+            starterFolderLog.notice(
+                "recorded starter folder is not ours anymore — choosing again")
         }
         let created = try StarterFolder.makeOwnFolder(preferring: preferred)
+        let identity = StarterFolder.identity(of: created)
         store.set(created.path, forKey: StarterFolder.folderKey)
+        if let identity {
+            store.set(identity, forKey: StarterFolder.folderIDKey)
+        } else {
+            store.removeObject(forKey: StarterFolder.folderIDKey)
+        }
         resolved = created
+        resolvedIdentity = identity
         starterFolderLog.info("starter folder is \(created.lastPathComponent, privacy: .public)")
         return created
     }

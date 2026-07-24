@@ -138,6 +138,87 @@ final class StarterFolderTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey), first.path)
     }
 
+    /// A recorded path is not an identity. Delete the folder, leave a symlink
+    /// in its place, and the next ask must refuse to walk through it.
+    @MainActor
+    func testRecordedFolderReplacedByASymlinkIsRefused() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+
+        let first = try await StarterFolderOwner(
+            preferring: preferred, defaultsSuite: suiteName).folder()
+        XCTAssertEqual(first.lastPathComponent, "EditMD")
+
+        // The user swaps it for a link to somewhere of their own.
+        let elsewhere = parent.appendingPathComponent("Their vault")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: first)
+        try FileManager.default.createSymbolicLink(at: first, withDestinationURL: elsewhere)
+
+        let second = try await StarterFolderOwner(
+            preferring: preferred, defaultsSuite: suiteName).folder()
+
+        XCTAssertEqual(second.lastPathComponent, "EditMD 2")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [],
+                       "nothing was written through the link")
+        XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey), second.path)
+    }
+
+    /// The same guard within one session: the actor's cache is re-checked too.
+    @MainActor
+    func testCachedFolderIsRecheckedBeforeItIsHandedOutAgain() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, _) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+
+        let first = try await owner.folder()
+        try FileManager.default.removeItem(at: first)
+        let elsewhere = parent.appendingPathComponent("Their vault")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: first, withDestinationURL: elsewhere)
+
+        let second = try await owner.folder()
+        XCTAssertEqual(second.lastPathComponent, "EditMD 2")
+    }
+
+    /// A folder that is simply gone comes back — empty, on demand — so clips
+    /// still have somewhere to land.
+    @MainActor
+    func testDeletedFolderIsRecreatedForClips() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, _) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+
+        let first = try await owner.folder()
+        try FileManager.default.removeItem(at: first)
+
+        let second = try await owner.folder()
+        XCTAssertEqual(second, first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: second.path), [])
+    }
+
+    /// A clip can create a file while the guide is being copied. The existing
+    /// file wins, and the documents after it still land.
+    func testAFileAppearingMidSeedDoesNotAbortTheRest() throws {
+        let root = makeTemporaryRoot()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let readme = root.appendingPathComponent("README.md")
+        try "a clip that took the name".write(to: readme, atomically: true, encoding: .utf8)
+
+        let created = try StarterFolder.seedContents(at: root, bundle: .main)
+
+        XCTAssertFalse(created.contains(readme.standardizedFileURL))
+        XCTAssertEqual(try String(contentsOf: readme, encoding: .utf8),
+                       "a clip that took the name")
+        XCTAssertEqual(created.count, StarterFolder.bundledDocuments.count - 1)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("Guide/Markdown showcase.md").path))
+    }
+
     /// A guide that fails to copy must not cost the clips their home: the
     /// folder is recorded as soon as it exists.
     @MainActor

@@ -127,8 +127,12 @@ into the bundle root, the tree the user receives is declared by
 `StarterFolder.bundledDocuments`, not mirrored from the bundle.
 
 **One owner.** `StarterFolderOwner` (an actor) answers *where* that folder is,
-creates it on the first ask, and records the path in `starter.folder` the
-moment the directory exists — before anything is copied into it. Two callers
+creates it on the first ask, and records the path in `starter.folder` — plus
+its document identifier in `starter.folderID`, where the volume provides one —
+the moment the directory exists, before anything is copied into it. The record
+is re-checked on every ask (cache included, through a URL with nothing memoized
+on it): a path is not an identity, and a folder deleted and replaced by a
+symlink must not be walked through. Two callers
 need the answer on a first launch and a clip gets there first (its Apple Event
 beats `applicationDidFinishLaunching`): if each decided on its own, a user who
 already owns `~/Documents/EditMD` would get the clip written into their folder
@@ -139,7 +143,9 @@ a recorded home.
 Three rules keep it from being a nuisance:
 
 - **Never overwrite.** A document that already exists — edited, or a clip that
-  took the name — always wins over the bundled copy.
+  took the name — always wins over the bundled copy. The copy itself is the
+  check (`copyItem` failing with file-exists), so a clip landing mid-seed loses
+  neither its file nor the documents that were still to come.
 - **Never restore.** A user who deletes the folder does not get it back; only
   the clips destination is recreated, empty, on demand.
 - **Never take over.** Only a directory EditMD created itself is ever written
