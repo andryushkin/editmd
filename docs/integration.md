@@ -79,11 +79,18 @@ editmd://new?file=<name-without-extension>&clipboard
   (`WorkspaceModel.activeWorkspaceRoot`); with no workspace adopted,
   `~/Documents/EditMD Clips`, created on demand and overridable with
   `defaults write andryushkin.EditMD clips.folder <path>` (no Settings UI).
+- Only the pasteboard read and the workspace lookup run on the main actor;
+  creating the folder and writing the body happen on a detached task, so a
+  slow or network-mounted vault cannot freeze the UI from a URL.
 - The file is opened through `AppState.openCreatedFile` — write-first Visual
   mode. On a launch caused by the URL the Apple Event arrives **before**
   `applicationDidFinishLaunching`, so the cold-launch Preview reset is skipped
   when an open has already chosen a mode
-  (`AppState.didApplyEditorModeOverride`).
+  (`resetEditorModeForColdLaunch(_:modeAlreadyChosen:)` fed by
+  `AppState.didApplyEditorModeOverride`). The Visual claim therefore happens
+  *before* the write is awaited — the reset runs while it is still in flight.
+- Logging stays out of the way of the note: the query (title, and the reserved
+  `content=` body) is never logged, and the created file name is `.private`.
 
 Because the sender is untrusted, `App/URLCommand.swift` keeps the whole
 contract in pure Foundation functions (`EditMDURLCommand.parse`,

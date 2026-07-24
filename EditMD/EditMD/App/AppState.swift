@@ -123,13 +123,14 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
 /// launch starts in read-first Preview. Also drops the orphaned per-document
 /// mode map left in prefs by older builds (`EditorModeStore`, since removed) —
 /// nothing reads that key anymore, so this is pure hygiene, not a guard.
-/// Called from `applicationDidFinishLaunching` — but only when nothing has
-/// picked a mode yet (`AppState.didApplyEditorModeOverride`): a launch caused
-/// by an `editmd://` URL delivers the Apple Event BEFORE that notification, so
-/// resetting unconditionally would drop the new clip's write-first Visual mode
-/// back to Preview. A free function so it can be unit-tested against an
-/// injected `UserDefaults`.
-func resetEditorModeForColdLaunch(_ defaults: UserDefaults) {
+/// Called from `applicationDidFinishLaunching` with
+/// `AppState.didApplyEditorModeOverride` as `modeAlreadyChosen`: a launch
+/// caused by an `editmd://` URL delivers the Apple Event BEFORE that
+/// notification, so resetting unconditionally would drop the new clip's
+/// write-first Visual mode back to Preview. The gate lives here rather than in
+/// the delegate so it can be unit-tested against an injected `UserDefaults`.
+func resetEditorModeForColdLaunch(_ defaults: UserDefaults, modeAlreadyChosen: Bool) {
+    guard !modeAlreadyChosen else { return }
     defaults.set(EditorMode.preview.rawValue, forKey: "editorMode")
     defaults.removeObject(forKey: "editorMode.byPath")
 }
@@ -634,8 +635,11 @@ final class AppState: ObservableObject {
     /// deletes, or interprets the body (see `EditMDURLCommand`).
     func handleURLCommand(_ url: URL) {
         guard let command = EditMDURLCommand.parse(url) else {
+            // Command word only: the query carries the note's title and, with
+            // the reserved `content=`, its whole body — that must not land in
+            // the unified log.
             urlSchemeLog.notice(
-                "ignored URL command \(url.absoluteString, privacy: .public)")
+                "ignored editmd:// command \(url.host ?? "(none)", privacy: .public)")
             return
         }
         switch command {
@@ -645,25 +649,40 @@ final class AppState: ObservableObject {
     }
 
     /// `editmd://new` — write the pasteboard into a new file and open it.
+    ///
+    /// Only the pasteboard read and the workspace lookup happen on the main
+    /// actor; creating the folder and writing up to a few MB runs off it, so a
+    /// slow or network-mounted vault cannot freeze the UI from a URL any web
+    /// page can open. The Visual-mode claim must stay on this side of the
+    /// suspension: on a launch-by-URL the cold-launch reset runs while the
+    /// write is still in flight and would otherwise win.
     private func createClip(_ clip: EditMDURLCommand.NewClip) {
         let body = clip.usesClipboard
             ? (NSPasteboard.general.string(forType: .string) ?? "")
             : ""
-        let folder = Self.clipDestinationFolder()
-        do {
-            let url = try ClipFile.write(body, baseName: clip.name, in: folder)
-            WorkspaceModel.shared.noteFilesystemChange()
-            urlSchemeLog.info(
-                "created clip \(url.lastPathComponent, privacy: .public)")
-            // The handoff comes from a browser window; without this the new
-            // file opens behind it when EditMD was already running.
-            NSApp.activate()
-            openCreatedFile(url)
-        } catch {
-            urlSchemeLog.error(
-                "clip write failed: \(error.localizedDescription, privacy: .public)")
-            presentFolderError(error,
-                               title: String(localized: "Could not save the clip"))
+        let candidateRoot = WorkspaceModel.shared.activeWorkspaceRoot
+        applyEditorModeOverride(for: .created)
+        Task {
+            do {
+                let url = try await Task.detached(priority: .userInitiated) {
+                    let folder = Self.clipDestinationFolder(
+                        activeWorkspaceRoot: candidateRoot)
+                    return try ClipFile.write(body, baseName: clip.name, in: folder)
+                }.value
+                WorkspaceModel.shared.noteFilesystemChange()
+                urlSchemeLog.info(
+                    "created clip \(url.lastPathComponent, privacy: .private)")
+                // The handoff comes from a browser window; without this the new
+                // file opens behind it when EditMD was already running.
+                NSApp.activate()
+                openCreatedFile(url)
+            } catch {
+                // The message embeds the destination path — user data.
+                urlSchemeLog.error(
+                    "clip write failed: \(error.localizedDescription, privacy: .private)")
+                presentFolderError(error,
+                                   title: String(localized: "Could not save the clip"))
+            }
         }
     }
 
@@ -672,14 +691,18 @@ final class AppState: ObservableObject {
     /// created on demand. The fallback is `~/Documents/EditMD Clips`,
     /// overridable without UI:
     /// `defaults write andryushkin.EditMD clips.folder <path>`.
-    static func clipDestinationFolder(defaults: UserDefaults = .standard) -> URL {
-        if let root = WorkspaceModel.shared.activeWorkspaceRoot, isFolder(root) {
-            return root
-        }
+    ///
+    /// `activeWorkspaceRoot` is read from the workspace model on the main
+    /// actor; the `isFolder` stat that validates it is not (see `createClip`).
+    nonisolated static func clipDestinationFolder(
+        activeWorkspaceRoot candidate: URL?,
+        defaults: UserDefaults = .standard
+    ) -> URL {
+        if let candidate, isFolder(candidate) { return candidate }
         return clipsFallbackFolder(defaults: defaults)
     }
 
-    static func clipsFallbackFolder(defaults: UserDefaults = .standard) -> URL {
+    nonisolated static func clipsFallbackFolder(defaults: UserDefaults = .standard) -> URL {
         if let custom = defaults.string(forKey: "clips.folder")?
             .trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)

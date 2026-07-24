@@ -1691,7 +1691,7 @@ struct NewFileEditorModeTests {
         defaults.set(EditorMode.source.rawValue, forKey: "editorMode")
         defaults.set(["/a.md": EditorMode.visual.rawValue], forKey: "editorMode.byPath")
 
-        resetEditorModeForColdLaunch(defaults)
+        resetEditorModeForColdLaunch(defaults, modeAlreadyChosen: false)
 
         #expect(defaults.string(forKey: "editorMode") == EditorMode.preview.rawValue)
         #expect(defaults.dictionary(forKey: "editorMode.byPath") == nil)

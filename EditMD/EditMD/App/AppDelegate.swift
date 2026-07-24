@@ -14,9 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // launch starts in read-first Preview (see helper for details) — unless
         // the launch itself was an open that already picked a mode, which is
         // what an `editmd://` clip does (its Apple Event beats this callback).
-        if !AppState.shared.didApplyEditorModeOverride {
-            resetEditorModeForColdLaunch(.standard)
-        }
+        resetEditorModeForColdLaunch(
+            .standard,
+            modeAlreadyChosen: AppState.shared.didApplyEditorModeOverride)
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
         // Claude Code IDE channel: follows Settings ▸ General (default on).

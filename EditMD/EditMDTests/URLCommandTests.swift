@@ -171,7 +171,8 @@ final class URLCommandTests: XCTestCase {
     /// A launch caused by `editmd://new` delivers the open BEFORE
     /// `applicationDidFinishLaunching`, so the cold-launch reset must leave the
     /// clip's write-first Visual mode alone (it clobbered it back to Preview
-    /// until `didApplyEditorModeOverride` gated the reset).
+    /// until the reset became conditional). This is the whole sequence the
+    /// AppDelegate runs, in the order it runs it.
     @MainActor
     func testCreatedOpenSurvivesColdLaunchReset() throws {
         let suiteName = "url-scheme-mode-\(UUID().uuidString)"
@@ -180,13 +181,61 @@ final class URLCommandTests: XCTestCase {
         let appState = AppState(defaults: defaults)
         XCTAssertFalse(appState.didApplyEditorModeOverride)
 
-        appState.openCreatedFile(URL(fileURLWithPath: "/tmp/clip.md"))
-
+        // 1. The create arrives first and claims Visual. Driven through
+        //    `openUntitled` on purpose: it applies the very same `.created`
+        //    override as the clip, but does not route a URL through
+        //    `WorkspaceModel.shared`, which runs on `.standard` defaults and
+        //    would rewrite the developer's remembered branch from a test.
+        appState.openUntitled()
         XCTAssertTrue(appState.didApplyEditorModeOverride)
+        // 2. applicationDidFinishLaunching runs afterwards and must not reset.
+        resetEditorModeForColdLaunch(
+            defaults, modeAlreadyChosen: appState.didApplyEditorModeOverride)
+
         XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.visual.rawValue)
     }
 
+    /// Without an open first, the same launch sequence still lands on Preview —
+    /// the gate must not disable the reset outright.
+    @MainActor
+    func testColdLaunchResetStillAppliesWithoutAnOpen() throws {
+        let suiteName = "url-scheme-mode-plain-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(EditorMode.source.rawValue, forKey: "editorMode")
+
+        resetEditorModeForColdLaunch(defaults, modeAlreadyChosen: false)
+
+        XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.preview.rawValue)
+    }
+
     // MARK: - Destination fallback
+
+    /// The active workspace root wins only while it is a real folder — a
+    /// vault that vanished from disk must not be recreated by a clip.
+    @MainActor
+    func testDestinationFallsBackWhenWorkspaceRootIsGone() throws {
+        let suiteName = "clips-dest-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        let existing = try makeTemporaryFolder()
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            AppState.clipDestinationFolder(
+                activeWorkspaceRoot: existing, defaults: defaults).path,
+            existing.standardizedFileURL.path)
+        XCTAssertEqual(
+            AppState.clipDestinationFolder(
+                activeWorkspaceRoot: existing.appendingPathComponent("gone"),
+                defaults: defaults
+            ).lastPathComponent,
+            "EditMD Clips")
+        XCTAssertEqual(
+            AppState.clipDestinationFolder(
+                activeWorkspaceRoot: nil, defaults: defaults).lastPathComponent,
+            "EditMD Clips")
+    }
 
     /// With no workspace adopted a clip lands in `~/Documents/EditMD Clips`,
     /// or wherever `clips.folder` points.
