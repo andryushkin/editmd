@@ -74,7 +74,10 @@ editmd://new?file=<name-without-extension>&clipboard
   file is created empty.
 - `workspace=<name>` names an **adopted** workspace (Obsidian's `vault=`) —
   never a path, so an untrusted sender can only pick among folders the user
-  already opened; an unknown name falls through to the setting below.
+  already opened. It is honoured only when exactly one adopted root of that
+  name exists on disk: nothing stops a user from adopting two roots with the
+  same name, and guessing beats neither the setting nor the user's trust.
+  Unknown, ambiguous, or missing → the setting below.
 - Reserved and currently ignored: `content`, `append`, `silent`. Unknown
   commands and parameters are dropped rather than failing — any web page can
   open one of these URLs.
@@ -113,8 +116,9 @@ contract in pure Foundation functions (`EditMDURLCommand.parse`,
 
 ## The starter folder
 
-`App/StarterFolder.swift` creates `~/Documents/EditMD` the first time an
-installation launches (flag `starter.seeded`, seeded off the main actor):
+`App/StarterFolder.swift` creates `~/Documents/EditMD` — or the next free name
+beside it — the first time an installation launches (flag `starter.seeded`,
+one attempt per installation, seeded off the main actor):
 `README.md` plus `Guide/` — editing modes, the web clipper, a Markdown
 showcase. The documents are sources in `Resources/starter/`; because the build
 flattens `Resources/` into the bundle root, the tree the user receives is
@@ -126,9 +130,13 @@ Three rules keep it from being a nuisance:
   took the name — always wins over the bundled copy.
 - **Never restore.** A user who deletes the folder does not get it back; only
   the clips destination is recreated, empty, on demand.
-- **Never take over.** The folder is adopted into the sidebar (and its README
-  opened) only when the sidebar is empty and nothing else claimed the window
-  — an existing setup, or a launch caused by a clip, is left alone.
+- **Never take over.** Only a directory EditMD created itself is ever written
+  into: a `~/Documents/EditMD` that already holds the user's files is left
+  untouched and the guide steps aside to `EditMD 2` (the clips setting is
+  pointed at the folder actually created). An existing sidebar is never
+  rearranged. With an empty sidebar the folder is adopted — including on a
+  launch that carried a clip, since the clip landed in it — but the README
+  opens only when the window is still empty, so a clip keeps its document.
 
 It is also the default clips destination, so a new user finds their first clip
 next to the instructions.

@@ -50,6 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task.detached(priority: .utility) {
             guard let root = StarterFolder.seedIfNeeded() else { return }
             await MainActor.run {
+                // The folder may have had to step aside from a directory that
+                // was already there (`EditMD 2`): point the clips setting at
+                // the one we actually made, or notes would go to the user's.
+                if EditorSettings.shared.general.clipsFolderPath.isEmpty,
+                   root != StarterFolder.defaultURL {
+                    EditorSettings.shared.general.clipsFolderPath = root.path
+                }
                 switch StarterFolder.presentation(
                     sidebarIsEmpty: WorkspaceModel.shared.workspaces.isEmpty,
                     mainPaneIsWelcome: AppState.shared.isWelcome,

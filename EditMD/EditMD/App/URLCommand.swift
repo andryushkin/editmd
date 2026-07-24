@@ -15,9 +15,9 @@ let urlSchemeLog = Logger(subsystem: "andryushkin.EditMD", category: "url-scheme
 /// ```
 ///
 /// Anything else is ignored: unknown commands, and the parameters reserved for
-/// later (`content`, `append`, `silent`, `workspace`) which a sender may
-/// already include. Parsing is deliberately tolerant — any web page can open
-/// this URL, so the app must not act on anything it does not understand.
+/// later (`content`, `append`, `silent`) which a sender may already include.
+/// Parsing is deliberately tolerant — any web page can open this URL, so the
+/// app must not act on anything it does not understand.
 ///
 /// Pure Foundation, no AppKit: the parsing and naming rules are unit-tested
 /// without launching the app.
@@ -122,7 +122,9 @@ struct ClipDestination: Equatable, Sendable {
     /// falls through to the clips folder instead of failing: a note that
     /// arrives in the wrong-but-known place beats a note that is lost.
     func resolvedFolder(isExistingFolder: (URL) -> Bool) -> URL {
-        if let named = matchedWorkspaceRoot(), isExistingFolder(named) { return named }
+        if let named = matchedWorkspaceRoot(isExistingFolder: isExistingFolder) {
+            return named
+        }
         if mode == .activeWorkspace,
            let activeWorkspaceRoot, isExistingFolder(activeWorkspaceRoot) {
             return activeWorkspaceRoot
@@ -130,13 +132,21 @@ struct ClipDestination: Equatable, Sendable {
         return configuredFolder
     }
 
-    private func matchedWorkspaceRoot() -> URL? {
+    /// The workspace `workspace=` asked for — but only when the answer is
+    /// unambiguous. Nothing stops a user from adopting two roots that carry
+    /// the same name (a basename, or the same custom name), and guessing which
+    /// one a web page meant is worse than falling back to the configured
+    /// folder. Roots missing from disk are ruled out first, so a stale
+    /// duplicate cannot shadow the live one.
+    private func matchedWorkspaceRoot(isExistingFolder: (URL) -> Bool) -> URL? {
         guard let requested = requestedWorkspace?
             .trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty
         else { return nil }
-        return workspaces.first {
-            $0.name.compare(requested, options: .caseInsensitive) == .orderedSame
-        }?.root
+        let live = workspaces
+            .filter { $0.name.compare(requested, options: .caseInsensitive) == .orderedSame }
+            .map(\.root)
+            .filter(isExistingFolder)
+        return live.count == 1 ? live[0] : nil
     }
 
     /// Settings path → folder URL. Empty (the default) means the folder EditMD
@@ -144,8 +154,8 @@ struct ClipDestination: Equatable, Sendable {
     static func configuredFolder(forSettingsPath path: String) -> URL {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return defaultFolder }
-        return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
-            .standardizedFileURL
+        return StarterFolder.normalized(
+            URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath))
     }
 
     /// `~/Documents/EditMD` — the same folder that holds the README and the
@@ -280,9 +290,10 @@ enum ClipFile {
     }
 }
 
-private extension NSError {
+extension NSError {
     /// The destination already exists — Foundation reports it as either the
-    /// Cocoa or the POSIX flavour depending on the failing layer.
+    /// Cocoa or the POSIX flavour depending on the failing layer. Shared with
+    /// `StarterFolder`, whose folder creation reads the same signal.
     var isFileExists: Bool {
         (domain == NSCocoaErrorDomain && code == NSFileWriteFileExistsError)
             || (domain == NSPOSIXErrorDomain && code == Int(EEXIST))

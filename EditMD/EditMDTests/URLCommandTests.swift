@@ -330,6 +330,26 @@ final class URLCommandTests: XCTestCase {
             inbox)
     }
 
+    /// Two adopted roots can carry the same name — a basename or a custom one.
+    /// Guessing which a web page meant is worse than the configured folder.
+    func testAmbiguousWorkspaceNameFallsBack() {
+        let twin = URL(fileURLWithPath: "/tmp/URLCommandTests/Twin", isDirectory: true)
+        let destination = ClipDestination(
+            requestedWorkspace: "test md",
+            mode: .folder,
+            configuredFolder: inbox,
+            workspaces: [
+                .init(name: "test md", root: vault),
+                .init(name: "Test MD", root: twin),
+            ])
+
+        XCTAssertEqual(
+            destination.resolvedFolder(isExistingFolder: { _ in true }), inbox)
+        // …but a duplicate that is gone from disk does not shadow the live one.
+        XCTAssertEqual(
+            destination.resolvedFolder(isExistingFolder: { $0 != twin }), vault)
+    }
+
     /// A vault that is gone from disk must not be recreated by a clip.
     func testMissingFolderFallsBackToTheConfiguredOne() {
         let exists: (URL) -> Bool = { $0 != self.vault && $0 != self.other }

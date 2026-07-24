@@ -6,8 +6,13 @@ tags: [editmd]
 
 EditMD created this folder the first time it launched. Everything in it is an
 ordinary Markdown file in an ordinary folder — move it, rename it, keep it in
-Git, or delete the whole thing. The editor stores no hidden database of its
-own: what you see in Finder is what you have.
+Git, or delete the whole thing.
+
+Your Markdown is the only source of truth. Around it the app may keep small
+helper files you can delete at any time: a rebuildable link index in
+`.editmd/` (self-ignoring, so Git never sees it), review marks in
+`<file>.md.review.json` next to a reviewed document, and a `.smotr-queue.json`
+when you hand a review to an agent.
 
 ## What is here
 

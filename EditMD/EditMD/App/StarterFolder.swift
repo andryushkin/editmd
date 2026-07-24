@@ -3,14 +3,15 @@ import os
 
 let starterFolderLog = Logger(subsystem: "andryushkin.EditMD", category: "starter")
 
-/// The folder EditMD creates for a new user: `~/Documents/EditMD`, holding a
-/// README, a small `Guide/`, and — until Settings ▸ Web clips says otherwise —
-/// the notes sent from the browser extension.
+/// The folder EditMD creates for a new user: `~/Documents/EditMD` (or the next
+/// free name beside it), holding a README, a small `Guide/`, and — until
+/// Settings ▸ Web clips says otherwise — the notes sent from the browser.
 ///
-/// It is seeded once per installation from `Resources/starter/` and is an
-/// ordinary folder afterwards: nothing re-checks it, nothing repairs it, and a
-/// user who deletes it is not given it back (the clips folder is recreated on
-/// demand, empty). Pure Foundation, so the copy runs off the main actor.
+/// It is seeded once per installation from `Resources/starter/`, only into a
+/// directory EditMD created itself, and is an ordinary folder afterwards:
+/// nothing re-checks it, nothing repairs it, and a user who deletes it is not
+/// given it back (the clips folder is recreated on demand, empty). Pure
+/// Foundation, so the copy runs off the main actor.
 enum StarterFolder {
 
     /// UserDefaults flag, so an upgrade seeds the folder exactly once.
@@ -22,34 +23,56 @@ enum StarterFolder {
             for: .documentDirectory, in: .userDomainMask
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Documents")
-        return documents.appendingPathComponent("EditMD").standardizedFileURL
+        return normalized(documents.appendingPathComponent("EditMD"))
+    }
+
+    /// Folder URLs have to compare equal however they were built:
+    /// `URL(fileURLWithPath:)` stats the path and appends a trailing slash for
+    /// a directory that exists, `appendingPathComponent` does not, and URL
+    /// equality is by string.
+    static func normalized(_ url: URL) -> URL {
+        URL(fileURLWithPath: url.standardizedFileURL.path, isDirectory: false)
+            .standardizedFileURL
     }
 
     /// Never surfaced to the user — the folder is a courtesy, not a feature a
     /// launch may fail on — so the message stays an unlocalized log string.
     enum SeedError: Error, CustomStringConvertible, Equatable {
         case missingResources
+        case noFreeFolderName
 
         var description: String {
             switch self {
             case .missingResources: return "bundled starter documents are missing"
+            case .noFreeFolderName: return "no free name for the starter folder"
             }
         }
     }
 
+    /// How many `EditMD N` names are tried before giving up on a location.
+    static let maxNameAttempts = 20
+
     /// Seeds the folder the first time this installation runs. Returns the
     /// folder when it was seeded now, `nil` when it had been seeded before (or
-    /// when the copy failed — a missing guide is never worth blocking a
-    /// launch, so the failure is logged and swallowed).
+    /// when it could not be created — a missing guide is never worth blocking
+    /// a launch, so the failure is logged and swallowed).
+    ///
+    /// The folder is only ever one EditMD **created itself**: a
+    /// `~/Documents/EditMD` that already belongs to the user is not adopted,
+    /// not written into, and not opened — the guide goes to `EditMD 2` beside
+    /// it instead.
     static func seedIfNeeded(
-        at root: URL = StarterFolder.defaultURL,
+        at preferredRoot: URL = StarterFolder.defaultURL,
         defaults: UserDefaults = .standard,
         bundle: Bundle = .main
     ) -> URL? {
         guard !defaults.bool(forKey: seededKey) else { return nil }
+        // One attempt per installation, whatever the outcome: a launch must
+        // not keep retrying a location the filesystem refuses.
+        defaults.set(true, forKey: seededKey)
         do {
+            let root = try makeOwnFolder(preferring: preferredRoot)
             let created = try seedContents(at: root, bundle: bundle)
-            defaults.set(true, forKey: seededKey)
             starterFolderLog.info(
                 "seeded starter folder with \(created.count, privacy: .public) files")
             return root
@@ -58,6 +81,38 @@ enum StarterFolder {
                 "starter folder not seeded: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Creates a folder EditMD can call its own: `preferred` when it is free,
+    /// an empty folder of that name when one is already sitting there (nothing
+    /// of the user's is at stake), otherwise `EditMD 2`, `EditMD 3`… The
+    /// creation itself is the ownership test — `withIntermediateDirectories:
+    /// false` fails rather than merging into someone else's directory.
+    static func makeOwnFolder(preferring preferred: URL) throws -> URL {
+        let manager = FileManager.default
+        let parent = preferred.deletingLastPathComponent()
+        let base = preferred.lastPathComponent
+        for attempt in 1...maxNameAttempts {
+            let candidate = attempt == 1
+                ? preferred
+                : parent.appendingPathComponent("\(base) \(attempt)")
+            do {
+                try manager.createDirectory(
+                    at: candidate, withIntermediateDirectories: false)
+                return normalized(candidate)
+            } catch let error as NSError where error.isFileExists {
+                if isEmptyDirectory(candidate) { return normalized(candidate) }
+                continue
+            }
+        }
+        throw SeedError.noFreeFolderName
+    }
+
+    private static func isEmptyDirectory(_ url: URL) -> Bool {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        else { return false }
+        return contents.isEmpty
     }
 
     /// What a launch does with a folder it has just seeded.
@@ -71,9 +126,14 @@ enum StarterFolder {
     }
 
     /// The folder introduces itself only on a genuinely fresh start. An
-    /// existing sidebar means an existing user — their tree is theirs — and a
-    /// window that already has a document (an `editmd://` clip beats
-    /// `applicationDidFinishLaunching`) must not be taken over by a README.
+    /// existing sidebar means an existing user — their tree is theirs, and
+    /// nothing is added to it.
+    ///
+    /// With an empty sidebar the folder is always adopted, including when an
+    /// `editmd://` clip beat `applicationDidFinishLaunching` to the window:
+    /// that clip landed in this very folder, so showing it in the sidebar is
+    /// the point. What the clip keeps is the **document** — the README does
+    /// not replace what the user is already looking at.
     static func presentation(
         sidebarIsEmpty: Bool,
         mainPaneIsWelcome: Bool,

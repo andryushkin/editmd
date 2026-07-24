@@ -70,14 +70,65 @@ final class StarterFolderTests: XCTestCase {
         addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(
-            StarterFolder.seedIfNeeded(at: root, defaults: defaults, bundle: .main),
-            root)
+            StarterFolder.seedIfNeeded(at: root, defaults: defaults, bundle: .main)?.path,
+            root.standardizedFileURL.path)
         XCTAssertTrue(defaults.bool(forKey: StarterFolder.seededKey))
         // A user who deletes the folder is not given it back.
         try FileManager.default.removeItem(at: root)
         XCTAssertNil(
             StarterFolder.seedIfNeeded(at: root, defaults: defaults, bundle: .main))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+    }
+
+    /// A `~/Documents/EditMD` that belongs to the user is not adopted, not
+    /// written into, and not opened: the guide steps aside to `EditMD 2`.
+    func testExistingFolderIsNotTakenOver() throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        try FileManager.default.createDirectory(
+            at: preferred, withIntermediateDirectories: true)
+        let theirs = preferred.appendingPathComponent("README.md")
+        try "my own notes".write(to: theirs, atomically: true, encoding: .utf8)
+
+        let root = try StarterFolder.makeOwnFolder(preferring: preferred)
+        try StarterFolder.seedContents(at: root, bundle: .main)
+
+        XCTAssertEqual(root.lastPathComponent, "EditMD 2")
+        XCTAssertEqual(try String(contentsOf: theirs, encoding: .utf8), "my own notes")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: preferred.path),
+            ["README.md"],
+            "nothing was added to the user's folder")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("Guide/Web clipper.md").path))
+    }
+
+    /// An empty folder of that name is nobody's — using it avoids a pointless
+    /// `EditMD 2` next to an empty `EditMD`.
+    func testEmptyFolderOfTheSameNameIsUsed() throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        try FileManager.default.createDirectory(
+            at: preferred, withIntermediateDirectories: true)
+
+        XCTAssertEqual(try StarterFolder.makeOwnFolder(preferring: preferred).path,
+                       preferred.standardizedFileURL.path)
+    }
+
+    /// Occupied names keep stepping aside, in order.
+    func testFolderNamesStepAsideInOrder() throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        for name in ["EditMD", "EditMD 2"] {
+            let url = parent.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try "x".write(to: url.appendingPathComponent("note.md"),
+                          atomically: true, encoding: .utf8)
+        }
+
+        XCTAssertEqual(
+            try StarterFolder.makeOwnFolder(preferring: preferred).lastPathComponent,
+            "EditMD 3")
     }
 
     /// What a launch is allowed to do with the folder it just made.
