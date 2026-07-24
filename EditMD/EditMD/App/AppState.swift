@@ -669,13 +669,12 @@ final class AppState: ObservableObject {
         let body = clip.usesClipboard
             ? (NSPasteboard.general.string(forType: .string) ?? "")
             : ""
-        let candidateRoot = WorkspaceModel.shared.activeWorkspaceRoot
+        let destination = Self.clipDestination(for: clip)
         reserveEditorModeForCreate()
         Task {
             do {
                 let url = try await Task.detached(priority: .userInitiated) {
-                    let folder = Self.clipDestinationFolder(
-                        activeWorkspaceRoot: candidateRoot)
+                    let folder = destination.resolvedFolder(isExistingFolder: Self.isFolder)
                     return try ClipFile.write(body, baseName: clip.name, in: folder)
                 }.value
                 WorkspaceModel.shared.noteFilesystemChange()
@@ -697,33 +696,23 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Where a clip lands: the root of the active workspace, or — with no
-    /// workspace adopted (or its folder gone from disk) — the clips folder,
-    /// created on demand. The fallback is `~/Documents/EditMD Clips`,
-    /// overridable without UI:
-    /// `defaults write andryushkin.EditMD clips.folder <path>`.
-    ///
-    /// `activeWorkspaceRoot` is read from the workspace model on the main
-    /// actor; the `isFolder` stat that validates it is not (see `createClip`).
-    nonisolated static func clipDestinationFolder(
-        activeWorkspaceRoot candidate: URL?,
-        defaults: UserDefaults = .standard
-    ) -> URL {
-        if let candidate, isFolder(candidate) { return candidate }
-        return clipsFallbackFolder(defaults: defaults)
-    }
-
-    nonisolated static func clipsFallbackFolder(defaults: UserDefaults = .standard) -> URL {
-        if let custom = defaults.string(forKey: "clips.folder")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
-            return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
-                .standardizedFileURL
-        }
-        let documents = FileManager.default.urls(
-            for: .documentDirectory, in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents")
-        return documents.appendingPathComponent("EditMD Clips").standardizedFileURL
+    /// Collects the destination inputs — the Web clips setting and the sidebar's
+    /// adopted roots — on the main actor. The decision itself, and the stat
+    /// that validates a folder, run off it (see `createClip`).
+    static func clipDestination(
+        for clip: EditMDURLCommand.NewClip,
+        settings: EditorSettings = .shared,
+        workspace: WorkspaceModel = .shared
+    ) -> ClipDestination {
+        ClipDestination(
+            requestedWorkspace: clip.requestedWorkspace,
+            mode: settings.general.clipDestination,
+            configuredFolder: ClipDestination.configuredFolder(
+                forSettingsPath: settings.general.clipsFolderPath),
+            workspaces: workspace.workspaces.map {
+                ClipDestination.AdoptedWorkspace(name: $0.name, root: $0.url)
+            },
+            activeWorkspaceRoot: workspace.activeWorkspaceRoot)
     }
 
     /// Editable documents live in DocumentRegistry; PDFs and images bypass it

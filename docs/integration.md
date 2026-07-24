@@ -72,13 +72,18 @@ editmd://new?file=<name-without-extension>&clipboard
 - `new` is the only command; the body comes from
   `NSPasteboard.general` when the `clipboard` flag is present, otherwise the
   file is created empty.
-- Reserved and currently ignored: `content`, `append`, `silent`, `workspace`.
-  Unknown commands and parameters are dropped rather than failing — any web
-  page can open one of these URLs.
-- Destination: the root of the active workspace
-  (`WorkspaceModel.activeWorkspaceRoot`); with no workspace adopted,
-  `~/Documents/EditMD Clips`, created on demand and overridable with
-  `defaults write andryushkin.EditMD clips.folder <path>` (no Settings UI).
+- `workspace=<name>` names an **adopted** workspace (Obsidian's `vault=`) —
+  never a path, so an untrusted sender can only pick among folders the user
+  already opened; an unknown name falls through to the setting below.
+- Reserved and currently ignored: `content`, `append`, `silent`. Unknown
+  commands and parameters are dropped rather than failing — any web page can
+  open one of these URLs.
+- Destination (`ClipDestination`, Settings ▸ General ▸ Web clips):
+  a named workspace that is adopted and on disk wins; otherwise the setting
+  decides — a fixed **Folder** (default, `~/Documents/EditMD Clips` until
+  changed) or the **Active workspace** root
+  (`WorkspaceModel.activeWorkspaceRoot`). A workspace that no longer exists on
+  disk is never recreated: the clip lands in the configured folder instead.
 - Only the pasteboard read and the workspace lookup run on the main actor;
   creating the folder and writing the body happen on a detached task, so a
   slow or network-mounted vault cannot freeze the UI from a URL.

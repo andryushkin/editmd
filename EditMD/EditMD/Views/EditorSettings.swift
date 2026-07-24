@@ -479,6 +479,10 @@ struct GeneralSettings: Codable, Equatable {
     var agentCustomCommand: String
     /// Stage 7: silent reload when buffer is clean (default on).
     var autoReloadCleanExternal: Bool
+    /// Where notes handed over by the web clipper (`editmd://new`) land.
+    var clipDestination: ClipDestinationMode
+    /// Folder for `.folder` destination. Empty → `~/Documents/EditMD Clips`.
+    var clipsFolderPath: String
 
     init(appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
@@ -486,7 +490,9 @@ struct GeneralSettings: Codable, Equatable {
          claudeReviewAutoSpawn: Bool = false, syntaxHighlighting: Bool = true,
          agentCommandPreset: AgentCommandPreset = .claude,
          agentCustomCommand: String = "",
-         autoReloadCleanExternal: Bool = true) {
+         autoReloadCleanExternal: Bool = true,
+         clipDestination: ClipDestinationMode = .folder,
+         clipsFolderPath: String = "") {
         self.appearance = appearance
         self.textColorHex = textColorHex
         self.accentColorHex = accentColorHex
@@ -497,6 +503,8 @@ struct GeneralSettings: Codable, Equatable {
         self.agentCommandPreset = agentCommandPreset
         self.agentCustomCommand = agentCustomCommand
         self.autoReloadCleanExternal = autoReloadCleanExternal
+        self.clipDestination = clipDestination
+        self.clipsFolderPath = clipsFolderPath
     }
 
     init(from decoder: Decoder) throws {
@@ -512,6 +520,8 @@ struct GeneralSettings: Codable, Equatable {
         agentCommandPreset = try c.decodeIfPresent(AgentCommandPreset.self, forKey: .agentCommandPreset) ?? .claude
         agentCustomCommand = try c.decodeIfPresent(String.self, forKey: .agentCustomCommand) ?? ""
         autoReloadCleanExternal = try c.decodeIfPresent(Bool.self, forKey: .autoReloadCleanExternal) ?? true
+        clipDestination = try c.decodeIfPresent(ClipDestinationMode.self, forKey: .clipDestination) ?? .folder
+        clipsFolderPath = try c.decodeIfPresent(String.self, forKey: .clipsFolderPath) ?? ""
     }
 }
 

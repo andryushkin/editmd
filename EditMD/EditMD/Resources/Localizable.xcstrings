@@ -838,6 +838,16 @@
         }
       }
     },
+    "Active workspace" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Активный workspace"
+          }
+        }
+      }
+    },
     "Add Folder…" : {
       "localizations" : {
         "ru" : {
@@ -1636,6 +1646,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выберите общую папку назначения для %lld выбранных файлов."
+          }
+        }
+      }
+    },
+    "Choose" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать…"
+          }
+        }
+      }
+    },
+    "Choose the folder for notes sent from the browser extension." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите папку для заметок, присланных из расширения браузера."
           }
         }
       }
@@ -3142,6 +3182,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Исправьте блок плагина в режиме Source."
+          }
+        }
+      }
+    },
+    "Folder" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка"
           }
         }
       }
@@ -5165,6 +5215,16 @@
         }
       }
     },
+    "Notes sent from the browser extension (editmd://) are created here, never overwriting: a taken name becomes “Name 2.md”. A URL may name an adopted workspace with &workspace=<name>; unknown names land here instead." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заметки, присланные из расширения браузера (editmd://), создаются здесь и никогда ничего не перезаписывают: занятое имя становится «Имя 2.md». В URL можно указать имя добавленного workspace через &workspace=<имя>; неизвестные имена попадут сюда же."
+          }
+        }
+      }
+    },
     "Nothing found" : {
       "localizations" : {
         "ru" : {
@@ -6518,6 +6578,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сначала сохраните документ, чтобы создать папку assets."
+          }
+        }
+      }
+    },
+    "Save clips to" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранять клипы в"
           }
         }
       }
@@ -7876,6 +7946,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Насыщенность"
+          }
+        }
+      }
+    },
+    "Web clips" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Веб-клипы"
           }
         }
       }

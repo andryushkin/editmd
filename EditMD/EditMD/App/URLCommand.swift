@@ -31,6 +31,17 @@ enum EditMDURLCommand: Equatable, Sendable {
         /// `clipboard` flag: the body travels through the general pasteboard.
         /// Without it v1 creates an empty file (`content=` is not honoured yet).
         var usesClipboard: Bool
+        /// `workspace=` — the **name** of an adopted workspace, the analog of
+        /// Obsidian's `vault=`. Never a path: an untrusted sender may pick
+        /// among folders the user has already adopted, and nothing else. An
+        /// unknown name falls back to the configured destination.
+        var requestedWorkspace: String?
+
+        init(name: String, usesClipboard: Bool, requestedWorkspace: String? = nil) {
+            self.name = name
+            self.usesClipboard = usesClipboard
+            self.requestedWorkspace = requestedWorkspace
+        }
     }
 
     static let scheme = "editmd"
@@ -51,7 +62,8 @@ enum EditMDURLCommand: Equatable, Sendable {
         case "new":
             return .newClip(NewClip(
                 name: ClipFileNaming.sanitizedBaseName(query.firstValue(of: "file")),
-                usesClipboard: query.hasFlag("clipboard")))
+                usesClipboard: query.hasFlag("clipboard"),
+                requestedWorkspace: query.firstValue(of: "workspace")))
         default:
             return nil
         }
@@ -72,6 +84,76 @@ private extension Array where Element == URLQueryItem {
         guard let value = item.value?.trimmingCharacters(in: .whitespaces).lowercased(),
               !value.isEmpty else { return true }
         return ["true", "1", "yes"].contains(value)
+    }
+}
+
+/// Where clips land when the URL does not name a workspace
+/// (Settings ▸ General ▸ Web clips).
+enum ClipDestinationMode: String, Codable, CaseIterable, Sendable, Identifiable {
+    /// One fixed folder, whatever is open. The default: a clipper is a capture
+    /// inbox, and "wherever I last looked" is not a place you can find again.
+    case folder
+    /// The root of the workspace the app is currently working in.
+    case activeWorkspace
+
+    var id: String { rawValue }
+}
+
+/// Everything the destination decision depends on. Assembled on the main actor
+/// from settings and the sidebar, then resolved off it — the rules stay a pure
+/// function over data, and the stat that validates a folder never runs on main.
+struct ClipDestination: Equatable, Sendable {
+    struct AdoptedWorkspace: Equatable, Sendable {
+        var name: String
+        var root: URL
+    }
+
+    /// `workspace=` from the URL (a name, see `NewClip.requestedWorkspace`).
+    var requestedWorkspace: String?
+    var mode: ClipDestinationMode
+    /// Settings ▸ Web clips ▸ Folder, already resolved to a URL.
+    var configuredFolder: URL
+    /// The roots currently adopted in the sidebar, with their display names.
+    var workspaces: [AdoptedWorkspace] = []
+    var activeWorkspaceRoot: URL?
+
+    /// Resolution order: a named workspace that is really adopted → the
+    /// configured mode → the clips folder. Anything unknown or gone from disk
+    /// falls through to the clips folder instead of failing: a note that
+    /// arrives in the wrong-but-known place beats a note that is lost.
+    func resolvedFolder(isExistingFolder: (URL) -> Bool) -> URL {
+        if let named = matchedWorkspaceRoot(), isExistingFolder(named) { return named }
+        if mode == .activeWorkspace,
+           let activeWorkspaceRoot, isExistingFolder(activeWorkspaceRoot) {
+            return activeWorkspaceRoot
+        }
+        return configuredFolder
+    }
+
+    private func matchedWorkspaceRoot() -> URL? {
+        guard let requested = requestedWorkspace?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty
+        else { return nil }
+        return workspaces.first {
+            $0.name.compare(requested, options: .caseInsensitive) == .orderedSame
+        }?.root
+    }
+
+    /// Settings path → folder URL. Empty (the default) means
+    /// `~/Documents/EditMD Clips`; a `~` in a hand-edited path is expanded.
+    static func configuredFolder(forSettingsPath path: String) -> URL {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return defaultFolder }
+        return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+            .standardizedFileURL
+    }
+
+    static var defaultFolder: URL {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents")
+        return documents.appendingPathComponent("EditMD Clips").standardizedFileURL
     }
 }
 

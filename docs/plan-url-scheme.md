@@ -7,9 +7,12 @@ implementation deviates from the original plan:
 
 - `&content=` is **not** honoured as a body carrier yet (it stays reserved and
   ignored); without `&clipboard` the file is created empty.
-- Destination decision (step 4): active workspace root, else
-  `~/Documents/EditMD Clips`, overridable through the `clips.folder` user
-  default — no Settings UI in v1.
+- Destination decision (step 4): a Settings ▸ General ▸ Web clips choice
+  between a fixed folder (the default — a clipper is a capture inbox) and the
+  active workspace root. `&workspace=<name>`, listed in the plan as "later",
+  shipped with it: it resolves against adopted workspaces **by name only**,
+  because a path in the URL would let any web page choose where the app
+  writes.
 - Extra guard the plan did not foresee: a launch caused by the URL delivers
   the open before `applicationDidFinishLaunching`, so the cold-launch editor
   mode reset is conditional — otherwise the clip opens in Preview.

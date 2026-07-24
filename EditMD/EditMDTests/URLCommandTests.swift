@@ -44,9 +44,17 @@ final class URLCommandTests: XCTestCase {
     /// instead of failing the whole command.
     func testReservedParametersAreIgnored() {
         let clip = clip(
-            "editmd://new?file=A&clipboard&append=true&silent=true&workspace=Vault&content=hi&x=1")
+            "editmd://new?file=A&clipboard&append=true&silent=true&content=hi&x=1")
         XCTAssertEqual(clip?.name, "A")
         XCTAssertEqual(clip?.usesClipboard, true)
+        XCTAssertNil(clip?.requestedWorkspace)
+    }
+
+    /// `workspace=` names an adopted workspace (Obsidian's `vault=`).
+    func testParsesWorkspaceName() {
+        XCTAssertEqual(
+            clip("editmd://new?file=A&clipboard&workspace=test%20md")?.requestedWorkspace,
+            "test md")
     }
 
     /// `content=` is a reserved carrier, not a body source yet — without the
@@ -252,57 +260,111 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.source.rawValue)
     }
 
-    // MARK: - Destination fallback
+    // MARK: - Destination
 
-    /// The active workspace root wins only while it is a real folder — a
-    /// vault that vanished from disk must not be recreated by a clip.
-    @MainActor
-    func testDestinationFallsBackWhenWorkspaceRootIsGone() throws {
-        let suiteName = "clips-dest-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
-        let existing = try makeTemporaryFolder()
-        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+    private let vault = URL(fileURLWithPath: "/tmp/URLCommandTests/Vault", isDirectory: true)
+    private let other = URL(fileURLWithPath: "/tmp/URLCommandTests/Other", isDirectory: true)
+    private let inbox = URL(fileURLWithPath: "/tmp/URLCommandTests/Inbox", isDirectory: true)
 
-        XCTAssertEqual(
-            AppState.clipDestinationFolder(
-                activeWorkspaceRoot: existing, defaults: defaults).path,
-            existing.standardizedFileURL.path)
-        XCTAssertEqual(
-            AppState.clipDestinationFolder(
-                activeWorkspaceRoot: existing.appendingPathComponent("gone"),
-                defaults: defaults
-            ).lastPathComponent,
-            "EditMD Clips")
-        XCTAssertEqual(
-            AppState.clipDestinationFolder(
-                activeWorkspaceRoot: nil, defaults: defaults).lastPathComponent,
-            "EditMD Clips")
+    /// Every folder in these tests exists unless a case says otherwise.
+    private func destination(
+        requestedWorkspace: String? = nil,
+        mode: ClipDestinationMode = .folder
+    ) -> ClipDestination {
+        ClipDestination(
+            requestedWorkspace: requestedWorkspace,
+            mode: mode,
+            configuredFolder: inbox,
+            workspaces: [
+                .init(name: "test md", root: vault),
+                .init(name: "Other", root: other),
+            ],
+            activeWorkspaceRoot: other)
     }
 
-    /// With no workspace adopted a clip lands in `~/Documents/EditMD Clips`,
-    /// or wherever `clips.folder` points.
-    @MainActor
-    func testClipsFallbackFolder() throws {
-        let suiteName = "clips-folder-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
-
+    /// The setting decides when the URL says nothing.
+    func testConfiguredModeDecidesWithoutAWorkspaceParam() {
         XCTAssertEqual(
-            AppState.clipsFallbackFolder(defaults: defaults).lastPathComponent,
+            destination(mode: .folder).resolvedFolder(isExistingFolder: { _ in true }),
+            inbox)
+        XCTAssertEqual(
+            destination(mode: .activeWorkspace).resolvedFolder(isExistingFolder: { _ in true }),
+            other)
+    }
+
+    /// A named workspace wins over the setting — in both modes.
+    func testNamedWorkspaceWinsAndIsCaseInsensitive() {
+        for mode in ClipDestinationMode.allCases {
+            XCTAssertEqual(
+                destination(requestedWorkspace: "test md", mode: mode)
+                    .resolvedFolder(isExistingFolder: { _ in true }),
+                vault)
+            XCTAssertEqual(
+                destination(requestedWorkspace: "  TEST MD ", mode: mode)
+                    .resolvedFolder(isExistingFolder: { _ in true }),
+                vault)
+        }
+    }
+
+    /// An unknown name must not fail and must not invent a location: the clip
+    /// lands in the configured folder.
+    func testUnknownWorkspaceNameFallsBackToTheSetting() {
+        XCTAssertEqual(
+            destination(requestedWorkspace: "Nope").resolvedFolder(isExistingFolder: { _ in true }),
+            inbox)
+        XCTAssertEqual(
+            destination(requestedWorkspace: "").resolvedFolder(isExistingFolder: { _ in true }),
+            inbox)
+    }
+
+    /// A path is not a name — the parameter can only pick among adopted roots,
+    /// so an absolute path from a web page resolves to nothing.
+    func testWorkspaceParamCannotCarryAPath() {
+        XCTAssertEqual(
+            destination(requestedWorkspace: "/etc")
+                .resolvedFolder(isExistingFolder: { _ in true }),
+            inbox)
+        XCTAssertEqual(
+            destination(requestedWorkspace: "../Other")
+                .resolvedFolder(isExistingFolder: { _ in true }),
+            inbox)
+    }
+
+    /// A vault that is gone from disk must not be recreated by a clip.
+    func testMissingFolderFallsBackToTheConfiguredOne() {
+        let exists: (URL) -> Bool = { $0 != self.vault && $0 != self.other }
+        XCTAssertEqual(
+            destination(requestedWorkspace: "test md").resolvedFolder(isExistingFolder: exists),
+            inbox)
+        XCTAssertEqual(
+            destination(mode: .activeWorkspace).resolvedFolder(isExistingFolder: exists),
+            inbox)
+    }
+
+    /// Nothing adopted at all: still a valid destination.
+    func testNoWorkspacesAtAll() {
+        let empty = ClipDestination(
+            requestedWorkspace: "test md",
+            mode: .activeWorkspace,
+            configuredFolder: inbox)
+        XCTAssertEqual(empty.resolvedFolder(isExistingFolder: { _ in true }), inbox)
+    }
+
+    /// Settings path → folder: empty means the default, `~` is expanded.
+    func testConfiguredFolderFromSettingsPath() {
+        XCTAssertEqual(
+            ClipDestination.configuredFolder(forSettingsPath: "").lastPathComponent,
             "EditMD Clips")
-
-        defaults.set("~/Notes/Inbox", forKey: "clips.folder")
         XCTAssertEqual(
-            AppState.clipsFallbackFolder(defaults: defaults).path,
+            ClipDestination.configuredFolder(forSettingsPath: "   ").lastPathComponent,
+            "EditMD Clips")
+        XCTAssertEqual(
+            ClipDestination.configuredFolder(forSettingsPath: "~/Notes/Inbox").path,
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Notes/Inbox").standardizedFileURL.path)
-
-        // A blank override is not a location — fall back to the default.
-        defaults.set("   ", forKey: "clips.folder")
         XCTAssertEqual(
-            AppState.clipsFallbackFolder(defaults: defaults).lastPathComponent,
-            "EditMD Clips")
+            ClipDestination.configuredFolder(forSettingsPath: "/tmp/Clips").path,
+            "/tmp/Clips")
     }
 
     // MARK: - Body cap

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The app's Settings window (⌘,): a tab per editor screen. Each mode tab
 /// owns its full look — font (size/family/weight), margins, reading column,
@@ -73,6 +74,26 @@ private struct GeneralTab: View {
 
     private var preset: EditorTheme { EditorTheme.editorDefault }
 
+    /// The clips folder as the user thinks of it — `~` instead of /Users/name,
+    /// and the default spelled out rather than shown as an empty field.
+    private var clipsFolderDisplayPath: String {
+        let folder = ClipDestination.configuredFolder(
+            forSettingsPath: settings.general.clipsFolderPath)
+        return (folder.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func chooseClipsFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "Choose the folder for notes sent from the browser extension.")
+        panel.prompt = String(localized: "Choose")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.general.clipsFolderPath = url.standardizedFileURL.path
+    }
+
     var body: some View {
         Form {
             Section("Language") {
@@ -109,6 +130,27 @@ private struct GeneralTab: View {
                 Toggle("Lite mode — open files from Finder in a separate window",
                        isOn: $settings.general.liteMode)
                 Text("Off: a double-click in Finder loads the file into the main window. Sidebar clicks and File ▸ Open always use the main window; right-click a file to open it separately.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Web clips") {
+                Picker("Save clips to", selection: $settings.general.clipDestination) {
+                    Text("Folder").tag(ClipDestinationMode.folder)
+                    Text("Active workspace").tag(ClipDestinationMode.activeWorkspace)
+                }
+                .pickerStyle(.segmented)
+                if settings.general.clipDestination == .folder {
+                    LabeledContent("Folder") {
+                        HStack(spacing: 8) {
+                            Text(clipsFolderDisplayPath)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                                .help(clipsFolderDisplayPath)
+                            Button("Choose…") { chooseClipsFolder() }
+                        }
+                    }
+                }
+                Text("Notes sent from the browser extension (editmd://) are created here, never overwriting: a taken name becomes “Name 2.md”. A URL may name an adopted workspace with &workspace=<name>; unknown names land here instead.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Claude Code") {
