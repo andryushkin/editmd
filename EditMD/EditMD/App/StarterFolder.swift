@@ -70,8 +70,10 @@ enum StarterFolder {
     }
 
     /// Claims this installation's one attempt at seeding the guide. Claiming
-    /// before the work means a location the filesystem refuses is not retried
-    /// on every launch.
+    /// *before* the work is what makes a failure spend the attempt by default:
+    /// whatever goes wrong is not retried on the next launch unless the attempt
+    /// is explicitly handed back, which only a refused access does — and that
+    /// one is retried for as long as the refusal lasts (`returnSeedAttempt`).
     static func claimSeedAttempt(defaults: UserDefaults = .standard) -> Bool {
         guard !defaults.bool(forKey: seededKey) else { return false }
         defaults.set(true, forKey: seededKey)
