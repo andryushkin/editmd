@@ -28,7 +28,9 @@ UI transactions live in `Views/FileMoveActions.swift`:
   (`directoryEntryExists`), so case-only outcomes classify correctly. Rename preserves the original extension when the new name
   omits one, and case-only renames go through a temporary sibling
   (`moveFileForRename`) because a case-insensitive volume reports the new
-  spelling as an existing item. Dot-prefixed names are refused everywhere
+  spelling as an existing item; an exact-spelling destination entry is a
+  genuine collision even when it shares the source's file identity
+  (hardlinked case-variant names on a case-sensitive volume). Dot-prefixed names are refused everywhere
   (`FolderNaming`) — listings skip hidden files, so the item would vanish.
 - **Move to Trash** works on files (`confirmAndMoveFilesToTrash`) and whole
   folders (`confirmAndMoveFolderToTrash`). A folder is refused while any open

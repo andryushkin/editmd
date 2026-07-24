@@ -26,10 +26,11 @@ struct FileMoveRollbackState: Equatable, Sendable {
     let reviewSidecarAtDestination: Bool
     /// True only when the VOLUME resolves the source and destination
     /// spellings to the same directory entry (case-only rename on a
-    /// case-insensitive volume) — probed at state-capture time, never
-    /// inferred from the strings: on a case-sensitive volume the two
-    /// spellings are genuinely different entries and a split file/sidecar
-    /// state must stay unresolved.
+    /// case-insensitive volume). Captured by `moveFileForRename`'s routing
+    /// BEFORE the first disk hop and carried through — never inferred from
+    /// the strings, and never from file identity alone: hardlinked
+    /// case-variant names on a case-sensitive volume are two real entries,
+    /// so their split file/sidecar state must stay unresolved.
     var caseOnlyAliased = false
 
     var fileRemainsAtDestination: Bool {
@@ -143,6 +144,12 @@ extension WorkspaceModel {
     /// the batch-move preflight would refuse it with `alreadyExists`; detect
     /// that case and go through a unique temporary sibling instead (the same
     /// strategy as `moveFolderThroughTemporary`).
+    ///
+    /// The alias test requires that the destination exists ONLY as a
+    /// case-variant: an exact-spelling destination entry is a genuine
+    /// collision even when it shares the source's file identity — hardlinked
+    /// case-variant names on a case-sensitive volume are two real entries,
+    /// not one entry with two spellings.
     nonisolated static func moveFileForRename(
         _ move: FileMoveResult,
         destinationFolder: URL,
@@ -151,6 +158,7 @@ extension WorkspaceModel {
         }
     ) throws {
         if FileManager.default.fileExists(atPath: move.destination.path),
+           !directoryEntryExists(move.destination),
            sameFilesystemItem(move.source, move.destination) {
             try renameFileCaseOnlyThroughTemporary(move, moveItem: moveItem)
             return
@@ -187,7 +195,9 @@ extension WorkspaceModel {
                 } catch {
                     // Stranded at the temporary name — ambiguous on purpose.
                     throw FileMoveError.rollbackFailed([
-                        rollbackState(for: move, expectedReviewSidecar: hasSidecar)
+                        rollbackState(for: move,
+                                      expectedReviewSidecar: hasSidecar,
+                                      caseOnlyAliased: true)
                     ])
                 }
                 throw error
@@ -207,7 +217,9 @@ extension WorkspaceModel {
                 try throughTemporary(move.destination, move.source)
             } catch {
                 throw FileMoveError.rollbackFailed([
-                    rollbackState(for: move, expectedReviewSidecar: true)
+                    rollbackState(for: move,
+                                  expectedReviewSidecar: true,
+                                  caseOnlyAliased: true)
                 ])
             }
             throw error
@@ -480,20 +492,17 @@ extension WorkspaceModel {
             == url.lastPathComponent.decomposedStringWithCanonicalMapping
     }
 
+    /// `caseOnlyAliased` must be captured before the first disk hop (only the
+    /// case-only core passes `true`) — after a partial failure the surviving
+    /// entry itself would satisfy any identity re-probe, hiding the
+    /// difference between one aliased entry and two hardlinked ones.
     nonisolated private static func rollbackState(
         for move: FileMoveResult,
-        expectedReviewSidecar: Bool
+        expectedReviewSidecar: Bool,
+        caseOnlyAliased: Bool = false
     ) -> FileMoveRollbackState {
         let oldSidecar = ReviewSidecar.url(for: move.source)
         let newSidecar = ReviewSidecar.url(for: move.destination)
-        // Same-parent case-only spellings, confirmed as ONE directory entry
-        // by the volume itself. The name check keeps hardlinked distinct
-        // names from masquerading as a case alias.
-        let caseOnlyPair = move.source.deletingLastPathComponent().path
-            == move.destination.deletingLastPathComponent().path
-            && move.source.lastPathComponent != move.destination.lastPathComponent
-            && move.source.lastPathComponent.caseInsensitiveCompare(
-                move.destination.lastPathComponent) == .orderedSame
         return FileMoveRollbackState(
             move: move,
             expectedReviewSidecar: expectedReviewSidecar,
@@ -501,7 +510,6 @@ extension WorkspaceModel {
             fileAtDestination: directoryEntryExists(move.destination),
             reviewSidecarAtSource: directoryEntryExists(oldSidecar),
             reviewSidecarAtDestination: directoryEntryExists(newSidecar),
-            caseOnlyAliased: caseOnlyPair
-                && sameFilesystemItem(move.source, move.destination))
+            caseOnlyAliased: caseOnlyAliased)
     }
 }

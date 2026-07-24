@@ -894,6 +894,38 @@ struct FileRenameTests {
         #expect(listing.contains("note.md.review.json"))
     }
 
+    @Test("Hardlinked case-variant names collide instead of aliasing")
+    func hardlinkedCaseOnlyNamesCollide() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let alias = fixture.root.appendingPathComponent("NOTE.md")
+        do {
+            try FileManager.default.linkItem(at: source, to: alias)
+        } catch {
+            // Case-insensitive volume: NOTE.md IS note.md, so the hardlink
+            // pair this test guards against cannot exist here.
+            return
+        }
+        // Case-sensitive volume: note.md and NOTE.md are two real entries
+        // sharing one file identity. The rename must refuse the collision,
+        // not treat the pair as one aliased entry.
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        do {
+            _ = try await model.renameFileOnDisk(source, to: "NOTE.md")
+            Issue.record("Expected a collision with the hardlinked entry")
+        } catch {
+            #expect(error as? FileMoveError == .alreadyExists("NOTE.md"))
+        }
+        let listing = Set(try FileManager.default.contentsOfDirectory(
+            atPath: fixture.root.path))
+        #expect(listing.contains("note.md"))
+        #expect(listing.contains("NOTE.md"))
+    }
+
     @Test("Rename refuses a file EditMD does not list")
     func renameRejectsUnsupported() async throws {
         let fixture = try makeFixture()
@@ -1499,6 +1531,34 @@ struct FileMoveRecoveryResolutionTests {
         #expect(resolutions[missing] == .unresolved)
         #expect(resolutions[splitSidecar] == .unresolved)
         #expect(resolutions[untouched] == .source)
+    }
+
+    @Test("Split sidecar relaxes only under a volume-confirmed case alias")
+    func caseOnlySplitRequiresVolumeConfirmedAlias() {
+        // Case-only names alone must NOT relax the split rule: on a
+        // case-sensitive volume (or with hardlinked case-variant entries)
+        // the sidecar is genuinely unreachable from the new spelling.
+        let source = URL(fileURLWithPath: "/tmp/Vault/note.md")
+        let destination = URL(fileURLWithPath: "/tmp/Vault/NOTE.md")
+        func state(aliased: Bool) -> FileMoveRollbackState {
+            FileMoveRollbackState(
+                move: .init(source: source, destination: destination),
+                expectedReviewSidecar: true,
+                fileAtSource: false,
+                fileAtDestination: true,
+                reviewSidecarAtSource: true,
+                reviewSidecarAtDestination: false,
+                caseOnlyAliased: aliased)
+        }
+
+        #expect(fileMoveRecoveryResolutions(
+            for: [source],
+            after: FileMoveError.rollbackFailed([state(aliased: false)])
+        )[source] == .unresolved)
+        #expect(fileMoveRecoveryResolutions(
+            for: [source],
+            after: FileMoveError.rollbackFailed([state(aliased: true)])
+        )[source] == .destination(destination))
     }
 }
 
