@@ -3,6 +3,23 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.47.11 - 2026-07-24
+
+### New Features
+
+- Rename files in place from the sidebar and the folder card ("Rename…").
+  The extension is kept when the new name omits one, review marks follow the
+  file, and case-only renames (note.md → Note.md) work on the default macOS
+  file system.
+- Move whole folders to the Trash from the folder context menu. Refused while
+  documents inside are open; warns when recently closed files still hold
+  unsaved changes.
+
+### Improvements
+
+- Names starting with a dot are refused when creating or renaming files and
+  folders — such items are hidden and would silently disappear from the list.
+
 ## v0.47.10 - 2026-07-23
 
 Initial public release.

@@ -17,15 +17,25 @@ domain docs stay present-tense.
   notarization); until then no compatibility promises are implied by the
   version number.
 
-The version in `project.yml` may tick several times between releases;
-intermediate versions get no tag and no changelog section.
+The version in `project.yml` may tick several times between releases.
+
+## Patch-ship
+
+The lightweight way a finished change lands on `origin/main` without the
+release ritual, on the maintainer's request ("patch-ship"): bump
+the patch version (and the build number), add a `## vX.Y.Z - YYYY-MM-DD`
+changelog section for the shipped changes, pass the audit, push. **No tag
+and no GitHub Release** — those stay exclusive to a cut release. A version
+bump with no user-visible changes still needs no changelog section. The
+project skill `.agents/skills/editmd-ship` orchestrates this.
 
 ## When a release is cut
 
 Only when the maintainer says so — usually at the end of a sprint, after the
 audit passes and `main` is pushed. A release consists of:
 
-1. a `## vX.Y.Z - YYYY-MM-DD` section at the top of `CHANGELOG.md`,
+1. a `## vX.Y.Z - YYYY-MM-DD` section at the top of `CHANGELOG.md` (already
+   present when the version was patch-shipped),
 2. an annotated git tag `vX.Y.Z` on the released commit,
 3. a GitHub Release with that changelog section as its notes (no binaries
    yet; artifacts join when packaging exists).
