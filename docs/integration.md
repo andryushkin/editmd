@@ -80,8 +80,8 @@ editmd://new?file=<name-without-extension>&clipboard
   open one of these URLs.
 - Destination (`ClipDestination`, Settings ▸ General ▸ Web clips):
   a named workspace that is adopted and on disk wins; otherwise the setting
-  decides — a fixed **Folder** (default, `~/Documents/EditMD Clips` until
-  changed) or the **Active workspace** root
+  decides — a fixed **Folder** (default: `~/Documents/EditMD`, the folder
+  seeded on first launch, see below) or the **Active workspace** root
   (`WorkspaceModel.activeWorkspaceRoot`). A workspace that no longer exists on
   disk is never recreated: the clip lands in the configured folder instead.
 - Only the pasteboard read and the workspace lookup run on the main actor;
@@ -110,6 +110,28 @@ contract in pure Foundation functions (`EditMDURLCommand.parse`,
   `.withoutOverwriting` — this path creates files and never overwrites,
   deletes, or interprets a body;
 - oversized bodies are truncated at 4 MB on a character boundary.
+
+## The starter folder
+
+`App/StarterFolder.swift` creates `~/Documents/EditMD` the first time an
+installation launches (flag `starter.seeded`, seeded off the main actor):
+`README.md` plus `Guide/` — editing modes, the web clipper, a Markdown
+showcase. The documents are sources in `Resources/starter/`; because the build
+flattens `Resources/` into the bundle root, the tree the user receives is
+declared by `StarterFolder.bundledDocuments`, not mirrored from the bundle.
+
+Three rules keep it from being a nuisance:
+
+- **Never overwrite.** A document that already exists — edited, or a clip that
+  took the name — always wins over the bundled copy.
+- **Never restore.** A user who deletes the folder does not get it back; only
+  the clips destination is recreated, empty, on demand.
+- **Never take over.** The folder is adopted into the sidebar (and its README
+  opened) only when the sidebar is empty and nothing else claimed the window
+  — an existing setup, or a launch caused by a clip, is left alone.
+
+It is also the default clips destination, so a new user finds their first clip
+next to the instructions.
 
 ## Shipped agent resources
 

@@ -481,7 +481,8 @@ struct GeneralSettings: Codable, Equatable {
     var autoReloadCleanExternal: Bool
     /// Where notes handed over by the web clipper (`editmd://new`) land.
     var clipDestination: ClipDestinationMode
-    /// Folder for `.folder` destination. Empty → `~/Documents/EditMD Clips`.
+    /// Folder for `.folder` destination. Empty → the folder EditMD created
+    /// on first launch (`StarterFolder.defaultURL`).
     var clipsFolderPath: String
 
     init(appearance: AppearanceMode = .system,

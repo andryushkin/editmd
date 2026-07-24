@@ -304,6 +304,13 @@ final class AppState: ObservableObject {
     /// replayed if that create never lands.
     private var coldLaunchResetDeferred = false
 
+    /// True while an open has picked this launch's editor mode, or a create in
+    /// flight has reserved the right to pick it. Read by launch-time work that
+    /// must not steal a window someone else is already filling.
+    var hasEditorModeClaim: Bool {
+        didApplyEditorModeOverride || pendingCreatedModeClaims > 0
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -750,7 +757,7 @@ final class AppState: ObservableObject {
     /// flight that will pick it (`reserveEditorModeForCreate`). A reservation
     /// that never lands replays this reset instead.
     func applyColdLaunchEditorMode() {
-        guard !didApplyEditorModeOverride, pendingCreatedModeClaims == 0 else {
+        guard !hasEditorModeClaim else {
             coldLaunchResetDeferred = pendingCreatedModeClaims > 0
             return
         }

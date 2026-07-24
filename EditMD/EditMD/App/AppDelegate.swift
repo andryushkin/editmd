@@ -35,6 +35,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 LinkIndex.shared.ensureIndex()
             }
             installBackForwardMouseMonitor()
+            seedStarterFolder()
+        }
+    }
+
+    /// First launch of an installation: create `~/Documents/EditMD` with the
+    /// README and the guide (see `StarterFolder`). Off the main actor — it is
+    /// a handful of file copies nobody is waiting for. On a genuinely fresh
+    /// start it also becomes the first workspace and the README opens; an
+    /// existing sidebar is left exactly as the user arranged it, and a launch
+    /// that already has something to show (an `editmd://` clip arrives before
+    /// this callback) keeps its own document.
+    private func seedStarterFolder() {
+        Task.detached(priority: .utility) {
+            guard let root = StarterFolder.seedIfNeeded() else { return }
+            await MainActor.run {
+                switch StarterFolder.presentation(
+                    sidebarIsEmpty: WorkspaceModel.shared.workspaces.isEmpty,
+                    mainPaneIsWelcome: AppState.shared.isWelcome,
+                    hasEditorModeClaim: AppState.shared.hasEditorModeClaim
+                ) {
+                case .none:
+                    break
+                case .adopt:
+                    WorkspaceModel.shared.addWorkspace(root)
+                case .adoptAndOpenReadme:
+                    WorkspaceModel.shared.addWorkspace(root)
+                    AppState.shared.openInMainWindow(
+                        root.appendingPathComponent("README.md"))
+                }
+            }
         }
     }
 

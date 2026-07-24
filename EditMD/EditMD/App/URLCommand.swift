@@ -139,8 +139,8 @@ struct ClipDestination: Equatable, Sendable {
         }?.root
     }
 
-    /// Settings path → folder URL. Empty (the default) means
-    /// `~/Documents/EditMD Clips`; a `~` in a hand-edited path is expanded.
+    /// Settings path → folder URL. Empty (the default) means the folder EditMD
+    /// made on first launch; a `~` in a hand-edited path is expanded.
     static func configuredFolder(forSettingsPath path: String) -> URL {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return defaultFolder }
@@ -148,13 +148,9 @@ struct ClipDestination: Equatable, Sendable {
             .standardizedFileURL
     }
 
-    static var defaultFolder: URL {
-        let documents = FileManager.default.urls(
-            for: .documentDirectory, in: .userDomainMask
-        ).first ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents")
-        return documents.appendingPathComponent("EditMD Clips").standardizedFileURL
-    }
+    /// `~/Documents/EditMD` — the same folder that holds the README and the
+    /// guide, so a new user finds their first clip next to the instructions.
+    static var defaultFolder: URL { StarterFolder.defaultURL }
 }
 
 /// Naming rules for files created from a URL command. The sender already

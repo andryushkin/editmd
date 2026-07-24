@@ -352,12 +352,13 @@ final class URLCommandTests: XCTestCase {
 
     /// Settings path → folder: empty means the default, `~` is expanded.
     func testConfiguredFolderFromSettingsPath() {
+        // Empty means "the folder EditMD made on first launch".
         XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: "").lastPathComponent,
-            "EditMD Clips")
+            ClipDestination.configuredFolder(forSettingsPath: ""),
+            StarterFolder.defaultURL)
         XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: "   ").lastPathComponent,
-            "EditMD Clips")
+            ClipDestination.configuredFolder(forSettingsPath: "   "),
+            StarterFolder.defaultURL)
         XCTAssertEqual(
             ClipDestination.configuredFolder(forSettingsPath: "~/Notes/Inbox").path,
             FileManager.default.homeDirectoryForCurrentUser
