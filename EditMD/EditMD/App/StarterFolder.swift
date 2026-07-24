@@ -78,11 +78,19 @@ enum StarterFolder {
         return true
     }
 
-    /// Hands the claimed attempt back, for the one failure that is not the
-    /// filesystem's verdict: a TCC denial on `~/Documents`. That is the user
-    /// clicking "Don't Allow" in a prompt they can reverse in System Settings,
-    /// and an installation that spent its only attempt on that click would
-    /// never get the folder — not even after the access is granted.
+    /// Hands the claimed attempt back, for the one class of failure that may
+    /// not be the last word: the access was refused. The prompt for
+    /// `~/Documents` is the case that matters — an installation that spent its
+    /// only attempt on a "Don't Allow" would never get the folder, not even
+    /// after the user grants access under Privacy & Security.
+    ///
+    /// It cannot be narrowed to that case: consent, POSIX permissions, an ACL,
+    /// SIP and data protection all arrive as the same error (see
+    /// `NSError.isPermissionDenied`), so every refusal is retried — a location
+    /// that stays unwritable is re-attempted on each launch, forever. That
+    /// costs one `createDirectory` that fails immediately, off the main actor,
+    /// and it is the cheaper mistake: giving up after N launches would put an
+    /// expiry date on a folder the user may still enable next month.
     static func returnSeedAttempt(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: seededKey)
     }

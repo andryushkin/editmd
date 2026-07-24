@@ -92,9 +92,11 @@ final class StarterFolderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: preferred.path))
     }
 
-    /// A refused folder is the user's answer, not the filesystem's verdict:
-    /// "Don't Allow" in the Documents prompt is reversible in System Settings,
-    /// so the installation keeps its one attempt and the next launch seeds.
+    /// A refused access keeps the attempt, and keeps it for as long as the
+    /// refusal lasts: the case worth the retry is a Documents prompt the user
+    /// can still say yes to, and it is indistinguishable from the `chmod` used
+    /// here — which is the point, and why an unwritable location is re-attempted
+    /// on every launch rather than a bounded number of them.
     @MainActor
     func testRefusedAccessKeepsTheSeedAttempt() async throws {
         let parent = makeTemporaryRoot()
@@ -103,24 +105,26 @@ final class StarterFolderTests: XCTestCase {
         let preferred = parent.appendingPathComponent("EditMD")
         let (suiteName, defaults) = try makeSuite()
         let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
-        // Stands in for the TCC denial: creating anything below fails with
-        // EACCES, which is how Foundation reports it either way.
+        // Creating anything below now fails with EACCES — the same error a
+        // refused consent prompt produces.
         let restore = { try? FileManager.default.setAttributes(
             [.posixPermissions: 0o700], ofItemAtPath: parent.path) }
         addTeardownBlock { restore() }
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o500], ofItemAtPath: parent.path)
 
-        let refused = await StarterFolder.seedIfNeeded(
-            owner: owner, defaultsSuite: suiteName, bundle: .main)
+        for launch in 1...3 {
+            let refused = await StarterFolder.seedIfNeeded(
+                owner: owner, defaultsSuite: suiteName, bundle: .main)
 
-        XCTAssertNil(refused)
-        XCTAssertFalse(defaults.bool(forKey: StarterFolder.seededKey),
-                       "the attempt survives a refusal")
-        XCTAssertNil(defaults.string(forKey: StarterFolder.folderKey),
-                     "nothing was created, so nothing is recorded")
+            XCTAssertNil(refused, "launch \(launch)")
+            XCTAssertFalse(defaults.bool(forKey: StarterFolder.seededKey),
+                           "the attempt survives every refusal (launch \(launch))")
+            XCTAssertNil(defaults.string(forKey: StarterFolder.folderKey),
+                         "nothing was created, so nothing is recorded")
+        }
 
-        // The user grants access in System Settings; the next launch seeds.
+        // Access is granted; the next launch seeds.
         restore()
         let seeded = await StarterFolder.seedIfNeeded(
             owner: owner, defaultsSuite: suiteName, bundle: .main)
@@ -286,7 +290,8 @@ final class StarterFolderTests: XCTestCase {
     }
 
     /// A guide that fails to copy must not cost the clips their home: the
-    /// folder is recorded as soon as it exists.
+    /// folder is recorded as soon as it exists. This failure is not about
+    /// access, so — unlike a refusal — it spends the one attempt.
     @MainActor
     func testFolderSurvivesAFailedSeed() async throws {
         let parent = makeTemporaryRoot()
@@ -300,6 +305,8 @@ final class StarterFolderTests: XCTestCase {
             owner: owner, defaultsSuite: suiteName, bundle: empty)
 
         XCTAssertNil(seeded, "the guide did not land")
+        XCTAssertTrue(defaults.bool(forKey: StarterFolder.seededKey),
+                      "a failure that is not a refusal spends the attempt")
         XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey),
                        preferred.standardizedFileURL.path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: preferred.path))

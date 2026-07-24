@@ -305,9 +305,11 @@ extension NSError {
             || (domain == NSPOSIXErrorDomain && code == Int(EEXIST))
     }
 
-    /// The system refused the access, in either flavour. On macOS this is how a
-    /// TCC denial arrives — the user answered "Don't Allow" for Documents, and
-    /// `StarterFolder` reads it as an answer that may yet change.
+    /// The system refused the access, in either flavour. Deliberately as broad
+    /// as the error itself: a consent prompt answered "Don't Allow", POSIX
+    /// permissions, an ACL, SIP and data protection are indistinguishable here,
+    /// so a caller reading this reads "refused", never "refused by the user".
+    /// `StarterFolder` treats the whole class as possibly reversible.
     var isPermissionDenied: Bool {
         (domain == NSCocoaErrorDomain
             && (code == NSFileWriteNoPermissionError

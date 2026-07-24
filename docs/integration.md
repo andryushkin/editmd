@@ -162,18 +162,30 @@ Three rules keep it from being a nuisance:
   clip, since the clip landed in it — but the README opens only when the
   window is still empty, so a clip keeps its document.
 
-**A refusal is not a verdict.** `~/Documents` sits behind the system's Files
-and Folders consent, so a first launch can meet "Don't Allow" — the prompt
-carries `NSDocumentsFolderUsageDescription` (localized in
-`Resources/InfoPlist.xcstrings`) to say what the folder is for. That answer is
-the user's, and reversible in System Settings, so a refused access is the one
-failure that hands the attempt back (`StarterFolder.returnSeedAttempt` on
-`NSError.isPermissionDenied`): the flag is cleared and the next launch asks
-again. Every other failure leaves the attempt spent — a location the filesystem
-refuses must not be retried on every launch. The consent itself is granted once
-per installed app: outside the sandbox it is bound to the code signature, so a
-Developer ID build keeps it across updates, while an ad-hoc local build asks
-again after every rebuild.
+**A refused access is retried; nothing else is.** `~/Documents` sits behind the
+system's Files and Folders consent, so a first launch can meet "Don't Allow" —
+the prompt carries `NSDocumentsFolderUsageDescription` (localized in
+`Resources/InfoPlist.xcstrings`) to say what the folder is for. An answer like
+that is reversible under Privacy & Security, so it hands the attempt back
+(`StarterFolder.returnSeedAttempt` on `NSError.isPermissionDenied`) instead of
+costing the installation its only one.
+
+The retry is silent and unbounded, and the contract has to be read that way.
+Silent: the system remembers the refusal and keeps returning the same error
+without prompting again — a later launch re-attempts the access, it does not
+re-ask the user, who has to grant it under Privacy & Security ▸ Files and
+Folders. Unbounded and *wider than TCC*: a denial reaches us as `EACCES`/`EPERM`
+or its Cocoa equivalent whether it came from consent, POSIX permissions, an ACL,
+SIP, or data protection, and one `NSError` cannot tell those apart — so a
+permanently unwritable location is re-attempted on every launch, forever. That
+is deliberate. The cost is one `createDirectory` that fails immediately on a
+detached task; a bounded retry would instead put an expiry date on a folder the
+user may still enable next month. Failures that are not about access — no free
+name, missing bundled documents — spend the attempt as before.
+
+The consent itself is granted once per installed app: outside the sandbox it is
+bound to the code signature, so a Developer ID build keeps it across updates,
+while an ad-hoc local build asks again after every rebuild.
 
 It is also the default clips destination, so a new user finds their first clip
 next to the instructions.
