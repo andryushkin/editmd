@@ -25,6 +25,22 @@ enum FolderNaming {
         return trimmed
     }
 
+    /// User name → renamed file name. Finder semantics: the field is prefilled
+    /// with the full current name (extension included) and edited freely. When
+    /// the user drops the extension, `original`'s extension is restored so a
+    /// managed document does not silently leave the sidebar.
+    static func renamedFileName(from raw: String, keepingExtensionOf original: URL) throws -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw FolderCreateError.emptyName }
+        try validateBaseName(trimmed)
+        let ext = (trimmed as NSString).pathExtension
+        let originalExt = original.pathExtension
+        if ext.isEmpty && !originalExt.isEmpty {
+            return trimmed + "." + originalExt
+        }
+        return trimmed
+    }
+
     private static func validateBaseName(_ name: String) throws {
         if name == "." || name == ".." { throw FolderCreateError.invalidName }
         if name.contains("/") || name.contains(":") || name.contains("\0") {

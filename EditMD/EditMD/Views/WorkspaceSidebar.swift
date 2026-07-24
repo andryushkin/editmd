@@ -620,6 +620,7 @@ struct WorkspaceSidebar: View {
         .contextMenu {
             Button("Open in Separate Window") { AppState.shared.openInSeparateWindow(url) }
             Divider()
+            Button("Rename…") { promptForFileRename(url, workspace: workspace) }
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
             Button(workspace.isFavorite(url) ? "Remove from Favorites" : "Add to Favorites") {
                 workspace.isFavorite(url)
@@ -664,6 +665,7 @@ struct WorkspaceSidebar: View {
         .contextMenu {
             Button("Open in Separate Window") { AppState.shared.openInSeparateWindow(url) }
             Divider()
+            Button("Rename…") { promptForFileRename(url, workspace: workspace) }
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
             Button(pinned ? "Unpin" : "Pin") {
                 pinned ? workspace.unpin(url) : workspace.pin(url)

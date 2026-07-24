@@ -4,6 +4,86 @@
     "" : {
 
     },
+    "%lld open documents live inside this folder. Close them before moving it to the Trash." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внутри этой папки открыто документов: %lld. Закройте их перед перемещением папки в Корзину."
+          }
+        }
+      }
+    },
+    "Close the open files inside “%@” first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала закройте открытые файлы внутри «%@»."
+          }
+        }
+      }
+    },
+    "Could not rename the file" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось переименовать файл"
+          }
+        }
+      }
+    },
+    "Enter a new name for “%@”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите новое имя для «%@»."
+          }
+        }
+      }
+    },
+    "Move the folder “%@” to the Trash?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переместить папку «%@» в Корзину?"
+          }
+        }
+      }
+    },
+    "Rename File" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переименовать файл"
+          }
+        }
+      }
+    },
+    "Rename…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переименовать…"
+          }
+        }
+      }
+    },
+    "The folder and everything inside it will be moved to the Trash. You can restore it later." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка и всё её содержимое будут перемещены в Корзину. Позже их можно восстановить."
+          }
+        }
+      }
+    },
     "\n\n%lld commit(s) ahead" : {
       "localizations" : {
         "ru" : {

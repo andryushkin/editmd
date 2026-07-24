@@ -39,6 +39,41 @@ final class FolderInfoTests: XCTestCase {
         XCTAssertThrowsError(try FolderNaming.folderName(from: "a/b"))
     }
 
+    func testRenamedFileNameKeepsOrRestoresExtension() throws {
+        let original = URL(fileURLWithPath: "/tmp/note.md")
+        // Explicit extension is respected as typed.
+        XCTAssertEqual(
+            try FolderNaming.renamedFileName(from: "renamed.md", keepingExtensionOf: original),
+            "renamed.md")
+        // A dropped extension is restored from the original.
+        XCTAssertEqual(
+            try FolderNaming.renamedFileName(from: "renamed", keepingExtensionOf: original),
+            "renamed.md")
+        XCTAssertEqual(
+            try FolderNaming.renamedFileName(from: "  renamed  ", keepingExtensionOf: original),
+            "renamed.md")
+        // A different explicit extension is allowed.
+        XCTAssertEqual(
+            try FolderNaming.renamedFileName(from: "photo.png", keepingExtensionOf: original),
+            "photo.png")
+    }
+
+    func testRenamedFileNameRejectsEmptyAndPath() {
+        let original = URL(fileURLWithPath: "/tmp/note.md")
+        XCTAssertThrowsError(
+            try FolderNaming.renamedFileName(from: "  ", keepingExtensionOf: original)) { err in
+            XCTAssertEqual(err as? FolderCreateError, .emptyName)
+        }
+        XCTAssertThrowsError(
+            try FolderNaming.renamedFileName(from: "a/b", keepingExtensionOf: original)) { err in
+            XCTAssertEqual(err as? FolderCreateError, .invalidName)
+        }
+        XCTAssertThrowsError(
+            try FolderNaming.renamedFileName(from: "foo:bar", keepingExtensionOf: original)) { err in
+            XCTAssertEqual(err as? FolderCreateError, .invalidName)
+        }
+    }
+
     // MARK: - homeDocument
 
     func testHomeDocumentPrefersReadmeOverIndex() throws {
@@ -658,6 +693,200 @@ struct FileMoveTests {
         let parent: URL
         let first: URL
         let second: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: parent)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+}
+
+@Suite("File rename")
+@MainActor
+struct FileRenameTests {
+
+    @Test("Rename moves the file and its review sidecar, migrating state")
+    func renameKeepsSidecarAndState() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        let sourceSidecar = ReviewSidecar.url(for: source)
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        try "marks".write(to: sourceSidecar, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+        model.hide(source)
+        model.addFavorite(source)
+        model.noteActive(source)
+
+        // Extension is restored from the original when the new name omits one.
+        let destination = try await model.renameFileOnDisk(source, to: "renamed")
+        let destinationSidecar = ReviewSidecar.url(for: destination)
+
+        #expect(destination == fixture.root
+            .appendingPathComponent("renamed.md").standardizedFileURL)
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(!FileManager.default.fileExists(atPath: sourceSidecar.path))
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(FileManager.default.fileExists(atPath: destinationSidecar.path))
+        #expect(model.hiddenFiles[fixture.root.path] == ["renamed.md"])
+        #expect(!model.isFavorite(source))
+        #expect(model.isFavorite(destination))
+        #expect(model.lastActivePath == destination.path)
+    }
+
+    @Test("Rename refuses to overwrite an existing sibling")
+    func renameRejectsCollision() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        let existing = fixture.root.appendingPathComponent("taken.md")
+        try "source".write(to: source, atomically: true, encoding: .utf8)
+        try "existing".write(to: existing, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        do {
+            _ = try await model.renameFileOnDisk(source, to: "taken")
+            Issue.record("Expected a destination collision")
+        } catch {
+            #expect(error as? FileMoveError == .alreadyExists("taken.md"))
+        }
+        #expect(try String(contentsOf: source, encoding: .utf8) == "source")
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "existing")
+    }
+
+    @Test("Rename to the same effective name is a no-op")
+    func renameSameNameNoOp() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        let destination = try await model.renameFileOnDisk(source, to: "note")
+        #expect(destination == source)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test("Rename refuses a file EditMD does not list")
+    func renameRejectsUnsupported() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.txt")
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        do {
+            _ = try await model.renameFileOnDisk(source, to: "renamed")
+            Issue.record("Expected an unsupported-source error")
+        } catch {
+            #expect(error as? FileMoveError == .unsupportedSource)
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-rename-file-\(UUID().uuidString)",
+                                    isDirectory: true)
+        let root = parent.appendingPathComponent("Notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let suiteName = "rename-file-\(UUID().uuidString)"
+        return Fixture(parent: parent, root: root, suiteName: suiteName,
+                       defaults: try #require(UserDefaults(suiteName: suiteName)))
+    }
+
+    private struct Fixture {
+        let parent: URL
+        let root: URL
+        let suiteName: String
+        let defaults: UserDefaults
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: parent)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+}
+
+@Suite("Folder trash")
+@MainActor
+struct FolderTrashTests {
+
+    @Test("Open-document count sees only files at or inside the folder")
+    func openDocumentCountInsideOnly() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let sub = fixture.root.appendingPathComponent("Sub", isDirectory: true)
+        let inside = sub.appendingPathComponent("inside.md")
+        let outside = fixture.root.appendingPathComponent("outside.md")
+        let model = WorkspaceModel(defaults: fixture.defaults)
+
+        #expect(model.openDocumentCount(inside: sub, among: [inside, outside]) == 1)
+        #expect(model.openDocumentCount(inside: sub, among: [outside]) == 0)
+    }
+
+    @Test("Forgetting a trashed folder drops roots, favorites and expansion inside it")
+    func forgetTrashedFolderPurgesState() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let sub = fixture.root.appendingPathComponent("Sub", isDirectory: true)
+        let nestedRoot = sub.appendingPathComponent("Nested", isDirectory: true)
+        let insideFile = sub.appendingPathComponent("note.md")
+        let keepFile = fixture.root.appendingPathComponent("keep.md")
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)   // ancestor root — kept
+        model.addWorkspace(nestedRoot)     // adopted root inside Sub — dropped
+        model.addFavorite(insideFile)
+        model.addFavorite(keepFile)
+        model.expandFolder(sub)
+        model.noteActive(insideFile)
+
+        model.forgetTrashedFolder(sub)
+
+        #expect(model.workspaces.map(\.folderPath) == [fixture.root.path])
+        #expect(!model.isFavorite(insideFile))
+        #expect(model.isFavorite(keepFile))
+        #expect(!model.expandedFolders.contains(sub.path))
+        #expect(model.lastActivePath == nil)
+    }
+
+    @Test("Forgetting a trashed folder drops loose and pinned files inside it")
+    func forgetTrashedFolderDropsLoose() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let looseDir = fixture.parent.appendingPathComponent("Loose", isDirectory: true)
+        let looseFile = looseDir.appendingPathComponent("x.md")
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.noteOpened(looseFile)
+        model.pin(looseFile)
+        #expect(model.isPinned(looseFile))
+
+        model.forgetTrashedFolder(looseDir)
+
+        #expect(!model.isPinned(looseFile))
+        #expect(!model.looseFilesToShow.contains(looseFile.standardizedFileURL))
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editmd-folder-trash-\(UUID().uuidString)",
+                                    isDirectory: true)
+        let root = parent.appendingPathComponent("Notes", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let suiteName = "folder-trash-\(UUID().uuidString)"
+        return Fixture(parent: parent, root: root, suiteName: suiteName,
+                       defaults: try #require(UserDefaults(suiteName: suiteName)))
+    }
+
+    private struct Fixture {
+        let parent: URL
+        let root: URL
         let suiteName: String
         let defaults: UserDefaults
 

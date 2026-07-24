@@ -43,11 +43,14 @@ struct FolderContextMenu: View {
         Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([folder])
         }
+        Divider()
         if let rootWorkspace {
-            Divider()
             Button("Remove from Sidebar") {
                 workspace.removeWorkspace(rootWorkspace)
             }
+        }
+        Button("Move to Trash", role: .destructive) {
+            confirmAndMoveFolderToTrash(folder, workspace: workspace)
         }
     }
 }
@@ -614,6 +617,9 @@ private struct FolderInfoFileContextMenu: View {
             AppState.shared.openInSeparateWindow(file)
         }
         Divider()
+        Button("Rename…") {
+            promptForFileRename(file, workspace: workspace)
+        }
         Button("Move…") {
             promptForFileMove(file, workspace: workspace)
         }

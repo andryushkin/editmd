@@ -11,6 +11,28 @@ shows adopted folders (workspaces) plus an "Open Files" section for files
 opened outside any workspace. Folder analytics (subtree stats, empty/hidden
 sections) are computed off-main and cached (`Views/FolderInfo.swift`).
 
+### File and folder operations
+
+Context menus create (New File / New Folder), move, rename and trash items.
+The disk cores are pure statics in `Views/WorkspaceModelDiskMoves.swift`; the
+UI transactions live in `Views/FileMoveActions.swift`:
+
+- **Move** (`performFileMoves`, drag or menu) and **Rename**
+  (`performFileRename`, same folder, new basename) are transactional: an open
+  document is parked (`DocumentRegistry` preparation) before the disk write and
+  restored at the new path, so autosave and the file watcher stay coherent. A
+  review sidecar (`.review.json`) always follows its document; a mid-batch disk
+  failure rolls back before the error surfaces. Rename preserves the original
+  extension when the new name omits one.
+- **Move to Trash** works on files (`confirmAndMoveFilesToTrash`) and whole
+  folders (`confirmAndMoveFolderToTrash`). A folder is refused while any open
+  document lives inside it — matching disk-rename — so nothing points at a
+  vanished path; on success `forgetTrashedFolder` drops adopted roots,
+  favorites, pins and expansion under it.
+
+Disk mutations go through `WorkspaceModel`, which bumps `contentEpoch` /
+`linkEpoch` (`noteFilesystemChange`) to invalidate caches and the link index.
+
 ## Wiki-links
 
 `[[Target]]` and `[[Target|alias]]` syntax is recognized in all three modes.

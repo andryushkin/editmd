@@ -684,6 +684,129 @@ final class WorkspaceModel: ObservableObject {
         return moves
     }
 
+    /// Renames one sidebar document in place (same folder, new basename).
+    /// Mirrors `moveFilesOnDisk` for a single explicit destination: the review
+    /// sidecar follows, path-keyed sidebar state migrates, and a disk failure
+    /// rolls back before the error reaches the UI. The extension is preserved
+    /// when the new name omits one.
+    @discardableResult
+    func renameFileOnDisk(
+        _ rawSource: URL,
+        to rawName: String,
+        moveItem: @escaping FileMoveItemOperation = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
+    ) async throws -> URL {
+        let source = rawSource.standardizedFileURL
+        guard Self.listedExtensions.contains(source.pathExtension.lowercased()) else {
+            throw FileMoveError.unsupportedSource
+        }
+        let folder = source.deletingLastPathComponent()
+        let newName = try FolderNaming.renamedFileName(
+            from: rawName, keepingExtensionOf: source)
+        let destination = folder.appendingPathComponent(newName).standardizedFileURL
+        if destination == source { return source }
+
+        let paths: Set<String> = [source.path]
+        guard paths.isDisjoint(with: fileMovesInFlight) else {
+            throw FileMoveError.moveInProgress
+        }
+        fileMovesInFlight.formUnion(paths)
+        defer { fileMovesInFlight.subtract(paths) }
+
+        let move = FileMoveResult(source: source, destination: destination)
+        let oldWorkspace = workspaceOwning(source)
+        let oldRelative = oldWorkspace.flatMap { relativePath(of: source, in: $0) }
+        let wasHidden = oldWorkspace.flatMap { ws in
+            oldRelative.map { hiddenFiles[ws.folderPath]?.contains($0) == true }
+        } ?? false
+        let state = FileMoveState(
+            source: source,
+            oldWorkspace: oldWorkspace,
+            oldRelative: oldRelative,
+            wasHidden: wasHidden,
+            wasPinned: pinnedLoosePaths.contains(source.path),
+            wasFavorite: isFavorite(source))
+
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try Self.moveFilesAndReviewSidecars(
+                    [move], destinationFolder: folder, moveItem: moveItem)
+            }.value
+        } catch {
+            if let moveError = error as? FileMoveError,
+               case .rollbackFailed(let rollbackStates) = moveError {
+                for rollbackState in rollbackStates
+                    where rollbackState.fileRemainsAtDestination {
+                    migrateFileState(
+                        from: state.source,
+                        to: rollbackState.move.destination,
+                        oldWorkspace: state.oldWorkspace,
+                        oldRelative: state.oldRelative,
+                        wasHidden: state.wasHidden,
+                        wasPinned: state.wasPinned,
+                        wasFavorite: state.wasFavorite)
+                }
+                finishFileMoves()
+                await WikiLinkResolver.shared.invalidate()
+            }
+            throw error
+        }
+
+        migrateFileState(
+            from: source,
+            to: destination,
+            oldWorkspace: state.oldWorkspace,
+            oldRelative: state.oldRelative,
+            wasHidden: state.wasHidden,
+            wasPinned: state.wasPinned,
+            wasFavorite: state.wasFavorite)
+        finishFileMoves()
+        await WikiLinkResolver.shared.invalidate()
+        return destination
+    }
+
+    /// Number of open documents whose path is at or inside `folder`. Callers
+    /// pass `AppState.openDocumentURLsForDiskMutation()`; a folder with open
+    /// documents inside is refused for trashing, matching disk-rename.
+    func openDocumentCount(inside folder: URL, among openURLs: [URL]) -> Int {
+        let root = folder.standardizedFileURL.path
+        return openURLs.reduce(into: 0) { count, url in
+            if Self.path(url.standardizedFileURL.path, isInside: root) { count += 1 }
+        }
+    }
+
+    /// Purges sidebar state for a folder that was deleted/trashed on disk: drops
+    /// any adopted root at or under it and forgets favorites, pins, loose files,
+    /// and expansion inside it. Hidden relative paths are left to the next
+    /// rescan (a gone file is never listed), matching single-file trash.
+    func forgetTrashedFolder(_ rawFolder: URL) {
+        let folder = rawFolder.standardizedFileURL
+        let root = folder.path
+
+        workspaces.removeAll { Self.path($0.folderPath, isInside: root) }
+        pinnedLoosePaths.removeAll { Self.path($0, isInside: root) }
+        looseFiles.removeAll {
+            Self.path($0.standardizedFileURL.path, isInside: root)
+        }
+        expandedFolders = expandedFolders.filter { !Self.path($0, isInside: root) }
+        if let lastActivePath, Self.path(lastActivePath, isInside: root) {
+            self.lastActivePath = nil
+        }
+
+        var relocatedFavorites: [String: [String]] = [:]
+        for (wsRoot, favoritePaths) in favoritePathsByWorkspace {
+            let kept = favoritePaths.filter { !Self.path($0, isInside: root) }
+            if !kept.isEmpty { relocatedFavorites[wsRoot] = kept }
+        }
+        favoritePathsByWorkspace = relocatedFavorites
+        missingFavoritePaths = missingFavoritePaths.filter {
+            !Self.path($0, isInside: root)
+        }
+
+        noteFilesystemChange()
+    }
+
     private func migrateFileState(
         from source: URL,
         to destination: URL,

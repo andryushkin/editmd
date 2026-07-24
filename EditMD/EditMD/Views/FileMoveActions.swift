@@ -321,7 +321,165 @@ private func uniqueStandardizedFiles(_ rawFiles: [URL]) -> [URL] {
     }
 }
 
+// MARK: - Rename
+
+@MainActor
+@discardableResult
+func promptForFileRename(_ file: URL, workspace: WorkspaceModel) -> Bool {
+    let source = file.standardizedFileURL
+    guard let name = promptForNewName(
+        title: String(localized: "Rename File"),
+        message: String(localized: "Enter a new name for “\(source.lastPathComponent)”."),
+        defaultName: source.lastPathComponent,
+        confirmTitle: String(localized: "Rename")
+    ) else { return false }
+    performFileRename(source, to: name, workspace: workspace)
+    return true
+}
+
+/// Renames a single sidebar document in place. Mirrors `performFileMoves` for
+/// one file: any open presentation is parked before the disk rename and
+/// restored at the new path, so the registry, autosave and watcher stay
+/// coherent. On failure everything is restored at the original path.
+@MainActor
+func performFileRename(_ rawFile: URL, to rawName: String, workspace: WorkspaceModel) {
+    let source = rawFile.standardizedFileURL
+    let destination: URL
+    do {
+        let newName = try FolderNaming.renamedFileName(
+            from: rawName, keepingExtensionOf: source)
+        destination = source.deletingLastPathComponent()
+            .appendingPathComponent(newName).standardizedFileURL
+    } catch {
+        presentFolderError(error, title: String(localized: "Could not rename the file"))
+        return
+    }
+    guard destination != source else { return }
+
+    Task { @MainActor in
+        do {
+            try await LongRunningOperationCenter.shared.run(
+                title: String(localized: "Renaming “\(source.lastPathComponent)”…")
+            ) {
+                let review = ReviewModel.shared
+                let reviewToken = await review.beginPathMutation()
+                var reviewResolved = false
+                defer { if !reviewResolved { review.cancelPathMutation(reviewToken) } }
+
+                let registry = DocumentRegistry.shared
+                let appState = AppState.shared
+                let sourceToken = appState.beginPathMutation(at: source)
+                let destinationToken = appState.beginPathMutation(at: destination)
+                var discardedRouteTokens = Set<UUID>()
+                defer {
+                    appState.finishPathMutations(
+                        [sourceToken, destinationToken],
+                        discardingRouteIDs: discardedRouteTokens)
+                }
+
+                // Reserve the destination; the defer releases it on any throw
+                // before the relocation consumes it (mirrors performFileMoves).
+                let reservation = try registry.reserveMoveDestination(destination)
+                var reservationDiscarded = false
+                @MainActor func discardReservation() {
+                    guard !reservationDiscarded else { return }
+                    registry.discardMovePreparation(reservation)
+                    reservationDiscarded = true
+                }
+                defer { discardReservation() }
+
+                // Extract the live source model before any disk write. A throw
+                // here is handled by the outer defers; nothing is parked yet.
+                let preparation = try registry.beginMovePreparation(source)
+                let presentation = appState.detachFileForMove(source)
+                do {
+                    if let preparation {
+                        try await registry.persistMovePreparation(preparation)
+                    }
+                    let newURL = try await workspace.renameFileOnDisk(source, to: rawName)
+                    discardReservation()
+                    registry.relocatePreparedDocument(from: source, to: newURL)
+                    appState.relocateFile(from: source, to: newURL)
+                    DocumentHistory.shared.relocateFile(from: source, to: newURL)
+                    review.completePathMutation(
+                        reviewToken,
+                        relocatingFiles: [.init(from: source, to: newURL)])
+                    reviewResolved = true
+                    appState.restoreFilePresentation(
+                        presentation, at: newURL,
+                        ignoringPathMutationIDs: [sourceToken, destinationToken])
+                } catch {
+                    // Same-folder rename on the same volume: a failure leaves the
+                    // file at its source. Restore the presentation there; the
+                    // destination route is discarded.
+                    registry.cancelMovePreparation(preparation)
+                    review.cancelPathMutation(reviewToken)
+                    reviewResolved = true
+                    discardedRouteTokens.insert(destinationToken)
+                    appState.restoreFilePresentation(
+                        presentation, at: source,
+                        ignoringPathMutationIDs: [sourceToken])
+                    throw error
+                }
+            }
+        } catch {
+            presentFolderError(
+                error, title: String(localized: "Could not rename the file"))
+        }
+    }
+}
+
 // MARK: - Move to Trash
+
+/// Confirm and move a folder (and everything inside) to the system Trash.
+/// Refused while any open document lives inside — matching disk-rename — so the
+/// registry, autosave and file watcher never point at a vanished path. Returns
+/// `true` when the folder was trashed.
+@MainActor
+@discardableResult
+func confirmAndMoveFolderToTrash(_ rawFolder: URL, workspace: WorkspaceModel) -> Bool {
+    let folder = rawFolder.standardizedFileURL
+    guard FileManager.default.fileExists(atPath: folder.path) else { return false }
+
+    let openCount = workspace.openDocumentCount(
+        inside: folder,
+        among: AppState.openDocumentURLsForDiskMutation())
+    guard openCount == 0 else {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Close the open files inside “\(folder.lastPathComponent)” first.")
+        alert.informativeText = String(localized: "\(Int(openCount)) open documents live inside this folder. Close them before moving it to the Trash.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModal()
+        return false
+    }
+
+    let alert = NSAlert()
+    alert.messageText = String(localized: "Move the folder “\(folder.lastPathComponent)” to the Trash?")
+    alert.informativeText = String(localized: "The folder and everything inside it will be moved to the Trash. You can restore it later.")
+    alert.alertStyle = .warning
+    alert.addButton(withTitle: String(localized: "Move to Trash"))
+    alert.addButton(withTitle: String(localized: "Cancel"))
+    guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+    do {
+        try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
+    } catch {
+        presentFolderError(
+            error, title: String(localized: "Could not move to the Trash"))
+        return false
+    }
+
+    let app = AppState.shared
+    if let current = app.currentURL?.standardizedFileURL,
+       current == folder || current.path.hasPrefix(folder.path + "/") {
+        // The editor / folder card pointed inside the trashed tree.
+        app.openInMainWindow(nil)
+    }
+    workspace.forgetTrashedFolder(folder)
+    NotificationCenter.default.post(name: .gitRepositoryDidChange, object: nil)
+    return true
+}
 
 /// Confirm and move existing files to the system Trash (context menus).
 /// Returns `true` when at least one path was trashed.
