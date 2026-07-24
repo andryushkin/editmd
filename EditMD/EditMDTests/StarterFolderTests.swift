@@ -138,6 +138,34 @@ final class StarterFolderTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey), first.path)
     }
 
+    /// A recorded identity that cannot be confirmed is not a pass: on a volume
+    /// where the check used to work, that is what a swapped directory looks
+    /// like. (Where identifiers are unavailable at all — as on some volumes —
+    /// the mismatching record simply cannot be confirmed either, and the same
+    /// answer is the right one.)
+    func testRecordedIdentityThatCannotBeConfirmedIsRefused() throws {
+        let root = makeTemporaryRoot()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        XCTAssertFalse(
+            StarterFolder.isRecordedFolderOurs(root, recordedIdentity: 424242),
+            "a directory that cannot prove the recorded identity is not ours")
+        // No record at all: the structural check stands on its own.
+        XCTAssertTrue(StarterFolder.isRecordedFolderOurs(root, recordedIdentity: nil))
+        // Whatever the record says, a symlink is never ours.
+        let link = root.deletingLastPathComponent()
+            .appendingPathComponent("link-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: link) }
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: root)
+        XCTAssertFalse(StarterFolder.isRecordedFolderOurs(link, recordedIdentity: nil))
+        // And a folder EditMD just made confirms itself, however the volume
+        // answers: either it has an identity we recorded, or it has none.
+        let owned = try StarterFolder.makeOwnFolder(
+            preferring: root.appendingPathComponent("EditMD"))
+        XCTAssertTrue(StarterFolder.isRecordedFolderOurs(
+            owned, recordedIdentity: StarterFolder.identity(of: owned)))
+    }
+
     /// A recorded path is not an identity. Delete the folder, leave a symlink
     /// in its place, and the next ask must refuse to walk through it.
     @MainActor

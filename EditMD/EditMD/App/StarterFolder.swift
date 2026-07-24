@@ -158,19 +158,24 @@ enum StarterFolder {
     ///
     /// Checked on **every** ask, not only when the folder is first chosen: a
     /// user can delete it and leave a symlink in its place, and a recorded
-    /// path would otherwise walk straight through it into the target. Where
-    /// the volume provides a document identifier, it must also be the same
-    /// directory we created; where it does not, the structural check stands
-    /// alone rather than migrating the folder on every launch.
+    /// path would otherwise walk straight through it into the target.
+    ///
+    /// Identity is checked whenever it was recorded. No record at all means
+    /// the volume never offered one, and the structural check stands alone
+    /// (rather than migrating the folder on every launch). But a record that
+    /// cannot be confirmed now — the identifier suddenly unreadable — is not a
+    /// pass: that is precisely the case a swapped directory would present on a
+    /// volume where the check used to work. Failing closed costs at most a
+    /// fresh `EditMD 2`; failing open would hand a stranger's folder our
+    /// clips.
     static func isRecordedFolderOurs(_ url: URL, recordedIdentity: Int?) -> Bool {
         guard let probe = probe(url),
               let values = try? probe.resourceValues(
                 forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .documentIdentifierKey]),
               values.isSymbolicLink != true, values.isDirectory == true
         else { return false }
-        guard let recordedIdentity, let current = values.documentIdentifier else {
-            return true
-        }
+        guard let recordedIdentity else { return true }
+        guard let current = values.documentIdentifier else { return false }
         return current == recordedIdentity
     }
 

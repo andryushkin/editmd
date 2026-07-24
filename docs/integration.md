@@ -132,7 +132,10 @@ its document identifier in `starter.folderID`, where the volume provides one —
 the moment the directory exists, before anything is copied into it. The record
 is re-checked on every ask (cache included, through a URL with nothing memoized
 on it): a path is not an identity, and a folder deleted and replaced by a
-symlink must not be walked through. Two callers
+symlink must not be walked through. An identifier that was recorded and cannot
+be confirmed now fails **closed** — the folder is not assumed ours — because
+that is exactly what a swapped directory looks like on a volume where the
+check used to work. Two callers
 need the answer on a first launch and a clip gets there first (its Apple Event
 beats `applicationDidFinishLaunching`): if each decided on its own, a user who
 already owns `~/Documents/EditMD` would get the clip written into their folder
