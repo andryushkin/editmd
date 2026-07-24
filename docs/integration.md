@@ -162,6 +162,19 @@ Three rules keep it from being a nuisance:
   clip, since the clip landed in it — but the README opens only when the
   window is still empty, so a clip keeps its document.
 
+**A refusal is not a verdict.** `~/Documents` sits behind the system's Files
+and Folders consent, so a first launch can meet "Don't Allow" — the prompt
+carries `NSDocumentsFolderUsageDescription` (localized in
+`Resources/InfoPlist.xcstrings`) to say what the folder is for. That answer is
+the user's, and reversible in System Settings, so a refused access is the one
+failure that hands the attempt back (`StarterFolder.returnSeedAttempt` on
+`NSError.isPermissionDenied`): the flag is cleared and the next launch asks
+again. Every other failure leaves the attempt spent — a location the filesystem
+refuses must not be retried on every launch. The consent itself is granted once
+per installed app: outside the sandbox it is bound to the code signature, so a
+Developer ID build keeps it across updates, while an ad-hoc local build asks
+again after every rebuild.
+
 It is also the default clips destination, so a new user finds their first clip
 next to the instructions.
 

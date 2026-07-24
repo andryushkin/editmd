@@ -51,6 +51,7 @@
 		261CCAD4A5F41A7CBB5EA515 /* MathScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E24489CEA45FF0DDABBBD39 /* MathScan.swift */; };
 		2630057125B3AEBAD2EF0307 /* ImageFileTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCFB68E0B36B275C477243F /* ImageFileTypes.swift */; };
 		277B400F047B382A82503250 /* PreviewHTMLPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEBF2CF897D2D1102D9587DD /* PreviewHTMLPage.swift */; };
+		27DD9988B559A34F91368FEC /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A600D0457979B24791271773 /* InfoPlist.xcstrings */; };
 		29B49A2B1F1193ED3E858E2F /* FormattingHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */; };
 		29CCAC7380E2E7CC3C103400 /* VaultLintModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126CB1B5E2775BA49FF067A9 /* VaultLintModel.swift */; };
 		29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */; };
@@ -405,6 +406,7 @@
 		A26D9A42761B8A66313BBE3C /* VisualCoordinatorTables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualCoordinatorTables.swift; sourceTree = "<group>"; };
 		A3B6DEAB91BC3E1995F37434 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A4840BC0DD8B410D784453BC /* GitSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSidebar.swift; sourceTree = "<group>"; };
+		A600D0457979B24791271773 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A66D08E0C8DF0785450C6613 /* InspectorSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorSidebarTests.swift; sourceTree = "<group>"; };
 		A75D9EDD5F391199A959F85D /* GitCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCLITests.swift; sourceTree = "<group>"; };
 		A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLink.swift; sourceTree = "<group>"; };
@@ -911,6 +913,7 @@
 			children = (
 				9E846D593359014AA812A9A3 /* AppIcon.icns */,
 				5DE049C40EE9A0CB2F09BFBF /* icon.png */,
+				A600D0457979B24791271773 /* InfoPlist.xcstrings */,
 				E376139687B7CCA83695B07F /* KitchenSink.md */,
 				30DF9127E3E644FF1BE638F3 /* Localizable.xcstrings */,
 				9B9948AFAA8B73B67EC4C32F /* agent-skill */,
@@ -1053,6 +1056,7 @@
 			files = (
 				745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */,
 				C33C622FA631B642CCD13E2F /* Editing modes.md in Resources */,
+				27DD9988B559A34F91368FEC /* InfoPlist.xcstrings in Resources */,
 				46F16BFCEE41796A3DAC0568 /* KitchenSink.md in Resources */,
 				CD19F7C49BC20737F3FB0E27 /* Localizable.xcstrings in Resources */,
 				C2C53AE2E88D287C68315E63 /* Markdown showcase.md in Resources */,

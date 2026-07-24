@@ -78,12 +78,22 @@ enum StarterFolder {
         return true
     }
 
+    /// Hands the claimed attempt back, for the one failure that is not the
+    /// filesystem's verdict: a TCC denial on `~/Documents`. That is the user
+    /// clicking "Don't Allow" in a prompt they can reverse in System Settings,
+    /// and an installation that spent its only attempt on that click would
+    /// never get the folder — not even after the access is granted.
+    static func returnSeedAttempt(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: seededKey)
+    }
+
     /// The launch task: claim the attempt, ask the owner where the folder is
     /// (creating it if this is the first ask), copy the guide into it. Returns
     /// the folder when the guide landed now — `nil` when it had been seeded
     /// before, or when the copy failed (a missing guide is never worth
     /// blocking a launch, so the failure is logged and swallowed; the folder
-    /// itself survives, recorded by the owner).
+    /// itself survives, recorded by the owner). A refused access is the one
+    /// failure that gives the attempt back — see `returnSeedAttempt`.
     ///
     /// `defaultsSuite` is a name rather than a `UserDefaults` because the work
     /// crosses actors; `nil` is `.standard`.
@@ -101,6 +111,9 @@ enum StarterFolder {
                 "seeded starter folder with \(created.count, privacy: .public) files")
             return root
         } catch {
+            if (error as NSError).isPermissionDenied {
+                returnSeedAttempt(defaults: defaults)
+            }
             starterFolderLog.error(
                 "starter folder not seeded: \(String(describing: error), privacy: .public)")
             return nil

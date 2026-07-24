@@ -304,4 +304,15 @@ extension NSError {
         (domain == NSCocoaErrorDomain && code == NSFileWriteFileExistsError)
             || (domain == NSPOSIXErrorDomain && code == Int(EEXIST))
     }
+
+    /// The system refused the access, in either flavour. On macOS this is how a
+    /// TCC denial arrives — the user answered "Don't Allow" for Documents, and
+    /// `StarterFolder` reads it as an answer that may yet change.
+    var isPermissionDenied: Bool {
+        (domain == NSCocoaErrorDomain
+            && (code == NSFileWriteNoPermissionError
+                || code == NSFileReadNoPermissionError))
+            || (domain == NSPOSIXErrorDomain
+                && (code == Int(EACCES) || code == Int(EPERM)))
+    }
 }

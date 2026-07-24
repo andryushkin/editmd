@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSDocumentsFolderUsageDescription" : {
+      "comment" : "Shown by macOS in the Files and Folders prompt on first launch, under \"EditMD would like to access files in your Documents folder\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EditMD keeps its starter folder in Documents: the README, the guide, and the notes you send from the browser."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EditMD хранит свою стартовую папку в «Документах»: README, руководство и заметки, отправленные из браузера."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

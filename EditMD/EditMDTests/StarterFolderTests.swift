@@ -92,6 +92,44 @@ final class StarterFolderTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: preferred.path))
     }
 
+    /// A refused folder is the user's answer, not the filesystem's verdict:
+    /// "Don't Allow" in the Documents prompt is reversible in System Settings,
+    /// so the installation keeps its one attempt and the next launch seeds.
+    @MainActor
+    func testRefusedAccessKeepsTheSeedAttempt() async throws {
+        let parent = makeTemporaryRoot()
+        try FileManager.default.createDirectory(
+            at: parent, withIntermediateDirectories: true)
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+        // Stands in for the TCC denial: creating anything below fails with
+        // EACCES, which is how Foundation reports it either way.
+        let restore = { try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+        addTeardownBlock { restore() }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500], ofItemAtPath: parent.path)
+
+        let refused = await StarterFolder.seedIfNeeded(
+            owner: owner, defaultsSuite: suiteName, bundle: .main)
+
+        XCTAssertNil(refused)
+        XCTAssertFalse(defaults.bool(forKey: StarterFolder.seededKey),
+                       "the attempt survives a refusal")
+        XCTAssertNil(defaults.string(forKey: StarterFolder.folderKey),
+                     "nothing was created, so nothing is recorded")
+
+        // The user grants access in System Settings; the next launch seeds.
+        restore()
+        let seeded = await StarterFolder.seedIfNeeded(
+            owner: owner, defaultsSuite: suiteName, bundle: .main)
+
+        XCTAssertEqual(seeded?.path, preferred.standardizedFileURL.path)
+        XCTAssertTrue(defaults.bool(forKey: StarterFolder.seededKey))
+        XCTAssertTrue(relativePaths(in: preferred).contains("README.md"))
+    }
+
     /// One owner, one answer: the launch seed and a clip that arrived first
     /// must not each create their own folder.
     @MainActor
