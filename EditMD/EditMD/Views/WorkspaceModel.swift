@@ -36,6 +36,13 @@ final class WorkspaceModel: ObservableObject {
     /// workspace root path → set of **relative paths** of hidden markdown files
     /// (e.g. `note.md`, `sub/a.md`). Legacy entries without `/` are root basenames.
     @Published var hiddenFiles: [String: Set<String>] { didSet { persist(hiddenFiles, Keys.hidden) } }
+    /// workspace root path → set of **relative paths** of folders the user created
+    /// in-app that must stay visible even while they hold no documents. Without
+    /// this a freshly made folder is classified "empty" and hidden behind the eye
+    /// the moment it is created. Stale entries (folder deleted/renamed) are
+    /// harmless: `keptEmptySubfolders` intersects them with folders that actually
+    /// exist and are empty, mirroring how `hiddenFiles` tolerates staleness.
+    @Published var keptFolders: [String: Set<String>] { didSet { persist(keptFolders, Keys.kept) } }
     /// Pinned loose files (persist across launches), stored as paths.
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
     /// Adopted workspace root path → favorite document paths (maximum 50 per root).
@@ -70,6 +77,7 @@ final class WorkspaceModel: ObservableObject {
     private enum Keys {
         static let folders = "workspace.folders"
         static let hidden = "workspace.hidden"
+        static let kept = "workspace.keptFolders"
         static let pinned = "workspace.pinned"
         static let favorites = "workspace.favorites"
         static let lastActive = "workspace.lastActive"
@@ -85,6 +93,7 @@ final class WorkspaceModel: ObservableObject {
         snapshot = SidebarSnapshotStore(fileURL: snapshotURL)
         workspaces = Self.load(defaults, Keys.folders) ?? []
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
+        keptFolders = Self.load(defaults, Keys.kept) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
         favoritePathsByWorkspace = Self.load(defaults, Keys.favorites) ?? [:]
         lastActivePath = Self.load(defaults, Keys.lastActive)
@@ -175,6 +184,7 @@ final class WorkspaceModel: ObservableObject {
 
     @objc private func appDidBecomeActive() {
         contentEpoch += 1
+        pruneStaleKeptFolders()
         refreshFavoriteAvailability()
         handleAppActivation()
     }
@@ -421,6 +431,21 @@ final class WorkspaceModel: ObservableObject {
     /// Direct child folders with no markdown (shown when sidebar eye is on).
     func emptySubfolders(in folder: URL) -> [URL] {
         treeStats(for: folder).directEmptyFolders
+    }
+
+    /// No-document child folders shown alongside the markdown-bearing ones
+    /// rather than behind the eye: the ones the user created in-app, plus any
+    /// empty folder on the path to such a folder (otherwise a kept folder nested
+    /// inside a found-on-disk empty parent would be unreachable — the parent
+    /// would stay hidden and take the kept child down with it).
+    func keptEmptySubfolders(in folder: URL) -> [URL] {
+        emptySubfolders(in: folder).filter(isKeptOrHoldsKept)
+    }
+
+    /// No-document child folders that stay behind the eye with the hidden files:
+    /// found on disk (assets, stray dirs) with no kept folder anywhere inside.
+    func unkeptEmptySubfolders(in folder: URL) -> [URL] {
+        emptySubfolders(in: folder).filter { !isKeptOrHoldsKept($0) }
     }
 
     func isExpanded(_ folder: URL) -> Bool {
@@ -815,6 +840,9 @@ final class WorkspaceModel: ObservableObject {
         missingFavoritePaths = missingFavoritePaths.filter {
             !Self.path($0, isInside: root)
         }
+        // The folder is already off disk, so this drops any kept entry inside
+        // it — otherwise a trashed kept folder would hold its ancestors visible.
+        pruneStaleKeptFolders()
 
         noteFilesystemChange()
     }
@@ -878,6 +906,14 @@ final class WorkspaceModel: ObservableObject {
             relocatedHidden[relocatedRoot, default: []].formUnion(hidden)
         }
         hiddenFiles = relocatedHidden
+        // Kept-visible folders are keyed by workspace root too; the relative
+        // paths are unchanged, only the root moves.
+        var relocatedKept: [String: Set<String>] = [:]
+        for (root, kept) in keptFolders {
+            let relocatedRoot = Self.relocatedPath(root, from: oldRoot, to: newRoot)
+            relocatedKept[relocatedRoot, default: []].formUnion(kept)
+        }
+        keptFolders = relocatedKept
         expandedFolders = Set(expandedFolders.map {
             Self.relocatedPath($0, from: oldRoot, to: newRoot)
         })
@@ -1042,6 +1078,9 @@ final class WorkspaceModel: ObservableObject {
             throw FolderCreateError.alreadyExists(folderName)
         }
         try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: false)
+        // A brand-new folder holds no documents, so it would land in the
+        // hidden "empty folders" bucket — keep the one the user just made visible.
+        keepVisible(dest.standardizedFileURL)
         noteFilesystemChange()
         // Ensure the new folder is visible: expand parent in the tree (or the
         // workspace root's collapsed flag when the parent is a workspace).
@@ -1119,6 +1158,86 @@ final class WorkspaceModel: ObservableObject {
     func unhide(_ url: URL) {
         guard let ws = workspaceOwning(url) else { return }
         unhide(url, in: ws)
+    }
+
+    // MARK: - Kept-visible folders (user-created, empty)
+
+    /// True when `url` is a folder the user made in-app and asked us to keep
+    /// visible even while it holds no documents.
+    func isKeptVisible(_ url: URL) -> Bool {
+        guard let ws = workspaceOwning(url),
+              let rel = relativePath(of: url, in: ws) else { return false }
+        return keptFolders[ws.folderPath]?.contains(rel) == true
+    }
+
+    /// True when some kept folder lives strictly inside `url`. Such a folder is
+    /// on the path to content the user made, so it must be drawn even though it
+    /// holds no documents of its own.
+    func containsKeptFolder(_ url: URL) -> Bool {
+        guard let ws = workspaceOwning(url),
+              let rel = relativePath(of: url, in: ws) else { return false }
+        let prefix = rel + "/"
+        return keptFolders[ws.folderPath]?.contains { $0.hasPrefix(prefix) } == true
+    }
+
+    /// A no-document folder that should escape the hidden "empty folders"
+    /// bucket: kept itself, or an ancestor of a kept folder.
+    func isKeptOrHoldsKept(_ url: URL) -> Bool {
+        isKeptVisible(url) || containsKeptFolder(url)
+    }
+
+    /// Drops kept entries whose folder no longer exists on disk. Without this a
+    /// deleted kept folder would keep its (now genuinely empty) ancestors out of
+    /// the hidden bucket forever, since `containsKeptFolder` is a pure prefix
+    /// check over the persisted set. Called when the folder is known gone
+    /// (`forgetTrashedFolder`) and on activation (external deletes). Fire and
+    /// forget — the existence probe runs off the main actor.
+    func pruneStaleKeptFolders() {
+        Task { await pruneStaleKeptFoldersNow() }
+    }
+
+    /// Awaitable core of `pruneStaleKeptFolders`: the existence probe runs on a
+    /// detached task — a stale, network, or offline workspace volume must never
+    /// stall the main actor (CLAUDE.md) — then the result is applied on the main
+    /// actor, bailing if the set changed while the probe ran so a folder created
+    /// meanwhile is not clobbered.
+    func pruneStaleKeptFoldersNow() async {
+        let snapshot = keptFolders
+        guard !snapshot.isEmpty else { return }
+        let pruned = await Task.detached(priority: .utility) {
+            Self.keptFoldersDroppingMissing(snapshot)
+        }.value
+        guard keptFolders == snapshot else { return }
+        if pruned != snapshot { keptFolders = pruned }
+    }
+
+    /// Pure existence filter over a kept-folders snapshot; safe off the main
+    /// actor (touches only `FileManager`).
+    nonisolated private static func keptFoldersDroppingMissing(
+        _ source: [String: Set<String>]
+    ) -> [String: Set<String>] {
+        var result: [String: Set<String>] = [:]
+        for (root, rels) in source {
+            let base = URL(fileURLWithPath: root)
+            let surviving = rels.filter { rel in
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: base.appendingPathComponent(rel).path, isDirectory: &isDir)
+                    && isDir.boolValue
+            }
+            if !surviving.isEmpty { result[root] = surviving }
+        }
+        return result
+    }
+
+    /// Records `url` so an empty folder the user just created stays in the
+    /// visible list. No-op outside any workspace (there is no tree to hide it).
+    func keepVisible(_ url: URL) {
+        guard let ws = workspaceOwning(url),
+              let rel = relativePath(of: url, in: ws) else { return }
+        var set = keptFolders[ws.folderPath] ?? []
+        set.insert(rel)
+        keptFolders[ws.folderPath] = set
     }
 
     // MARK: - Loose files

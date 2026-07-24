@@ -11,6 +11,26 @@ shows adopted folders (workspaces) plus an "Open Files" section for files
 opened outside any workspace. Folder analytics (subtree stats, empty/hidden
 sections) are computed off-main and cached (`Views/FolderInfo.swift`).
 
+Subfolders with no document anywhere in their tree (`emptySubfolders`) are
+treated like hidden files: grouped behind the eye toggle in the tree, and in a
+dimmed "Empty Folders" section in the folder card. The exception is folders the
+user creates in-app (New Folder): `createSubfolder` records them in
+`keptFolders` (persisted, per workspace, relative paths — mirrors `hiddenFiles`)
+so a brand-new empty folder stays visible instead of vanishing the moment it is
+made. `isKeptOrHoldsKept` decides visibility: a folder shows when it is kept
+itself **or** is an empty ancestor of a kept folder (`containsKeptFolder`) —
+otherwise a kept folder made inside a found-on-disk empty parent would be
+unreachable, hidden along with the parent. `keptFolders` is keyed by workspace
+root, so `migrateRootState` relocates its keys on a disk rename alongside
+`hiddenFiles`. A stale entry for a *directly* kept folder is harmless
+(`keptEmptySubfolders` intersects the set with folders that still exist), but a
+stale entry would keep an ancestor visible forever through `containsKeptFolder`,
+so `pruneStaleKeptFolders` drops entries whose folder is gone — called from
+`forgetTrashedFolder` (in-app trash) and on activation (external deletes). The
+existence probe runs on a detached task and applies on the main actor behind an
+unchanged-snapshot guard (mirroring `refreshFavoriteAvailability`), so a network
+or offline workspace volume never stalls the UI.
+
 ### File and folder operations
 
 Context menus create (New File / New Folder), move, rename and trash items.

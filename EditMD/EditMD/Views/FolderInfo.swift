@@ -485,8 +485,12 @@ struct FolderInfoCard: View {
     /// Bottom sections (like hidden files): "Empty Folders", then "Hidden".
     private var contentList: some View {
         let _ = workspace.contentEpoch
-        let folders = currentStats?.directMarkdownFolders ?? []
-        let emptyFolders = currentStats?.directEmptyFolders ?? []
+        let mdFolders = currentStats?.directMarkdownFolders ?? []
+        let allEmpty = currentStats?.directEmptyFolders ?? []
+        // User-created empty folders join the main grid; the rest sink to the
+        // dimmed "Empty Folders" section (matching the sidebar's split).
+        let folders = mdFolders + allEmpty.filter(workspace.isKeptOrHoldsKept)
+        let emptyFolders = allEmpty.filter { !workspace.isKeptOrHoldsKept($0) }
         let visible = workspace.visibleMarkdown(in: folderURL)
         let hidden = workspace.hiddenMarkdown(in: folderURL)
         let empty = !statsLoading

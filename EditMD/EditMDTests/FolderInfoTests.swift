@@ -217,6 +217,64 @@ struct FolderCreateWorkspaceTests {
         #expect(FileManager.default.fileExists(atPath: sub.path))
     }
 
+    @Test("A folder created in-app is kept visible; one found on disk is not")
+    func createdSubfolderIsKeptVisible() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.directory)
+
+        // Created through the app → kept visible even while it holds no documents.
+        let made = try model.createSubfolder(named: "Made", in: fixture.directory)
+        #expect(model.isKeptVisible(made))
+
+        // A folder that merely appears on disk is not kept — it stays behind the eye.
+        let found = fixture.directory.appendingPathComponent("Found")
+        try FileManager.default.createDirectory(at: found, withIntermediateDirectories: false)
+        #expect(!model.isKeptVisible(found.standardizedFileURL))
+
+        // The kept flag is persisted, so a relaunch still shows the folder.
+        let reloaded = WorkspaceModel(defaults: fixture.defaults)
+        #expect(reloaded.isKeptVisible(made))
+        #expect(!reloaded.isKeptVisible(found.standardizedFileURL))
+    }
+
+    @Test("An on-disk empty parent is shown when it holds a kept folder")
+    func keptFolderPromotesEmptyAncestor() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.directory)
+
+        // A folder that only appears on disk (not created in-app) → not kept.
+        let found = fixture.directory.appendingPathComponent("Found")
+        try FileManager.default.createDirectory(at: found, withIntermediateDirectories: false)
+        #expect(!model.isKeptOrHoldsKept(found.standardizedFileURL))
+
+        // Create a folder inside it through the app.
+        let made = try model.createSubfolder(named: "Made", in: found)
+        #expect(model.isKeptVisible(made))
+        // The parent is not kept in its own right, but now holds a kept folder,
+        // so it must escape the hidden "empty folders" bucket — otherwise Made
+        // would be unreachable with the eye off.
+        #expect(!model.isKeptVisible(found.standardizedFileURL))
+        #expect(model.containsKeptFolder(found.standardizedFileURL))
+        #expect(model.isKeptOrHoldsKept(found.standardizedFileURL))
+
+        // A second in-app folder, left in place, must survive pruning.
+        let survivor = try model.createSubfolder(named: "Survivor", in: fixture.directory)
+
+        // Deleting the kept child releases the parent: once the folder is gone
+        // from disk, pruning drops the stale entry and Found sinks back into the
+        // hidden "empty folders" bucket, while Survivor stays kept.
+        try FileManager.default.removeItem(at: made)
+        await model.pruneStaleKeptFoldersNow()
+        #expect(!model.isKeptVisible(made))
+        #expect(!model.containsKeptFolder(found.standardizedFileURL))
+        #expect(!model.isKeptOrHoldsKept(found.standardizedFileURL))
+        #expect(model.isKeptVisible(survivor))
+    }
+
     @Test("Duplicate markdown name fails")
     func createDuplicateThrows() throws {
         let fixture = try Fixture()
@@ -383,6 +441,7 @@ struct WorkspaceFolderIdentityTests {
         let original = try #require(model.workspaces.first)
         model.setDisplayName("Research", for: original)
         model.hiddenFiles[fixture.root.path] = ["Child/note.md"]
+        model.keptFolders[fixture.root.path] = ["Child/Draft"]
         model.addFavorite(note)
         model.expandedFolders.insert(child.path)
         model.noteActive(child)
@@ -402,6 +461,8 @@ struct WorkspaceFolderIdentityTests {
         #expect(model.workspaces.first?.displayName == "Research")
         #expect(model.hiddenFiles[renamed.path] == ["Child/note.md"])
         #expect(model.hiddenFiles[fixture.root.path] == nil)
+        #expect(model.keptFolders[renamed.path] == ["Child/Draft"])
+        #expect(model.keptFolders[fixture.root.path] == nil)
         #expect(model.isFavorite(renamedChild.appendingPathComponent("note.md")))
         #expect(!model.isFavorite(note))
         #expect(model.expandedFolders == [renamedChild.path])

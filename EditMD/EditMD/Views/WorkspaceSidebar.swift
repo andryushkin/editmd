@@ -572,8 +572,18 @@ struct WorkspaceSidebar: View {
                               selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
+            // User-created empty folders stay visible; only found-on-disk empties
+            // hide behind the eye.
+            ForEach(filteredFolders(workspace.keptEmptySubfolders(in: ws.url)), id: \.self) { sub in
+                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                              filter: filterQuery, activeURL: activeURL,
+                              showHidden: showHidden, isEmptyFolder: false,
+                              selectedFiles: $selectedFiles,
+                              selectionAnchor: $selectionAnchor,
+                              onOpen: onOpen, onOpenFolder: onOpenFolder)
+            }
             if showHidden {
-                ForEach(filteredFolders(workspace.emptySubfolders(in: ws.url)), id: \.self) { sub in
+                ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: ws.url)), id: \.self) { sub in
                     SubfolderNode(workspace: workspace, folder: sub, depth: 1,
                                   filter: filterQuery, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
@@ -852,7 +862,8 @@ private struct SubfolderNode: View {
         }
 
         if expanded {
-            // md folders → empty folders (eye) → visible files → hidden files (eye).
+            // md folders → kept empty folders → found-on-disk empty folders (eye)
+            // → visible files → hidden files (eye).
             ForEach(filteredFolders(workspace.markdownSubfolders(in: folder)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                               filter: filter, activeURL: activeURL,
@@ -861,8 +872,16 @@ private struct SubfolderNode: View {
                               selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
+            ForEach(filteredFolders(workspace.keptEmptySubfolders(in: folder)), id: \.self) { sub in
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                              filter: filter, activeURL: activeURL,
+                              showHidden: showHidden, isEmptyFolder: false,
+                              selectedFiles: $selectedFiles,
+                              selectionAnchor: $selectionAnchor,
+                              onOpen: onOpen, onOpenFolder: onOpenFolder)
+            }
             if showHidden {
-                ForEach(filteredFolders(workspace.emptySubfolders(in: folder)), id: \.self) { sub in
+                ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: folder)), id: \.self) { sub in
                     SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                                   filter: filter, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
