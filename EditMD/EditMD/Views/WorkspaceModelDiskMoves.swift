@@ -454,19 +454,37 @@ extension WorkspaceModel {
         }
     }
 
+    /// `fileExists` matches case-insensitively on a case-insensitive volume,
+    /// so after a case-only rename it reports BOTH spellings as present and
+    /// the rollback classifier cannot tell which one actually survived.
+    /// Confirm the directory entry's real spelling instead — on a fresh URL,
+    /// because resource values cached on an instance from before the rename
+    /// report the stale name. Comparison is normalization-insensitive but
+    /// case-exact.
+    nonisolated static func directoryEntryExists(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let fresh = URL(fileURLWithPath: url.path)
+        guard let actual = (try? fresh.resourceValues(forKeys: [.nameKey]))?.name else {
+            // Existence is confirmed but the spelling is unreadable — err on
+            // the case-insensitive answer instead of inventing absence.
+            return true
+        }
+        return actual.decomposedStringWithCanonicalMapping
+            == url.lastPathComponent.decomposedStringWithCanonicalMapping
+    }
+
     nonisolated private static func rollbackState(
         for move: FileMoveResult,
         expectedReviewSidecar: Bool
     ) -> FileMoveRollbackState {
-        let fileManager = FileManager.default
         let oldSidecar = ReviewSidecar.url(for: move.source)
         let newSidecar = ReviewSidecar.url(for: move.destination)
         return FileMoveRollbackState(
             move: move,
             expectedReviewSidecar: expectedReviewSidecar,
-            fileAtSource: fileManager.fileExists(atPath: move.source.path),
-            fileAtDestination: fileManager.fileExists(atPath: move.destination.path),
-            reviewSidecarAtSource: fileManager.fileExists(atPath: oldSidecar.path),
-            reviewSidecarAtDestination: fileManager.fileExists(atPath: newSidecar.path))
+            fileAtSource: directoryEntryExists(move.source),
+            fileAtDestination: directoryEntryExists(move.destination),
+            reviewSidecarAtSource: directoryEntryExists(oldSidecar),
+            reviewSidecarAtDestination: directoryEntryExists(newSidecar))
     }
 }

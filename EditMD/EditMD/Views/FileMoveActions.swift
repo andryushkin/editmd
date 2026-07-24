@@ -63,6 +63,16 @@ enum FileMoveRecoveryResolution: Equatable, Sendable {
     case unresolved
 }
 
+/// Both spellings of a case-only rename resolve to the same directory entry
+/// on a case-insensitive volume, so a file/sidecar case mismatch after a
+/// failed rollback is still one coherent document — not a split state.
+private func isCaseOnlyAlias(_ lhs: URL, _ rhs: URL) -> Bool {
+    lhs.deletingLastPathComponent().path == rhs.deletingLastPathComponent().path
+        && lhs.lastPathComponent != rhs.lastPathComponent
+        && lhs.lastPathComponent.caseInsensitiveCompare(rhs.lastPathComponent)
+            == .orderedSame
+}
+
 func fileMoveRecoveryResolutions(
     for rawFiles: [URL],
     after error: Error
@@ -81,10 +91,18 @@ func fileMoveRecoveryResolutions(
         let source = state.move.source.standardizedFileURL
         guard resolutions[source] != nil else { continue }
 
-        let sidecarCanStayAtSource = !state.reviewSidecarAtDestination
-            && (!state.expectedReviewSidecar || state.reviewSidecarAtSource)
-        let sidecarCanStayAtDestination = !state.reviewSidecarAtSource
-            && (!state.expectedReviewSidecar || state.reviewSidecarAtDestination)
+        let caseOnly = isCaseOnlyAlias(state.move.source, state.move.destination)
+        // Case-only: the sidecar is accounted for under either spelling.
+        let sidecarAccountedFor = !state.expectedReviewSidecar
+            || state.reviewSidecarAtSource || state.reviewSidecarAtDestination
+        let sidecarCanStayAtSource = caseOnly
+            ? sidecarAccountedFor
+            : !state.reviewSidecarAtDestination
+                && (!state.expectedReviewSidecar || state.reviewSidecarAtSource)
+        let sidecarCanStayAtDestination = caseOnly
+            ? sidecarAccountedFor
+            : !state.reviewSidecarAtSource
+                && (!state.expectedReviewSidecar || state.reviewSidecarAtDestination)
 
         if state.fileAtSource, !state.fileAtDestination,
            sidecarCanStayAtSource {
@@ -414,11 +432,13 @@ func performFileRename(_ rawFile: URL, to rawName: String, workspace: WorkspaceM
                     // confirm against the disk before acting on it.
                     var resolution = fileMoveRecoveryResolutions(
                         for: [source], after: error)[source] ?? .source
+                    // Exact-spelling probe: after a case-only failure a plain
+                    // fileExists reports both names as present.
                     let existingPaths = await Task.detached(
                         priority: .userInitiated
                     ) {
                         Set([source, destination].filter {
-                            FileManager.default.fileExists(atPath: $0.path)
+                            WorkspaceModel.directoryEntryExists($0)
                         })
                     }.value
                     switch resolution {

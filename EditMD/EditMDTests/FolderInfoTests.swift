@@ -812,6 +812,79 @@ struct FileRenameTests {
             encoding: .utf8) == "marks")
     }
 
+    @Test("Exact-spelling probe distinguishes case-only aliases")
+    func directoryEntryExistsIsCaseExact() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let file = fixture.root.appendingPathComponent("note.md")
+        try "text".write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(WorkspaceModel.directoryEntryExists(file))
+        let alias = fixture.root.appendingPathComponent("NOTE.md")
+        // On a case-insensitive volume fileExists(alias) is true; the exact
+        // probe must still say the NOTE.md entry does not exist. On a
+        // case-sensitive volume both probes agree.
+        #expect(!WorkspaceModel.directoryEntryExists(alias))
+        #expect(!WorkspaceModel.directoryEntryExists(
+            fixture.root.appendingPathComponent("missing.md")))
+    }
+
+    @Test("Case-only rollback failure follows the surviving spelling")
+    func caseOnlyRollbackFailureKeepsDestination() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        let sourceSidecar = ReviewSidecar.url(for: source)
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        try "marks".write(to: sourceSidecar, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+        model.hide(source)
+        let destination = fixture.root
+            .appendingPathComponent("NOTE.md").standardizedFileURL
+
+        // Fail the sidecar's first hop, then the file rollback's first hop:
+        // the document survives only under the NEW spelling while the sidecar
+        // keeps the old one.
+        struct InjectedFailure: Error {}
+        let failingMove: FileMoveItemOperation = { from, to in
+            if from.lastPathComponent == "note.md.review.json" { throw InjectedFailure() }
+            if from.lastPathComponent == "NOTE.md" { throw InjectedFailure() }
+            try FileManager.default.moveItem(at: from, to: to)
+        }
+
+        do {
+            _ = try await model.renameFileOnDisk(
+                source, to: "NOTE.md", moveItem: failingMove)
+            Issue.record("Expected a rollback failure")
+        } catch {
+            guard let moveError = error as? FileMoveError,
+                  case .rollbackFailed(let states) = moveError else {
+                Issue.record("Expected rollbackFailed, got \(error)")
+                return
+            }
+            // Exact-spelling probes: the file is only at the destination.
+            let state = try #require(states.first)
+            #expect(!state.fileAtSource)
+            #expect(state.fileAtDestination)
+            #expect(state.reviewSidecarAtSource)
+            #expect(!state.reviewSidecarAtDestination)
+            // For a case-only pair the sidecar's spelling is not a split
+            // state — the classifier follows the sole surviving spelling.
+            let resolution = fileMoveRecoveryResolutions(
+                for: [source], after: error)[source]
+            #expect(resolution == .destination(destination))
+        }
+
+        // Sidebar state migrated to the surviving spelling.
+        #expect(model.hiddenFiles[fixture.root.path] == ["NOTE.md"])
+        // Disk: document under the new spelling, sidecar under the old one.
+        let listing = Set(try FileManager.default.contentsOfDirectory(
+            atPath: fixture.root.path))
+        #expect(listing.contains("NOTE.md"))
+        #expect(listing.contains("note.md.review.json"))
+    }
+
     @Test("Rename refuses a file EditMD does not list")
     func renameRejectsUnsupported() async throws {
         let fixture = try makeFixture()

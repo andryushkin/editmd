@@ -24,7 +24,8 @@ UI transactions live in `Views/FileMoveActions.swift`:
   review sidecar (`.review.json`) always follows its document; a mid-batch disk
   failure rolls back before the error surfaces, and both paths share the same
   survivor-probing recovery (`fileMoveRecoveryResolutions`) when a rollback
-  itself fails. Rename preserves the original extension when the new name
+  itself fails; survivor probes compare the actual directory-entry spelling
+  (`directoryEntryExists`), so case-only outcomes classify correctly. Rename preserves the original extension when the new name
   omits one, and case-only renames go through a temporary sibling
   (`moveFileForRename`) because a case-insensitive volume reports the new
   spelling as an existing item. Dot-prefixed names are refused everywhere
