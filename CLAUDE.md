@@ -76,8 +76,9 @@ domain docs.
 ## Localization
 
 Development language is English: user-facing strings are English literals,
-translated to Russian in `Resources/Localizable.xcstrings`; every new
-user-facing string needs a ru entry with matching format specifiers.
+translated to Russian in `Resources/Localizable.xcstrings` — and, for the
+strings the system shows in its own prompts, `Resources/InfoPlist.xcstrings`;
+every new user-facing string needs a ru entry with matching format specifiers.
 Protocol messages and logs are never localized. Details (language switch,
 test-host `-AppleLanguages (en)`) in `docs/architecture.md` § Localization.
 
@@ -85,7 +86,7 @@ test-host `-AppleLanguages (en)`) in `docs/architecture.md` § Localization.
 
 English for all prose: code comments, documentation, commit messages, string
 literals in code that are not data. Deliberate exceptions that must **not** be
-"cleaned up": the ru localization catalog and the language-name endonym in
+"cleaned up": the ru localization catalogs and the language-name endonym in
 `AppLanguage.swift`, Cyrillic test data and fixtures (they cover UTF-16 and
 case-folding paths),
 language-sensitive examples, and Russian trigger phrases in the shipped agent

@@ -19,10 +19,12 @@ grep_tracked() { git -c core.quotepath=false grep -I -l "$@" 2>/dev/null; }
 
 # 1. Cyrillic outside the allowlist (language policy, CLAUDE.md).
 #    \p{Cyrillic} keeps this script free of Cyrillic itself. Allowed:
-#    localization catalog, the endonym, skill trigger phrases,
-#    Cyrillic-folding sources, test data, and the live root fixture.
+#    the localization catalogs (both the app strings and the Info.plist
+#    ones the system shows in its own prompts), the endonym, skill trigger
+#    phrases, Cyrillic-folding sources, test data, and the live root fixture.
 cyr=$(grep_tracked -P '\p{Cyrillic}' -- \
     ':!EditMD/EditMD/Resources/Localizable.xcstrings' \
+    ':!EditMD/EditMD/Resources/InfoPlist.xcstrings' \
     ':!EditMD/EditMD/Views/AppLanguage.swift' \
     ':!EditMD/EditMD/Resources/agent-skill/SKILL.md' \
     ':!.agents/skills/*/SKILL.md' \

@@ -171,7 +171,9 @@ image until the new bytes arrive. The check is opportunistic — on
 
 Development language is English: user-facing strings are English literals
 (SwiftUI keys or `String(localized:)`), translated to Russian in
-`Resources/Localizable.xcstrings`. Protocol messages and logs are not
+`Resources/Localizable.xcstrings`; the usage descriptions macOS shows in its
+own permission prompts live in `Resources/InfoPlist.xcstrings`, keyed by
+`Info.plist` key. Protocol messages and logs are not
 localized — agents read them. Settings ▸ General ▸ Language writes
 `AppleLanguages` (see `Views/AppLanguage.swift`); the test host forces English
 with the scheme argument `-AppleLanguages (en)`.
