@@ -285,11 +285,11 @@ final class URLCommandTests: XCTestCase {
     /// The setting decides when the URL says nothing.
     func testConfiguredModeDecidesWithoutAWorkspaceParam() {
         XCTAssertEqual(
-            destination(mode: .folder).resolvedFolder(isExistingFolder: { _ in true }),
-            inbox)
+            destination(mode: .folder).resolved(isExistingFolder: { _ in true }),
+            .folder(inbox))
         XCTAssertEqual(
-            destination(mode: .activeWorkspace).resolvedFolder(isExistingFolder: { _ in true }),
-            other)
+            destination(mode: .activeWorkspace).resolved(isExistingFolder: { _ in true }),
+            .folder(other))
     }
 
     /// A named workspace wins over the setting — in both modes.
@@ -297,12 +297,12 @@ final class URLCommandTests: XCTestCase {
         for mode in ClipDestinationMode.allCases {
             XCTAssertEqual(
                 destination(requestedWorkspace: "test md", mode: mode)
-                    .resolvedFolder(isExistingFolder: { _ in true }),
-                vault)
+                    .resolved(isExistingFolder: { _ in true }),
+                .folder(vault))
             XCTAssertEqual(
                 destination(requestedWorkspace: "  TEST MD ", mode: mode)
-                    .resolvedFolder(isExistingFolder: { _ in true }),
-                vault)
+                    .resolved(isExistingFolder: { _ in true }),
+                .folder(vault))
         }
     }
 
@@ -310,11 +310,11 @@ final class URLCommandTests: XCTestCase {
     /// lands in the configured folder.
     func testUnknownWorkspaceNameFallsBackToTheSetting() {
         XCTAssertEqual(
-            destination(requestedWorkspace: "Nope").resolvedFolder(isExistingFolder: { _ in true }),
-            inbox)
+            destination(requestedWorkspace: "Nope").resolved(isExistingFolder: { _ in true }),
+            .folder(inbox))
         XCTAssertEqual(
-            destination(requestedWorkspace: "").resolvedFolder(isExistingFolder: { _ in true }),
-            inbox)
+            destination(requestedWorkspace: "").resolved(isExistingFolder: { _ in true }),
+            .folder(inbox))
     }
 
     /// A path is not a name — the parameter can only pick among adopted roots,
@@ -322,12 +322,12 @@ final class URLCommandTests: XCTestCase {
     func testWorkspaceParamCannotCarryAPath() {
         XCTAssertEqual(
             destination(requestedWorkspace: "/etc")
-                .resolvedFolder(isExistingFolder: { _ in true }),
-            inbox)
+                .resolved(isExistingFolder: { _ in true }),
+            .folder(inbox))
         XCTAssertEqual(
             destination(requestedWorkspace: "../Other")
-                .resolvedFolder(isExistingFolder: { _ in true }),
-            inbox)
+                .resolved(isExistingFolder: { _ in true }),
+            .folder(inbox))
     }
 
     /// Two adopted roots can carry the same name — a basename or a custom one.
@@ -344,21 +344,21 @@ final class URLCommandTests: XCTestCase {
             ])
 
         XCTAssertEqual(
-            destination.resolvedFolder(isExistingFolder: { _ in true }), inbox)
+            destination.resolved(isExistingFolder: { _ in true }), .folder(inbox))
         // …but a duplicate that is gone from disk does not shadow the live one.
         XCTAssertEqual(
-            destination.resolvedFolder(isExistingFolder: { $0 != twin }), vault)
+            destination.resolved(isExistingFolder: { $0 != twin }), .folder(vault))
     }
 
     /// A vault that is gone from disk must not be recreated by a clip.
     func testMissingFolderFallsBackToTheConfiguredOne() {
         let exists: (URL) -> Bool = { $0 != self.vault && $0 != self.other }
         XCTAssertEqual(
-            destination(requestedWorkspace: "test md").resolvedFolder(isExistingFolder: exists),
-            inbox)
+            destination(requestedWorkspace: "test md").resolved(isExistingFolder: exists),
+            .folder(inbox))
         XCTAssertEqual(
-            destination(mode: .activeWorkspace).resolvedFolder(isExistingFolder: exists),
-            inbox)
+            destination(mode: .activeWorkspace).resolved(isExistingFolder: exists),
+            .folder(inbox))
     }
 
     /// Nothing adopted at all: still a valid destination.
@@ -367,24 +367,32 @@ final class URLCommandTests: XCTestCase {
             requestedWorkspace: "test md",
             mode: .activeWorkspace,
             configuredFolder: inbox)
-        XCTAssertEqual(empty.resolvedFolder(isExistingFolder: { _ in true }), inbox)
+        XCTAssertEqual(empty.resolved(isExistingFolder: { _ in true }), .folder(inbox))
     }
 
-    /// Settings path → folder: empty means the default, `~` is expanded.
+    /// An unset destination is not a path but a question for the owner: the
+    /// folder may still have to be created, and only one place decides where.
+    func testUnsetDestinationDefersToTheStarterFolder() {
+        var destination = self.destination()
+        destination.configuredFolder = nil
+        XCTAssertEqual(
+            destination.resolved(isExistingFolder: { _ in true }), .starterFolder)
+        // A named workspace still wins over it.
+        destination.requestedWorkspace = "test md"
+        XCTAssertEqual(
+            destination.resolved(isExistingFolder: { _ in true }), .folder(vault))
+    }
+
+    /// Settings path → folder: empty is no choice at all, `~` is expanded.
     func testConfiguredFolderFromSettingsPath() {
-        // Empty means "the folder EditMD made on first launch".
+        XCTAssertNil(ClipDestination.configuredFolder(forSettingsPath: ""))
+        XCTAssertNil(ClipDestination.configuredFolder(forSettingsPath: "   "))
         XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: ""),
-            StarterFolder.defaultURL)
-        XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: "   "),
-            StarterFolder.defaultURL)
-        XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: "~/Notes/Inbox").path,
+            ClipDestination.configuredFolder(forSettingsPath: "~/Notes/Inbox")?.path,
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Notes/Inbox").standardizedFileURL.path)
         XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: "/tmp/Clips").path,
+            ClipDestination.configuredFolder(forSettingsPath: "/tmp/Clips")?.path,
             "/tmp/Clips")
     }
 

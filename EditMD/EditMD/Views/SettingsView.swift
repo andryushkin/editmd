@@ -79,6 +79,7 @@ private struct GeneralTab: View {
     private var clipsFolderDisplayPath: String {
         let folder = ClipDestination.configuredFolder(
             forSettingsPath: settings.general.clipsFolderPath)
+            ?? StarterFolder.ownedFolder()
         return (folder.path as NSString).abbreviatingWithTildeInPath
     }
 

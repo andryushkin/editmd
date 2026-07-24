@@ -108,11 +108,20 @@ struct ClipDestination: Equatable, Sendable {
         var root: URL
     }
 
+    /// What the rules decide, before anything touches the filesystem.
+    enum Resolved: Equatable, Sendable {
+        case folder(URL)
+        /// No destination of its own — the folder EditMD owns, which may still
+        /// have to be created (`StarterFolderOwner`).
+        case starterFolder
+    }
+
     /// `workspace=` from the URL (a name, see `NewClip.requestedWorkspace`).
     var requestedWorkspace: String?
     var mode: ClipDestinationMode
-    /// Settings ▸ Web clips ▸ Folder, already resolved to a URL.
-    var configuredFolder: URL
+    /// Settings ▸ Web clips ▸ Folder — `nil` while the user has not chosen
+    /// one, which means "wherever EditMD's own folder turns out to be".
+    var configuredFolder: URL?
     /// The roots currently adopted in the sidebar, with their display names.
     var workspaces: [AdoptedWorkspace] = []
     var activeWorkspaceRoot: URL?
@@ -121,15 +130,15 @@ struct ClipDestination: Equatable, Sendable {
     /// configured mode → the clips folder. Anything unknown or gone from disk
     /// falls through to the clips folder instead of failing: a note that
     /// arrives in the wrong-but-known place beats a note that is lost.
-    func resolvedFolder(isExistingFolder: (URL) -> Bool) -> URL {
+    func resolved(isExistingFolder: (URL) -> Bool) -> Resolved {
         if let named = matchedWorkspaceRoot(isExistingFolder: isExistingFolder) {
-            return named
+            return .folder(named)
         }
         if mode == .activeWorkspace,
            let activeWorkspaceRoot, isExistingFolder(activeWorkspaceRoot) {
-            return activeWorkspaceRoot
+            return .folder(activeWorkspaceRoot)
         }
-        return configuredFolder
+        return configuredFolder.map { .folder($0) } ?? .starterFolder
     }
 
     /// The workspace `workspace=` asked for — but only when the answer is
@@ -149,18 +158,15 @@ struct ClipDestination: Equatable, Sendable {
         return live.count == 1 ? live[0] : nil
     }
 
-    /// Settings path → folder URL. Empty (the default) means the folder EditMD
-    /// made on first launch; a `~` in a hand-edited path is expanded.
-    static func configuredFolder(forSettingsPath path: String) -> URL {
+    /// Settings path → folder URL, or `nil` when the user has not chosen one
+    /// (then clips go to EditMD's own folder, beside the guide). A `~` in a
+    /// hand-edited path is expanded.
+    static func configuredFolder(forSettingsPath path: String) -> URL? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return defaultFolder }
+        guard !trimmed.isEmpty else { return nil }
         return StarterFolder.normalized(
             URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath))
     }
-
-    /// `~/Documents/EditMD` — the same folder that holds the README and the
-    /// guide, so a new user finds their first clip next to the instructions.
-    static var defaultFolder: URL { StarterFolder.defaultURL }
 }
 
 /// Naming rules for files created from a URL command. The sender already

@@ -681,7 +681,16 @@ final class AppState: ObservableObject {
         Task {
             do {
                 let url = try await Task.detached(priority: .userInitiated) {
-                    let folder = destination.resolvedFolder(isExistingFolder: Self.isFolder)
+                    let folder: URL
+                    switch destination.resolved(isExistingFolder: Self.isFolder) {
+                    case .folder(let chosen):
+                        folder = chosen
+                    case .starterFolder:
+                        // The launch may be seeding that folder right now, and
+                        // on a launch caused by this very clip it has not run
+                        // yet: one owner answers both.
+                        folder = try await StarterFolderOwner.shared.folder()
+                    }
                     return try ClipFile.write(body, baseName: clip.name, in: folder)
                 }.value
                 WorkspaceModel.shared.noteFilesystemChange()

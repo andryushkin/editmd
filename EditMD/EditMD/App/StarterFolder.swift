@@ -14,8 +14,12 @@ let starterFolderLog = Logger(subsystem: "andryushkin.EditMD", category: "starte
 /// Foundation, so the copy runs off the main actor.
 enum StarterFolder {
 
-    /// UserDefaults flag, so an upgrade seeds the folder exactly once.
+    /// UserDefaults flag, so an upgrade seeds the guide exactly once.
     static let seededKey = "starter.seeded"
+    /// Path of the folder EditMD ended up owning. Written by
+    /// `StarterFolderOwner` the moment the directory exists — before the guide
+    /// is copied into it — so a failed copy still leaves clips a home.
+    static let folderKey = "starter.folder"
 
     /// Also the default destination for web clips (`ClipDestination`).
     static var defaultURL: URL {
@@ -52,26 +56,43 @@ enum StarterFolder {
     /// How many `EditMD N` names are tried before giving up on a location.
     static let maxNameAttempts = 20
 
-    /// Seeds the folder the first time this installation runs. Returns the
-    /// folder when it was seeded now, `nil` when it had been seeded before (or
-    /// when it could not be created — a missing guide is never worth blocking
-    /// a launch, so the failure is logged and swallowed).
-    ///
-    /// The folder is only ever one EditMD **created itself**: a
-    /// `~/Documents/EditMD` that already belongs to the user is not adopted,
-    /// not written into, and not opened — the guide goes to `EditMD 2` beside
-    /// it instead.
-    static func seedIfNeeded(
-        at preferredRoot: URL = StarterFolder.defaultURL,
-        defaults: UserDefaults = .standard,
-        bundle: Bundle = .main
-    ) -> URL? {
-        guard !defaults.bool(forKey: seededKey) else { return nil }
-        // One attempt per installation, whatever the outcome: a launch must
-        // not keep retrying a location the filesystem refuses.
+    /// The folder EditMD owns, as far as anyone can tell without creating
+    /// anything: the one already resolved, else where it would go. For display
+    /// and for the clips setting's "empty means here" — never for writing.
+    static func ownedFolder(defaults: UserDefaults = .standard) -> URL {
+        guard let stored = defaults.string(forKey: folderKey), !stored.isEmpty else {
+            return defaultURL
+        }
+        return normalized(URL(fileURLWithPath: stored))
+    }
+
+    /// Claims this installation's one attempt at seeding the guide. Claiming
+    /// before the work means a location the filesystem refuses is not retried
+    /// on every launch.
+    static func claimSeedAttempt(defaults: UserDefaults = .standard) -> Bool {
+        guard !defaults.bool(forKey: seededKey) else { return false }
         defaults.set(true, forKey: seededKey)
+        return true
+    }
+
+    /// The launch task: claim the attempt, ask the owner where the folder is
+    /// (creating it if this is the first ask), copy the guide into it. Returns
+    /// the folder when the guide landed now — `nil` when it had been seeded
+    /// before, or when the copy failed (a missing guide is never worth
+    /// blocking a launch, so the failure is logged and swallowed; the folder
+    /// itself survives, recorded by the owner).
+    ///
+    /// `defaultsSuite` is a name rather than a `UserDefaults` because the work
+    /// crosses actors; `nil` is `.standard`.
+    static func seedIfNeeded(
+        owner: StarterFolderOwner = .shared,
+        defaultsSuite: String? = nil,
+        bundle: Bundle = .main
+    ) async -> URL? {
+        let defaults = defaultsSuite.flatMap { UserDefaults(suiteName: $0) } ?? .standard
+        guard claimSeedAttempt(defaults: defaults) else { return nil }
         do {
-            let root = try makeOwnFolder(preferring: preferredRoot)
+            let root = try await owner.folder()
             let created = try seedContents(at: root, bundle: bundle)
             starterFolderLog.info(
                 "seeded starter folder with \(created.count, privacy: .public) files")
@@ -92,6 +113,9 @@ enum StarterFolder {
         let manager = FileManager.default
         let parent = preferred.deletingLastPathComponent()
         let base = preferred.lastPathComponent
+        // The parent (`~/Documents`) is not the folder whose ownership is in
+        // question — only the leaf below must be ours to create.
+        try manager.createDirectory(at: parent, withIntermediateDirectories: true)
         for attempt in 1...maxNameAttempts {
             let candidate = attempt == 1
                 ? preferred
@@ -101,18 +125,25 @@ enum StarterFolder {
                     at: candidate, withIntermediateDirectories: false)
                 return normalized(candidate)
             } catch let error as NSError where error.isFileExists {
-                if isEmptyDirectory(candidate) { return normalized(candidate) }
+                if isAdoptableEmptyDirectory(candidate) { return normalized(candidate) }
                 continue
             }
         }
         throw SeedError.noFreeFolderName
     }
 
-    private static func isEmptyDirectory(_ url: URL) -> Bool {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+    /// A directory of that name is nobody's only when it holds **nothing at
+    /// all**. Hidden entries count: a `.git` or `.obsidian` inside means the
+    /// folder is somebody's vault, and skipping hidden files would have made
+    /// EditMD seed straight into it. A symlink is never adopted either,
+    /// whatever it points at — the target is not ours to fill.
+    static func isAdoptableEmptyDirectory(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(
+            forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        guard values?.isSymbolicLink != true, values?.isDirectory == true,
+              let entries = try? FileManager.default.contentsOfDirectory(atPath: url.path)
         else { return false }
-        return contents.isEmpty
+        return entries.isEmpty
     }
 
     /// What a launch does with a folder it has just seeded.
@@ -176,6 +207,54 @@ enum StarterFolder {
             try manager.copyItem(at: source, to: target)
             created.append(target.standardizedFileURL)
         }
+        return created
+    }
+}
+
+/// Single owner of the "where is our folder" decision.
+///
+/// Two independent paths need it on a first launch, and an `editmd://` clip
+/// gets there **first**: its Apple Event beats `applicationDidFinishLaunching`.
+/// If each answered on its own, a user who already has a `~/Documents/EditMD`
+/// would get their folder written into by the clip while the guide stepped
+/// aside to `EditMD 2` — two different places, one of them not ours. Both
+/// callers await this actor instead, so the directory is created once and
+/// everyone is told the same path. Off the main actor by construction.
+actor StarterFolderOwner {
+    static let shared = StarterFolderOwner()
+
+    private let preferred: URL
+    private let defaultsSuite: String?
+    private var resolved: URL?
+
+    /// `defaultsSuite` is a name rather than a `UserDefaults` so the actor
+    /// stays free of shared mutable state it does not own; `nil` is `.standard`.
+    init(preferring preferred: URL = StarterFolder.defaultURL,
+         defaultsSuite: String? = nil) {
+        self.preferred = preferred
+        self.defaultsSuite = defaultsSuite
+    }
+
+    private var defaults: UserDefaults {
+        defaultsSuite.flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    }
+
+    /// The folder EditMD owns: the recorded one, or a freshly created one.
+    /// Recording happens as soon as the directory exists, before anything is
+    /// written into it — a guide that fails to copy must not cost the clips
+    /// their home.
+    func folder() throws -> URL {
+        if let resolved { return resolved }
+        let store = defaults
+        if let stored = store.string(forKey: StarterFolder.folderKey), !stored.isEmpty {
+            let url = StarterFolder.normalized(URL(fileURLWithPath: stored))
+            resolved = url
+            return url
+        }
+        let created = try StarterFolder.makeOwnFolder(preferring: preferred)
+        store.set(created.path, forKey: StarterFolder.folderKey)
+        resolved = created
+        starterFolderLog.info("starter folder is \(created.lastPathComponent, privacy: .public)")
         return created
     }
 }

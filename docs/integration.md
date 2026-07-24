@@ -83,10 +83,12 @@ editmd://new?file=<name-without-extension>&clipboard
   open one of these URLs.
 - Destination (`ClipDestination`, Settings ▸ General ▸ Web clips):
   a named workspace that is adopted and on disk wins; otherwise the setting
-  decides — a fixed **Folder** (default: `~/Documents/EditMD`, the folder
-  seeded on first launch, see below) or the **Active workspace** root
+  decides — a fixed **Folder** or the **Active workspace** root
   (`WorkspaceModel.activeWorkspaceRoot`). A workspace that no longer exists on
   disk is never recreated: the clip lands in the configured folder instead.
+  An unset folder setting (the default) resolves to `.starterFolder` — not to
+  a path, but to a question for `StarterFolderOwner`, because the folder may
+  still have to be created and only one place may decide where.
 - Only the pasteboard read and the workspace lookup run on the main actor;
   creating the folder and writing the body happen on a detached task, so a
   slow or network-mounted vault cannot freeze the UI from a URL.
@@ -118,11 +120,21 @@ contract in pure Foundation functions (`EditMDURLCommand.parse`,
 
 `App/StarterFolder.swift` creates `~/Documents/EditMD` — or the next free name
 beside it — the first time an installation launches (flag `starter.seeded`,
-one attempt per installation, seeded off the main actor):
-`README.md` plus `Guide/` — editing modes, the web clipper, a Markdown
-showcase. The documents are sources in `Resources/starter/`; because the build
-flattens `Resources/` into the bundle root, the tree the user receives is
-declared by `StarterFolder.bundledDocuments`, not mirrored from the bundle.
+one attempt per installation, seeded off the main actor): `README.md` plus
+`Guide/` — editing modes, the web clipper, a Markdown showcase. The documents
+are sources in `Resources/starter/`; because the build flattens `Resources/`
+into the bundle root, the tree the user receives is declared by
+`StarterFolder.bundledDocuments`, not mirrored from the bundle.
+
+**One owner.** `StarterFolderOwner` (an actor) answers *where* that folder is,
+creates it on the first ask, and records the path in `starter.folder` the
+moment the directory exists — before anything is copied into it. Two callers
+need the answer on a first launch and a clip gets there first (its Apple Event
+beats `applicationDidFinishLaunching`): if each decided on its own, a user who
+already owns `~/Documents/EditMD` would get the clip written into their folder
+while the guide stepped aside to `EditMD 2`. Both await the actor, so the
+decision happens once — and a guide that fails to copy still leaves the clips
+a recorded home.
 
 Three rules keep it from being a nuisance:
 
@@ -131,12 +143,15 @@ Three rules keep it from being a nuisance:
 - **Never restore.** A user who deletes the folder does not get it back; only
   the clips destination is recreated, empty, on demand.
 - **Never take over.** Only a directory EditMD created itself is ever written
-  into: a `~/Documents/EditMD` that already holds the user's files is left
-  untouched and the guide steps aside to `EditMD 2` (the clips setting is
-  pointed at the folder actually created). An existing sidebar is never
-  rearranged. With an empty sidebar the folder is adopted — including on a
-  launch that carried a clip, since the clip landed in it — but the README
-  opens only when the window is still empty, so a clip keeps its document.
+  into: creation *is* the ownership test (`withIntermediateDirectories: false`
+  fails instead of merging), so a `~/Documents/EditMD` that already holds the
+  user's files is left untouched and everything steps aside to `EditMD 2`. A
+  folder counts as free only when it holds **nothing at all** — a lone `.git`
+  or `.obsidian` marks somebody's vault — and a symlink is never adopted,
+  whatever it points at. An existing sidebar is never rearranged. With an
+  empty sidebar the folder is adopted — including on a launch that carried a
+  clip, since the clip landed in it — but the README opens only when the
+  window is still empty, so a clip keeps its document.
 
 It is also the default clips destination, so a new user finds their first clip
 next to the instructions.

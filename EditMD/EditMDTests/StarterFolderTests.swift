@@ -61,23 +61,103 @@ final class StarterFolderTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: clip, encoding: .utf8), "a clip")
     }
 
-    /// Seeding is once per installation, and it is what makes the flag stick.
+    /// A suite of its own, so nothing here touches the developer's defaults.
     @MainActor
-    func testSeedsOncePerInstallation() throws {
-        let root = makeTemporaryRoot()
+    private func makeSuite() throws -> (String, UserDefaults) {
         let suiteName = "starter-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        return (suiteName, defaults)
+    }
 
-        XCTAssertEqual(
-            StarterFolder.seedIfNeeded(at: root, defaults: defaults, bundle: .main)?.path,
-            root.standardizedFileURL.path)
+    /// Seeding is once per installation, and it is what makes the flag stick.
+    @MainActor
+    func testSeedsOncePerInstallation() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+
+        let seeded = await StarterFolder.seedIfNeeded(
+            owner: owner, defaultsSuite: suiteName, bundle: .main)
+        XCTAssertEqual(seeded?.path, preferred.standardizedFileURL.path)
         XCTAssertTrue(defaults.bool(forKey: StarterFolder.seededKey))
+        XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey),
+                       preferred.standardizedFileURL.path)
         // A user who deletes the folder is not given it back.
-        try FileManager.default.removeItem(at: root)
-        XCTAssertNil(
-            StarterFolder.seedIfNeeded(at: root, defaults: defaults, bundle: .main))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+        try FileManager.default.removeItem(at: preferred)
+        let again = await StarterFolder.seedIfNeeded(
+            owner: owner, defaultsSuite: suiteName, bundle: .main)
+        XCTAssertNil(again)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: preferred.path))
+    }
+
+    /// One owner, one answer: the launch seed and a clip that arrived first
+    /// must not each create their own folder.
+    @MainActor
+    func testOwnerAnswersEveryCallerTheSameFolder() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+
+        let answers = await withTaskGroup(of: String?.self) { group in
+            for _ in 0..<8 {
+                group.addTask { try? await owner.folder().path }
+            }
+            var seen: [String?] = []
+            for await answer in group { seen.append(answer) }
+            return seen
+        }
+
+        XCTAssertEqual(Set(answers.compactMap { $0 }).count, 1, "\(answers)")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: parent.path),
+            ["EditMD"], "exactly one folder was created")
+        XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey),
+                       preferred.standardizedFileURL.path)
+    }
+
+    /// A later launch (a fresh actor) must land on the recorded folder, not
+    /// re-run the naming dance and pick a second one.
+    @MainActor
+    func testOwnerReusesTheRecordedFolder() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+
+        let first = try await StarterFolderOwner(
+            preferring: preferred, defaultsSuite: suiteName).folder()
+        // Content of ours or the user's — the recorded path still wins.
+        try "clip".write(to: first.appendingPathComponent("note.md"),
+                         atomically: true, encoding: .utf8)
+        let second = try await StarterFolderOwner(
+            preferring: preferred, defaultsSuite: suiteName).folder()
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey), first.path)
+    }
+
+    /// A guide that fails to copy must not cost the clips their home: the
+    /// folder is recorded as soon as it exists.
+    @MainActor
+    func testFolderSurvivesAFailedSeed() async throws {
+        let parent = makeTemporaryRoot()
+        let preferred = parent.appendingPathComponent("EditMD")
+        let (suiteName, defaults) = try makeSuite()
+        let owner = StarterFolderOwner(preferring: preferred, defaultsSuite: suiteName)
+        // The test bundle carries none of the starter documents.
+        let empty = Bundle(for: StarterFolderTests.self)
+
+        let seeded = await StarterFolder.seedIfNeeded(
+            owner: owner, defaultsSuite: suiteName, bundle: empty)
+
+        XCTAssertNil(seeded, "the guide did not land")
+        XCTAssertEqual(defaults.string(forKey: StarterFolder.folderKey),
+                       preferred.standardizedFileURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preferred.path))
+        XCTAssertEqual(StarterFolder.ownedFolder(defaults: defaults).path,
+                       preferred.standardizedFileURL.path)
     }
 
     /// A `~/Documents/EditMD` that belongs to the user is not adopted, not
@@ -113,6 +193,44 @@ final class StarterFolderTests: XCTestCase {
 
         XCTAssertEqual(try StarterFolder.makeOwnFolder(preferring: preferred).path,
                        preferred.standardizedFileURL.path)
+    }
+
+    /// "Empty" means empty, not "empty once you skip the dotfiles": a folder
+    /// holding only `.git` or `.obsidian` is somebody's vault.
+    func testHiddenContentMakesAFolderSomebodysElse() throws {
+        for hidden in [".git", ".obsidian", ".DS_Store"] {
+            let parent = makeTemporaryRoot()
+            let preferred = parent.appendingPathComponent("EditMD")
+            try FileManager.default.createDirectory(
+                at: preferred, withIntermediateDirectories: true)
+            try "x".write(to: preferred.appendingPathComponent(hidden),
+                          atomically: true, encoding: .utf8)
+
+            XCTAssertFalse(StarterFolder.isAdoptableEmptyDirectory(preferred), hidden)
+            XCTAssertEqual(
+                try StarterFolder.makeOwnFolder(preferring: preferred).lastPathComponent,
+                "EditMD 2", hidden)
+            // The user's folder gained nothing.
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(atPath: preferred.path),
+                [hidden])
+        }
+    }
+
+    /// A symlink is never adopted, whatever it points at — the target is not
+    /// ours to fill.
+    func testSymlinkIsNeverAdopted() throws {
+        let parent = makeTemporaryRoot()
+        let target = parent.appendingPathComponent("Somewhere else")
+        let link = parent.appendingPathComponent("EditMD")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertFalse(StarterFolder.isAdoptableEmptyDirectory(link))
+        XCTAssertEqual(
+            try StarterFolder.makeOwnFolder(preferring: link).lastPathComponent,
+            "EditMD 2")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), [])
     }
 
     /// Occupied names keep stepping aside, in order.
@@ -163,12 +281,16 @@ final class StarterFolderTests: XCTestCase {
 
     /// The clips default and the starter folder are the same place — that is
     /// the whole point of seeding the guide where the notes will land.
-    func testClipsDefaultToTheStarterFolder() {
-        XCTAssertEqual(ClipDestination.defaultFolder, StarterFolder.defaultURL)
-        XCTAssertEqual(
-            ClipDestination.configuredFolder(forSettingsPath: ""),
-            StarterFolder.defaultURL)
+    @MainActor
+    func testClipsDefaultToTheStarterFolder() throws {
+        let (_, defaults) = try makeSuite()
+        XCTAssertNil(ClipDestination.configuredFolder(forSettingsPath: ""))
         XCTAssertEqual(StarterFolder.defaultURL.lastPathComponent, "EditMD")
+        // Nothing recorded yet: the preferred location is what the UI shows.
+        XCTAssertEqual(StarterFolder.ownedFolder(defaults: defaults),
+                       StarterFolder.defaultURL)
+        defaults.set("/tmp/Elsewhere", forKey: StarterFolder.folderKey)
+        XCTAssertEqual(StarterFolder.ownedFolder(defaults: defaults).path, "/tmp/Elsewhere")
     }
 
     /// The seeded documents must render, not just exist: they are the first
