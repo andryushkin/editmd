@@ -18,3 +18,6 @@ graphify-out/
 # local research clones of third-party editors (not part of the project);
 # anchored so docs/research/ stays tracked
 /research/
+
+# Icon generator intermediates
+design/build/
