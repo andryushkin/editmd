@@ -684,11 +684,25 @@ final class WorkspaceModel: ObservableObject {
         return moves
     }
 
+    /// The one derivation of a rename's destination URL — the UI transaction
+    /// (gates, registry reservation) and the disk core must agree on it
+    /// structurally, not by re-deriving the same string twice.
+    nonisolated static func renameDestination(
+        for rawSource: URL, newName rawName: String
+    ) throws -> URL {
+        let source = rawSource.standardizedFileURL
+        let newName = try FolderNaming.renamedFileName(
+            from: rawName, keepingExtensionOf: source)
+        return source.deletingLastPathComponent()
+            .appendingPathComponent(newName).standardizedFileURL
+    }
+
     /// Renames one sidebar document in place (same folder, new basename).
     /// Mirrors `moveFilesOnDisk` for a single explicit destination: the review
     /// sidecar follows, path-keyed sidebar state migrates, and a disk failure
     /// rolls back before the error reaches the UI. The extension is preserved
-    /// when the new name omits one.
+    /// when the new name omits one; case-only renames go through a temporary
+    /// sibling (`moveFileForRename`).
     @discardableResult
     func renameFileOnDisk(
         _ rawSource: URL,
@@ -702,9 +716,7 @@ final class WorkspaceModel: ObservableObject {
             throw FileMoveError.unsupportedSource
         }
         let folder = source.deletingLastPathComponent()
-        let newName = try FolderNaming.renamedFileName(
-            from: rawName, keepingExtensionOf: source)
-        let destination = folder.appendingPathComponent(newName).standardizedFileURL
+        let destination = try Self.renameDestination(for: source, newName: rawName)
         if destination == source { return source }
 
         let paths: Set<String> = [source.path]
@@ -730,8 +742,8 @@ final class WorkspaceModel: ObservableObject {
 
         do {
             try await Task.detached(priority: .userInitiated) {
-                try Self.moveFilesAndReviewSidecars(
-                    [move], destinationFolder: folder, moveItem: moveItem)
+                try Self.moveFileForRename(
+                    move, destinationFolder: folder, moveItem: moveItem)
             }.value
         } catch {
             if let moveError = error as? FileMoveError,

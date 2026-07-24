@@ -512,7 +512,10 @@ final class AppState: ObservableObject {
             discardingRouteIDs: discardingRouteIDs))
     }
 
-    private func discardPathState(inside roots: [URL]) {
+    /// Drops navigation state under roots whose files no longer exist —
+    /// discarded move destinations and trashed folders. Sends the main window
+    /// to Welcome when it pointed inside, and prunes DocumentHistory.
+    func discardPathState(inside roots: [URL]) {
         guard !roots.isEmpty else { return }
         let isDropped: (URL) -> Bool = { url in
             roots.contains { PathMutationRouteQueue.isPath(url, inside: $0) }

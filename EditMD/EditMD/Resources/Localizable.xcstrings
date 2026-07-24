@@ -6,10 +6,72 @@
     },
     "%lld open documents live inside this folder. Close them before moving it to the Trash." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld open document lives inside this folder. Close it before moving the folder to the Trash."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld open documents live inside this folder. Close them before moving the folder to the Trash."
+                }
+              }
+            }
+          }
+        },
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Внутри этой папки открыт %lld документ. Закройте его перед перемещением папки в Корзину."
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Внутри этой папки открыто %lld документа. Закройте их перед перемещением папки в Корзину."
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Внутри этой папки открыто %lld документов. Закройте их перед перемещением папки в Корзину."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Внутри этой папки открыто %lld документа. Закройте их перед перемещением папки в Корзину."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Moving “%@” to the Trash…" : {
+      "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Внутри этой папки открыто документов: %lld. Закройте их перед перемещением папки в Корзину."
+            "value" : "Перемещаем «%@» в Корзину…"
+          }
+        }
+      }
+    },
+    "Names that start with a dot are hidden files and would disappear from the list." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имена, начинающиеся с точки, — скрытые файлы: они исчезнут из списка."
           }
         }
       }

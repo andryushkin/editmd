@@ -131,6 +131,82 @@ extension WorkspaceModel {
         }
     }
 
+    /// Disk core of an in-place file rename. A case-only rename on a
+    /// case-insensitive volume reports the destination as an existing item, so
+    /// the batch-move preflight would refuse it with `alreadyExists`; detect
+    /// that case and go through a unique temporary sibling instead (the same
+    /// strategy as `moveFolderThroughTemporary`).
+    nonisolated static func moveFileForRename(
+        _ move: FileMoveResult,
+        destinationFolder: URL,
+        moveItem: FileMoveItemOperation = { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
+    ) throws {
+        if FileManager.default.fileExists(atPath: move.destination.path),
+           sameFilesystemItem(move.source, move.destination) {
+            try renameFileCaseOnlyThroughTemporary(move, moveItem: moveItem)
+            return
+        }
+        try moveFilesAndReviewSidecars(
+            [move], destinationFolder: destinationFolder, moveItem: moveItem)
+    }
+
+    /// Case-only spelling change of one document (and its review sidecar).
+    /// Every hop is source → unique temporary sibling → destination; a failed
+    /// hop is rolled back, and an unrecoverable state surfaces as
+    /// `rollbackFailed` instead of pretending either name survived.
+    nonisolated static func renameFileCaseOnlyThroughTemporary(
+        _ move: FileMoveResult,
+        moveItem: FileMoveItemOperation
+    ) throws {
+        let fileManager = FileManager.default
+        let oldSidecar = ReviewSidecar.url(for: move.source)
+        let newSidecar = ReviewSidecar.url(for: move.destination)
+        let hasSidecar = fileManager.fileExists(atPath: oldSidecar.path)
+
+        func throughTemporary(_ from: URL, _ to: URL) throws {
+            var temporaryURL: URL
+            repeat {
+                temporaryURL = from.deletingLastPathComponent()
+                    .appendingPathComponent(".editmd-rename-\(UUID().uuidString)")
+            } while fileManager.fileExists(atPath: temporaryURL.path)
+            try moveItem(from, temporaryURL)
+            do {
+                try moveItem(temporaryURL, to)
+            } catch {
+                do {
+                    try moveItem(temporaryURL, from)
+                } catch {
+                    // Stranded at the temporary name — ambiguous on purpose.
+                    throw FileMoveError.rollbackFailed([
+                        rollbackState(for: move, expectedReviewSidecar: hasSidecar)
+                    ])
+                }
+                throw error
+            }
+        }
+
+        try throughTemporary(move.source, move.destination)
+        guard hasSidecar else { return }
+        do {
+            try throughTemporary(oldSidecar, newSidecar)
+        } catch {
+            if case FileMoveError.rollbackFailed = error { throw error }
+            // The document and its marks are one logical unit: put the
+            // document back under the old spelling when the sidecar cannot
+            // follow it.
+            do {
+                try throughTemporary(move.destination, move.source)
+            } catch {
+                throw FileMoveError.rollbackFailed([
+                    rollbackState(for: move, expectedReviewSidecar: true)
+                ])
+            }
+            throw error
+        }
+    }
+
     nonisolated private static func sameFilesystemItem(_ lhs: URL, _ rhs: URL) -> Bool {
         let keys: Set<URLResourceKey> = [.fileResourceIdentifierKey]
         guard let lhsID = try? lhs.resourceValues(forKeys: keys).fileResourceIdentifier,

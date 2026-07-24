@@ -46,18 +46,24 @@ enum FolderNaming {
         if name.contains("/") || name.contains(":") || name.contains("\0") {
             throw FolderCreateError.invalidName
         }
+        // Every listing skips hidden files, so a dot-prefixed create/rename
+        // would make the item silently vanish from the sidebar while staying
+        // open in the editor. Refuse instead of hiding.
+        if name.hasPrefix(".") { throw FolderCreateError.hiddenName }
     }
 }
 
 enum FolderCreateError: LocalizedError, Equatable {
     case emptyName
     case invalidName
+    case hiddenName
     case alreadyExists(String)
 
     var errorDescription: String? {
         switch self {
         case .emptyName: return String(localized: "The name cannot be empty.")
         case .invalidName: return String(localized: "Invalid name.")
+        case .hiddenName: return String(localized: "Names that start with a dot are hidden files and would disappear from the list.")
         case .alreadyExists(let n): return String(localized: "“\(n)” already exists.")
         }
     }

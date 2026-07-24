@@ -22,13 +22,24 @@ UI transactions live in `Views/FileMoveActions.swift`:
   document is parked (`DocumentRegistry` preparation) before the disk write and
   restored at the new path, so autosave and the file watcher stay coherent. A
   review sidecar (`.review.json`) always follows its document; a mid-batch disk
-  failure rolls back before the error surfaces. Rename preserves the original
-  extension when the new name omits one.
+  failure rolls back before the error surfaces, and both paths share the same
+  survivor-probing recovery (`fileMoveRecoveryResolutions`) when a rollback
+  itself fails. Rename preserves the original extension when the new name
+  omits one, and case-only renames go through a temporary sibling
+  (`moveFileForRename`) because a case-insensitive volume reports the new
+  spelling as an existing item. Dot-prefixed names are refused everywhere
+  (`FolderNaming`) — listings skip hidden files, so the item would vanish.
 - **Move to Trash** works on files (`confirmAndMoveFilesToTrash`) and whole
   folders (`confirmAndMoveFolderToTrash`). A folder is refused while any open
-  document lives inside it — matching disk-rename — so nothing points at a
-  vanished path; on success `forgetTrashedFolder` drops adopted roots,
-  favorites, pins and expansion under it.
+  document lives inside it — matching disk-rename — and the guard re-runs
+  after the confirmation modal (the run loop drains main-actor work while the
+  dialog is up). The confirm warns when recently closed documents under the
+  root still hold unsaved buffers (`DocumentRegistry.hasUnsavedChanges`).
+  `trashItem` runs detached under `LongRunningOperationCenter`; cleanup then
+  drops registry caches (`discardFolderCaches`), navigation and history state
+  (`AppState.discardPathState`), change-tracking baselines
+  (`LineChangeTracker.forget(under:)`), and sidebar state
+  (`forgetTrashedFolder` — adopted roots, favorites, pins, expansion).
 
 Disk mutations go through `WorkspaceModel`, which bumps `contentEpoch` /
 `linkEpoch` (`noteFilesystemChange`) to invalidate caches and the link index.

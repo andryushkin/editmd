@@ -31,12 +31,19 @@ final class FolderInfoTests: XCTestCase {
         XCTAssertThrowsError(try FolderNaming.markdownFileName(from: "foo:bar")) { err in
             XCTAssertEqual(err as? FolderCreateError, .invalidName)
         }
+        // Dot-prefixed names are hidden files — every listing would skip them.
+        XCTAssertThrowsError(try FolderNaming.markdownFileName(from: ".hidden")) { err in
+            XCTAssertEqual(err as? FolderCreateError, .hiddenName)
+        }
     }
 
     func testFolderName() throws {
         XCTAssertEqual(try FolderNaming.folderName(from: "Notes"), "Notes")
         XCTAssertThrowsError(try FolderNaming.folderName(from: ""))
         XCTAssertThrowsError(try FolderNaming.folderName(from: "a/b"))
+        XCTAssertThrowsError(try FolderNaming.folderName(from: ".git")) { err in
+            XCTAssertEqual(err as? FolderCreateError, .hiddenName)
+        }
     }
 
     func testRenamedFileNameKeepsOrRestoresExtension() throws {
@@ -71,6 +78,11 @@ final class FolderInfoTests: XCTestCase {
         XCTAssertThrowsError(
             try FolderNaming.renamedFileName(from: "foo:bar", keepingExtensionOf: original)) { err in
             XCTAssertEqual(err as? FolderCreateError, .invalidName)
+        }
+        // A dot-prefixed rename would silently hide the file from the sidebar.
+        XCTAssertThrowsError(
+            try FolderNaming.renamedFileName(from: ".notes", keepingExtensionOf: original)) { err in
+            XCTAssertEqual(err as? FolderCreateError, .hiddenName)
         }
     }
 
@@ -772,6 +784,34 @@ struct FileRenameTests {
         #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
+    @Test("Case-only rename changes the spelling on disk and keeps the sidecar")
+    func caseOnlyFileRename() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let source = fixture.root.appendingPathComponent("note.md")
+        let sourceSidecar = ReviewSidecar.url(for: source)
+        try "text".write(to: source, atomically: true, encoding: .utf8)
+        try "marks".write(to: sourceSidecar, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: fixture.defaults)
+        model.addWorkspace(fixture.root)
+
+        let destination = try await model.renameFileOnDisk(source, to: "NOTE.md")
+
+        #expect(destination.lastPathComponent == "NOTE.md")
+        // Probe the real on-disk spelling via a directory listing — both a
+        // case-insensitive fileExists and resourceValues(.nameKey) on a URL
+        // that existed before the move report the stale name.
+        let listing = Set(try FileManager.default.contentsOfDirectory(
+            atPath: fixture.root.path))
+        #expect(listing.contains("NOTE.md"))
+        #expect(listing.contains("NOTE.md.review.json"))
+        #expect(!listing.contains("note.md"))
+        #expect(try String(contentsOf: destination, encoding: .utf8) == "text")
+        #expect(try String(
+            contentsOf: ReviewSidecar.url(for: destination),
+            encoding: .utf8) == "marks")
+    }
+
     @Test("Rename refuses a file EditMD does not list")
     func renameRejectsUnsupported() async throws {
         let fixture = try makeFixture()
@@ -854,6 +894,49 @@ struct FolderTrashTests {
         #expect(model.isFavorite(keepFile))
         #expect(!model.expandedFolders.contains(sub.path))
         #expect(model.lastActivePath == nil)
+    }
+
+    @Test("Unsaved changes are visible for open and parked documents inside a folder")
+    func hasUnsavedChangesInsideFolder() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let file = fixture.root.appendingPathComponent("draft.md")
+        try "disk".write(to: file, atomically: true, encoding: .utf8)
+        let registry = DocumentRegistry()
+
+        #expect(!registry.hasUnsavedChanges(inside: fixture.root))
+        let document = try registry.acquire(file)
+        document.content = "edited"
+        registry.markDirty(file)
+        #expect(registry.hasUnsavedChanges(inside: fixture.root))
+        let outside = fixture.parent.appendingPathComponent("Other", isDirectory: true)
+        #expect(!registry.hasUnsavedChanges(inside: outside))
+
+        // Parked (move-prepared) documents keep their dirty flag too.
+        let preparation = try #require(try registry.beginMovePreparation(file))
+        #expect(registry.hasUnsavedChanges(inside: fixture.root))
+        registry.cancelMovePreparation(preparation)
+        registry.release(file)
+    }
+
+    @Test("Line-change baselines under a trashed folder are forgotten")
+    func lineChangeTrackerForgetsUnderRoot() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let inside = fixture.root.appendingPathComponent("inside.md")
+        let outside = fixture.parent.appendingPathComponent("outside.md")
+        let tracker = LineChangeTracker.shared
+        tracker.noteBaseline(url: inside, content: "a\nb\n")
+        tracker.noteContent(url: inside, content: "a\nchanged\n")
+        tracker.noteBaseline(url: outside, content: "x\n")
+        defer { tracker.forget(url: outside) }
+
+        #expect(!tracker.dirtyLines(for: inside).isEmpty)
+        tracker.forget(under: fixture.root)
+
+        #expect(tracker.dirtyLines(for: inside).isEmpty)
+        #expect(!tracker.trackedURLs().contains(inside.standardizedFileURL))
+        #expect(tracker.trackedURLs().contains(outside.standardizedFileURL))
     }
 
     @Test("Forgetting a trashed folder drops loose and pinned files inside it")

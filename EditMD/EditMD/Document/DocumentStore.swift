@@ -188,6 +188,23 @@ final class DocumentRegistry {
     func isOpen(_ url: URL) -> Bool { entries[url.standardizedFileURL] != nil }
     func isDirty(_ url: URL) -> Bool { entries[url.standardizedFileURL]?.isDirty ?? false }
 
+    /// True when any live entry, session-cached (recently closed) document, or
+    /// parked move document at or under `root` still holds unsaved changes.
+    /// Folder trash warns from this before the buffers are discarded — the
+    /// open-document guard alone cannot see closed dirty buffers.
+    func hasUnsavedChanges(inside rawRoot: URL) -> Bool {
+        let root = rawRoot.standardizedFileURL
+        if entries.contains(where: {
+            $0.value.isDirty && Self.isPath($0.key, inside: root)
+        }) { return true }
+        if sessionCache.contains(where: {
+            $0.isDirty && Self.isPath($0.url, inside: root)
+        }) { return true }
+        return preparedDocuments.contains {
+            $0.value.isDirty && Self.isPath($0.key, inside: root)
+        }
+    }
+
     /// In-memory buffer for an open (refcount > 0) document, if any.
     func contentIfOpen(_ url: URL) -> String? {
         entries[url.standardizedFileURL]?.document.content

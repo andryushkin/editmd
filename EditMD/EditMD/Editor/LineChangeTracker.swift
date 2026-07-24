@@ -118,6 +118,23 @@ final class LineChangeTracker: ObservableObject {
         bump()
     }
 
+    /// Forget every tracked file at or under `root` (folder moved to the
+    /// Trash) — a restored file must re-anchor, not inherit stale marks.
+    func forget(under root: URL) {
+        let rootPath = root.standardizedFileURL.path
+        let keys = baseline.keys.filter {
+            $0.path == rootPath || $0.path.hasPrefix(rootPath + "/")
+        }
+        guard !keys.isEmpty else { return }
+        for key in keys {
+            cancelRecompute(key)
+            baseline.removeValue(forKey: key)
+            dirty.removeValue(forKey: key)
+            GitCommitWatcher.shared.forget(url: key)
+        }
+        bump()
+    }
+
     private func cancelRecompute(_ key: URL) {
         recomputeTasks[key]?.cancel()
         recomputeTasks[key] = nil
