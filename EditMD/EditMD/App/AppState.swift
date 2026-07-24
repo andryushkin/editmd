@@ -123,14 +123,12 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
 /// launch starts in read-first Preview. Also drops the orphaned per-document
 /// mode map left in prefs by older builds (`EditorModeStore`, since removed) —
 /// nothing reads that key anymore, so this is pure hygiene, not a guard.
-/// Called from `applicationDidFinishLaunching` with
-/// `AppState.didApplyEditorModeOverride` as `modeAlreadyChosen`: a launch
-/// caused by an `editmd://` URL delivers the Apple Event BEFORE that
-/// notification, so resetting unconditionally would drop the new clip's
-/// write-first Visual mode back to Preview. The gate lives here rather than in
-/// the delegate so it can be unit-tested against an injected `UserDefaults`.
-func resetEditorModeForColdLaunch(_ defaults: UserDefaults, modeAlreadyChosen: Bool) {
-    guard !modeAlreadyChosen else { return }
+/// The raw reset. Whether a launch may run it is decided by
+/// `AppState.applyColdLaunchEditorMode()` — a launch caused by an `editmd://`
+/// URL delivers the open BEFORE `applicationDidFinishLaunching`, so the reset
+/// has to stand aside for a mode that open has already picked or reserved.
+/// A free function so it can be unit-tested against an injected `UserDefaults`.
+func resetEditorModeForColdLaunch(_ defaults: UserDefaults) {
     defaults.set(EditorMode.preview.rawValue, forKey: "editorMode")
     defaults.removeObject(forKey: "editorMode.byPath")
 }
@@ -290,10 +288,21 @@ final class AppState: ObservableObject {
     /// file took longer than the timer to open.
     private var pendingControlJump: (url: URL, offset: Int)?
 
-    /// True once an open has chosen the editor mode for this launch. Read by
-    /// `applicationDidFinishLaunching`: an open that arrived first (a
-    /// launch-by-URL does) must not be overruled by the cold-launch reset.
+    /// True once an open has chosen the editor mode for this launch. An open
+    /// that arrived before `applicationDidFinishLaunching` (a launch-by-URL
+    /// does) must not be overruled by the cold-launch reset.
     private(set) var didApplyEditorModeOverride = false
+
+    /// Creates that have not landed yet and will pick the mode when they do
+    /// (a clip writes on a background task). They hold off the cold-launch
+    /// reset without touching `editorMode` — the setting is global, so writing
+    /// Visual up front would yank the document the user is reading into Visual
+    /// for the length of the write, and leave it there if the write fails.
+    private var pendingCreatedModeClaims = 0
+
+    /// Set when the cold-launch reset stood aside for a reservation; it is
+    /// replayed if that create never lands.
+    private var coldLaunchResetDeferred = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -653,15 +662,15 @@ final class AppState: ObservableObject {
     /// Only the pasteboard read and the workspace lookup happen on the main
     /// actor; creating the folder and writing up to a few MB runs off it, so a
     /// slow or network-mounted vault cannot freeze the UI from a URL any web
-    /// page can open. The Visual-mode claim must stay on this side of the
-    /// suspension: on a launch-by-URL the cold-launch reset runs while the
-    /// write is still in flight and would otherwise win.
+    /// page can open. Across that suspension the launch's editor mode is only
+    /// *reserved* — Visual is written by `openCreatedFile` once the file
+    /// exists, and a failed write leaves the mode exactly as it was.
     private func createClip(_ clip: EditMDURLCommand.NewClip) {
         let body = clip.usesClipboard
             ? (NSPasteboard.general.string(forType: .string) ?? "")
             : ""
         let candidateRoot = WorkspaceModel.shared.activeWorkspaceRoot
-        applyEditorModeOverride(for: .created)
+        reserveEditorModeForCreate()
         Task {
             do {
                 let url = try await Task.detached(priority: .userInitiated) {
@@ -676,10 +685,12 @@ final class AppState: ObservableObject {
                 // file opens behind it when EditMD was already running.
                 NSApp.activate()
                 openCreatedFile(url)
+                endEditorModeReservation()
             } catch {
                 // The message embeds the destination path — user data.
                 urlSchemeLog.error(
                     "clip write failed: \(error.localizedDescription, privacy: .private)")
+                endEditorModeReservation()
                 presentFolderError(error,
                                    title: String(localized: "Could not save the clip"))
             }
@@ -739,6 +750,41 @@ final class AppState: ObservableObject {
         // Same key as ContentView's `@AppStorage("editorMode")`.
         defaults.set(mode.rawValue, forKey: "editorMode")
         didApplyEditorModeOverride = true
+        // The launch's mode is settled; nothing left for the reset to replay.
+        coldLaunchResetDeferred = false
+    }
+
+    // MARK: Cold-launch editor mode
+
+    /// `applicationDidFinishLaunching`: a cold launch starts in read-first
+    /// Preview — unless an open has already picked the mode, or a create is in
+    /// flight that will pick it (`reserveEditorModeForCreate`). A reservation
+    /// that never lands replays this reset instead.
+    func applyColdLaunchEditorMode() {
+        guard !didApplyEditorModeOverride, pendingCreatedModeClaims == 0 else {
+            coldLaunchResetDeferred = pendingCreatedModeClaims > 0
+            return
+        }
+        resetEditorModeForColdLaunch(defaults)
+    }
+
+    /// Claims the launch's editor mode for a create that has not finished yet,
+    /// without writing it: only the *right* to pick is reserved here, the mode
+    /// itself is applied by `openCreatedFile` once the file exists.
+    func reserveEditorModeForCreate() {
+        pendingCreatedModeClaims += 1
+    }
+
+    /// Balances `reserveEditorModeForCreate`. When no create picked a mode
+    /// after all and the cold-launch reset stood aside for this reservation,
+    /// the reset runs now so the launch still ends in Preview.
+    func endEditorModeReservation() {
+        pendingCreatedModeClaims = max(0, pendingCreatedModeClaims - 1)
+        guard pendingCreatedModeClaims == 0,
+              !didApplyEditorModeOverride,
+              coldLaunchResetDeferred else { return }
+        coldLaunchResetDeferred = false
+        resetEditorModeForColdLaunch(defaults)
     }
 
 }

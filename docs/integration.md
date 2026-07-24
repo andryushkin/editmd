@@ -84,11 +84,13 @@ editmd://new?file=<name-without-extension>&clipboard
   slow or network-mounted vault cannot freeze the UI from a URL.
 - The file is opened through `AppState.openCreatedFile` — write-first Visual
   mode. On a launch caused by the URL the Apple Event arrives **before**
-  `applicationDidFinishLaunching`, so the cold-launch Preview reset is skipped
-  when an open has already chosen a mode
-  (`resetEditorModeForColdLaunch(_:modeAlreadyChosen:)` fed by
-  `AppState.didApplyEditorModeOverride`). The Visual claim therefore happens
-  *before* the write is awaited — the reset runs while it is still in flight.
+  `applicationDidFinishLaunching`, so `AppState.applyColdLaunchEditorMode()`
+  skips the Preview reset when a mode is already applied or *reserved*. A clip
+  only reserves it across the write (`reserveEditorModeForCreate`): the
+  `editorMode` setting is global, so writing Visual up front would drag the
+  document the user is reading into Visual for the length of the write. The
+  mode is applied when the file lands; a failed write leaves a running session
+  untouched and replays the cold-launch reset when it had stood aside.
 - Logging stays out of the way of the note: the query (title, and the reserved
   `content=` body) is never logged, and the created file name is `.private`.
 

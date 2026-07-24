@@ -11,12 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // tab still sticks when the sidebar view is recreated mid-session (A4).
         UserDefaults.standard.set("files", forKey: "sidebarTab")
         // Editor mode is sticky within a session but not across launches: a cold
-        // launch starts in read-first Preview (see helper for details) — unless
-        // the launch itself was an open that already picked a mode, which is
-        // what an `editmd://` clip does (its Apple Event beats this callback).
-        resetEditorModeForColdLaunch(
-            .standard,
-            modeAlreadyChosen: AppState.shared.didApplyEditorModeOverride)
+        // launch starts in read-first Preview — unless the launch itself was an
+        // open that already picked a mode or has one in flight, which is what
+        // an `editmd://` clip does (its Apple Event beats this callback).
+        AppState.shared.applyColdLaunchEditorMode()
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
         // Claude Code IDE channel: follows Settings ▸ General (default on).

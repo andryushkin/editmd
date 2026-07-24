@@ -168,45 +168,88 @@ final class URLCommandTests: XCTestCase {
 
     // MARK: - Cold-launch ordering
 
-    /// A launch caused by `editmd://new` delivers the open BEFORE
-    /// `applicationDidFinishLaunching`, so the cold-launch reset must leave the
-    /// clip's write-first Visual mode alone (it clobbered it back to Preview
-    /// until the reset became conditional). This is the whole sequence the
-    /// AppDelegate runs, in the order it runs it.
+    /// Every state a launch can be in when `applicationDidFinishLaunching`
+    /// runs. Openings are driven through `openUntitled` on purpose: it applies
+    /// the very same `.created` override as a clip, but does not route a URL
+    /// through `WorkspaceModel.shared`, which runs on `.standard` defaults and
+    /// would rewrite the developer's remembered branch from a test.
     @MainActor
-    func testCreatedOpenSurvivesColdLaunchReset() throws {
+    private func makeAppState(
+        mode: EditorMode = .source,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws -> (AppState, UserDefaults) {
         let suiteName = "url-scheme-mode-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), file: file, line: line)
         addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
-        let appState = AppState(defaults: defaults)
-        XCTAssertFalse(appState.didApplyEditorModeOverride)
+        // Whatever the previous session was left in.
+        defaults.set(mode.rawValue, forKey: "editorMode")
+        return (AppState(defaults: defaults), defaults)
+    }
 
-        // 1. The create arrives first and claims Visual. Driven through
-        //    `openUntitled` on purpose: it applies the very same `.created`
-        //    override as the clip, but does not route a URL through
-        //    `WorkspaceModel.shared`, which runs on `.standard` defaults and
-        //    would rewrite the developer's remembered branch from a test.
+    /// Nothing claimed the mode: the ordinary cold launch, read-first Preview.
+    @MainActor
+    func testColdLaunchResetsToPreviewWithoutAClaim() throws {
+        let (appState, defaults) = try makeAppState()
+
+        appState.applyColdLaunchEditorMode()
+
+        XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.preview.rawValue)
+    }
+
+    /// A launch caused by `editmd://new` delivers the open BEFORE
+    /// `applicationDidFinishLaunching`, so the reset must leave the created
+    /// file's write-first Visual mode alone.
+    @MainActor
+    func testAppliedModeSurvivesColdLaunchReset() throws {
+        let (appState, defaults) = try makeAppState()
+
         appState.openUntitled()
-        XCTAssertTrue(appState.didApplyEditorModeOverride)
-        // 2. applicationDidFinishLaunching runs afterwards and must not reset.
-        resetEditorModeForColdLaunch(
-            defaults, modeAlreadyChosen: appState.didApplyEditorModeOverride)
+        appState.applyColdLaunchEditorMode()
 
         XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.visual.rawValue)
     }
 
-    /// Without an open first, the same launch sequence still lands on Preview —
-    /// the gate must not disable the reset outright.
+    /// A clip writes on a background task. Until the file exists the mode is
+    /// only reserved — `editorMode` is global, so switching it early would drag
+    /// the document the user is reading into Visual mid-write.
     @MainActor
-    func testColdLaunchResetStillAppliesWithoutAnOpen() throws {
-        let suiteName = "url-scheme-mode-plain-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(EditorMode.source.rawValue, forKey: "editorMode")
+    func testReservationDoesNotTouchTheModeUntilTheFileLands() throws {
+        let (appState, defaults) = try makeAppState()
 
-        resetEditorModeForColdLaunch(defaults, modeAlreadyChosen: false)
+        appState.reserveEditorModeForCreate()
+        appState.applyColdLaunchEditorMode()
+        XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.source.rawValue,
+                       "a pending create must not change the mode of the open document")
+
+        appState.openUntitled()          // the write landed
+        appState.endEditorModeReservation()
+
+        XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.visual.rawValue)
+    }
+
+    /// The write failed: the mode the user was in stays, and a cold launch that
+    /// stood aside for the reservation still ends in Preview.
+    @MainActor
+    func testFailedCreateReplaysTheColdLaunchReset() throws {
+        let (appState, defaults) = try makeAppState()
+
+        appState.reserveEditorModeForCreate()
+        appState.applyColdLaunchEditorMode()
+        appState.endEditorModeReservation()
 
         XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.preview.rawValue)
+    }
+
+    /// Same failure with the app already running: no cold-launch reset was
+    /// deferred, so nothing may be rewritten behind the user's back.
+    @MainActor
+    func testFailedCreateLeavesARunningSessionAlone() throws {
+        let (appState, defaults) = try makeAppState()
+
+        appState.reserveEditorModeForCreate()
+        appState.endEditorModeReservation()
+
+        XCTAssertEqual(defaults.string(forKey: "editorMode"), EditorMode.source.rawValue)
     }
 
     // MARK: - Destination fallback
