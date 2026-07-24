@@ -13,7 +13,7 @@ not be broken. Release chronology and investigation write-ups do not live here
 | [architecture.md](architecture.md) | Document model, windows, the three editing modes, round-trip pipeline, performance rules |
 | [vault.md](vault.md) | Workspaces, wiki-links, link index, vault lint, search, tags, frontmatter |
 | [review.md](review.md) | Review marks: sidecar schema, anchoring, lifecycle, agent processing |
-| [integration.md](integration.md) | Claude Code IDE bridge (MCP), control socket, `editmdctl`, agent skill and status |
+| [integration.md](integration.md) | Claude Code IDE bridge (MCP), control socket, `editmdctl`, agent skill and status, `editmd://` URL scheme |
 | [testing.md](testing.md) | Build commands, test layout, fixtures, conventions |
 | [audit.md](audit.md) | The repo auditor: mechanical checks (`scripts/audit.sh`) + review judgment list |
 | [releasing.md](releasing.md) | Version scheme, when a release is cut, changelog format, release process |

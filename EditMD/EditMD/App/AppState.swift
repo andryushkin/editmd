@@ -123,8 +123,12 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
 /// launch starts in read-first Preview. Also drops the orphaned per-document
 /// mode map left in prefs by older builds (`EditorModeStore`, since removed) —
 /// nothing reads that key anymore, so this is pure hygiene, not a guard.
-/// Called from `applicationDidFinishLaunching`; a free function so it can be
-/// unit-tested against an injected `UserDefaults`.
+/// Called from `applicationDidFinishLaunching` — but only when nothing has
+/// picked a mode yet (`AppState.didApplyEditorModeOverride`): a launch caused
+/// by an `editmd://` URL delivers the Apple Event BEFORE that notification, so
+/// resetting unconditionally would drop the new clip's write-first Visual mode
+/// back to Preview. A free function so it can be unit-tested against an
+/// injected `UserDefaults`.
 func resetEditorModeForColdLaunch(_ defaults: UserDefaults) {
     defaults.set(EditorMode.preview.rawValue, forKey: "editorMode")
     defaults.removeObject(forKey: "editorMode.byPath")
@@ -284,6 +288,11 @@ final class AppState: ObservableObject {
     /// fixed-delay notification, which silently dropped the jump whenever the
     /// file took longer than the timer to open.
     private var pendingControlJump: (url: URL, offset: Int)?
+
+    /// True once an open has chosen the editor mode for this launch. Read by
+    /// `applicationDidFinishLaunching`: an open that arrived first (a
+    /// launch-by-URL does) must not be overruled by the cold-launch reset.
+    private(set) var didApplyEditorModeOverride = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -617,6 +626,72 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: URL scheme (`editmd://`)
+
+    /// Entry point for the `editmd://` scheme, called from the AppDelegate both
+    /// for a running app and for a cold launch. Any web page can open such a
+    /// URL, so this path only ever CREATES a file — it never overwrites,
+    /// deletes, or interprets the body (see `EditMDURLCommand`).
+    func handleURLCommand(_ url: URL) {
+        guard let command = EditMDURLCommand.parse(url) else {
+            urlSchemeLog.notice(
+                "ignored URL command \(url.absoluteString, privacy: .public)")
+            return
+        }
+        switch command {
+        case .newClip(let clip):
+            createClip(clip)
+        }
+    }
+
+    /// `editmd://new` — write the pasteboard into a new file and open it.
+    private func createClip(_ clip: EditMDURLCommand.NewClip) {
+        let body = clip.usesClipboard
+            ? (NSPasteboard.general.string(forType: .string) ?? "")
+            : ""
+        let folder = Self.clipDestinationFolder()
+        do {
+            let url = try ClipFile.write(body, baseName: clip.name, in: folder)
+            WorkspaceModel.shared.noteFilesystemChange()
+            urlSchemeLog.info(
+                "created clip \(url.lastPathComponent, privacy: .public)")
+            // The handoff comes from a browser window; without this the new
+            // file opens behind it when EditMD was already running.
+            NSApp.activate()
+            openCreatedFile(url)
+        } catch {
+            urlSchemeLog.error(
+                "clip write failed: \(error.localizedDescription, privacy: .public)")
+            presentFolderError(error,
+                               title: String(localized: "Could not save the clip"))
+        }
+    }
+
+    /// Where a clip lands: the root of the active workspace, or — with no
+    /// workspace adopted (or its folder gone from disk) — the clips folder,
+    /// created on demand. The fallback is `~/Documents/EditMD Clips`,
+    /// overridable without UI:
+    /// `defaults write andryushkin.EditMD clips.folder <path>`.
+    static func clipDestinationFolder(defaults: UserDefaults = .standard) -> URL {
+        if let root = WorkspaceModel.shared.activeWorkspaceRoot, isFolder(root) {
+            return root
+        }
+        return clipsFallbackFolder(defaults: defaults)
+    }
+
+    static func clipsFallbackFolder(defaults: UserDefaults = .standard) -> URL {
+        if let custom = defaults.string(forKey: "clips.folder")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
+                .standardizedFileURL
+        }
+        let documents = FileManager.default.urls(
+            for: .documentDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents")
+        return documents.appendingPathComponent("EditMD Clips").standardizedFileURL
+    }
+
     /// Editable documents live in DocumentRegistry; PDFs and images bypass it
     /// but still expose representedURL on their AppKit window.
     static func openDocumentURLsForDiskMutation() -> [URL] {
@@ -640,6 +715,7 @@ final class AppState: ObservableObject {
         guard let mode = editorModeOverride(for: reason) else { return }
         // Same key as ContentView's `@AppStorage("editorMode")`.
         defaults.set(mode.rawValue, forKey: "editorMode")
+        didApplyEditorModeOverride = true
     }
 
 }

@@ -1,8 +1,18 @@
 # Plan: `editmd://` URL scheme (web-clipper handoff)
 
-Status: **planned** — the extension side is already shipped in webtodotmd
-(sidepanel "EditMD" button). This document is the implementation plan for
-the app side.
+Status: **implemented** — both sides ship. The app behaviour is documented in
+[integration.md](integration.md) § `editmd://` URL scheme; this file is kept
+for the reference research behind the design and records where the
+implementation deviates from the original plan:
+
+- `&content=` is **not** honoured as a body carrier yet (it stays reserved and
+  ignored); without `&clipboard` the file is created empty.
+- Destination decision (step 4): active workspace root, else
+  `~/Documents/EditMD Clips`, overridable through the `clips.folder` user
+  default — no Settings UI in v1.
+- Extra guard the plan did not foresee: a launch caused by the URL delivers
+  the open before `applicationDidFinishLaunching`, so the cold-launch editor
+  mode reset is conditional — otherwise the clip opens in Preview.
 
 ## Goal
 

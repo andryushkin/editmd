@@ -11,8 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // tab still sticks when the sidebar view is recreated mid-session (A4).
         UserDefaults.standard.set("files", forKey: "sidebarTab")
         // Editor mode is sticky within a session but not across launches: a cold
-        // launch always starts in read-first Preview (see helper for details).
-        resetEditorModeForColdLaunch(.standard)
+        // launch starts in read-first Preview (see helper for details) — unless
+        // the launch itself was an open that already picked a mode, which is
+        // what an `editmd://` clip does (its Apple Event beats this callback).
+        if !AppState.shared.didApplyEditorModeOverride {
+            resetEditorModeForColdLaunch(.standard)
+        }
         // Install didBecomeActive observer for git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
         // Claude Code IDE channel: follows Settings ▸ General (default on).
@@ -77,9 +81,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WorkspaceModel.shared.snapshot.flushSync()
     }
 
+    /// Finder / `open` file opens AND the `editmd://` scheme (web clipper) —
+    /// AppKit delivers both through this one callback.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            AppState.shared.handleOpen(url.standardizedFileURL)
+            if url.scheme?.lowercased() == EditMDURLCommand.scheme {
+                AppState.shared.handleURLCommand(url)
+            } else {
+                AppState.shared.handleOpen(url.standardizedFileURL)
+            }
         }
     }
 

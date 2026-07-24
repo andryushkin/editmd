@@ -2301,6 +2301,16 @@
         }
       }
     },
+    "Could not save the clip" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сохранить клип"
+          }
+        }
+      }
+    },
     "Counting…" : {
       "localizations" : {
         "ru" : {
@@ -7533,6 +7543,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "токен1 токен2  — AND"
+          }
+        }
+      }
+    },
+    "Too many files are already named “%@”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком много файлов уже названы «%@»."
           }
         }
       }

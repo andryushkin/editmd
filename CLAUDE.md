@@ -68,6 +68,10 @@ domain docs.
 - `openDiff` is blocking: its continuation completes exactly once for
   Accept/Reject/close/disconnect/timeout.
 - IDE/control services do not start under XCTest.
+- The `editmd://` scheme is an untrusted entry point (any web page can open
+  one): it only creates files — re-sanitized name, uniquified, never
+  overwriting — and ignores what it does not understand
+  (`docs/integration.md` § URL scheme).
 
 ## Localization
 

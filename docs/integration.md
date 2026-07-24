@@ -1,12 +1,14 @@
-# Agent integration
+# Agent and external integration
 
 EditMD integrates with coding agents in two directions: it acts as an **IDE
 for Claude Code** (the agent sees selections, opens files, shows diffs), and
 it exposes a **control socket + CLI** so any agent can drive the editor and
-query the vault graph. All protocol messages are English and unlocalized.
+query the vault graph. A third, much smaller entry point — the `editmd://`
+**URL scheme** — lets a web clipper hand a note over even when the app is not
+running. All protocol messages are English and unlocalized.
 
-Code lives in `EditMD/EditMD/Integration/`. Neither service starts under
-XCTest.
+Agent code lives in `EditMD/EditMD/Integration/`; neither service starts under
+XCTest. The URL scheme lives in `EditMD/EditMD/App/`.
 
 ## Claude Code IDE bridge
 
@@ -52,6 +54,48 @@ vault-graph queries directly from `<workspace>/.editmd/link-index.json`
 stay free of AppKit and app models, and why vault-graph wire shapes are
 defined only in `ControlGraphPayload.swift` — the app server and the offline
 engine must answer byte-compatibly.
+
+## `editmd://` URL scheme (web-clipper handoff)
+
+Registered in `App/Info.plist` (`CFBundleURLTypes`), so LaunchServices starts
+EditMD for such a URL even from a cold machine — that is the whole reason the
+clipper uses it instead of the control socket, which needs a running app.
+
+Contract v1, fixed by the shipped webtodotmd extension (its sidepanel "EditMD"
+button copies the Markdown to the clipboard and opens the URL — do not change
+the shape unilaterally):
+
+```
+editmd://new?file=<name-without-extension>&clipboard
+```
+
+- `new` is the only command; the body comes from
+  `NSPasteboard.general` when the `clipboard` flag is present, otherwise the
+  file is created empty.
+- Reserved and currently ignored: `content`, `append`, `silent`, `workspace`.
+  Unknown commands and parameters are dropped rather than failing — any web
+  page can open one of these URLs.
+- Destination: the root of the active workspace
+  (`WorkspaceModel.activeWorkspaceRoot`); with no workspace adopted,
+  `~/Documents/EditMD Clips`, created on demand and overridable with
+  `defaults write andryushkin.EditMD clips.folder <path>` (no Settings UI).
+- The file is opened through `AppState.openCreatedFile` — write-first Visual
+  mode. On a launch caused by the URL the Apple Event arrives **before**
+  `applicationDidFinishLaunching`, so the cold-launch Preview reset is skipped
+  when an open has already chosen a mode
+  (`AppState.didApplyEditorModeOverride`).
+
+Because the sender is untrusted, `App/URLCommand.swift` keeps the whole
+contract in pure Foundation functions (`EditMDURLCommand.parse`,
+`ClipFileNaming`, `ClipFile`), unit-tested in `URLCommandTests.swift`:
+
+- the name is re-sanitized (no separators, control characters, or leading
+  dots; a trailing `.md` dropped; capped at 100 characters / 200 bytes; empty
+  → `Clip`), so a clip can never escape the destination folder;
+- a taken name uniquifies (`Name 2.md`, `Name 3.md`…) and every write uses
+  `.withoutOverwriting` — this path creates files and never overwrites,
+  deletes, or interprets a body;
+- oversized bodies are truncated at 4 MB on a character boundary.
 
 ## Shipped agent resources
 

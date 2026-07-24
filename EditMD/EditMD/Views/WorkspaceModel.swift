@@ -125,19 +125,25 @@ final class WorkspaceModel: ObservableObject {
         LinkIndex.shared.noteActiveDocumentChanged(workspace: self)
     }
 
-    /// Roots automatic link indexing covers: ONE workspace — the one owning
-    /// the active document (fallback: the first workspace, which is also the
-    /// branch a fresh launch opens). Scanning every adopted workspace made
-    /// launch/rebuild cost the sum of all vaults, while backlinks and
-    /// vault-lint are per-vault questions anyway (Obsidian semantics: the
-    /// vault is the resolution unit; cross-workspace edges never resolved
-    /// reliably — wiki targets were ambiguous across vaults).
-    var linkIndexRoots: [URL] {
+    /// The workspace the app currently works in: the one owning the active
+    /// document, falling back to the first adopted root (which is also the
+    /// branch a fresh launch opens). `nil` only when nothing is adopted.
+    var activeWorkspaceRoot: URL? {
         if let path = lastActivePath,
            let owner = workspaceOwning(URL(fileURLWithPath: path)) {
-            return [owner.url]
+            return owner.url
         }
-        return workspaces.first.map { [$0.url] } ?? []
+        return workspaces.first?.url
+    }
+
+    /// Roots automatic link indexing covers: ONE workspace — the active one.
+    /// Scanning every adopted workspace made launch/rebuild cost the sum of
+    /// all vaults, while backlinks and vault-lint are per-vault questions
+    /// anyway (Obsidian semantics: the vault is the resolution unit;
+    /// cross-workspace edges never resolved reliably — wiki targets were
+    /// ambiguous across vaults).
+    var linkIndexRoots: [URL] {
+        activeWorkspaceRoot.map { [$0] } ?? []
     }
 
     /// Launch state of the tree: exactly one branch open — the one holding
