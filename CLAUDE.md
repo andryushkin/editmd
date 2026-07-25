@@ -42,6 +42,13 @@ After changes: targeted tests → full suite (in proportion to risk) →
 (`.agents/skills/editmd-audit`) when available; otherwise run
 `scripts/audit.sh` and follow `docs/audit.md`. More in `docs/testing.md`.
 
+Building to a throwaway `-derivedDataPath` (review builds, signed copies,
+`.xcresult` bundles) is fine, but **delete it before ending the session** —
+nothing reclaims those paths automatically and each is 0.5–1 GB; leftovers
+accumulate into tens of gigabytes. Check with
+`ls -d /tmp/*editmd* /tmp/EditMD* 2>/dev/null` and remove what the session
+created. The default DerivedData location needs no such cleanup.
+
 ## Non-negotiable invariants
 
 Cross-system rules that hold everywhere; the *why* and the detail live in the
