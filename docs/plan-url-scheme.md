@@ -5,8 +5,10 @@ Status: **implemented** — both sides ship. The app behaviour is documented in
 for the reference research behind the design and records where the
 implementation deviates from the original plan:
 
-- `&content=` is **not** honoured as a body carrier yet (it stays reserved and
-  ignored); without `&clipboard` the file is created empty.
+- `&content=` is **not** honoured as a body carrier: it stays reserved and
+  ignored, so without `&clipboard` the file is created empty. Whether it ever
+  becomes one is an open decision, tracked in
+  [issue #4](https://github.com/andryushkin/editmd/issues/4).
 - Destination decision (step 4): a Settings ▸ General ▸ Web clips choice
   between a fixed folder (the default — a clipper is a capture inbox) and the
   active workspace root. `&workspace=<name>`, listed in the plan as "later",
