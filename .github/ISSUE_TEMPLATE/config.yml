@@ -6,3 +6,6 @@ contact_links:
   - name: ❓ Question
     url: https://github.com/andryushkin/editmd/discussions/categories/q-a
     about: Ask anything about using or building EditMD.
+  - name: 🌐 Website
+    url: https://dotmd.tools/editmd
+    about: Product page for EditMD and the other dotMD.tools utilities.

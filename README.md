@@ -4,6 +4,9 @@ Native Markdown editor for macOS. SwiftUI + AppKit/TextKit, no Electron, no web
 views for editing — the markdown string is the single source of truth, and
 everything else is a view of it.
 
+Website: [dotmd.tools/editmd](https://dotmd.tools/editmd), part of the
+[dotMD.tools](https://dotmd.tools) family.
+
 ## Three modes, one document
 
 - **Source** — raw markdown with syntax highlighting, lint hints, and

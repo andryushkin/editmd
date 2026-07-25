@@ -50,6 +50,8 @@ different one, or follow whatever workspace is active in the sidebar.
 
 ## The project
 
+Website: <https://dotmd.tools/editmd>
+
 Source code, documentation and issues:
 <https://github.com/andryushkin/editmd>
 
