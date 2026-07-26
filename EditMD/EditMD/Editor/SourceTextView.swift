@@ -1260,13 +1260,14 @@ struct SourceTextView: NSViewRepresentable {
                 let replacement: String
                 // Compared through the same filter the dialog applied on its way
                 // out, so a label it merely trimmed (`[ **bold** ]`) still counts
-                // as untouched.
-                if let existing, !existing.rawLabel.isEmpty,
+                // as untouched. `rawLabel` is nil when the source could not be
+                // established — then there is nothing exact to put back.
+                if let existing, let rawLabel = existing.rawLabel, !rawLabel.isEmpty,
                    text == singleLineFieldText(existing.text) {
                     // The label was not edited, so it goes back as written:
                     // rebuilding it from the rendered text would flatten
                     // `[**bold**](x)` into `[bold](x)` on a confirm alone.
-                    replacement = markdownLinkSyntax(rawLabel: existing.rawLabel, url: url)
+                    replacement = markdownLinkSyntax(rawLabel: rawLabel, url: url)
                 } else {
                     replacement = markdownLinkSyntax(text: text.isEmpty ? url : text, url: url)
                 }
@@ -1281,7 +1282,10 @@ struct SourceTextView: NSViewRepresentable {
                 // is its full span. What stays behind is the label *as written* —
                 // the rendered text would drop its emphasis markers and unescape
                 // what the source escaped.
-                let remaining = existing?.rawLabel ?? existingText
+                // Without an exact source label the rendered text has to be
+                // escaped on its way back, or `[a\[b](x)` would leave `a[b`
+                // behind and change what the parser sees.
+                let remaining = existing?.rawLabel ?? markdownEscapedLabel(existingText)
                 guard textView.shouldChangeText(in: selection, replacementString: remaining)
                 else { return }
                 textView.replaceCharacters(in: selection, with: remaining)

@@ -40,11 +40,17 @@ func selectionUsableAsLinkLabel(_ text: String) -> Bool {
 /// link can't be broken by the URL (mirrors the image serializer's
 /// `formatDestination`).
 func markdownLinkSyntax(text: String, url: String) -> String {
-    markdownLinkSyntax(rawLabel: text
+    markdownLinkSyntax(rawLabel: markdownEscapedLabel(text), url: url)
+}
+
+/// Plain text as a link label: `\`, `[` and `]` escaped so the brackets of the
+/// link survive. Exposed because a label is not always rebuilt through
+/// `markdownLinkSyntax` — removing a link puts one back on its own.
+func markdownEscapedLabel(_ text: String) -> String {
+    text
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "[", with: "\\[")
-        .replacingOccurrences(of: "]", with: "\\]"),
-        url: url)
+        .replacingOccurrences(of: "]", with: "\\]")
 }
 
 /// Same, for a label that is already markdown source — an existing link's label

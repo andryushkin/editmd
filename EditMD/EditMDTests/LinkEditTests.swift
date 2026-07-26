@@ -180,19 +180,31 @@ final class LinkEditTests: XCTestCase {
     func testProbeIsSkippedWhereNothingIsArbitrated() {
         // Nothing here has a local reading, so no key — and therefore no probe,
         // no detached task, and no stat while the user types.
-        for dest in ["https://example.com/a/b", "http://example.com/x.md",
-                     "mailto:a@b.io", "user@example.com/path", "#top", "/abs/path",
-                     "./sibling.md", "../up.md", "notes", "docs.dev?next=/guide",
-                     "192.168.1.5:8080", "localhost:3000"] {
+        for dest in [
+            // Ruled out before any shape analysis.
+            "https://example.com/a/b", "http://example.com/x.md", "mailto:a@b.io",
+            "#top", "/abs/path", "./sibling.md", "../up.md", "user@example.com/path",
+            // Never completed, so a hit could not change anything.
+            "notes.md", "docs.dev/intro.md", "assets/shot.png#fig",
+            // The shape rules would leave these alone anyway.
+            "notes", "docs/intro", "Makefile.am", "logo.ai", "chapter:3",
+            // A query or fragment is a web address, and its path would answer for
+            // a different destination.
+            "docs.dev?next=/guide", "example.com/page?q=1",
+            // No file name on this platform carries a port.
+            "192.168.1.5:8080", "localhost:3000",
+        ] {
             XCTAssertNil(localProbeKey(for: dest), dest)
         }
     }
 
-    func testDottedBareNameIsAskedAbout() {
-        // `Makefile.am` and `example.com` are the same shape; only the file
-        // system tells them apart, so both get a key.
-        XCTAssertEqual(localProbeKey(for: "Makefile.am"), "Makefile.am")
+    func testAskedOnlyWhereAHitWouldChangeTheOutcome() {
+        // These would be completed by shape, so a file of that name is worth a
+        // stat — and nothing else is.
         XCTAssertEqual(localProbeKey(for: "example.com"), "example.com")
+        XCTAssertEqual(localProbeKey(for: "docs.io/guide"), "docs.io/guide")
+        XCTAssertEqual(localProbeKey(for: "user@example.com"), "user@example.com")
+        XCTAssertEqual(localProbeKey(for: " example.com\n"), "example.com")
     }
 
     func testFileWhoseExtensionIsATLDStaysLocalWhenItExists() {
@@ -201,20 +213,16 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testExtensionsThatCollideWithTLDsAreNotCompletedBlind() {
-        // Even with no answer at all, the ones a repo is full of stay local
-        // because their extension is not a completable TLD.
+    func testExtensionsThatCollideWithTLDsAreNeverCompleted() {
+        // Whatever the probe says — it is not even asked — the ones a repo is full
+        // of stay local, because their extension is not a completable TLD.
         for dest in ["Makefile.am", "main.cc", "config.h.in", "settings.pro",
                      "logo.ai", "Notes.app"] {
-            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in nil }), dest)
+            for answer: Bool? in [true, false, nil] {
+                XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in answer }),
+                               dest, dest)
+            }
         }
-    }
-
-    func testProbeKeyIsThePathAlone() {
-        XCTAssertEqual(localProbeKey(for: "docs.dev/intro.md#setup"), "docs.dev/intro.md")
-        XCTAssertEqual(localProbeKey(for: "docs.dev/intro.md?plain=1"), "docs.dev/intro.md")
-        XCTAssertEqual(localProbeKey(for: " notes.md\n"), "notes.md")
-        XCTAssertEqual(localProbeKey(for: "docs.io/guide"), "docs.io/guide")
     }
 
     func testSlashInsideAQueryIsNotAPath() {
@@ -336,7 +344,7 @@ final class LinkEditTests: XCTestCase {
         // whatever it renders, the label put back is the source.
         XCTAssertEqual(m?.text, "bold and `code`")
         XCTAssertEqual(m?.rawLabel, "**bold** and `code`")
-        XCTAssertEqual(markdownLinkSyntax(rawLabel: m!.rawLabel, url: "notes.md"),
+        XCTAssertEqual(markdownLinkSyntax(rawLabel: m!.rawLabel!, url: "notes.md"),
                        "[**bold** and `code`](notes.md)")
     }
 
@@ -345,11 +353,26 @@ final class LinkEditTests: XCTestCase {
         XCTAssertEqual(m?.rawLabel, "Example")
     }
 
-    func testRawLabelIsNotEscapedTwice() {
+    func testRawLabelIsAbsentWhenThereIsNoLabel() {
+        // An empty label has no source to put back, and that must read as
+        // "unknown" rather than as an empty source — otherwise confirming ⌘K
+        // writes an invisible `[](url)`.
+        XCTAssertNil(inlineLinkMatch(in: "[](notes.md)", at: 1)?.rawLabel)
+    }
+
+    func testAnUnknownLabelGoesBackEscaped() {
+        // The fallback is rendered text, so the serializer that escapes has to
+        // handle it — otherwise `[a\[b](x)` would come back as `a[b`.
+        XCTAssertEqual(markdownEscapedLabel(#"a[b"#), #"a\[b"#)
+        XCTAssertEqual(markdownLinkSyntax(text: #"a[b"#, url: "x.md"), #"[a\[b](x.md)"#)
+    }
+
+    func testRawLabelIsNotEscapedTwice() throws {
         // The label came from the source, so its escapes are already right.
         let m = inlineLinkMatch(in: #"[a\[b](x.md)"#, at: 3)
         XCTAssertEqual(m?.rawLabel, #"a\[b"#)
-        XCTAssertEqual(markdownLinkSyntax(rawLabel: m!.rawLabel, url: "x.md"), #"[a\[b](x.md)"#)
+        let raw = try XCTUnwrap(m?.rawLabel)
+        XCTAssertEqual(markdownLinkSyntax(rawLabel: raw, url: "x.md"), #"[a\[b](x.md)"#)
     }
 
     func testAutolinkIsEditable() {
@@ -377,6 +400,10 @@ final class LocalDestinationCacheTests: XCTestCase {
                            atomically: true, encoding: .utf8)
         try "# Home".write(to: dir.appendingPathComponent("home.md"),
                            atomically: true, encoding: .utf8)
+        // Extensionless, because that is the shape the normalizer asks about: a
+        // vault-file tail is decided without the file system.
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("docs.dev/guide"), withIntermediateDirectories: true)
         return dir
     }
 
@@ -399,12 +426,12 @@ final class LocalDestinationCacheTests: XCTestCase {
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
                                           adoptedRoot: vault)
 
-        cache.prefetch("docs.dev/intro.md")
-        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md"))
-        // …and the same destination now decides the normalizer against completing.
-        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md",
+        cache.prefetch("docs.dev/guide")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/guide"))
+        // …and that answer keeps the normalizer from completing it.
+        XCTAssertEqual(normalizedLinkURL("docs.dev/guide",
                                          localFileExists: { cache.answer(for: $0) }),
-                       "docs.dev/intro.md")
+                       "docs.dev/guide")
     }
 
     func testReportsAMissingFileAsMissing() throws {
@@ -413,10 +440,10 @@ final class LocalDestinationCacheTests: XCTestCase {
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
                                           adoptedRoot: vault)
 
+        // A vault-file tail is never the normalizer's question, so the cache does
+        // not take it either.
         cache.prefetch("archive.org/note.md")
-        XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/note.md"))
-        // A vault-file tail is not the normalizer's question — one without an
-        // extension is, and there a missing path leaves the host reading standing.
+        XCTAssertNil(cache.answer(for: "archive.org/note.md"))
         cache.prefetch("archive.org/guide")
         XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/guide"))
         XCTAssertEqual(normalizedLinkURL("archive.org/guide",
@@ -430,11 +457,10 @@ final class LocalDestinationCacheTests: XCTestCase {
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
                                           adoptedRoot: vault)
 
-        cache.prefetch("docs.dev/intro.md?plain=1")
-        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md?plain=1"))
-        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md?plain=1",
-                                         localFileExists: { cache.answer(for: $0) }),
-                       "docs.dev/intro.md?plain=1")
+        // A query means a web address: no key, no probe, and the path alone must
+        // not answer for it.
+        cache.prefetch("docs.dev/guide?plain=1")
+        XCTAssertNil(cache.answer(for: "docs.dev/guide?plain=1"))
     }
 
     func testExtensionlessPathIsResolvedToo() throws {
@@ -469,8 +495,8 @@ final class LocalDestinationCacheTests: XCTestCase {
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
                                           adoptedRoot: vault)
 
-        cache.prefetch("docs.dev/intro.md#setup")
-        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md#setup"))
+        cache.prefetch("docs.dev/guide#setup")
+        XCTAssertNil(cache.answer(for: "docs.dev/guide#setup"))
     }
 
     func testAFullTableEvictsTheOldestAndKeepsTheNewest() throws {
@@ -483,14 +509,14 @@ final class LocalDestinationCacheTests: XCTestCase {
         // — is decided by the test rather than by which detached probe finishes
         // first. 70 arrivals past a table of 64.
         for i in 0..<70 {
-            cache.prefetch("docs.dev/note-\(i).md")
-            XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-\(i).md"))
+            cache.prefetch("docs.dev/note-\(i)")
+            XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-\(i)"))
         }
         // The newest answer is the one a dialog is about to read, and it survives
         // the arrivals before it — which a wipe-on-full table would have dropped.
-        XCTAssertNotNil(cache.answer(for: "docs.dev/note-69.md"))
+        XCTAssertNotNil(cache.answer(for: "docs.dev/note-69"))
         // The oldest is gone — evicted one at a time, never wiped as a table.
-        XCTAssertNil(cache.answer(for: "docs.dev/note-0.md"))
+        XCTAssertNil(cache.answer(for: "docs.dev/note-0"))
     }
 
     func testUnknownUntilAnswered() {

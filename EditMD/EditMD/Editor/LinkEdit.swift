@@ -229,21 +229,8 @@ func normalizedLinkURL(_ raw: String,
         return withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
     }
 
-    // Everything before the first `/`, `?` or `#`. An `@` in *there* is an
-    // address or userinfo; further down it belongs to the path and means nothing
-    // (`youtube.com/@mkbhd` is an ordinary page).
-    let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
-    if authority.contains("@") {
-        // Only a whole string that is an address becomes `mailto:`; with a path
-        // glued on it is userinfo in a URL, which is not ours to complete. A file
-        // of that very name — an archive of one message per file — wins over the
-        // address reading, on the same evidence everything else here turns on.
-        guard authority.count == s.count, let address = mailtoAddress(s) else { return s }
-        return localFileExists(s) == true ? s : address
-    }
-
     // Anything ending in a file this app opens is never completed, and the probe
-    // is not consulted at all: whether such a file exists *yet* cannot decide it,
+    // is not consulted for it: whether the note exists *yet* cannot decide it,
     // because writing the link before the note is the everyday forward link in a
     // vault. Asking would also make the outcome depend on whether the answer
     // arrived — the same keystrokes storing a relative path on one volume and a
@@ -252,30 +239,49 @@ func normalizedLinkURL(_ raw: String,
     // carries one already.
     if looksLikeVaultFile(s) { return s }
 
-    // Everything else is completed by shape, and the probe can only ever *save* a
-    // local file from that: `Makefile.am`, `example.com` and `docs.io/guide` are
-    // files or folders in some vaults and hosts in others, and a hit is proof.
-    // Best-effort by nature — a probe still in flight (or refused a slot) leaves
-    // the shape rule in charge — but it can only make the answer more
-    // conservative, never rewrite a link the file system has confirmed.
+    // What the shape alone would store. Nothing to do when it would leave the
+    // destination as it is.
+    guard let completed = shapeCompletion(s) else { return s }
+
+    // A file that is really there is a path, not a host: `Makefile.am` and a
+    // folder named `docs.io` live in some vaults. Best-effort by nature — a probe
+    // still in flight (or refused a slot) leaves the shape rule in charge — but a
+    // hit can only ever make the answer more conservative.
     if localProbeKey(for: s) != nil, localFileExists(s) == true { return s }
+    return completed
+}
+
+/// What the shape rules alone would store for `s`, or nil when they would leave
+/// it alone. Split out so the probe can be asked exactly where its answer could
+/// change the outcome — `localProbeKey` calls this too.
+private func shapeCompletion(_ s: String) -> String? {
+    // Everything before the first `/`, `?` or `#`. An `@` in *there* is an
+    // address or userinfo; further down it belongs to the path and means nothing
+    // (`youtube.com/@mkbhd` is an ordinary page).
+    let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+    if authority.contains("@") {
+        // Only a whole string that is an address becomes `mailto:`; with a path
+        // glued on it is userinfo in a URL, which is not ours to complete.
+        guard authority.count == s.count else { return nil }
+        return mailtoAddress(s)
+    }
 
     // Only the authority is inspected; the path, query and fragment ride along.
-    guard let host = hostParts(authority) else { return s }
+    guard let host = hostParts(authority) else { return nil }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
-    guard labels.allSatisfy(isHostLabel) else { return s }
+    guard labels.allSatisfy(isHostLabel) else { return nil }
     if hasCompletableTLD(labels) { return "https://" + s }
-    // A dotted quad is a host, and so is a single label carrying a port — both
-    // are servers on this network rather than paths in the vault.
+    // A dotted quad is a host, and so is `localhost` with a port — both are
+    // servers on this network rather than paths in the vault, and both speak http
+    // far more often than https. `chapter:3` is prose that merely looks like a
+    // host and a port, and nothing else here could veto it.
     let isAddress = labels.count == 4 && labels.allSatisfy {
         Int($0).map { (0...255).contains($0) } ?? false
     }
-    // `localhost:3000`, not `chapter:3`: a bare word with a colon and a number is
-    // prose far more often than a host, and nothing else here can veto it.
     if isAddress || (host.name.lowercased() == "localhost" && !host.port.isEmpty) {
         return "http://" + s
     }
-    return s
+    return nil
 }
 
 /// A host label by RFC 1123 shape: alphanumeric at both ends, hyphens inside.
@@ -339,37 +345,36 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
     }
 }
 
-/// The path a destination would be arbitrated by — and remembered under —
-/// or nil when the normalizer never asks the file system about it: something
-/// already carrying a scheme, an anchor, an absolute or dot-relative path, an
-/// address, or a host with no path beneath it. One definition for both sides, so
-/// the question and the cache key cannot drift apart.
+/// The path to resolve for `destination` — and to remember it under — or nil when
+/// the answer could not change what is stored, in which case no stat is worth
+/// starting. That is the case for far more than it looks:
 ///
-/// The returned path excludes query and fragment: neither is part of a file name,
-/// and a `/` inside a query (`docs.dev?next=/guide`) does not make a destination
-/// a path — while `resolveLocalLinkDestination` only strips the fragment itself.
+/// * anything `completionCandidate` already rules out (schemed, anchor, absolute,
+///   dot-relative, whitespace inside);
+/// * a destination ending in a file this app opens, which is never completed —
+///   `notes.md`, `docs.dev/intro.md`, `assets/shot.png#fig`;
+/// * a shape the rules would leave alone anyway: `Makefile.am` and `logo.ai`
+///   (extension not a completable TLD), `chapter:3`, `docs/intro`;
+/// * anything carrying a query or fragment, which is a web address — and whose
+///   path alone would answer for a *different* destination
+///   (`docs.dev?next=/guide` must not be settled by a folder named `docs.dev`);
+/// * an authority with a port, which no file name on this platform can hold.
+///
+/// One definition for both sides — the normalizer asks exactly here — so the
+/// question and the cache key cannot drift apart, and a stalled volume cannot
+/// spend the in-flight budget on probes whose answers nobody reads.
 func localProbeKey(for destination: String) -> String? {
-    guard let s = completionCandidate(destination) else { return nil }
+    guard let s = completionCandidate(destination),
+          !s.contains("?"), !s.contains("#"),
+          !looksLikeVaultFile(s), shapeCompletion(s) != nil
+    else { return nil }
     // An `@` under a path is userinfo in a URL and names nothing local; standing
     // alone it may still be a file (`user@example.com` in a mail archive).
     let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
-    guard !authority.contains("@") || authority.count == s.count else { return nil }
-    let path = String(s.prefix { $0 != "?" && $0 != "#" })
-    // A dotted bare name is asked about too, not only one ending in a file we
-    // open: `Makefile.am`, `main.cc` and `logo.ai` are files whose extensions are
-    // also real TLDs, and by shape they are `example.com`. Only the file system
-    // tells them apart, and the stat that costs is the price of not rewriting a
-    // link to a file sitting right next to the document.
-    //
-    // Once a query or fragment is in play the file reading needs more than a
-    // dot: `notes.md?plain=1` is a document, `docs.dev?next=/guide` is a page,
-    // and a `/` inside the query says nothing about either.
-    let carriesQuery = path.count != s.count
-    let tailIsAFile = carriesQuery
-        ? looksLikeVaultFile(s)
-        : fileExtension(pathTail(s)) != nil
-    guard path.contains("/") || tailIsAFile else { return nil }
-    return path
+    guard !authority.contains("@") || authority.count == s.count,
+          !authority.contains(":")
+    else { return nil }
+    return s
 }
 
 /// The destination in the form both the normalizer and the probe read it, or nil
@@ -440,8 +445,10 @@ struct InlineLinkMatch: Equatable {
     var text: String
     /// Label as *written*: `**bold**` where `text` is `bold`. A label the user
     /// leaves alone goes back byte-exact, so ⌘K on a formatted link cannot flatten
-    /// it just by being confirmed.
-    var rawLabel: String
+    /// it just by being confirmed. Nil when the source could not be established
+    /// (an autolink, or a child without a range) — then only `text` is known, and
+    /// it has to go through the escaping serializer like any other typed label.
+    var rawLabel: String?
     /// Destination as authored (angle brackets already stripped by the parser).
     var url: String
 }
@@ -491,7 +498,7 @@ private struct InlineLinkRangeCollector: MarkupWalker {
            let r = nsRange(for: src), r.length >= 2 {
             matches.append(InlineLinkMatch(range: r,
                                            text: link.plainText,
-                                           rawLabel: rawLabel(of: link) ?? link.plainText,
+                                           rawLabel: rawLabel(of: link),
                                            url: dest))
         }
         descendInto(link)
