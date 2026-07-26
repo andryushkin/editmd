@@ -56,8 +56,20 @@ final class LinkEditTests: XCTestCase {
         XCTAssertEqual(normalizedLinkURL("docs/intro.md"), "docs/intro.md")
     }
 
-    func testEmailIsNotTurnedIntoWebLink() {
-        XCTAssertEqual(normalizedLinkURL("user@example.com"), "user@example.com")
+    func testBareAddressGetsMailto() {
+        XCTAssertEqual(normalizedLinkURL("user@example.com"), "mailto:user@example.com")
+        XCTAssertEqual(normalizedLinkURL("user.name+tag@sub.example.co.uk"),
+                       "mailto:user.name+tag@sub.example.co.uk")
+    }
+
+    func testNonAddressesWithAtAreKept() {
+        for dest in ["user@localhost",       // no dotted host
+                     "@example.com",         // no local part
+                     "a@b@example.com",      // two @
+                     "user@example.com/path" // userinfo, not an address
+        ] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
     }
 
     func testEmptyStaysEmpty() {

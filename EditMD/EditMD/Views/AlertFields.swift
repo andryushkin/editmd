@@ -41,11 +41,15 @@ func runModal(_ alert: NSAlert, focusing field: NSView) -> NSApplication.ModalRe
     return response
 }
 
-/// Makes `field` the first responder as soon as its window becomes key.
+/// Makes `field` the first responder as soon as its window becomes key, and
+/// once more when the modal loop starts: AppKit's own first-responder pass can
+/// land on either side of `didBecomeKey`, and in the app it ran *after* it and
+/// moved focus to the first field of the accessory view.
 @MainActor
 private final class FirstResponderClaim {
     private let field: NSView
     private var token: NSObjectProtocol?
+    private var timer: Timer?
 
     init(field: NSView, window: NSWindow) {
         self.field = field
@@ -57,14 +61,31 @@ private final class FirstResponderClaim {
                 self.claim()
             }
         }
+        // Scheduled by hand in the modal mode: the main queue does not drain
+        // while an alert is up.
+        let timer = Timer(timeInterval: 0.05, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.claim()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .modalPanel)
+        self.timer = timer
     }
 
     func cancel() {
         if let token { NotificationCenter.default.removeObserver(token) }
         token = nil
+        timer?.invalidate()
+        timer = nil
     }
 
     private func claim() {
-        field.window?.makeFirstResponder(field)
+        guard let window = field.window else { return }
+        // Already editing this field: re-claiming would reselect its whole
+        // contents, which would undo what the user has typed by then.
+        if let editor = window.firstResponder as? NSTextView,
+           let edited = editor.delegate as? NSView, edited === field { return }
+        window.makeFirstResponder(field)
     }
 }

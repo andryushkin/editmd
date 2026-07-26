@@ -33,33 +33,52 @@ private let localFileLinkExtensions: Set<String> =
 /// `https://`, because a scheme-less destination is resolved as a *relative
 /// path* and the link then silently points nowhere.
 ///
+/// A bare address gets `mailto:` for the same reason.
+///
 /// Returned untouched: anything with a scheme already (`http:`, `mailto:`,
 /// `editmd:` — unknown ones too), anchors and paths (`#top`, `/a`, `./a`,
-/// `../a`), anything without a dotted host, a lone file name we would open
-/// locally (`notes.md`, `shot.png`), and anything with an `@` — a scheme-less
-/// `user@host` is an address, never an https target.
+/// `../a`), anything without a dotted host, and a lone file name we would open
+/// locally (`notes.md`, `shot.png`).
 func normalizedLinkURL(_ raw: String) -> String {
     let s = raw.trimmingCharacters(in: .whitespaces)
     guard let first = s.first, !hasURLScheme(s),
           first != "#", first != "/", first != "?",
           !s.hasPrefix("./"), !s.hasPrefix("../"),
-          !s.contains("@"), !s.contains(where: \.isWhitespace)
+          !s.contains(where: \.isWhitespace)
     else { return s }
 
+    if let address = mailtoAddress(s) { return address }
+    // Any other `@` is userinfo (`user@host/path`) — not ours to complete.
+    guard !s.contains("@") else { return s }
+
     let host = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
-    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
-    // A host needs at least two non-empty labels and a plausible TLD; the port,
-    // if any, rides on the last label and is trimmed off before the check.
-    guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }),
-          let last = labels.last
-    else { return s }
-    let tld = last.prefix { $0 != ":" }
-    guard tld.count >= 2, tld.allSatisfy(\.isLetter) else { return s }
+    guard let tld = hostTLD(host) else { return s }
     // A dotted name on its own, with a local extension, is a file — not a host.
-    if host.count == s.count, localFileLinkExtensions.contains(tld.lowercased()) {
-        return s
-    }
+    if host.count == s.count, localFileLinkExtensions.contains(tld) { return s }
     return "https://" + s
+}
+
+/// `mailto:` form of a bare e-mail address: one `@`, a non-empty local part, and
+/// a host that would pass as a host on its own. Nil for anything else.
+private func mailtoAddress(_ s: String) -> String? {
+    let parts = s.split(separator: "@", omittingEmptySubsequences: false)
+    guard parts.count == 2, !parts[0].isEmpty,
+          !parts[1].contains(where: { $0 == "/" || $0 == "?" || $0 == "#" || $0 == ":" }),
+          hostTLD(parts[1]) != nil
+    else { return nil }
+    return "mailto:" + s
+}
+
+/// The lowercased top-level label of `host` when it reads as a hostname — two or
+/// more non-empty dotted labels and an alphabetic TLD. A port rides on the last
+/// label and is trimmed off before the check. Nil when it does not.
+private func hostTLD(_ host: Substring) -> String? {
+    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }), let last = labels.last
+    else { return nil }
+    let tld = last.prefix { $0 != ":" }
+    guard tld.count >= 2, tld.allSatisfy(\.isLetter) else { return nil }
+    return tld.lowercased()
 }
 
 /// True when `s` starts with a URL scheme (`mailto:`, `https:`, `editmd:`). A
