@@ -69,8 +69,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: andryushkin.EditMD
         PRODUCT_NAME: EditMD
-        MARKETING_VERSION: "0.47.12"
-        CURRENT_PROJECT_VERSION: "427"
+        MARKETING_VERSION: "0.47.13"
+        CURRENT_PROJECT_VERSION: "428"
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
         # App icon: EditMD/Resources/AppIcon.icns

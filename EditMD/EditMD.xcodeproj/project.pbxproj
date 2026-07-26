@@ -1567,7 +1567,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 427;
+				CURRENT_PROJECT_VERSION = 428;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
@@ -1576,7 +1576,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.47.12;
+				MARKETING_VERSION = 0.47.13;
 				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -1609,7 +1609,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 427;
+				CURRENT_PROJECT_VERSION = 428;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = EditMD/App/Info.plist;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
@@ -1618,7 +1618,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.47.12;
+				MARKETING_VERSION = 0.47.13;
 				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
