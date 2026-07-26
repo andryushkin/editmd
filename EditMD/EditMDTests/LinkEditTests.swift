@@ -154,6 +154,21 @@ final class LinkEditTests: XCTestCase {
         XCTAssertEqual(normalizedLinkURL("192.168.1.5:8080"), "http://192.168.1.5:8080")
     }
 
+    func testAWordAndANumberIsNotAServer() {
+        // `chapter:3` is prose that happens to look like host and port, and no
+        // probe can veto it — only `localhost` and an address are servers here.
+        for dest in ["chapter:3", "todo:12", "note:2024", "myserver:8080"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testControlCharactersDoNotBlockCompletion() {
+        // The normalizer and the probe key strip them the same way, so a caller
+        // that has not sanitized first still gets a completion.
+        XCTAssertEqual(normalizedLinkURL("example.com\n"), "https://example.com")
+        XCTAssertNotNil(localProbeKey(for: "example.com\n"))
+    }
+
     func testColonThatIsNotAPortOrSchemeIsKept() {
         for dest in ["C:\\notes", "foo:bar", "https:example.com"] {
             XCTAssertEqual(normalizedLinkURL(dest), dest)
@@ -189,7 +204,8 @@ final class LinkEditTests: XCTestCase {
     func testExtensionsThatCollideWithTLDsAreNotCompletedBlind() {
         // Even with no answer at all, the ones a repo is full of stay local
         // because their extension is not a completable TLD.
-        for dest in ["Makefile.am", "main.cc", "config.h.in", "settings.pro"] {
+        for dest in ["Makefile.am", "main.cc", "config.h.in", "settings.pro",
+                     "logo.ai", "Notes.app"] {
             XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in nil }), dest)
         }
     }

@@ -1258,7 +1258,11 @@ struct SourceTextView: NSViewRepresentable {
                                      fileURL: parent.fileURL) {
             case .apply(let text, let url):
                 let replacement: String
-                if let existing, text == existing.text {
+                // Compared through the same filter the dialog applied on its way
+                // out, so a label it merely trimmed (`[ **bold** ]`) still counts
+                // as untouched.
+                if let existing, !existing.rawLabel.isEmpty,
+                   text == singleLineFieldText(existing.text) {
                     // The label was not edited, so it goes back as written:
                     // rebuilding it from the rendered text would flatten
                     // `[**bold**](x)` into `[bold](x)` on a confirm alone.
@@ -1274,13 +1278,16 @@ struct SourceTextView: NSViewRepresentable {
                     location: selection.location + (replacement as NSString).length, length: 0))
             case .remove:
                 // Only reachable while editing an existing link, so `selection`
-                // is its full span and `existingText` its label.
-                guard textView.shouldChangeText(in: selection, replacementString: existingText)
+                // is its full span. What stays behind is the label *as written* —
+                // the rendered text would drop its emphasis markers and unescape
+                // what the source escaped.
+                let remaining = existing?.rawLabel ?? existingText
+                guard textView.shouldChangeText(in: selection, replacementString: remaining)
                 else { return }
-                textView.replaceCharacters(in: selection, with: existingText)
+                textView.replaceCharacters(in: selection, with: remaining)
                 textView.didChangeText()
                 textView.setSelectedRange(NSRange(location: selection.location,
-                                                  length: (existingText as NSString).length))
+                                                  length: (remaining as NSString).length))
             case .cancel:
                 break
             }

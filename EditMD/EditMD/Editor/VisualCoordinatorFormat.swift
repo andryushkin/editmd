@@ -614,7 +614,7 @@ extension VisualMarkdownView.Coordinator {
         switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL,
                                  fileURL: parent.fileURL) {
         case .apply(let display, let url):
-            if !existingURL.isEmpty, display == existingText {
+            if !existingURL.isEmpty, display == singleLineFieldText(existingText) {
                 // Only the destination changed: retarget the run in place. Rewriting
                 // the text would rebuild it from one set of attributes and flatten
                 // whatever formatting the label carries.

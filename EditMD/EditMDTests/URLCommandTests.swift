@@ -98,6 +98,11 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(ClipFileNaming.sanitizedBaseName("a\nb\tc"), "a b c")
         XCTAssertEqual(ClipFileNaming.sanitizedBaseName("a\u{0}b"), "a b")
         XCTAssertEqual(ClipFileNaming.sanitizedBaseName("  spaced   out  "), "spaced out")
+        // A line separator is not a control character and was slipping through
+        // into real file names; a zero-width joiner must survive, or an emoji
+        // name arrives in pieces.
+        XCTAssertEqual(ClipFileNaming.sanitizedBaseName("Notes\u{2028}Secret"), "Notes Secret")
+        XCTAssertEqual(ClipFileNaming.sanitizedBaseName("👨‍💻 Notes"), "👨‍💻 Notes")
     }
 
     /// Senders are supposed to omit the extension; a sloppy one must not

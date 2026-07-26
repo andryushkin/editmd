@@ -89,7 +89,6 @@ private final class FirstResponderClaim {
     private var token: NSObjectProtocol?
     private var timer: Timer?
     private var deadline: Date?
-    private var claims = 0
     /// Set the first time the panel becomes key, whether or not the claim stood:
     /// only that first moment may take focus from where it finds it.
     private var didOpen = false
@@ -117,13 +116,13 @@ private final class FirstResponderClaim {
     }
 
     private func panelBecameKey() {
-        // First opening: claim over whatever AppKit's own pass does, for a moment.
-        // A later return to the panel (back from another app) claims only if no
-        // field is being edited — by then the focus is the user's to place.
-        let opening = !didOpen
+        // Only the first opening claims anything. A later return to the panel —
+        // back from another app with a URL on the clipboard — leaves focus exactly
+        // where it was: re-claiming would select the field's whole contents, and
+        // the ⌘V that follows would replace them instead of inserting.
+        guard !didOpen else { return }
         didOpen = true
-        claim(force: opening)
-        guard opening else { return }
+        claim(force: true)
         deadline = Date().addingTimeInterval(Self.watch)
         // Scheduled by hand in the modal mode: the main queue does not drain
         // while an alert is up.
@@ -163,18 +162,14 @@ private final class FirstResponderClaim {
         deadline = nil
     }
 
+    /// `force` belongs to the opening moment: only AppKit's own pass may be
+    /// claimed over, and only there.
     private func claim(force: Bool) {
         guard let window = field.window, window.isKeyWindow else { return }
         // Already editing this field: re-claiming would reselect its whole
         // contents, discarding what the user has typed by then.
         if isFocused { return }
-        // A later return to the panel claims only when nothing at all holds
-        // focus. Anything that does — another field, a template popup — was put
-        // there by the user, not by AppKit's opening pass; only that pass, inside
-        // the opening moment, is worth claiming over.
         if !force, window.firstResponder !== window { return }
-        // Counting successes only: two refusals must not look like two claims and
-        // end the watch before the field has focus at all.
-        if window.makeFirstResponder(field) { claims += 1 }
+        window.makeFirstResponder(field)
     }
 }

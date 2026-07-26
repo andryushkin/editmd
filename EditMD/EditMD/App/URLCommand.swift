@@ -184,25 +184,27 @@ enum ClipFileNaming {
 
     /// URL `file` parameter → base name without extension.
     ///
-    /// Drops path separators and control characters (so the result cannot
-    /// escape the destination folder or hide a newline), leading dots (a
-    /// dot-prefixed file would vanish from every listing), and a trailing
+    /// Drops path separators, folds control characters and line separators to
+    /// spaces through the shared `singleLineFieldText` (so the result cannot
+    /// escape the destination folder or hide a line break), drops leading dots (a
+    /// dot-prefixed file would vanish from every listing) and a trailing
     /// `.md`/`.markdown` (senders are supposed to omit the extension; without
     /// this a sloppy one would produce `Note.md.md`).
     static func sanitizedBaseName(_ raw: String?) -> String {
         guard let raw else { return fallbackBaseName }
-        var name = String(raw.unicodeScalars.compactMap { scalar -> Character? in
-            switch scalar {
-            case "/", "\\", ":": return nil
-            default:
-                // Newlines, tabs and NUL become spaces — collapsed below.
-                return CharacterSet.controlCharacters.contains(scalar)
-                    ? " " : Character(scalar)
-            }
-        })
+        // The character rules are shared with the name prompts
+        // (`Editor/SingleLineText.swift`): control characters *and* line
+        // separators fold to spaces, format characters — a zero-width joiner
+        // holding an emoji together — survive. Path separators go only here,
+        // since only a URL-supplied name can contain them.
+        var name = singleLineFieldText(String(raw.unicodeScalars.filter {
+            $0 != "/" && $0 != "\\" && $0 != ":"
+        }))
+        // Runs of spaces do collapse here, where the prompts leave them alone: a
+        // name a web page supplies is a title to tidy, while a name the user
+        // typed is theirs — collapsing it would rename their file behind them.
         name = name.split(separator: " ", omittingEmptySubsequences: true)
             .joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
         while let first = name.first, first == "." || first == " " {
             name.removeFirst()
         }

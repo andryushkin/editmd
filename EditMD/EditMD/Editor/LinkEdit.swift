@@ -37,11 +37,13 @@ private let vaultFileExtensions: Set<String> =
 /// (`mysite.ninja`) to be typed with its scheme. Absent on purpose are the
 /// two-letter codes that collide with extensions a vault or repo is full of —
 /// `md` as Moldova loses to `md` as Markdown here, likewise `sh`, `rs`, `pl`,
-/// `cc`, `am`, `in` and `pro` (C++, Automake, `config.h.in`, Qt projects). The
-/// ones that stay and still collide — `ai`, `app` — are settled by the probe.
+/// `cc`, `am`, `in`, `pro`, `ai` and `app` (C++, Automake, `config.h.in`, Qt
+/// projects, Illustrator, bundles). Leaving one in and letting the probe settle it
+/// would only mean settling it by timing, which is what the arbitration below
+/// refuses to do.
 private let completableTLDs: Set<String> = [
     "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz",
-    "io", "co", "ai", "dev", "app", "cloud", "tools", "wiki", "news", "blog",
+    "io", "co", "dev", "cloud", "tools", "wiki", "news", "blog",
     "shop", "store", "site", "online", "space", "tech", "digital", "studio",
     "design", "media", "agency", "email", "link", "page", "live", "life",
     "xyz", "top", "art", "fun", "team", "work", "world", "zone", "me", "tv",
@@ -143,7 +145,12 @@ final class LocalDestinationCache: @unchecked Sendable {
         lock.unlock()
 
         let dir = fileDir
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // A global queue, not `Task.detached`: `fileExists` blocks, and on an
+        // unresponsive mount it blocks for the mount's timeout. Occupying the
+        // cooperative pool with that would stall every other async subsystem in
+        // the app — the link index, git status, background activity — not just
+        // this dialog.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let hit = resolveLocalLinkDestination(target, fileDir: dir,
                                                   vaultRoot: self.vaultRoot())
@@ -218,12 +225,9 @@ final class LocalDestinationCache: @unchecked Sendable {
 /// linking a note before creating it keeps working.
 func normalizedLinkURL(_ raw: String,
                        localFileExists: (String) -> Bool? = { _ in nil }) -> String {
-    let s = raw.trimmingCharacters(in: .whitespaces)
-    guard let first = s.first, !hasURLScheme(s),
-          first != "#", first != "/", first != "?",
-          !s.hasPrefix("./"), !s.hasPrefix("../"),
-          !s.contains(where: \.isWhitespace)
-    else { return s }
+    guard let s = completionCandidate(raw) else {
+        return withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
+    }
 
     // Everything before the first `/`, `?` or `#`. An `@` in *there* is an
     // address or userinfo; further down it belongs to the path and means nothing
@@ -266,7 +270,11 @@ func normalizedLinkURL(_ raw: String,
     let isAddress = labels.count == 4 && labels.allSatisfy {
         Int($0).map { (0...255).contains($0) } ?? false
     }
-    if isAddress || (labels.count == 1 && !host.port.isEmpty) { return "http://" + s }
+    // `localhost:3000`, not `chapter:3`: a bare word with a colon and a number is
+    // prose far more often than a host, and nothing else here can veto it.
+    if isAddress || (host.name.lowercased() == "localhost" && !host.port.isEmpty) {
+        return "http://" + s
+    }
     return s
 }
 
@@ -341,12 +349,7 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
 /// and a `/` inside a query (`docs.dev?next=/guide`) does not make a destination
 /// a path — while `resolveLocalLinkDestination` only strips the fragment itself.
 func localProbeKey(for destination: String) -> String? {
-    let s = withoutControlCharacters(destination).trimmingCharacters(in: .whitespaces)
-    guard let first = s.first, !hasURLScheme(s),
-          first != "#", first != "/", first != "?",
-          !s.hasPrefix("./"), !s.hasPrefix("../"),
-          !s.contains(where: \.isWhitespace)
-    else { return nil }
+    guard let s = completionCandidate(destination) else { return nil }
     // An `@` under a path is userinfo in a URL and names nothing local; standing
     // alone it may still be a file (`user@example.com` in a mail archive).
     let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
@@ -367,6 +370,21 @@ func localProbeKey(for destination: String) -> String? {
         : fileExtension(pathTail(s)) != nil
     guard path.contains("/") || tailIsAFile else { return nil }
     return path
+}
+
+/// The destination in the form both the normalizer and the probe read it, or nil
+/// when neither ever touches it: already carrying a scheme, an anchor, an absolute
+/// or dot-relative path, or whitespace inside. One definition, so the question and
+/// the cache key cannot drift apart — two copies of it had already diverged over
+/// whether control characters are stripped first.
+private func completionCandidate(_ raw: String) -> String? {
+    let s = withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
+    guard let first = s.first, !hasURLScheme(s),
+          first != "#", first != "/", first != "?",
+          !s.hasPrefix("./"), !s.hasPrefix("../"),
+          !s.contains(where: \.isWhitespace)
+    else { return nil }
+    return s
 }
 
 /// True when a destination ends in a file this app opens (`notes.md#heading`).
@@ -483,8 +501,11 @@ private struct InlineLinkRangeCollector: MarkupWalker {
     /// child's end, so emphasis markers and escapes come along. Nil for an
     /// autolink, which has no label of its own.
     private func rawLabel(of link: Link) -> String? {
-        let childRanges = link.children.compactMap(\.range)
-        guard let first = childRanges.first, let last = childRanges.last,
+        // Every child must carry a range: dropping one would silently move the
+        // label's start or end and hand back a truncated span as if it were whole.
+        let childRanges = link.children.map(\.range)
+        guard childRanges.allSatisfy({ $0 != nil }),
+              let first = childRanges.first ?? nil, let last = childRanges.last ?? nil,
               let start = nsRange(for: first), let end = nsRange(for: last)
         else { return nil }
         let span = NSRange(location: start.location, length: NSMaxRange(end) - start.location)
