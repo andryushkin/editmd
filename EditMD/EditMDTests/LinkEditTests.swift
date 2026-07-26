@@ -168,6 +168,38 @@ final class LinkEditTests: XCTestCase {
                        "mailto:user.name+tag@sub.example.co.uk")
     }
 
+    func testAtInThePathIsNotAnAddress() {
+        // A handle in a path is an ordinary page — the `@` says nothing there.
+        XCTAssertEqual(normalizedLinkURL("youtube.com/@mkbhd"), "https://youtube.com/@mkbhd")
+        XCTAssertEqual(normalizedLinkURL("medium.com/@author/post"),
+                       "https://medium.com/@author/post")
+        XCTAssertEqual(normalizedLinkURL("example.com/contact?email=a@b.com"),
+                       "https://example.com/contact?email=a@b.com")
+        XCTAssertEqual(normalizedLinkURL("example.com#a@b.com"), "https://example.com#a@b.com")
+    }
+
+    func testUserinfoAndPathsAreNotAddresses() {
+        for dest in ["user:pass@example.com",   // userinfo, not an address
+                     "user@example.com/path",   // userinfo with a path
+                     "contacts/john@acme.com"   // a file in the vault
+        ] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testMalformedHostsAreKept() {
+        for dest in ["-example.com", "example-.com", "999.999.999.999",
+                     "example.com:0", "1.2.3.4:65536", "[::1]:8080"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testNewlineInTheFieldNeverReachesTheDestination() {
+        XCTAssertEqual(linkDestination(typed: "https://a\nb", existing: ""), "https://ab")
+        XCTAssertEqual(linkDestination(typed: "example.com\n", existing: ""),
+                       "https://example.com")
+    }
+
     func testNonAddressesWithAtAreKept() {
         for dest in ["user@localhost",       // no dotted host
                      "@example.com",         // no local part
@@ -329,5 +361,19 @@ final class SourcePasteURLIntegrationTests: XCTestCase {
         setClipboard("just some text")
         tv.paste(nil)
         XCTAssertEqual(tv.string, "start just some text")
+    }
+}
+
+/// Name prompts must never let a pasted newline into a path component.
+final class OneLineNameTests: XCTestCase {
+
+    func testNewlinesBecomeSpaces() {
+        XCTAssertEqual(oneLineName("My\nNote"), "My Note")
+        XCTAssertEqual(oneLineName("  spaced \n"), "spaced")
+        XCTAssertEqual(oneLineName("a\r\nb"), "a b")
+    }
+
+    func testPlainNamePassesThrough() {
+        XCTAssertEqual(oneLineName("Untitled.md"), "Untitled.md")
     }
 }

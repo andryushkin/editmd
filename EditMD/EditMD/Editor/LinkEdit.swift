@@ -47,7 +47,12 @@ private let completableTLDs: Set<String> = [
     "es", "it", "nl", "be", "ch", "at", "se", "no", "fi", "dk", "pt", "gr",
     "cz", "hu", "ro", "bg", "si", "sk", "lt", "lv", "ee", "ge", "am", "az",
     "tr", "il", "ae", "in", "cn", "jp", "kr", "hk", "sg", "br", "mx", "ar",
-    "cl", "za", "eu", "рф", "укр",
+    "cl", "za", "eu",
+    // Cyrillic IDN TLDs in both forms a destination arrives in — typed as
+    // Unicode, pasted as punycode. Escaped rather than written out so the repo
+    // stays ASCII outside the allowlist `scripts/audit.sh` check 1 enforces:
+    // \u{440}\u{444} is .rf (xn--p1ai), \u{443}\u{43A}\u{440} is .ukr.
+    "\u{440}\u{444}", "xn--p1ai", "\u{443}\u{43A}\u{440}", "xn--j1amh",
 ]
 
 /// Schemes that carry no `//` authority, so their colon is the whole signal.
@@ -59,7 +64,10 @@ private let authorityLessSchemes: Set<String> =
 /// confirming must not rewrite its destination.
 func linkDestination(typed raw: String, existing: String,
                      localFileExists: (String) -> Bool? = { _ in nil }) -> String {
-    let typed = raw.trimmingCharacters(in: .whitespaces)
+    // A destination can never hold a newline: a two-line paste would break the
+    // link syntax and split the paragraph it sits in.
+    let typed = raw.components(separatedBy: .newlines).joined()
+        .trimmingCharacters(in: .whitespaces)
     return typed == existing
         ? typed
         : normalizedLinkURL(typed, localFileExists: localFileExists)
@@ -129,7 +137,7 @@ final class LocalDestinationCache: @unchecked Sendable {
 ///
 /// Returned untouched: anything already carrying a scheme (`http://`, `mailto:`,
 /// `editmd://` — unknown ones too), anchors and paths (`#top`, `/a`, `./a`,
-/// `../a`), anything whose host is a single label (`notes`, `docs/intro.md`), and
+/// `../a`), anything whose host is a single label (`notes`, `notes/intro.md`), and
 /// any host whose TLD is not in `completableTLDs`.
 ///
 /// A destination that **ends** in a file this app opens is the ambiguous case —
@@ -150,9 +158,16 @@ func normalizedLinkURL(_ raw: String,
           !s.contains(where: \.isWhitespace)
     else { return s }
 
-    if let address = mailtoAddress(s) { return address }
-    // Any other `@` is userinfo (`user@host/path`) — not ours to complete.
-    guard !s.contains("@") else { return s }
+    // Everything before the first `/`, `?` or `#`. An `@` in *there* is an
+    // address or userinfo; further down it belongs to the path and means nothing
+    // (`youtube.com/@mkbhd` is an ordinary page).
+    let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+    if authority.contains("@") {
+        // Only a whole string that is an address becomes `mailto:`; with a path
+        // glued on it is userinfo in a URL, which is not ours to complete.
+        guard authority.count == s.count, let address = mailtoAddress(s) else { return s }
+        return address
+    }
 
     // What the destination ends in raises the question; the file system answers
     // it. Only a known-missing file falls through to be completed.
@@ -162,28 +177,42 @@ func normalizedLinkURL(_ raw: String,
     }
 
     // Only the authority is inspected; the path, query and fragment ride along.
-    guard let host = hostParts(s.prefix { $0 != "/" && $0 != "?" && $0 != "#" })
-    else { return s }
+    guard let host = hostParts(authority) else { return s }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
-    guard labels.allSatisfy({ !$0.isEmpty }) else { return s }
+    guard labels.allSatisfy(isHostLabel) else { return s }
     if labels.count >= 2, let tld = labels.last?.lowercased(),
        completableTLDs.contains(tld) {
         return "https://" + s
     }
     // A dotted quad is a host, and so is a single label carrying a port — both
     // are servers on this network rather than paths in the vault.
-    let isAddress = labels.count == 4 && labels.allSatisfy { $0.allSatisfy(\.isNumber) }
+    let isAddress = labels.count == 4 && labels.allSatisfy {
+        Int($0).map { (0...255).contains($0) } ?? false
+    }
     if isAddress || (labels.count == 1 && !host.port.isEmpty) { return "http://" + s }
     return s
+}
+
+/// A host label by RFC 1123 shape: alphanumeric at both ends, hyphens inside.
+/// Keeps `-example.com` and `example-.com` from being completed into a URL that
+/// cannot resolve. Unicode letters pass, so an IDN host still completes.
+private func isHostLabel(_ label: Substring) -> Bool {
+    guard let first = label.first, let last = label.last,
+          first.isLetter || first.isNumber, last.isLetter || last.isNumber
+    else { return false }
+    return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
 }
 
 /// `mailto:` form of a bare e-mail address: one `@`, a non-empty local part, and
 /// a host that would pass as a completable host on its own. Nil for anything
 /// else, including `user@host/path`, which is userinfo in a URL.
 private func mailtoAddress(_ s: String) -> String? {
+    let structural: Set<Character> = ["/", "?", "#", ":"]
     let parts = s.split(separator: "@", omittingEmptySubsequences: false)
     guard parts.count == 2, !parts[0].isEmpty,
-          !parts[1].contains(where: { $0 == "/" || $0 == "?" || $0 == "#" || $0 == ":" })
+          // `user:pass@host` is userinfo, `contacts/john@acme.com` is a path.
+          !parts[0].contains(where: { structural.contains($0) }),
+          !parts[1].contains(where: { structural.contains($0) })
     else { return nil }
     let labels = parts[1].split(separator: ".", omittingEmptySubsequences: false)
     guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }),
@@ -196,11 +225,14 @@ private func mailtoAddress(_ s: String) -> String? {
 /// like one — a colon followed by anything but digits (`https:example.com`,
 /// `C:\notes`) is not a port, and not something to complete.
 private func hostParts(_ authority: Substring) -> (name: Substring, port: Substring)? {
+    // A bracketed IPv6 authority (`[::1]:8080`) is full of colons: not shaped
+    // like this, and rare enough to leave for its author to write in full.
+    guard !authority.hasPrefix("[") else { return nil }
     let pieces = authority.split(separator: ":", omittingEmptySubsequences: false)
     switch pieces.count {
     case 1:
         return (pieces[0], "")
-    case 2 where !pieces[1].isEmpty && pieces[1].allSatisfy(\.isNumber):
+    case 2 where Int(pieces[1]).map({ (1...65535).contains($0) }) ?? false:
         return (pieces[0], pieces[1])
     default:
         return nil

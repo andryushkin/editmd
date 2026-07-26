@@ -264,8 +264,17 @@ func promptForNewName(title: String, message: String, defaultName: String,
     field.stringValue = defaultName
     alert.accessoryView = field
     guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
-    let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = oneLineName(field.stringValue)
     return name.isEmpty && !allowsEmpty ? nil : name
+}
+
+/// A name a path component can carry: newlines pasted into the field dropped
+/// (single-line mode is layout only, it does not filter them), then trimmed.
+func oneLineName(_ raw: String) -> String {
+    raw.components(separatedBy: .newlines)
+        .filter { !$0.isEmpty }          // CRLF is two separators, not two breaks
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 @MainActor
@@ -298,7 +307,7 @@ func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTe
     alert.accessoryView = grid
 
     guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
-    let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    let name = oneLineName(field.stringValue)
     guard !name.isEmpty,
           let rawTemplate = templatePicker.selectedItem?.representedObject as? String,
           let template = FileTemplate(rawValue: rawTemplate) else { return nil }

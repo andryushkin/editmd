@@ -15,11 +15,9 @@ import AppKit
 @MainActor
 func alertTextField(width: CGFloat, height: CGFloat = 24) -> NSTextField {
     let field = BoxedTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
-    // One-line prompts: a pasted newline would otherwise survive into a file
-    // name or a link destination.
+    // One-line prompts. This is layout only — it does not filter a pasted
+    // newline, which the readers of these fields strip themselves.
     field.usesSingleLineMode = true
-    field.cell?.wraps = false
-    field.cell?.isScrollable = true
     field.drawBox()
     return field
 }
@@ -74,9 +72,10 @@ func runModal(_ alert: NSAlert, focusing field: NSView) -> NSApplication.ModalRe
 /// e.g. after a trip to another app to copy the URL.
 @MainActor
 private final class FirstResponderClaim {
-    /// How long to keep watching after the panel opens, and how often. The watch
-    /// normally ends long before the deadline — see `tick()`.
-    private static let window: TimeInterval = 0.3
+    /// How long to keep re-claiming after the panel becomes key, and how often.
+    /// Short on purpose: AppKit's pass runs immediately, and a window this brief
+    /// cannot collide with a Tab or a click of the user's own.
+    private static let watch: TimeInterval = 0.15
     private static let tick: TimeInterval = 0.05
 
     private let field: NSView
@@ -87,15 +86,34 @@ private final class FirstResponderClaim {
 
     init(field: NSView, window: NSWindow) {
         self.field = field
+        // The watch is armed from `didBecomeKey`, not from here: the panel may
+        // become key seconds later — the app need not even be frontmost when the
+        // dialog is raised — and the observer lives until the modal ends so that
+        // late arrival still gets its field focused.
         token = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.claim()
+                self.panelBecameKey()
             }
         }
-        deadline = Date().addingTimeInterval(Self.window)
+    }
+
+    func cancel() {
+        if let token { NotificationCenter.default.removeObserver(token) }
+        token = nil
+        stopWatching()
+    }
+
+    private func panelBecameKey() {
+        // First opening: claim over whatever AppKit's own pass does, for a moment.
+        // A later return to the panel (back from another app) claims only if no
+        // field is being edited — by then the focus is the user's to place.
+        let opening = claims == 0 && timer == nil
+        claim(force: opening)
+        guard opening else { return }
+        deadline = Date().addingTimeInterval(Self.watch)
         // Scheduled by hand in the modal mode: the main queue does not drain
         // while an alert is up.
         let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
@@ -108,30 +126,34 @@ private final class FirstResponderClaim {
         self.timer = timer
     }
 
-    func cancel() {
-        if let token { NotificationCenter.default.removeObserver(token) }
-        token = nil
+    /// AppKit's pass runs once, so a claim that has had to take focus *back* is
+    /// the last one needed: stop there rather than watch to the deadline, which
+    /// is only the fallback for a pass that never comes. Only the timer stops —
+    /// the observer stays for the rest of the dialog.
+    private func tick() {
+        claim(force: true)
+        let expired = deadline.map { Date() >= $0 } ?? true
+        if claims >= 2 || expired { stopWatching() }
+    }
+
+    private func stopWatching() {
         timer?.invalidate()
         timer = nil
         deadline = nil
     }
 
-    /// AppKit's pass runs once, so a claim that has had to take focus *back* is
-    /// the last one needed: stop there rather than keep watching to the deadline,
-    /// which is only the fallback for a pass that never comes.
-    private func tick() {
-        claim()
-        let expired = deadline.map { Date() >= $0 } ?? true
-        if claims >= 2 || expired { cancel() }
-    }
-
-    private func claim() {
-        guard let window = field.window else { return }
-        // Already editing this field: re-claiming would reselect its whole
-        // contents, discarding what the user has typed by then.
-        if let editor = window.firstResponder as? NSTextView,
-           let edited = editor.delegate as? NSView, edited === field { return }
-        window.makeFirstResponder(field)
-        claims += 1
+    private func claim(force: Bool) {
+        guard let window = field.window, window.isKeyWindow else { return }
+        if let editor = window.firstResponder as? NSTextView {
+            // Already editing this field: re-claiming would reselect its whole
+            // contents, discarding what the user has typed by then.
+            if let edited = editor.delegate as? NSView, edited === field { return }
+            // Someone else's field is being edited — only the opening moment may
+            // take that over, and only because AppKit put focus there, not the user.
+            if !force { return }
+        }
+        // Counting successes only: two refusals must not look like two claims and
+        // end the watch before the field has focus at all.
+        if window.makeFirstResponder(field) { claims += 1 }
     }
 }
