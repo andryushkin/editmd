@@ -23,19 +23,9 @@ func alertTextField(width: CGFloat) -> NSTextField {
     return field
 }
 
-/// One line of what an alert field holds: the control characters a paste can
-/// carry — newline, tab — folded to spaces, runs of spaces collapsed, ends
-/// trimmed. A field is single-line in layout only, so this is the filter; a
-/// name or a link label must never carry a line break into a path or into
-/// markdown syntax.
-func singleLineFieldText(_ raw: String) -> String {
-    let folded = String(raw.unicodeScalars.map {
-        CharacterSet.controlCharacters.contains($0) ? " " : Character($0)
-    })
-    return folded.split(separator: " ", omittingEmptySubsequences: true)
-        .joined(separator: " ")
-        .trimmingCharacters(in: .whitespaces)
-}
+// What these fields hand back is filtered by `Editor/SingleLineText.swift`
+// (`singleLineFieldText` / `withoutControlCharacters`) — pure, because the
+// naming funnel that has to apply it has no UI in it.
 
 /// The field of `alertTextField`, drawing its own box. A subclass so the colours
 /// can be resolved again under the field's *own* effective appearance — the alert
@@ -88,8 +78,10 @@ func runModal(_ alert: NSAlert, focusing field: NSView) -> NSApplication.ModalRe
 @MainActor
 private final class FirstResponderClaim {
     /// How long to keep re-claiming after the panel becomes key, and how often.
-    /// Short on purpose: AppKit's pass runs immediately, and a window this brief
-    /// cannot collide with a Tab or a click of the user's own.
+    /// 150 ms is under the ~200 ms floor of a deliberate human reaction to
+    /// something appearing on screen, so focus moving inside the window is
+    /// AppKit's pass rather than the user's click — which is what makes it safe
+    /// to correct without asking who moved it.
     private static let watch: TimeInterval = 0.15
     private static let tick: TimeInterval = 0.05
 
@@ -145,14 +137,15 @@ private final class FirstResponderClaim {
     /// the last one needed: stop there rather than watch to the deadline, which
     /// is only the fallback for a pass that never comes. Only the timer stops —
     /// the observer stays for the rest of the dialog.
+    /// Corrects focus for as long as the watch lasts, however late AppKit's pass
+    /// runs inside it — stopping at the first tick that finds focus in place
+    /// would stop precisely when the pass has not come *yet*. Watching to the end
+    /// is safe because the window is shorter than a human reaction to a panel
+    /// that has just appeared: whatever moves focus inside it is AppKit's doing.
     private func tick() {
-        // Focus already where it belongs — either our claim stood or AppKit's
-        // pass has been corrected — so there is nothing left to watch, and
-        // staying would only risk taking focus from where the user just put it.
-        if isFocused { stopWatching(); return }
         claim(force: true)
         let expired = deadline.map { Date() >= $0 } ?? true
-        if claims >= 2 || expired { stopWatching() }
+        if expired { stopWatching() }
     }
 
     /// True while `field` is the one being edited.

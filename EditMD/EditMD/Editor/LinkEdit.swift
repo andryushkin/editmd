@@ -36,17 +36,19 @@ private let vaultFileExtensions: Set<String> =
 /// into an unreachable URL is far worse than leaving a rare TLD
 /// (`mysite.ninja`) to be typed with its scheme. Absent on purpose are the
 /// two-letter codes that collide with extensions a vault or repo is full of —
-/// `md` as Moldova loses to `md` as Markdown here, likewise `sh`, `rs`, `pl`.
+/// `md` as Moldova loses to `md` as Markdown here, likewise `sh`, `rs`, `pl`,
+/// `cc`, `am`, `in` and `pro` (C++, Automake, `config.h.in`, Qt projects). The
+/// ones that stay and still collide — `ai`, `app` — are settled by the probe.
 private let completableTLDs: Set<String> = [
-    "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz", "pro",
+    "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz",
     "io", "co", "ai", "dev", "app", "cloud", "tools", "wiki", "news", "blog",
     "shop", "store", "site", "online", "space", "tech", "digital", "studio",
     "design", "media", "agency", "email", "link", "page", "live", "life",
     "xyz", "top", "art", "fun", "team", "work", "world", "zone", "me", "tv",
-    "cc", "ru", "ua", "by", "kz", "uk", "us", "ca", "au", "nz", "de", "fr",
+    "ru", "ua", "by", "kz", "uk", "us", "ca", "au", "nz", "de", "fr",
     "es", "it", "nl", "be", "ch", "at", "se", "no", "fi", "dk", "pt", "gr",
-    "cz", "hu", "ro", "bg", "si", "sk", "lt", "lv", "ee", "ge", "am", "az",
-    "tr", "il", "ae", "in", "cn", "jp", "kr", "hk", "sg", "br", "mx", "ar",
+    "cz", "hu", "ro", "bg", "si", "sk", "lt", "lv", "ee", "ge", "az",
+    "tr", "il", "ae", "cn", "jp", "kr", "hk", "sg", "br", "mx", "ar",
     "cl", "za", "eu",
     // Cyrillic IDN TLDs in both forms a destination arrives in — typed as
     // Unicode, pasted as punycode. Escaped rather than written out so the repo
@@ -64,10 +66,10 @@ private let authorityLessSchemes: Set<String> =
 /// confirming must not rewrite its destination.
 func linkDestination(typed raw: String, existing: String,
                      localFileExists: (String) -> Bool? = { _ in nil }) -> String {
-    // A destination can never hold a newline: a two-line paste would break the
-    // link syntax and split the paragraph it sits in.
-    let typed = raw.components(separatedBy: .newlines).joined()
-        .trimmingCharacters(in: .whitespaces)
+    // A destination can hold no control character at all: a two-line paste would
+    // break the link syntax and split the paragraph, and a tab copied out of a
+    // table cell would leave a destination CommonMark refuses to parse.
+    let typed = withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
     return typed == existing
         ? typed
         : normalizedLinkURL(typed, localFileExists: localFileExists)
@@ -94,14 +96,24 @@ final class LocalDestinationCache: @unchecked Sendable {
     /// somehow types past it starts a fresh generation rather than growing.
     private static let maxAnswers = 64
 
+    /// How long a confirmed dialog may wait for an answer already on its way.
+    /// Bounded, because the dialog must not hang on a slow volume; enough that a
+    /// local stat — and usually a networked one — lands in time to be used.
+    static let answerWait: TimeInterval = 0.1
+
     private let fileDir: URL?
     private let adoptedRoot: URL?
     private let lock = NSLock()
     private var answers: [String: Bool] = [:]
     /// Keys in the order they were first answered — the eviction order.
     private var arrival: [String] = []
+    /// Keys being resolved right now, so a second keystroke on the same path does
+    /// not start a second probe, and a waiter has something to wait on.
+    private var pending: [String: DispatchSemaphore] = [:]
     /// `.obsidian` fallback root, resolved once off the main actor (it walks the
-    /// file system, so it cannot be computed where the dialog is built).
+    /// file system, so it cannot be computed where the dialog is built). Its own
+    /// lock: the walk holds it, and must never block a lookup from the main actor.
+    private let rootLock = NSLock()
     private var fallbackRoot: URL??
 
     /// `fileURL` is the document being edited; nil (an unsaved document) leaves
@@ -114,27 +126,41 @@ final class LocalDestinationCache: @unchecked Sendable {
         self.adoptedRoot = adoptedRoot
     }
 
-    /// Starts resolving `destination`, unless the answer is already in hand or
-    /// `localProbeKey` says the normalizer would never ask about it — an address,
-    /// something already schemed, or a plain host with no path is not arbitrated,
-    /// and probing every keystroke of one would stat the disk for nothing.
+    /// Starts resolving `destination`, unless it is already in hand or on its way,
+    /// or `localProbeKey` says the normalizer would never ask about it — something
+    /// already schemed, an address, an anchor, a dotless name: probing those would
+    /// stat the disk for nothing.
     func prefetch(_ destination: String) {
         guard fileDir != nil || adoptedRoot != nil,
-              let target = localProbeKey(for: destination),
-              answer(for: destination) == nil
+              let target = localProbeKey(for: destination)
         else { return }
+        lock.lock()
+        guard answers[target] == nil, pending[target] == nil else { lock.unlock(); return }
+        let ready = DispatchSemaphore(value: 0)
+        pending[target] = ready
+        lock.unlock()
+
         let dir = fileDir
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
+            guard let self else { ready.signal(); return }
             let hit = resolveLocalLinkDestination(target, fileDir: dir,
                                                   vaultRoot: self.vaultRoot())
             self.store(target, hit != nil)
         }
     }
 
-    /// True/false once resolved, nil while unknown.
-    func answer(for destination: String) -> Bool? {
+    /// True/false once resolved, nil while unknown. `waitingUpTo` waits for an
+    /// answer already on its way — passed only where the wait is worth it, at OK,
+    /// so a slow volume costs a moment instead of the arbitration.
+    func answer(for destination: String, waitingUpTo timeout: TimeInterval = 0) -> Bool? {
         guard let key = localProbeKey(for: destination) else { return nil }
+        lock.lock()
+        if let answer = answers[key] { lock.unlock(); return answer }
+        let ready = pending[key]
+        lock.unlock()
+
+        guard timeout > 0, let ready else { return nil }
+        _ = ready.wait(timeout: .now() + timeout)
         lock.lock()
         defer { lock.unlock() }
         return answers[key]
@@ -145,13 +171,13 @@ final class LocalDestinationCache: @unchecked Sendable {
     /// the background task.
     private func vaultRoot() -> URL? {
         if let adoptedRoot { return adoptedRoot }
-        lock.lock()
-        if let cached = fallbackRoot { lock.unlock(); return cached }
-        lock.unlock()
+        // The lock is held across the walk on purpose: racing probes then wait
+        // for the one answer instead of each walking the ancestors again.
+        rootLock.lock()
+        defer { rootLock.unlock() }
+        if let cached = fallbackRoot { return cached }
         let resolved = fileDir.flatMap { nearestVaultRoot(startingAt: $0) }
-        lock.lock()
         fallbackRoot = .some(resolved)
-        lock.unlock()
         return resolved
     }
 
@@ -168,7 +194,9 @@ final class LocalDestinationCache: @unchecked Sendable {
             }
         }
         answers[key] = exists
+        let ready = pending.removeValue(forKey: key)
         lock.unlock()
+        ready?.signal()
     }
 }
 
@@ -219,19 +247,21 @@ func normalizedLinkURL(_ raw: String,
     // single definition of "worth asking", shared with the probe so the question
     // and the cache key cannot drift apart.
     if localProbeKey(for: s) != nil {
+        let exists = localFileExists(s)
         // A hit is always a path.
-        if localFileExists(s) == true { return s }
+        if exists == true { return s }
         // Unknown — no document to resolve against, or the probe has not
-        // answered — keeps the vault's benefit of the doubt where the tail reads
-        // as a file we open; elsewhere it must not block an ordinary web link.
-        if looksLikeVaultFile(s), localFileExists(s) == nil { return s }
+        // answered in time — keeps the vault's benefit of the doubt where the
+        // tail reads as a file we open; elsewhere it must not block an ordinary
+        // web link.
+        if exists == nil, looksLikeVaultFile(s) { return s }
     }
 
     // Only the authority is inspected; the path, query and fragment ride along.
     guard let host = hostParts(authority) else { return s }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
     guard labels.allSatisfy(isHostLabel) else { return s }
-    if isCompletableTLD(labels) { return "https://" + s }
+    if hasCompletableTLD(labels) { return "https://" + s }
     // A dotted quad is a host, and so is a single label carrying a port — both
     // are servers on this network rather than paths in the vault.
     let isAddress = labels.count == 4 && labels.allSatisfy {
@@ -255,12 +285,12 @@ private func isHostLabel(_ label: Substring) -> Bool {
 /// a host that would pass as a completable host on its own. Nil for anything
 /// else, including `user@host/path`, which is userinfo in a URL.
 private func mailtoAddress(_ s: String) -> String? {
-    let structural: Set<Character> = ["/", "?", "#", ":"]
     let parts = s.split(separator: "@", omittingEmptySubsequences: false)
+    // The caller only reaches here for a string with no `/`, `?` or `#` in it, so
+    // the colon is the only structural character left to rule out — it makes the
+    // left side userinfo (`user:pass@host`) rather than a local part.
     guard parts.count == 2, !parts[0].isEmpty,
-          // `user:pass@host` is userinfo, `contacts/john@acme.com` is a path.
-          !parts[0].contains(where: { structural.contains($0) }),
-          !parts[1].contains(where: { structural.contains($0) }),
+          !parts[0].contains(":"), !parts[1].contains(":"),
           // The same host test the web branch uses — an address at a malformed
           // host (`user@-example.com`) is no more completable than the host is.
           isCompletableHost(parts[1])
@@ -271,14 +301,13 @@ private func mailtoAddress(_ s: String) -> String? {
 /// True when an authority reads as a host worth completing a scheme for: two or
 /// more RFC 1123 labels and a TLD from `completableTLDs`.
 private func isCompletableHost(_ host: Substring) -> Bool {
-    isCompletableTLD(host.split(separator: ".", omittingEmptySubsequences: false))
+    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    return labels.allSatisfy(isHostLabel) && hasCompletableTLD(labels)
 }
 
-/// The same test over labels a caller has already split.
-private func isCompletableTLD(_ labels: [Substring]) -> Bool {
-    guard labels.count >= 2, labels.allSatisfy(isHostLabel),
-          let tld = labels.last?.lowercased()
-    else { return false }
+/// Count and TLD only, over labels the caller has already validated.
+private func hasCompletableTLD(_ labels: [Substring]) -> Bool {
+    guard labels.count >= 2, let tld = labels.last?.lowercased() else { return false }
     return completableTLDs.contains(tld)
 }
 
@@ -310,8 +339,7 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
 /// and a `/` inside a query (`docs.dev?next=/guide`) does not make a destination
 /// a path — while `resolveLocalLinkDestination` only strips the fragment itself.
 func localProbeKey(for destination: String) -> String? {
-    let s = destination.components(separatedBy: .newlines).joined()
-        .trimmingCharacters(in: .whitespaces)
+    let s = withoutControlCharacters(destination).trimmingCharacters(in: .whitespaces)
     guard let first = s.first, !hasURLScheme(s),
           first != "#", first != "/", first != "?",
           !s.hasPrefix("./"), !s.hasPrefix("../"),
@@ -319,7 +347,20 @@ func localProbeKey(for destination: String) -> String? {
           !s.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" }).contains("@")
     else { return nil }
     let path = String(s.prefix { $0 != "?" && $0 != "#" })
-    guard path.contains("/") || looksLikeVaultFile(s) else { return nil }
+    // A dotted bare name is asked about too, not only one ending in a file we
+    // open: `Makefile.am`, `main.cc` and `logo.ai` are files whose extensions are
+    // also real TLDs, and by shape they are `example.com`. Only the file system
+    // tells them apart, and the stat that costs is the price of not rewriting a
+    // link to a file sitting right next to the document.
+    //
+    // Once a query or fragment is in play the file reading needs more than a
+    // dot: `notes.md?plain=1` is a document, `docs.dev?next=/guide` is a page,
+    // and a `/` inside the query says nothing about either.
+    let carriesQuery = path.count != s.count
+    let tailIsAFile = carriesQuery
+        ? looksLikeVaultFile(s)
+        : fileExtension(pathTail(s)) != nil
+    guard path.contains("/") || tailIsAFile else { return nil }
     return path
 }
 
@@ -484,7 +525,11 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
         runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
     }
     let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
-                              localFileExists: { destinations.answer(for: $0) })
+                              localFileExists: {
+                                  destinations.answer(
+                                      for: $0,
+                                      waitingUpTo: LocalDestinationCache.answerWait)
+                              })
     // A label is one line: a two-line paste would otherwise put a newline inside
     // `[…]`, which breaks the link in Source and makes one link attribute span
     // two paragraphs in Visual.

@@ -113,11 +113,18 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testProbeIsNotConsultedForUnambiguousInput() {
-        // A plain host has no file reading to check, so the answer cannot matter.
+    func testEvenABareHostYieldsToAFileOfThatName() {
+        // `example.com` on disk is a path; without it, the host reading stands.
+        XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in true }),
+                       "example.com")
+        XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in false }),
+                       "https://example.com")
+        XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in nil }),
+                       "https://example.com")
+    }
+
+    func testAnchorsAreNeverArbitrated() {
         for exists in [true, false] {
-            XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in exists }),
-                           "https://example.com")
             XCTAssertEqual(normalizedLinkURL("#top", localFileExists: { _ in exists }), "#top")
         }
     }
@@ -151,10 +158,30 @@ final class LinkEditTests: XCTestCase {
         // Nothing here has a local reading, so no key — and therefore no probe,
         // no detached task, and no stat while the user types.
         for dest in ["https://example.com/a/b", "http://example.com/x.md",
-                     "mailto:a@b.io", "example.com", "example.com:8080",
-                     "user@example.com", "#top", "/abs/path", "./sibling.md",
-                     "../up.md", "notes", "docs.dev?next=/guide"] {
+                     "mailto:a@b.io", "user@example.com", "#top", "/abs/path",
+                     "./sibling.md", "../up.md", "notes", "docs.dev?next=/guide"] {
             XCTAssertNil(localProbeKey(for: dest), dest)
+        }
+    }
+
+    func testDottedBareNameIsAskedAbout() {
+        // `Makefile.am` and `example.com` are the same shape; only the file
+        // system tells them apart, so both get a key.
+        XCTAssertEqual(localProbeKey(for: "Makefile.am"), "Makefile.am")
+        XCTAssertEqual(localProbeKey(for: "example.com"), "example.com")
+    }
+
+    func testFileWhoseExtensionIsATLDStaysLocalWhenItExists() {
+        for dest in ["Makefile.am", "main.cc", "logo.ai", "settings.pro", "Notes.app"] {
+            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in true }), dest)
+        }
+    }
+
+    func testExtensionsThatCollideWithTLDsAreNotCompletedBlind() {
+        // Even with no answer at all, the ones a repo is full of stay local
+        // because their extension is not a completable TLD.
+        for dest in ["Makefile.am", "main.cc", "config.h.in", "settings.pro"] {
+            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in nil }), dest)
         }
     }
 
@@ -229,8 +256,10 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testNewlineInTheFieldNeverReachesTheDestination() {
+    func testControlCharactersNeverReachTheDestination() {
         XCTAssertEqual(linkDestination(typed: "https://a\nb", existing: ""), "https://ab")
+        XCTAssertEqual(linkDestination(typed: "https://x.com/a\tb", existing: ""),
+                       "https://x.com/ab")
         XCTAssertEqual(linkDestination(typed: "example.com\n", existing: ""),
                        "https://example.com")
     }
@@ -396,12 +425,18 @@ final class LocalDestinationCacheTests: XCTestCase {
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
                                           adoptedRoot: vault)
 
-        // Past the table's capacity: the answer the dialog is about to read must
-        // survive the arrivals before it, which a wipe-on-full table would drop.
-        for i in 0..<80 { cache.prefetch("docs.dev/note-\(i).md") }
-        XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-79.md"))
-        cache.prefetch("docs.dev/intro.md")
-        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md"))
+        // Awaited one at a time, so arrival order — and therefore what is evicted
+        // — is decided by the test rather than by which detached probe finishes
+        // first. 70 arrivals past a table of 64.
+        for i in 0..<70 {
+            cache.prefetch("docs.dev/note-\(i).md")
+            XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-\(i).md"))
+        }
+        // The newest answers are the ones a dialog is about to read.
+        XCTAssertNotNil(cache.answer(for: "docs.dev/note-69.md"))
+        XCTAssertNotNil(cache.answer(for: "docs.dev/note-6.md"))
+        // The oldest are gone — evicted one by one, never wiped as a table.
+        XCTAssertNil(cache.answer(for: "docs.dev/note-0.md"))
     }
 
     func testUnknownUntilAnswered() {
@@ -452,29 +487,5 @@ final class SourcePasteURLIntegrationTests: XCTestCase {
         setClipboard("just some text")
         tv.paste(nil)
         XCTAssertEqual(tv.string, "start just some text")
-    }
-}
-
-/// What an alert field's contents become: no control character may reach a path
-/// component or markdown syntax.
-final class SingleLineFieldTextTests: XCTestCase {
-
-    func testControlCharactersBecomeSpaces() {
-        XCTAssertEqual(singleLineFieldText("My\nNote"), "My Note")
-        XCTAssertEqual(singleLineFieldText("My\tNote"), "My Note")
-        XCTAssertEqual(singleLineFieldText("a\r\nb"), "a b")
-        XCTAssertEqual(singleLineFieldText("  spaced \n"), "spaced")
-    }
-
-    func testPlainTextPassesThrough() {
-        XCTAssertEqual(singleLineFieldText("Untitled.md"), "Untitled.md")
-        XCTAssertEqual(singleLineFieldText("Two words"), "Two words")
-    }
-
-    /// The naming funnel every create and rename goes through applies it, so no
-    /// caller can bypass the filter.
-    func testNamingFunnelFoldsThem() throws {
-        XCTAssertEqual(try FolderNaming.markdownFileName(from: "My\nNote"), "My Note.md")
-        XCTAssertEqual(try FolderNaming.folderName(from: "My\tFolder"), "My Folder")
     }
 }

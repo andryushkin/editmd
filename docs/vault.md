@@ -84,10 +84,12 @@ as local; a bare host gets `https://`, an address `mailto:`, a
 port-carrying server `http://` (`Editor/LinkEdit.swift`). Two rules keep this
 from mangling a vault:
 
-- Completion needs a TLD from a curated list. By shape alone `example.com` is
-  indistinguishable from `build.sh` or a PARA folder like `2.Areas/note.md`, and
-  a rare TLD left for the author to type beats a working relative link rewritten
-  into an unreachable URL.
+- Completion needs a TLD from a curated list, and the list deliberately omits
+  the codes that double as extensions a vault or repo is full of (`md`, `sh`,
+  `cc`, `am`, `in`, `pro`). By shape alone `example.com` is indistinguishable
+  from `build.sh` or a PARA folder like `2.Areas/note.md`, and a rare TLD left
+  for the author to type beats a working relative link rewritten into an
+  unreachable URL.
 - When a destination carries a path at all, the ambiguity is real
   (`docs.dev/intro.md` is a folder in someone's vault, `archive.org/note.md` is
   a web page) and the file system decides it. `LocalDestinationCache` resolves
@@ -98,9 +100,12 @@ from mangling a vault:
   file — with one deliberate narrowing: lint also accepts a wiki-index basename
   match for a markdown link, which the dialog does not consult, so a destination
   resolving *only* by basename counts as missing here.
-- A hit always means local. An answer that has not arrived, or a document with no
-  file yet, reads as unknown: unknown keeps a vault-file-looking tail local, and
-  lets an ordinary page complete.
+- A hit always means local — even for a bare `example.com`, if a file of that
+  name is really there. A confirmed dialog waits a bounded moment
+  (`LocalDestinationCache.answerWait`) for an answer already on its way, so a
+  slow volume costs a pause rather than the arbitration. Still unknown after
+  that, or a document with no file yet: unknown keeps a vault-file-looking tail
+  local and lets an ordinary page complete.
 
 A plain `notes.md` stays local whatever the answer: `md` is not a completable
 TLD, so linking a note before creating it keeps working.
