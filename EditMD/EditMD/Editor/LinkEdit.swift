@@ -82,35 +82,52 @@ func linkDestination(typed raw: String, existing: String,
 /// (`docs/architecture.md` § Performance), and a vault on a network volume is
 /// exactly why. An answer that has not arrived yet reads as `nil`, and an unknown
 /// destination is left alone — the conservative side.
+///
+/// The path resolution is `resolveLocalLinkDestination`, the same one vault lint
+/// applies to a relative link, with the same roots: the adopted workspace, or the
+/// nearest `.obsidian` vault above the file when no workspace owns it. Lint also
+/// accepts a wiki-index basename match for a markdown link, which this does not
+/// consult — a destination that resolves *only* by basename is treated as
+/// missing here.
 final class LocalDestinationCache: @unchecked Sendable {
+    /// Enough answers for a typed destination and its prefixes; a dialog that
+    /// somehow types past it starts a fresh generation rather than growing.
+    private static let maxAnswers = 64
+
     private let fileDir: URL?
-    private let vaultRoot: URL?
+    private let adoptedRoot: URL?
     private let lock = NSLock()
     private var answers: [String: Bool] = [:]
+    /// `.obsidian` fallback root, resolved once off the main actor (it walks the
+    /// file system, so it cannot be computed where the dialog is built).
+    private var fallbackRoot: URL??
 
     /// `fileURL` is the document being edited; nil (an unsaved document) leaves
     /// every answer unknown, since there is nothing to resolve against.
-    init(fileURL: URL?, vaultRoot: URL?) {
-        // Links inside a textbundle resolve against the bundle itself.
-        fileDir = fileURL.map {
-            $0.pathExtension == "textbundle" ? $0 : $0.deletingLastPathComponent()
-        }
-        self.vaultRoot = vaultRoot
+    /// `adoptedRoot` is the workspace owning it, when one does.
+    init(fileURL: URL?, adoptedRoot: URL?) {
+        // Same directory the scan resolves a link from: the folder holding the
+        // document, textbundle or not.
+        fileDir = fileURL?.deletingLastPathComponent()
+        self.adoptedRoot = adoptedRoot
     }
 
     /// Starts resolving `destination` unless the answer is already in hand.
+    /// Only a destination the normalizer would actually arbitrate is resolved —
+    /// a plain host has no file reading, and probing every keystroke of one would
+    /// stat the disk for nothing.
     func prefetch(_ destination: String) {
-        let target = destination.trimmingCharacters(in: .whitespaces)
-        guard fileDir != nil || vaultRoot != nil,
-              !target.isEmpty, answer(for: target) == nil
+        let target = Self.key(destination)
+        guard fileDir != nil || adoptedRoot != nil,
+              !target.isEmpty, target.contains("/") || fileExtension(target[...]) != nil,
+              answer(for: destination) == nil
         else { return }
         let dir = fileDir
-        let root = vaultRoot
         Task.detached(priority: .userInitiated) { [weak self] in
-            // The same resolver vault-lint uses to call a relative link dead, so
-            // ⌘K and the lint cannot disagree about what exists.
-            let hit = resolveLocalLinkDestination(target, fileDir: dir, vaultRoot: root)
-            self?.store(target, hit != nil)
+            guard let self else { return }
+            let hit = resolveLocalLinkDestination(target, fileDir: dir,
+                                                  vaultRoot: self.vaultRoot())
+            self.store(target, hit != nil)
         }
     }
 
@@ -118,12 +135,37 @@ final class LocalDestinationCache: @unchecked Sendable {
     func answer(for destination: String) -> Bool? {
         lock.lock()
         defer { lock.unlock() }
-        return answers[destination.trimmingCharacters(in: .whitespaces)]
+        return answers[Self.key(destination)]
     }
 
-    private func store(_ destination: String, _ exists: Bool) {
+    /// What a destination is resolved and remembered under: newlines dropped
+    /// (they never belong in one), then the query and fragment — neither is part
+    /// of the path, and `resolveLocalLinkDestination` only strips the fragment.
+    private static func key(_ destination: String) -> String {
+        let flat = destination.components(separatedBy: .newlines).joined()
+            .trimmingCharacters(in: .whitespaces)
+        return String(flat.prefix { $0 != "?" && $0 != "#" })
+    }
+
+    /// Adopted workspace first, then the nearest `.obsidian` vault above the
+    /// file — the same order the link opener and the lint use. Called only from
+    /// the background task.
+    private func vaultRoot() -> URL? {
+        if let adoptedRoot { return adoptedRoot }
         lock.lock()
-        answers[destination] = exists
+        if let cached = fallbackRoot { lock.unlock(); return cached }
+        lock.unlock()
+        let resolved = fileDir.flatMap { nearestVaultRoot(startingAt: $0) }
+        lock.lock()
+        fallbackRoot = .some(resolved)
+        lock.unlock()
+        return resolved
+    }
+
+    private func store(_ key: String, _ exists: Bool) {
+        lock.lock()
+        if answers.count >= Self.maxAnswers { answers.removeAll(keepingCapacity: true) }
+        answers[key] = exists
         lock.unlock()
     }
 }
@@ -169,18 +211,22 @@ func normalizedLinkURL(_ raw: String,
         return address
     }
 
-    // What the destination ends in raises the question; the file system answers
-    // it. Only a known-missing file falls through to be completed.
-    if let ext = fileExtension(pathTail(s)), vaultFileExtensions.contains(ext),
-       localFileExists(s) != false {
-        return s
-    }
+    // A destination with a path could be a folder in the vault, extension or not
+    // (`docs.io/guide`), and one ending in a file we open could be a note. The
+    // file system is the only authority on which it is, so ask it whenever the
+    // question arises: a hit is always a path.
+    let looksLikeVaultFile = fileExtension(pathTail(s)).map(vaultFileExtensions.contains) ?? false
+    if looksLikeVaultFile || s.contains("/"), localFileExists(s) == true { return s }
+    // Unknown — no document to resolve against, or the probe has not answered —
+    // keeps the vault's benefit of the doubt where the tail reads as a file we
+    // open. Elsewhere an unanswered probe must not block an ordinary web link.
+    if looksLikeVaultFile, localFileExists(s) == nil { return s }
 
     // Only the authority is inspected; the path, query and fragment ride along.
     guard let host = hostParts(authority) else { return s }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
     guard labels.allSatisfy(isHostLabel) else { return s }
-    if isCompletableHost(host.name) { return "https://" + s }
+    if isCompletableTLD(labels) { return "https://" + s }
     // A dotted quad is a host, and so is a single label carrying a port — both
     // are servers on this network rather than paths in the vault.
     let isAddress = labels.count == 4 && labels.allSatisfy {
@@ -220,7 +266,11 @@ private func mailtoAddress(_ s: String) -> String? {
 /// True when an authority reads as a host worth completing a scheme for: two or
 /// more RFC 1123 labels and a TLD from `completableTLDs`.
 private func isCompletableHost(_ host: Substring) -> Bool {
-    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    isCompletableTLD(host.split(separator: ".", omittingEmptySubsequences: false))
+}
+
+/// The same test over labels a caller has already split.
+private func isCompletableTLD(_ labels: [Substring]) -> Bool {
     guard labels.count >= 2, labels.allSatisfy(isHostLabel),
           let tld = labels.last?.lowercased()
     else { return false }
@@ -383,21 +433,29 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
     // Resolve what is typed against the vault in the background, so the decision
-    // at OK costs nothing on the main actor. The watcher must outlive the modal
-    // run — the field only holds its delegate weakly.
+    // at OK costs nothing on the main actor.
     let destinations = LocalDestinationCache(
         fileURL: fileURL,
-        vaultRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
+        adoptedRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
     let watcher = LinkURLFieldWatcher(destinations: destinations)
     urlField.delegate = watcher
     destinations.prefetch(existingURL)
 
     // Adding a link starts in the URL field (the label is usually the
     // selection); editing an existing one starts in its text.
-    let response = runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
+    // `delegate` is a weak reference and AppKit does not retain it either, so
+    // the watcher's lifetime has to be held open across the modal run by hand —
+    // otherwise ARC may release it right after the assignment and no keystroke
+    // is ever seen.
+    let response = withExtendedLifetime(watcher) {
+        runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
+    }
     let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
                               localFileExists: { destinations.answer(for: $0) })
-    let text = textField.stringValue
+    // A label is one line: a two-line paste would otherwise put a newline inside
+    // `[…]`, which breaks the link in Source and makes one link attribute span
+    // two paragraphs in Visual.
+    let text = singleLineFieldText(textField.stringValue)
 
     switch response {
     case .alertFirstButtonReturn where !url.isEmpty:

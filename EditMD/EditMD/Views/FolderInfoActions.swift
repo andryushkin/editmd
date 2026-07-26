@@ -9,7 +9,7 @@ import AppKit
 enum FolderNaming {
     /// User name → file name with a `.md` extension when missing.
     static func markdownFileName(from raw: String) throws -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = singleLineFieldText(raw)
         guard !trimmed.isEmpty else { throw FolderCreateError.emptyName }
         try validateBaseName(trimmed)
         let ext = (trimmed as NSString).pathExtension.lowercased()
@@ -19,7 +19,7 @@ enum FolderNaming {
 
     /// User name → folder name (no extension munging).
     static func folderName(from raw: String) throws -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = singleLineFieldText(raw)
         guard !trimmed.isEmpty else { throw FolderCreateError.emptyName }
         try validateBaseName(trimmed)
         return trimmed
@@ -30,7 +30,7 @@ enum FolderNaming {
     /// the user drops the extension, `original`'s extension is restored so a
     /// managed document does not silently leave the sidebar.
     static func renamedFileName(from raw: String, keepingExtensionOf original: URL) throws -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = singleLineFieldText(raw)
         guard !trimmed.isEmpty else { throw FolderCreateError.emptyName }
         try validateBaseName(trimmed)
         let ext = (trimmed as NSString).pathExtension
@@ -264,17 +264,8 @@ func promptForNewName(title: String, message: String, defaultName: String,
     field.stringValue = defaultName
     alert.accessoryView = field
     guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
-    let name = oneLineName(field.stringValue)
+    let name = singleLineFieldText(field.stringValue)
     return name.isEmpty && !allowsEmpty ? nil : name
-}
-
-/// A name a path component can carry: newlines pasted into the field dropped
-/// (single-line mode is layout only, it does not filter them), then trimmed.
-func oneLineName(_ raw: String) -> String {
-    raw.components(separatedBy: .newlines)
-        .filter { !$0.isEmpty }          // CRLF is two separators, not two breaks
-        .joined(separator: " ")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 @MainActor
@@ -307,7 +298,7 @@ func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTe
     alert.accessoryView = grid
 
     guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
-    let name = oneLineName(field.stringValue)
+    let name = singleLineFieldText(field.stringValue)
     guard !name.isEmpty,
           let rawTemplate = templatePicker.selectedItem?.representedObject as? String,
           let template = FileTemplate(rawValue: rawTemplate) else { return nil }

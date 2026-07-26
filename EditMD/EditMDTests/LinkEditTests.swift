@@ -274,20 +274,23 @@ final class LocalDestinationCacheTests: XCTestCase {
     }
 
     /// The answer lands asynchronously — poll rather than sleep a fixed spell.
+    /// A probe that never answers is a failure, not a skip: an unanswered probe
+    /// is exactly the regression these tests exist to catch.
     private func awaitAnswer(_ cache: LocalDestinationCache,
                              for destination: String) throws -> Bool {
-        for _ in 0..<200 {
+        for _ in 0..<500 {
             if let answer = cache.answer(for: destination) { return answer }
             Thread.sleep(forTimeInterval: 0.01)
         }
-        throw XCTSkip("probe did not answer in 2s")
+        XCTFail("the probe never answered for \(destination)")
+        return false
     }
 
     func testResolvesAnExistingFileInATLDLookingFolder() throws {
         let vault = try makeVault()
         defer { try? FileManager.default.removeItem(at: vault) }
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
-                                          vaultRoot: vault)
+                                          adoptedRoot: vault)
 
         cache.prefetch("docs.dev/intro.md")
         XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md"))
@@ -301,7 +304,7 @@ final class LocalDestinationCacheTests: XCTestCase {
         let vault = try makeVault()
         defer { try? FileManager.default.removeItem(at: vault) }
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
-                                          vaultRoot: vault)
+                                          adoptedRoot: vault)
 
         cache.prefetch("archive.org/note.md")
         XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/note.md"))
@@ -310,18 +313,57 @@ final class LocalDestinationCacheTests: XCTestCase {
                        "https://archive.org/note.md")
     }
 
+    func testQueryIsIgnoredWhenResolving() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          adoptedRoot: vault)
+
+        cache.prefetch("docs.dev/intro.md?plain=1")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md?plain=1"))
+        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md?plain=1",
+                                         localFileExists: { cache.answer(for: $0) }),
+                       "docs.dev/intro.md?plain=1")
+    }
+
+    func testExtensionlessPathIsResolvedToo() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        try FileManager.default.createDirectory(
+            at: vault.appendingPathComponent("docs.io/guide"), withIntermediateDirectories: true)
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          adoptedRoot: vault)
+
+        cache.prefetch("docs.io/guide")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.io/guide"))
+        // An Obsidian-style extensionless link must survive the completer.
+        XCTAssertEqual(normalizedLinkURL("docs.io/guide",
+                                         localFileExists: { cache.answer(for: $0) }),
+                       "docs.io/guide")
+        // …while the same shape with nothing on disk is a web page.
+        XCTAssertEqual(normalizedLinkURL("docs.io/guide", localFileExists: { _ in false }),
+                       "https://docs.io/guide")
+    }
+
+    func testUnansweredProbeDoesNotBlockAnOrdinaryWebLink() {
+        // Unknown protects a vault-file tail, not every path: a plain page must
+        // still complete while the probe is still thinking.
+        XCTAssertEqual(normalizedLinkURL("example.com/docs/guide", localFileExists: { _ in nil }),
+                       "https://example.com/docs/guide")
+    }
+
     func testAnchorIsIgnoredWhenResolving() throws {
         let vault = try makeVault()
         defer { try? FileManager.default.removeItem(at: vault) }
         let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
-                                          vaultRoot: vault)
+                                          adoptedRoot: vault)
 
         cache.prefetch("docs.dev/intro.md#setup")
         XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md#setup"))
     }
 
     func testUnknownUntilAnswered() {
-        let cache = LocalDestinationCache(fileURL: nil, vaultRoot: nil)
+        let cache = LocalDestinationCache(fileURL: nil, adoptedRoot: nil)
         cache.prefetch("docs.dev/intro.md")
         // No document to resolve against: the answer stays unknown, and unknown
         // leaves the destination alone.
@@ -371,16 +413,26 @@ final class SourcePasteURLIntegrationTests: XCTestCase {
     }
 }
 
-/// Name prompts must never let a pasted newline into a path component.
-final class OneLineNameTests: XCTestCase {
+/// What an alert field's contents become: no control character may reach a path
+/// component or markdown syntax.
+final class SingleLineFieldTextTests: XCTestCase {
 
-    func testNewlinesBecomeSpaces() {
-        XCTAssertEqual(oneLineName("My\nNote"), "My Note")
-        XCTAssertEqual(oneLineName("  spaced \n"), "spaced")
-        XCTAssertEqual(oneLineName("a\r\nb"), "a b")
+    func testControlCharactersBecomeSpaces() {
+        XCTAssertEqual(singleLineFieldText("My\nNote"), "My Note")
+        XCTAssertEqual(singleLineFieldText("My\tNote"), "My Note")
+        XCTAssertEqual(singleLineFieldText("a\r\nb"), "a b")
+        XCTAssertEqual(singleLineFieldText("  spaced \n"), "spaced")
     }
 
-    func testPlainNamePassesThrough() {
-        XCTAssertEqual(oneLineName("Untitled.md"), "Untitled.md")
+    func testPlainTextPassesThrough() {
+        XCTAssertEqual(singleLineFieldText("Untitled.md"), "Untitled.md")
+        XCTAssertEqual(singleLineFieldText("Two words"), "Two words")
+    }
+
+    /// The naming funnel every create and rename goes through applies it, so no
+    /// caller can bypass the filter.
+    func testNamingFunnelFoldsThem() throws {
+        XCTAssertEqual(try FolderNaming.markdownFileName(from: "My\nNote"), "My Note.md")
+        XCTAssertEqual(try FolderNaming.folderName(from: "My\tFolder"), "My Folder")
     }
 }

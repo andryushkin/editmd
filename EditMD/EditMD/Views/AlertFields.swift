@@ -13,13 +13,28 @@ import AppKit
 /// the white pill and focus ring of the focused field still come from AppKit,
 /// which covers this border.
 @MainActor
-func alertTextField(width: CGFloat, height: CGFloat = 24) -> NSTextField {
-    let field = BoxedTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
+func alertTextField(width: CGFloat) -> NSTextField {
+    let field = BoxedTextField(frame: NSRect(x: 0, y: 0, width: width, height: 24))
     // One-line prompts. This is layout only — it does not filter a pasted
-    // newline, which the readers of these fields strip themselves.
+    // newline, which the readers of these fields strip themselves
+    // (`singleLineFieldText`).
     field.usesSingleLineMode = true
     field.drawBox()
     return field
+}
+
+/// One line of what an alert field holds: the control characters a paste can
+/// carry — newline, tab — folded to spaces, runs of spaces collapsed, ends
+/// trimmed. A field is single-line in layout only, so this is the filter; a
+/// name or a link label must never carry a line break into a path or into
+/// markdown syntax.
+func singleLineFieldText(_ raw: String) -> String {
+    let folded = String(raw.unicodeScalars.map {
+        CharacterSet.controlCharacters.contains($0) ? " " : Character($0)
+    })
+    return folded.split(separator: " ", omittingEmptySubsequences: true)
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespaces)
 }
 
 /// The field of `alertTextField`, drawing its own box. A subclass so the colours
@@ -131,9 +146,21 @@ private final class FirstResponderClaim {
     /// is only the fallback for a pass that never comes. Only the timer stops —
     /// the observer stays for the rest of the dialog.
     private func tick() {
+        // Focus already where it belongs — either our claim stood or AppKit's
+        // pass has been corrected — so there is nothing left to watch, and
+        // staying would only risk taking focus from where the user just put it.
+        if isFocused { stopWatching(); return }
         claim(force: true)
         let expired = deadline.map { Date() >= $0 } ?? true
         if claims >= 2 || expired { stopWatching() }
+    }
+
+    /// True while `field` is the one being edited.
+    private var isFocused: Bool {
+        guard let editor = field.window?.firstResponder as? NSTextView,
+              let edited = editor.delegate as? NSView
+        else { return false }
+        return edited === field
     }
 
     private func stopWatching() {
@@ -146,8 +173,7 @@ private final class FirstResponderClaim {
         guard let window = field.window, window.isKeyWindow else { return }
         // Already editing this field: re-claiming would reselect its whole
         // contents, discarding what the user has typed by then.
-        if let editor = window.firstResponder as? NSTextView,
-           let edited = editor.delegate as? NSView, edited === field { return }
+        if isFocused { return }
         // A later return to the panel claims only when nothing at all holds
         // focus. Anything that does — another field, a template popup — was put
         // there by the user, not by AppKit's opening pass; only that pass, inside
