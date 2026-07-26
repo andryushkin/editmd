@@ -40,7 +40,12 @@ Xcode 26; XcodeGen is installed by the workflow):
 - **Build and test** — generate, build, then the full suite with
   `-retry-tests-on-failure -test-iterations 2`. The retry is there for the two
   known warm-up/timing flakes only; remove it once they are fixed, because it
-  hides a genuine intermittent failure just as effectively.
+  hides a genuine intermittent failure just as effectively. Signing is
+  overridden to ad-hoc on the command line: `project.yml` asks for a
+  development identity (so a local rebuild keeps its Files-and-Folders grant)
+  and no runner has that certificate. Ad-hoc rather than unsigned, because the
+  test bundle is loaded into the host app and both must carry a signature with
+  the same (here empty) team.
 
 CI is a second opinion, not a substitute for running the suite locally before
 pushing: it starts after the push it is meant to protect.

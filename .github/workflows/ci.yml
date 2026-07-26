@@ -31,6 +31,15 @@ jobs:
   build:
     name: Build and test
     runs-on: macos-26
+    env:
+      # `project.yml` signs with a development identity so the Files-and-Folders
+      # grant survives a local rebuild — a certificate no runner has. Ad-hoc
+      # here instead of no signing at all: the test bundle is loaded into the
+      # host app, which on Apple silicon has to carry a signature, and both
+      # sides must agree on the team (empty on both).
+      SIGNING: >-
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+        CODE_SIGNING_REQUIRED=NO
     steps:
       - uses: actions/checkout@v7
       - name: Install XcodeGen
@@ -40,11 +49,12 @@ jobs:
       - name: Build
         run: |
           xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD \
-            -destination 'platform=macOS' build
+            -destination 'platform=macOS' $SIGNING build
       - name: Test
         # Retried once: the suite has two known warm-up/timing flakes (issue #3).
         # Drop the retry when they are fixed — it hides a real intermittent bug
         # just as well as it hides a known one.
         run: |
           xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD \
-            -destination 'platform=macOS' -retry-tests-on-failure -test-iterations 2 test
+            -destination 'platform=macOS' $SIGNING \
+            -retry-tests-on-failure -test-iterations 2 test
