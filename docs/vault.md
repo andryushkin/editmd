@@ -100,14 +100,15 @@ from mangling a vault:
   with one deliberate narrowing: lint also accepts a wiki-index basename match
   for a markdown link, which the dialog does not consult, so a destination
   resolving *only* by basename counts as missing here.
-- A file that is really there is always a path, even a bare `example.com` or
-  `Makefile.am`. A destination ending in a file the app opens turns on its
-  **folder** instead, because writing the link before the note is the everyday
-  forward link: `projects.dev/plan.md` beside an existing `projects.dev/` stays
-  local, `archive.org/note.md` with no such folder becomes a page, and a bare
-  `plan.md` — no folder to check — stays local. Unknown counts as local in that
-  branch, so nothing breaks while a probe is still out, or when the document has
-  no file to resolve against yet.
+- A destination ending in a file the app opens is **never** completed, and the
+  probe is not consulted for it: whether the note exists *yet* cannot decide the
+  everyday forward link (write the link, create `plan.md` after), and asking
+  would make the stored destination depend on whether the answer had arrived.
+  Everything else completes by shape, and the probe can only ever *save* a local
+  file from that — a hit on `Makefile.am` or on a folder named `docs.io` keeps
+  the path. That half is best-effort by nature: a probe still in flight leaves
+  the shape rule in charge, exactly as a "missing" answer would, so the two
+  cannot diverge.
 
 A plain `notes.md` stays local whatever the answer: `md` is not a completable
 TLD, so linking a note before creating it keeps working.

@@ -76,14 +76,15 @@ func linkDestination(typed raw: String, existing: String,
 }
 
 /// Answers "does this destination name a file that is really there?" for the link
-/// dialog, turning the one genuine ambiguity — `docs.dev/intro.md` is a folder in
-/// this vault, `archive.org/note.md` is a web page — from a guess into a fact.
+/// dialog — the evidence that keeps `Makefile.am` and a folder called `docs.io`
+/// from being completed into URLs.
 ///
 /// Resolution runs off the main actor **while the user types**, so pressing OK
 /// only reads memory: the main actor must not touch the disk
 /// (`docs/architecture.md` § Performance), and a vault on a network volume is
-/// exactly why. An answer that has not arrived yet reads as `nil`, and an unknown
-/// destination is left alone — the conservative side.
+/// exactly why. An answer that has not arrived reads as `nil`; only a `true`
+/// changes what the dialog stores, so a late answer can never turn a link the
+/// file system confirmed into something else.
 ///
 /// The path resolution is `resolveLocalLinkDestination`, the same one vault lint
 /// applies to a relative link, with the same roots: the adopted workspace, or the
@@ -107,7 +108,8 @@ final class LocalDestinationCache: @unchecked Sendable {
     /// Keys being resolved right now, so a second keystroke on the same path does
     /// not start a second probe. Bounded as well: on a stalled volume every probe
     /// occupies a thread until the file system answers, and a typed path must not
-    /// be able to queue an unbounded number of them.
+    /// be able to queue an unbounded number of them. Refusing a slot costs only a
+    /// best-effort save (see `normalizedLinkURL`) — nothing decisive is dropped.
     private var pending: Set<String> = []
     /// `.obsidian` fallback root, resolved once off the main actor (it walks the
     /// file system, so it cannot be computed where the dialog is built). Its own
@@ -147,9 +149,6 @@ final class LocalDestinationCache: @unchecked Sendable {
                                                   vaultRoot: self.vaultRoot())
             self.store(target, hit != nil)
         }
-        // The folder is the question a forward link turns on (`projects.dev/plan.md`
-        // beside an existing `projects.dev/`), so it is worth its own answer.
-        if let parent = parentPath(of: target) { prefetch(parent) }
     }
 
     /// True/false once resolved, nil while unknown. Never waits: the main actor
@@ -239,22 +238,23 @@ func normalizedLinkURL(_ raw: String,
         return localFileExists(s) == true ? s : address
     }
 
-    // A file that is really there settles it, whatever the destination looks
-    // like. `localProbeKey` is the single definition of "worth asking", shared
-    // with the probe so the question and the cache key cannot drift apart.
-    if localProbeKey(for: s) != nil, localFileExists(s) == true { return s }
+    // Anything ending in a file this app opens is never completed, and the probe
+    // is not consulted at all: whether such a file exists *yet* cannot decide it,
+    // because writing the link before the note is the everyday forward link in a
+    // vault. Asking would also make the outcome depend on whether the answer
+    // arrived — the same keystrokes storing a relative path on one volume and a
+    // URL on another. The cost is a hand-typed bare `archive.org/note.md`, which
+    // stays relative until its scheme is typed; anything pasted from a browser
+    // carries one already.
+    if looksLikeVaultFile(s) { return s }
 
-    // A destination ending in a file this app opens is decided by its *folder*,
-    // not by the file: writing the link before the note is the everyday forward
-    // link in a vault, so `projects.dev/plan.md` beside an existing
-    // `projects.dev/` is a note to be written, while `archive.org/note.md` with
-    // no such folder is a page. Unknown counts as local here — that keeps a
-    // plain `notes.md` and every not-yet-created note working when there is no
-    // document to resolve against, or the probe has not answered yet.
-    if looksLikeVaultFile(s) {
-        guard let parent = parentPath(of: s) else { return s }
-        if localFileExists(parent) != false { return s }
-    }
+    // Everything else is completed by shape, and the probe can only ever *save* a
+    // local file from that: `Makefile.am`, `example.com` and `docs.io/guide` are
+    // files or folders in some vaults and hosts in others, and a hit is proof.
+    // Best-effort by nature — a probe still in flight (or refused a slot) leaves
+    // the shape rule in charge — but it can only make the answer more
+    // conservative, never rewrite a link the file system has confirmed.
+    if localProbeKey(for: s) != nil, localFileExists(s) == true { return s }
 
     // Only the authority is inspected; the path, query and fragment ride along.
     guard let host = hostParts(authority) else { return s }
@@ -390,13 +390,6 @@ private func fileExtension(_ name: Substring) -> String? {
     let ext = name[name.index(after: dot)...]
     guard !ext.isEmpty, !ext.contains(":") else { return nil }
     return ext.lowercased()
-}
-
-/// The folder part of a destination's path, or nil when it names no folder.
-func parentPath(of destination: String) -> String? {
-    let path = destination.prefix { $0 != "?" && $0 != "#" }
-    guard let slash = path.lastIndex(of: "/"), slash != path.startIndex else { return nil }
-    return String(path[path.startIndex..<slash])
 }
 
 /// True when `s` already carries a URL scheme — either `scheme://` or one of the

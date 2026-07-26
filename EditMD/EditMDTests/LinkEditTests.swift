@@ -79,49 +79,30 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testDottedFolderWithTLDSuffixStaysLocalWhenUnknown() {
-        // No probe (unsaved document): a folder whose suffix happens to be a real
-        // TLD keeps the benefit of the doubt.
+    func testAVaultFileTailIsNeverCompleted() {
+        // The probe is not consulted for these at all, so the answer — and how
+        // fast it arrives — cannot change what is stored.
         for dest in ["docs.dev/intro.md", "archive.org/note.md",
-                     "notes.io/assets/shot.png", "data.info/table.csv"] {
-            XCTAssertEqual(normalizedLinkURL(dest), dest)
+                     "notes.io/assets/shot.png", "data.info/table.csv",
+                     "projects.dev/plan.md", "plan.md", "example.com/img.png"] {
+            for answer: Bool? in [true, false, nil] {
+                XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in answer }),
+                               dest, dest)
+            }
         }
     }
 
-    func testExistingLocalFileDecidesAgainstCompletion() {
-        // The file is really there → a path, whatever the first segment reads like.
-        for dest in ["docs.dev/intro.md", "archive.org/note.md", "example.com/img.png"] {
-            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in true }), dest)
-        }
-    }
-
-    func testMissingFileAndMissingFolderIsCompleted() {
-        // Neither the file nor its folder is here → the host wins, which is what
-        // the TLD says it is.
-        XCTAssertEqual(normalizedLinkURL("archive.org/note.md", localFileExists: { _ in false }),
-                       "https://archive.org/note.md")
-        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md", localFileExists: { _ in false }),
-                       "https://docs.dev/intro.md")
-        XCTAssertEqual(normalizedLinkURL("example.com/img.png", localFileExists: { _ in false }),
-                       "https://example.com/img.png")
-    }
-
-    func testForwardLinkIntoAnExistingFolderStaysLocal() {
-        // The everyday vault move: write the link, create the note after. The
-        // folder is here, the note is not — and that must not become a URL.
-        let folderOnly: (String) -> Bool? = { $0 == "projects.dev" }
-        XCTAssertEqual(normalizedLinkURL("projects.dev/plan.md", localFileExists: folderOnly),
-                       "projects.dev/plan.md")
-        XCTAssertEqual(normalizedLinkURL("projects.dev/2026/plan.md",
-                                         localFileExists: { $0 == "projects.dev/2026" }),
-                       "projects.dev/2026/plan.md")
-    }
-
-    func testABareNoteNameNeverNeedsAFolder() {
-        // No folder to check: a plain name is local whatever the probe says.
-        for answer: Bool? in [true, false, nil] {
-            XCTAssertEqual(normalizedLinkURL("plan.md", localFileExists: { _ in answer }),
-                           "plan.md")
+    func testAProbeAnswerOnlyEverSavesALocalFile() {
+        // Where completion is the default, a hit is proof and keeps the path…
+        XCTAssertEqual(normalizedLinkURL("docs.io/guide", localFileExists: { _ in true }),
+                       "docs.io/guide")
+        // …and no answer leaves the shape rule in charge, exactly as a "missing"
+        // answer would: the two cannot diverge.
+        for answer: Bool? in [false, nil] {
+            XCTAssertEqual(normalizedLinkURL("docs.io/guide", localFileExists: { _ in answer }),
+                           "https://docs.io/guide")
+            XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in answer }),
+                           "https://example.com")
         }
     }
 
@@ -132,7 +113,7 @@ final class LinkEditTests: XCTestCase {
                        "mailto:user@example.com")
     }
 
-    func testMissingFileStillStaysLocalWithoutAPlausibleHost() {
+    func testAMissingFileStaysLocalWithoutAPlausibleHost() {
         // Linking a note before creating it is normal, and `md`/`areas` are not
         // completable TLDs — a missing file must not turn these into URLs.
         for dest in ["notes.md", "2.Areas/note.md", "assets.old/img.png", "v1.x/spec.md"] {
@@ -418,9 +399,13 @@ final class LocalDestinationCacheTests: XCTestCase {
 
         cache.prefetch("archive.org/note.md")
         XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/note.md"))
-        XCTAssertEqual(normalizedLinkURL("archive.org/note.md",
+        // A vault-file tail is not the normalizer's question — one without an
+        // extension is, and there a missing path leaves the host reading standing.
+        cache.prefetch("archive.org/guide")
+        XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/guide"))
+        XCTAssertEqual(normalizedLinkURL("archive.org/guide",
                                          localFileExists: { cache.answer(for: $0) }),
-                       "https://archive.org/note.md")
+                       "https://archive.org/guide")
     }
 
     func testQueryIsIgnoredWhenResolving() throws {
