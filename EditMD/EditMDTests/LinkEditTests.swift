@@ -145,6 +145,34 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
+    // MARK: - localProbeKey
+
+    func testProbeIsSkippedWhereNothingIsArbitrated() {
+        // Nothing here has a local reading, so no key — and therefore no probe,
+        // no detached task, and no stat while the user types.
+        for dest in ["https://example.com/a/b", "http://example.com/x.md",
+                     "mailto:a@b.io", "example.com", "example.com:8080",
+                     "user@example.com", "#top", "/abs/path", "./sibling.md",
+                     "../up.md", "notes", "docs.dev?next=/guide"] {
+            XCTAssertNil(localProbeKey(for: dest), dest)
+        }
+    }
+
+    func testProbeKeyIsThePathAlone() {
+        XCTAssertEqual(localProbeKey(for: "docs.dev/intro.md#setup"), "docs.dev/intro.md")
+        XCTAssertEqual(localProbeKey(for: "docs.dev/intro.md?plain=1"), "docs.dev/intro.md")
+        XCTAssertEqual(localProbeKey(for: " notes.md\n"), "notes.md")
+        XCTAssertEqual(localProbeKey(for: "docs.io/guide"), "docs.io/guide")
+    }
+
+    func testSlashInsideAQueryIsNotAPath() {
+        // A `/` in the query must not make this a local path: with `docs.dev`
+        // itself on disk, an arbitration keyed on the path alone would answer
+        // "exists" and leave the page unlinked.
+        XCTAssertEqual(normalizedLinkURL("docs.dev?next=/guide", localFileExists: { _ in true }),
+                       "https://docs.dev?next=/guide")
+    }
+
     // MARK: - linkDestination
 
     func testUntouchedDestinationIsStoredVerbatim() {
@@ -360,6 +388,20 @@ final class LocalDestinationCacheTests: XCTestCase {
 
         cache.prefetch("docs.dev/intro.md#setup")
         XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md#setup"))
+    }
+
+    func testAFullTableEvictsTheOldestAndKeepsTheNewest() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          adoptedRoot: vault)
+
+        // Past the table's capacity: the answer the dialog is about to read must
+        // survive the arrivals before it, which a wipe-on-full table would drop.
+        for i in 0..<80 { cache.prefetch("docs.dev/note-\(i).md") }
+        XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-79.md"))
+        cache.prefetch("docs.dev/intro.md")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md"))
     }
 
     func testUnknownUntilAnswered() {

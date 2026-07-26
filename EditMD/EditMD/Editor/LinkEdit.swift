@@ -98,6 +98,8 @@ final class LocalDestinationCache: @unchecked Sendable {
     private let adoptedRoot: URL?
     private let lock = NSLock()
     private var answers: [String: Bool] = [:]
+    /// Keys in the order they were first answered — the eviction order.
+    private var arrival: [String] = []
     /// `.obsidian` fallback root, resolved once off the main actor (it walks the
     /// file system, so it cannot be computed where the dialog is built).
     private var fallbackRoot: URL??
@@ -112,14 +114,13 @@ final class LocalDestinationCache: @unchecked Sendable {
         self.adoptedRoot = adoptedRoot
     }
 
-    /// Starts resolving `destination` unless the answer is already in hand.
-    /// Only a destination the normalizer would actually arbitrate is resolved —
-    /// a plain host has no file reading, and probing every keystroke of one would
-    /// stat the disk for nothing.
+    /// Starts resolving `destination`, unless the answer is already in hand or
+    /// `localProbeKey` says the normalizer would never ask about it — an address,
+    /// something already schemed, or a plain host with no path is not arbitrated,
+    /// and probing every keystroke of one would stat the disk for nothing.
     func prefetch(_ destination: String) {
-        let target = Self.key(destination)
         guard fileDir != nil || adoptedRoot != nil,
-              !target.isEmpty, target.contains("/") || fileExtension(target[...]) != nil,
+              let target = localProbeKey(for: destination),
               answer(for: destination) == nil
         else { return }
         let dir = fileDir
@@ -133,18 +134,10 @@ final class LocalDestinationCache: @unchecked Sendable {
 
     /// True/false once resolved, nil while unknown.
     func answer(for destination: String) -> Bool? {
+        guard let key = localProbeKey(for: destination) else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return answers[Self.key(destination)]
-    }
-
-    /// What a destination is resolved and remembered under: newlines dropped
-    /// (they never belong in one), then the query and fragment — neither is part
-    /// of the path, and `resolveLocalLinkDestination` only strips the fragment.
-    private static func key(_ destination: String) -> String {
-        let flat = destination.components(separatedBy: .newlines).joined()
-            .trimmingCharacters(in: .whitespaces)
-        return String(flat.prefix { $0 != "?" && $0 != "#" })
+        return answers[key]
     }
 
     /// Adopted workspace first, then the nearest `.obsidian` vault above the
@@ -162,9 +155,18 @@ final class LocalDestinationCache: @unchecked Sendable {
         return resolved
     }
 
+    /// Oldest answer out, never a wipe: an answer is a pure function of the path
+    /// and the roots, so a task landing late is merely late — but clearing the
+    /// table under it could drop the answer the dialog is about to read.
     private func store(_ key: String, _ exists: Bool) {
         lock.lock()
-        if answers.count >= Self.maxAnswers { answers.removeAll(keepingCapacity: true) }
+        if answers[key] == nil {
+            arrival.append(key)
+            while arrival.count > Self.maxAnswers, let oldest = arrival.first {
+                arrival.removeFirst()
+                answers[oldest] = nil
+            }
+        }
         answers[key] = exists
         lock.unlock()
     }
@@ -213,14 +215,17 @@ func normalizedLinkURL(_ raw: String,
 
     // A destination with a path could be a folder in the vault, extension or not
     // (`docs.io/guide`), and one ending in a file we open could be a note. The
-    // file system is the only authority on which it is, so ask it whenever the
-    // question arises: a hit is always a path.
-    let looksLikeVaultFile = fileExtension(pathTail(s)).map(vaultFileExtensions.contains) ?? false
-    if looksLikeVaultFile || s.contains("/"), localFileExists(s) == true { return s }
-    // Unknown — no document to resolve against, or the probe has not answered —
-    // keeps the vault's benefit of the doubt where the tail reads as a file we
-    // open. Elsewhere an unanswered probe must not block an ordinary web link.
-    if looksLikeVaultFile, localFileExists(s) == nil { return s }
+    // file system is the only authority on which it is; `localProbeKey` is the
+    // single definition of "worth asking", shared with the probe so the question
+    // and the cache key cannot drift apart.
+    if localProbeKey(for: s) != nil {
+        // A hit is always a path.
+        if localFileExists(s) == true { return s }
+        // Unknown — no document to resolve against, or the probe has not
+        // answered — keeps the vault's benefit of the doubt where the tail reads
+        // as a file we open; elsewhere it must not block an ordinary web link.
+        if looksLikeVaultFile(s), localFileExists(s) == nil { return s }
+    }
 
     // Only the authority is inspected; the path, query and fragment ride along.
     guard let host = hostParts(authority) else { return s }
@@ -293,6 +298,34 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
     default:
         return nil
     }
+}
+
+/// The path a destination would be arbitrated by — and remembered under —
+/// or nil when the normalizer never asks the file system about it: something
+/// already carrying a scheme, an anchor, an absolute or dot-relative path, an
+/// address, or a host with no path beneath it. One definition for both sides, so
+/// the question and the cache key cannot drift apart.
+///
+/// The returned path excludes query and fragment: neither is part of a file name,
+/// and a `/` inside a query (`docs.dev?next=/guide`) does not make a destination
+/// a path — while `resolveLocalLinkDestination` only strips the fragment itself.
+func localProbeKey(for destination: String) -> String? {
+    let s = destination.components(separatedBy: .newlines).joined()
+        .trimmingCharacters(in: .whitespaces)
+    guard let first = s.first, !hasURLScheme(s),
+          first != "#", first != "/", first != "?",
+          !s.hasPrefix("./"), !s.hasPrefix("../"),
+          !s.contains(where: \.isWhitespace),
+          !s.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" }).contains("@")
+    else { return nil }
+    let path = String(s.prefix { $0 != "?" && $0 != "#" })
+    guard path.contains("/") || looksLikeVaultFile(s) else { return nil }
+    return path
+}
+
+/// True when a destination ends in a file this app opens (`notes.md#heading`).
+private func looksLikeVaultFile(_ s: String) -> Bool {
+    fileExtension(pathTail(s)).map(vaultFileExtensions.contains) ?? false
 }
 
 /// The file-name end of a destination: query and fragment dropped, then the last
