@@ -33,6 +33,16 @@ Website: [dotmd.tools/editmd](https://dotmd.tools/editmd), part of the
 - **Also**: PDF export, PDF/image viewer, smart paste (tables from
   Excel/Numbers, images, URLs), textbundle assets, English/Russian UI.
 
+## Install
+
+```bash
+brew install --cask andryushkin/apps/editmd
+```
+
+Or download the DMG from the
+[latest release](https://github.com/andryushkin/editmd/releases/latest). The
+app is Developer ID signed and notarized; macOS 14 (Sonoma) or newer.
+
 ## Build
 
 Requires macOS 14+, Xcode 26+ (Swift 6.2), and
