@@ -18,6 +18,53 @@ final class LinkEditTests: XCTestCase {
                        "[https://x.com/a>b](https://x.com/a>b)")
     }
 
+    // MARK: - normalizedLinkURL
+
+    func testBareHostGetsHTTPS() {
+        XCTAssertEqual(normalizedLinkURL("example.com"), "https://example.com")
+        XCTAssertEqual(normalizedLinkURL("www.example.com"), "https://www.example.com")
+        XCTAssertEqual(normalizedLinkURL("sub.example.co.uk/page?q=1#top"),
+                       "https://sub.example.co.uk/page?q=1#top")
+        XCTAssertEqual(normalizedLinkURL("сайт.рф"), "https://сайт.рф")
+    }
+
+    func testHostWithPortGetsHTTPS() {
+        // The colon is a port here, not a scheme.
+        XCTAssertEqual(normalizedLinkURL("example.com:8080/x"), "https://example.com:8080/x")
+    }
+
+    func testSurroundingSpaceIsTrimmed() {
+        XCTAssertEqual(normalizedLinkURL("  example.com  "), "https://example.com")
+    }
+
+    func testExistingSchemeIsKept() {
+        for url in ["https://example.com", "http://example.com", "mailto:a@b.io",
+                    "tel:+1234", "editmd://new?file=x", "obsidian://open"] {
+            XCTAssertEqual(normalizedLinkURL(url), url)
+        }
+    }
+
+    func testLocalDestinationsAreKept() {
+        for dest in ["#heading", "/abs/path", "./sibling.md", "../up.md", "notes",
+                     "notes.md", "shot.png", "Untitled.markdown", "a b.com"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testRelativePathWithLocalFileIsKept() {
+        // A dot inside a path must not turn the first segment into a host.
+        XCTAssertEqual(normalizedLinkURL("docs/intro.md"), "docs/intro.md")
+    }
+
+    func testEmailIsNotTurnedIntoWebLink() {
+        XCTAssertEqual(normalizedLinkURL("user@example.com"), "user@example.com")
+    }
+
+    func testEmptyStaysEmpty() {
+        XCTAssertEqual(normalizedLinkURL(""), "")
+        XCTAssertEqual(normalizedLinkURL("   "), "")
+    }
+
     // MARK: - inlineLinkMatch
 
     func testFindsLinkUnderCaret() {

@@ -260,8 +260,8 @@ func promptForNewName(title: String, message: String, defaultName: String,
     alert.informativeText = message
     alert.addButton(withTitle: confirmTitle)
     alert.addButton(withTitle: String(localized: "Cancel"))
-    let field = NSTextField(string: defaultName)
-    field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+    let field = alertTextField(width: 260)
+    field.stringValue = defaultName
     alert.accessoryView = field
     guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
     let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -276,7 +276,8 @@ func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTe
     alert.addButton(withTitle: String(localized: "Create"))
     alert.addButton(withTitle: String(localized: "Cancel"))
 
-    let field = NSTextField(string: String(localized: "Untitled") + ".md")
+    let field = alertTextField(width: 230)
+    field.stringValue = String(localized: "Untitled") + ".md"
     field.placeholderString = String(localized: "File name")
     let templatePicker = NSPopUpButton(frame: .zero, pullsDown: false)
     for template in FileTemplate.allCases {
