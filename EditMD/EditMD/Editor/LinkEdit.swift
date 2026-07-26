@@ -180,10 +180,7 @@ func normalizedLinkURL(_ raw: String,
     guard let host = hostParts(authority) else { return s }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
     guard labels.allSatisfy(isHostLabel) else { return s }
-    if labels.count >= 2, let tld = labels.last?.lowercased(),
-       completableTLDs.contains(tld) {
-        return "https://" + s
-    }
+    if isCompletableHost(host.name) { return "https://" + s }
     // A dotted quad is a host, and so is a single label carrying a port — both
     // are servers on this network rather than paths in the vault.
     let isAddress = labels.count == 4 && labels.allSatisfy {
@@ -212,13 +209,22 @@ private func mailtoAddress(_ s: String) -> String? {
     guard parts.count == 2, !parts[0].isEmpty,
           // `user:pass@host` is userinfo, `contacts/john@acme.com` is a path.
           !parts[0].contains(where: { structural.contains($0) }),
-          !parts[1].contains(where: { structural.contains($0) })
-    else { return nil }
-    let labels = parts[1].split(separator: ".", omittingEmptySubsequences: false)
-    guard labels.count >= 2, labels.allSatisfy({ !$0.isEmpty }),
-          let tld = labels.last?.lowercased(), completableTLDs.contains(tld)
+          !parts[1].contains(where: { structural.contains($0) }),
+          // The same host test the web branch uses — an address at a malformed
+          // host (`user@-example.com`) is no more completable than the host is.
+          isCompletableHost(parts[1])
     else { return nil }
     return "mailto:" + s
+}
+
+/// True when an authority reads as a host worth completing a scheme for: two or
+/// more RFC 1123 labels and a TLD from `completableTLDs`.
+private func isCompletableHost(_ host: Substring) -> Bool {
+    let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count >= 2, labels.allSatisfy(isHostLabel),
+          let tld = labels.last?.lowercased()
+    else { return false }
+    return completableTLDs.contains(tld)
 }
 
 /// Splits an authority into host name and port, or nil when it is not shaped

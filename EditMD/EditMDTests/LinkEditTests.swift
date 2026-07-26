@@ -194,6 +194,13 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
+    func testAddressAtAMalformedHostIsKept() {
+        // The address branch owes the same host test as the web branch.
+        for dest in ["user@-example.com", "user@example-.com", "user@exam_ple.com"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
     func testNewlineInTheFieldNeverReachesTheDestination() {
         XCTAssertEqual(linkDestination(typed: "https://a\nb", existing: ""), "https://ab")
         XCTAssertEqual(linkDestination(typed: "example.com\n", existing: ""),

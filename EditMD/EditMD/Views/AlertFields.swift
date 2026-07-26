@@ -144,14 +144,15 @@ private final class FirstResponderClaim {
 
     private func claim(force: Bool) {
         guard let window = field.window, window.isKeyWindow else { return }
-        if let editor = window.firstResponder as? NSTextView {
-            // Already editing this field: re-claiming would reselect its whole
-            // contents, discarding what the user has typed by then.
-            if let edited = editor.delegate as? NSView, edited === field { return }
-            // Someone else's field is being edited — only the opening moment may
-            // take that over, and only because AppKit put focus there, not the user.
-            if !force { return }
-        }
+        // Already editing this field: re-claiming would reselect its whole
+        // contents, discarding what the user has typed by then.
+        if let editor = window.firstResponder as? NSTextView,
+           let edited = editor.delegate as? NSView, edited === field { return }
+        // A later return to the panel claims only when nothing at all holds
+        // focus. Anything that does — another field, a template popup — was put
+        // there by the user, not by AppKit's opening pass; only that pass, inside
+        // the opening moment, is worth claiming over.
+        if !force, window.firstResponder !== window { return }
         // Counting successes only: two refusals must not look like two claims and
         // end the watch before the field has focus at all.
         if window.makeFirstResponder(field) { claims += 1 }
