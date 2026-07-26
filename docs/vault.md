@@ -81,7 +81,7 @@ target and must stay free of AppKit and app models (the list is in
 
 A destination typed without a scheme is stored as authored only when it reads
 as local; a bare host gets `https://`, an address `mailto:`, a
-port-carrying server `http://` (`Editor/LinkEdit.swift`). Two rules keep this
+port-carrying server `http://` (`Editor/LinkEdit.swift`). Three rules keep this
 from mangling a vault:
 
 - Completion needs a TLD from a curated list, and the list deliberately omits
@@ -90,22 +90,24 @@ from mangling a vault:
   from `build.sh` or a PARA folder like `2.Areas/note.md`, and a rare TLD left
   for the author to type beats a working relative link rewritten into an
   unreachable URL.
-- When a destination carries a path at all, the ambiguity is real
-  (`docs.dev/intro.md` is a folder in someone's vault, `archive.org/note.md` is
-  a web page) and the file system decides it. `LocalDestinationCache` resolves
-  what is typed **in the background as the user types**, so pressing OK only
-  reads memory, never the disk (§ Performance in `architecture.md`). It resolves
-  through `resolveLocalLinkDestination` with the same roots as the link opener
-  and vault lint — the adopted workspace, else the nearest `.obsidian` above the
-  file — with one deliberate narrowing: lint also accepts a wiki-index basename
-  match for a markdown link, which the dialog does not consult, so a destination
+- The file system settles what shape cannot. `LocalDestinationCache` resolves
+  what is typed **in the background as the user types** and OK only reads the
+  answer — it never waits and never stats: the main actor does not block on a
+  volume (§ Performance in `architecture.md`), and one slow enough to still be
+  thinking would not have been saved by a timeout. Resolution is
+  `resolveLocalLinkDestination` with the same roots as the link opener and vault
+  lint — the adopted workspace, else the nearest `.obsidian` above the file —
+  with one deliberate narrowing: lint also accepts a wiki-index basename match
+  for a markdown link, which the dialog does not consult, so a destination
   resolving *only* by basename counts as missing here.
-- A hit always means local — even for a bare `example.com`, if a file of that
-  name is really there. A confirmed dialog waits a bounded moment
-  (`LocalDestinationCache.answerWait`) for an answer already on its way, so a
-  slow volume costs a pause rather than the arbitration. Still unknown after
-  that, or a document with no file yet: unknown keeps a vault-file-looking tail
-  local and lets an ordinary page complete.
+- A file that is really there is always a path, even a bare `example.com` or
+  `Makefile.am`. A destination ending in a file the app opens turns on its
+  **folder** instead, because writing the link before the note is the everyday
+  forward link: `projects.dev/plan.md` beside an existing `projects.dev/` stays
+  local, `archive.org/note.md` with no such folder becomes a page, and a bare
+  `plan.md` — no folder to check — stays local. Unknown counts as local in that
+  branch, so nothing breaks while a probe is still out, or when the document has
+  no file to resolve against yet.
 
 A plain `notes.md` stays local whatever the answer: `md` is not a completable
 TLD, so linking a note before creating it keeps working.

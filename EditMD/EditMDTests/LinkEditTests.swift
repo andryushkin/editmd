@@ -95,14 +95,41 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testMissingLocalFileIsCompletedWhenHostIsPlausible() {
-        // No such file → the host wins, which is what the TLD says it is.
+    func testMissingFileAndMissingFolderIsCompleted() {
+        // Neither the file nor its folder is here → the host wins, which is what
+        // the TLD says it is.
         XCTAssertEqual(normalizedLinkURL("archive.org/note.md", localFileExists: { _ in false }),
                        "https://archive.org/note.md")
         XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md", localFileExists: { _ in false }),
                        "https://docs.dev/intro.md")
         XCTAssertEqual(normalizedLinkURL("example.com/img.png", localFileExists: { _ in false }),
                        "https://example.com/img.png")
+    }
+
+    func testForwardLinkIntoAnExistingFolderStaysLocal() {
+        // The everyday vault move: write the link, create the note after. The
+        // folder is here, the note is not — and that must not become a URL.
+        let folderOnly: (String) -> Bool? = { $0 == "projects.dev" }
+        XCTAssertEqual(normalizedLinkURL("projects.dev/plan.md", localFileExists: folderOnly),
+                       "projects.dev/plan.md")
+        XCTAssertEqual(normalizedLinkURL("projects.dev/2026/plan.md",
+                                         localFileExists: { $0 == "projects.dev/2026" }),
+                       "projects.dev/2026/plan.md")
+    }
+
+    func testABareNoteNameNeverNeedsAFolder() {
+        // No folder to check: a plain name is local whatever the probe says.
+        for answer: Bool? in [true, false, nil] {
+            XCTAssertEqual(normalizedLinkURL("plan.md", localFileExists: { _ in answer }),
+                           "plan.md")
+        }
+    }
+
+    func testAFileNamedLikeAnAddressWinsOverMailto() {
+        XCTAssertEqual(normalizedLinkURL("user@example.com", localFileExists: { _ in true }),
+                       "user@example.com")
+        XCTAssertEqual(normalizedLinkURL("user@example.com", localFileExists: { _ in false }),
+                       "mailto:user@example.com")
     }
 
     func testMissingFileStillStaysLocalWithoutAPlausibleHost() {
@@ -158,8 +185,9 @@ final class LinkEditTests: XCTestCase {
         // Nothing here has a local reading, so no key — and therefore no probe,
         // no detached task, and no stat while the user types.
         for dest in ["https://example.com/a/b", "http://example.com/x.md",
-                     "mailto:a@b.io", "user@example.com", "#top", "/abs/path",
-                     "./sibling.md", "../up.md", "notes", "docs.dev?next=/guide"] {
+                     "mailto:a@b.io", "user@example.com/path", "#top", "/abs/path",
+                     "./sibling.md", "../up.md", "notes", "docs.dev?next=/guide",
+                     "192.168.1.5:8080", "localhost:3000"] {
             XCTAssertNil(localProbeKey(for: dest), dest)
         }
     }
@@ -244,7 +272,8 @@ final class LinkEditTests: XCTestCase {
 
     func testMalformedHostsAreKept() {
         for dest in ["-example.com", "example-.com", "999.999.999.999",
-                     "example.com:0", "1.2.3.4:65536", "[::1]:8080"] {
+                     "example.com:0", "1.2.3.4:65536", "[::1]:8080",
+                     "example:+80", "host:0080"] {
             XCTAssertEqual(normalizedLinkURL(dest), dest)
         }
     }
@@ -300,6 +329,30 @@ final class LinkEditTests: XCTestCase {
         let s = "see [Example](https://example.com) now"
         XCTAssertNil(inlineLinkMatch(in: s, at: 0))
         XCTAssertNil(inlineLinkMatch(in: s, at: 38))
+    }
+
+    func testRawLabelKeepsItsMarkers() {
+        // What the dialog shows is the rendered text; what goes back when the
+        // user does not touch it is the source.
+        let m = inlineLinkMatch(in: "see [**bold** and `code`](notes.md) now", at: 10)
+        // `plainText` drops emphasis markers but keeps the code span's backticks —
+        // whatever it renders, the label put back is the source.
+        XCTAssertEqual(m?.text, "bold and `code`")
+        XCTAssertEqual(m?.rawLabel, "**bold** and `code`")
+        XCTAssertEqual(markdownLinkSyntax(rawLabel: m!.rawLabel, url: "notes.md"),
+                       "[**bold** and `code`](notes.md)")
+    }
+
+    func testRawLabelOfAPlainLinkIsItsText() {
+        let m = inlineLinkMatch(in: "[Example](https://example.com)", at: 3)
+        XCTAssertEqual(m?.rawLabel, "Example")
+    }
+
+    func testRawLabelIsNotEscapedTwice() {
+        // The label came from the source, so its escapes are already right.
+        let m = inlineLinkMatch(in: #"[a\[b](x.md)"#, at: 3)
+        XCTAssertEqual(m?.rawLabel, #"a\[b"#)
+        XCTAssertEqual(markdownLinkSyntax(rawLabel: m!.rawLabel, url: "x.md"), #"[a\[b](x.md)"#)
     }
 
     func testAutolinkIsEditable() {
@@ -432,10 +485,10 @@ final class LocalDestinationCacheTests: XCTestCase {
             cache.prefetch("docs.dev/note-\(i).md")
             XCTAssertFalse(try awaitAnswer(cache, for: "docs.dev/note-\(i).md"))
         }
-        // The newest answers are the ones a dialog is about to read.
+        // The newest answer is the one a dialog is about to read, and it survives
+        // the arrivals before it — which a wipe-on-full table would have dropped.
         XCTAssertNotNil(cache.answer(for: "docs.dev/note-69.md"))
-        XCTAssertNotNil(cache.answer(for: "docs.dev/note-6.md"))
-        // The oldest are gone — evicted one by one, never wiped as a table.
+        // The oldest is gone — evicted one at a time, never wiped as a table.
         XCTAssertNil(cache.answer(for: "docs.dev/note-0.md"))
     }
 

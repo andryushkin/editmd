@@ -95,11 +95,8 @@ final class LocalDestinationCache: @unchecked Sendable {
     /// Enough answers for a typed destination and its prefixes; a dialog that
     /// somehow types past it starts a fresh generation rather than growing.
     private static let maxAnswers = 64
-
-    /// How long a confirmed dialog may wait for an answer already on its way.
-    /// Bounded, because the dialog must not hang on a slow volume; enough that a
-    /// local stat — and usually a networked one — lands in time to be used.
-    static let answerWait: TimeInterval = 0.1
+    /// Probes allowed to be in flight at once.
+    private static let maxInFlight = 8
 
     private let fileDir: URL?
     private let adoptedRoot: URL?
@@ -108,8 +105,10 @@ final class LocalDestinationCache: @unchecked Sendable {
     /// Keys in the order they were first answered — the eviction order.
     private var arrival: [String] = []
     /// Keys being resolved right now, so a second keystroke on the same path does
-    /// not start a second probe, and a waiter has something to wait on.
-    private var pending: [String: DispatchSemaphore] = [:]
+    /// not start a second probe. Bounded as well: on a stalled volume every probe
+    /// occupies a thread until the file system answers, and a typed path must not
+    /// be able to queue an unbounded number of them.
+    private var pending: Set<String> = []
     /// `.obsidian` fallback root, resolved once off the main actor (it walks the
     /// file system, so it cannot be computed where the dialog is built). Its own
     /// lock: the walk holds it, and must never block a lookup from the main actor.
@@ -135,32 +134,30 @@ final class LocalDestinationCache: @unchecked Sendable {
               let target = localProbeKey(for: destination)
         else { return }
         lock.lock()
-        guard answers[target] == nil, pending[target] == nil else { lock.unlock(); return }
-        let ready = DispatchSemaphore(value: 0)
-        pending[target] = ready
+        guard answers[target] == nil, !pending.contains(target),
+              pending.count < Self.maxInFlight
+        else { lock.unlock(); return }
+        pending.insert(target)
         lock.unlock()
 
         let dir = fileDir
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { ready.signal(); return }
+            guard let self else { return }
             let hit = resolveLocalLinkDestination(target, fileDir: dir,
                                                   vaultRoot: self.vaultRoot())
             self.store(target, hit != nil)
         }
+        // The folder is the question a forward link turns on (`projects.dev/plan.md`
+        // beside an existing `projects.dev/`), so it is worth its own answer.
+        if let parent = parentPath(of: target) { prefetch(parent) }
     }
 
-    /// True/false once resolved, nil while unknown. `waitingUpTo` waits for an
-    /// answer already on its way — passed only where the wait is worth it, at OK,
-    /// so a slow volume costs a moment instead of the arbitration.
-    func answer(for destination: String, waitingUpTo timeout: TimeInterval = 0) -> Bool? {
+    /// True/false once resolved, nil while unknown. Never waits: the main actor
+    /// does not block on the file system (`docs/architecture.md` § Performance),
+    /// and a volume slow enough to still be thinking would not have been saved by
+    /// a timeout either. Unknown is a first-class answer — see `normalizedLinkURL`.
+    func answer(for destination: String) -> Bool? {
         guard let key = localProbeKey(for: destination) else { return nil }
-        lock.lock()
-        if let answer = answers[key] { lock.unlock(); return answer }
-        let ready = pending[key]
-        lock.unlock()
-
-        guard timeout > 0, let ready else { return nil }
-        _ = ready.wait(timeout: .now() + timeout)
         lock.lock()
         defer { lock.unlock() }
         return answers[key]
@@ -194,9 +191,8 @@ final class LocalDestinationCache: @unchecked Sendable {
             }
         }
         answers[key] = exists
-        let ready = pending.removeValue(forKey: key)
+        pending.remove(key)
         lock.unlock()
-        ready?.signal()
     }
 }
 
@@ -236,25 +232,28 @@ func normalizedLinkURL(_ raw: String,
     let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
     if authority.contains("@") {
         // Only a whole string that is an address becomes `mailto:`; with a path
-        // glued on it is userinfo in a URL, which is not ours to complete.
+        // glued on it is userinfo in a URL, which is not ours to complete. A file
+        // of that very name — an archive of one message per file — wins over the
+        // address reading, on the same evidence everything else here turns on.
         guard authority.count == s.count, let address = mailtoAddress(s) else { return s }
-        return address
+        return localFileExists(s) == true ? s : address
     }
 
-    // A destination with a path could be a folder in the vault, extension or not
-    // (`docs.io/guide`), and one ending in a file we open could be a note. The
-    // file system is the only authority on which it is; `localProbeKey` is the
-    // single definition of "worth asking", shared with the probe so the question
-    // and the cache key cannot drift apart.
-    if localProbeKey(for: s) != nil {
-        let exists = localFileExists(s)
-        // A hit is always a path.
-        if exists == true { return s }
-        // Unknown — no document to resolve against, or the probe has not
-        // answered in time — keeps the vault's benefit of the doubt where the
-        // tail reads as a file we open; elsewhere it must not block an ordinary
-        // web link.
-        if exists == nil, looksLikeVaultFile(s) { return s }
+    // A file that is really there settles it, whatever the destination looks
+    // like. `localProbeKey` is the single definition of "worth asking", shared
+    // with the probe so the question and the cache key cannot drift apart.
+    if localProbeKey(for: s) != nil, localFileExists(s) == true { return s }
+
+    // A destination ending in a file this app opens is decided by its *folder*,
+    // not by the file: writing the link before the note is the everyday forward
+    // link in a vault, so `projects.dev/plan.md` beside an existing
+    // `projects.dev/` is a note to be written, while `archive.org/note.md` with
+    // no such folder is a page. Unknown counts as local here — that keeps a
+    // plain `notes.md` and every not-yet-created note working when there is no
+    // document to resolve against, or the probe has not answered yet.
+    if looksLikeVaultFile(s) {
+        guard let parent = parentPath(of: s) else { return s }
+        if localFileExists(parent) != false { return s }
     }
 
     // Only the authority is inspected; the path, query and fragment ride along.
@@ -322,7 +321,10 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
     switch pieces.count {
     case 1:
         return (pieces[0], "")
-    case 2 where Int(pieces[1]).map({ (1...65535).contains($0) }) ?? false:
+    // Digits only, no leading zero, in range: `+80` and `0080` are text that
+    // happens to follow a colon, not ports.
+    case 2 where pieces[1].allSatisfy(\.isNumber) && pieces[1].first != "0"
+        && (Int(pieces[1]).map { (1...65535).contains($0) } ?? false):
         return (pieces[0], pieces[1])
     default:
         return nil
@@ -343,9 +345,12 @@ func localProbeKey(for destination: String) -> String? {
     guard let first = s.first, !hasURLScheme(s),
           first != "#", first != "/", first != "?",
           !s.hasPrefix("./"), !s.hasPrefix("../"),
-          !s.contains(where: \.isWhitespace),
-          !s.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" }).contains("@")
+          !s.contains(where: \.isWhitespace)
     else { return nil }
+    // An `@` under a path is userinfo in a URL and names nothing local; standing
+    // alone it may still be a file (`user@example.com` in a mail archive).
+    let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
+    guard !authority.contains("@") || authority.count == s.count else { return nil }
     let path = String(s.prefix { $0 != "?" && $0 != "#" })
     // A dotted bare name is asked about too, not only one ending in a file we
     // open: `Makefile.am`, `main.cc` and `logo.ai` are files whose extensions are
@@ -377,11 +382,21 @@ private func pathTail(_ s: String) -> Substring {
     return path[path.index(after: slash)...]
 }
 
-/// The lowercased extension of a name that has one (`notes.md` → `md`).
+/// The lowercased extension of a name that has one (`notes.md` → `md`). A colon
+/// rules it out: `192.168.1.5:8080` ends in a port, not in `5:8080`, and no file
+/// on this platform carries one in its name.
 private func fileExtension(_ name: Substring) -> String? {
     guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return nil }
     let ext = name[name.index(after: dot)...]
-    return ext.isEmpty ? nil : ext.lowercased()
+    guard !ext.isEmpty, !ext.contains(":") else { return nil }
+    return ext.lowercased()
+}
+
+/// The folder part of a destination's path, or nil when it names no folder.
+func parentPath(of destination: String) -> String? {
+    let path = destination.prefix { $0 != "?" && $0 != "#" }
+    guard let slash = path.lastIndex(of: "/"), slash != path.startIndex else { return nil }
+    return String(path[path.startIndex..<slash])
 }
 
 /// True when `s` already carries a URL scheme — either `scheme://` or one of the
@@ -410,8 +425,12 @@ private func hasURLScheme(_ s: String) -> Bool {
 struct InlineLinkMatch: Equatable {
     /// Full `[text](dest)` span in the source (UTF-16).
     var range: NSRange
-    /// Link label (the rendered text between the brackets).
+    /// Link label as rendered — what the dialog shows and the user edits.
     var text: String
+    /// Label as *written*: `**bold**` where `text` is `bold`. A label the user
+    /// leaves alone goes back byte-exact, so ⌘K on a formatted link cannot flatten
+    /// it just by being confirmed.
+    var rawLabel: String
     /// Destination as authored (angle brackets already stripped by the parser).
     var url: String
 }
@@ -427,7 +446,7 @@ func inlineLinkMatch(in source: String, at caret: Int) -> InlineLinkMatch? {
     guard !source.isEmpty else { return nil }
     let lineIdx = LineIndex(source)
     let document = Document(parsing: source)
-    var collector = InlineLinkRangeCollector(lineIdx: lineIdx)
+    var collector = InlineLinkRangeCollector(lineIdx: lineIdx, source: source as NSString)
     collector.visit(document)
     // Innermost wins if links ever nest: the last (deepest-visited) containing
     // match is returned.
@@ -443,6 +462,7 @@ func inlineLinkMatch(in source: String, at caret: Int) -> InlineLinkMatch? {
 
 private struct InlineLinkRangeCollector: MarkupWalker {
     let lineIdx: LineIndex
+    let source: NSString
     var matches: [InlineLinkMatch] = []
 
     private func nsRange(for src: SourceRange) -> NSRange? {
@@ -458,9 +478,26 @@ private struct InlineLinkRangeCollector: MarkupWalker {
         // the doc comment on `inlineLinkMatch`).
         if let dest = link.destination, let src = link.range,
            let r = nsRange(for: src), r.length >= 2 {
-            matches.append(InlineLinkMatch(range: r, text: link.plainText, url: dest))
+            matches.append(InlineLinkMatch(range: r,
+                                           text: link.plainText,
+                                           rawLabel: rawLabel(of: link) ?? link.plainText,
+                                           url: dest))
         }
         descendInto(link)
+    }
+
+    /// Source text of the label — from the first child's start to the last
+    /// child's end, so emphasis markers and escapes come along. Nil for an
+    /// autolink, which has no label of its own.
+    private func rawLabel(of link: Link) -> String? {
+        let childRanges = link.children.compactMap(\.range)
+        guard let first = childRanges.first, let last = childRanges.last,
+              let start = nsRange(for: first), let end = nsRange(for: last)
+        else { return nil }
+        let span = NSRange(location: start.location, length: NSMaxRange(end) - start.location)
+        guard span.location >= 0, span.length > 0, NSMaxRange(span) <= source.length
+        else { return nil }
+        return source.substring(with: span)
     }
 }
 
@@ -507,14 +544,14 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
     // Resolve what is typed against the vault in the background, so OK reads an
-    // answer that is already there — and, in the worst case, waits a bounded
-    // moment for one still on its way rather than touching the disk itself.
+    // answer that is already there rather than touching the disk itself. An
+    // untouched destination is never arbitrated (`linkDestination` returns it
+    // verbatim), so there is nothing to prefetch until the field changes.
     let destinations = LocalDestinationCache(
         fileURL: fileURL,
         adoptedRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
     let watcher = LinkURLFieldWatcher(destinations: destinations)
     urlField.delegate = watcher
-    destinations.prefetch(existingURL)
 
     // Adding a link starts in the URL field (the label is usually the
     // selection); editing an existing one starts in its text.
@@ -531,11 +568,7 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
         // — and normalizing at all — is pointless for a value Cancel or Remove
         // Link is about to drop, and on a slow volume that wait would be felt.
         let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
-                                  localFileExists: {
-                                      destinations.answer(
-                                          for: $0,
-                                          waitingUpTo: LocalDestinationCache.answerWait)
-                                  })
+                                  localFileExists: { destinations.answer(for: $0) })
         guard !url.isEmpty else { return .cancel }
         // A label is one line: a two-line paste would otherwise put a newline
         // inside `[…]`, which breaks the link in Source and makes one link

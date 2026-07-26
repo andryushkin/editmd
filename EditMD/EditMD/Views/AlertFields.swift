@@ -90,6 +90,9 @@ private final class FirstResponderClaim {
     private var timer: Timer?
     private var deadline: Date?
     private var claims = 0
+    /// Set the first time the panel becomes key, whether or not the claim stood:
+    /// only that first moment may take focus from where it finds it.
+    private var didOpen = false
 
     init(field: NSView, window: NSWindow) {
         self.field = field
@@ -117,7 +120,8 @@ private final class FirstResponderClaim {
         // First opening: claim over whatever AppKit's own pass does, for a moment.
         // A later return to the panel (back from another app) claims only if no
         // field is being edited — by then the focus is the user's to place.
-        let opening = claims == 0 && timer == nil
+        let opening = !didOpen
+        didOpen = true
         claim(force: opening)
         guard opening else { return }
         deadline = Date().addingTimeInterval(Self.watch)
@@ -133,15 +137,12 @@ private final class FirstResponderClaim {
         self.timer = timer
     }
 
-    /// AppKit's pass runs once, so a claim that has had to take focus *back* is
-    /// the last one needed: stop there rather than watch to the deadline, which
-    /// is only the fallback for a pass that never comes. Only the timer stops —
-    /// the observer stays for the rest of the dialog.
     /// Corrects focus for as long as the watch lasts, however late AppKit's pass
-    /// runs inside it — stopping at the first tick that finds focus in place
-    /// would stop precisely when the pass has not come *yet*. Watching to the end
-    /// is safe because the window is shorter than a human reaction to a panel
-    /// that has just appeared: whatever moves focus inside it is AppKit's doing.
+    /// runs inside it — stopping at the first tick that finds focus in place would
+    /// stop precisely when the pass has not come *yet*. Watching to the end is
+    /// safe because the window is shorter than a human reaction to a panel that
+    /// has just appeared: whatever moves focus inside it is AppKit's doing. Only
+    /// the timer stops here; the observer stays for the rest of the dialog.
     private func tick() {
         claim(force: true)
         let expired = deadline.map { Date() >= $0 } ?? true

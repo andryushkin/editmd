@@ -40,11 +40,17 @@ func selectionUsableAsLinkLabel(_ text: String) -> Bool {
 /// link can't be broken by the URL (mirrors the image serializer's
 /// `formatDestination`).
 func markdownLinkSyntax(text: String, url: String) -> String {
-    let label = text
+    markdownLinkSyntax(rawLabel: text
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "[", with: "\\[")
-        .replacingOccurrences(of: "]", with: "\\]")
+        .replacingOccurrences(of: "]", with: "\\]"),
+        url: url)
+}
+
+/// Same, for a label that is already markdown source — an existing link's label
+/// put back unchanged (`**bold**`), which must not be escaped a second time.
+func markdownLinkSyntax(rawLabel: String, url: String) -> String {
     let dest = (url.contains(" ") || url.contains("(") || url.contains(")"))
         ? "<\(url)>" : url
-    return "[\(label)](\(dest))"
+    return "[\(rawLabel)](\(dest))"
 }

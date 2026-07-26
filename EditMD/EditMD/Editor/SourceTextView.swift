@@ -1247,17 +1247,25 @@ struct SourceTextView: NSViewRepresentable {
             var existingURL = ""
 
             // Prefer an existing link touching the caret / selection start.
-            if let match = inlineLinkMatch(in: textView.string, at: selection.location) {
-                selection = match.range
-                existingText = match.text
-                existingURL = match.url
+            let existing = inlineLinkMatch(in: textView.string, at: selection.location)
+            if let existing {
+                selection = existing.range
+                existingText = existing.text
+                existingURL = existing.url
             }
 
             switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL,
                                      fileURL: parent.fileURL) {
             case .apply(let text, let url):
-                let label = text.isEmpty ? url : text
-                let replacement = markdownLinkSyntax(text: label, url: url)
+                let replacement: String
+                if let existing, text == existing.text {
+                    // The label was not edited, so it goes back as written:
+                    // rebuilding it from the rendered text would flatten
+                    // `[**bold**](x)` into `[bold](x)` on a confirm alone.
+                    replacement = markdownLinkSyntax(rawLabel: existing.rawLabel, url: url)
+                } else {
+                    replacement = markdownLinkSyntax(text: text.isEmpty ? url : text, url: url)
+                }
                 guard textView.shouldChangeText(in: selection, replacementString: replacement)
                 else { return }
                 textView.replaceCharacters(in: selection, with: replacement)

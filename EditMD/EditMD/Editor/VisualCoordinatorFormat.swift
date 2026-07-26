@@ -614,6 +614,19 @@ extension VisualMarkdownView.Coordinator {
         switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL,
                                  fileURL: parent.fileURL) {
         case .apply(let display, let url):
+            if !existingURL.isEmpty, display == existingText {
+                // Only the destination changed: retarget the run in place. Rewriting
+                // the text would rebuild it from one set of attributes and flatten
+                // whatever formatting the label carries.
+                guard textView.shouldChangeText(in: selection, replacementString: nil)
+                else { return }
+                isMutating = true
+                storage.addAttribute(.mdLink, value: url, range: selection)
+                isMutating = false
+                textView.didChangeText()
+                afterMutation()
+                return
+            }
             let linkText = display.isEmpty ? url : display
             guard textView.shouldChangeText(in: selection, replacementString: linkText)
             else { return }
