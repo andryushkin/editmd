@@ -77,6 +77,29 @@ UI-free: `Editor/WikiLinkCore.swift`, `Editor/LinkGraphEngine.swift`,
 target and must stay free of AppKit and app models (the list is in
 `EditMD/project.yml`).
 
+## Scheme completion in the ⌘K dialog
+
+A destination typed without a scheme is stored as authored only when it reads
+as local; a bare host gets `https://`, an address `mailto:`, a
+port-carrying server `http://` (`Editor/LinkEdit.swift`). Two rules keep this
+from mangling a vault:
+
+- Completion needs a TLD from a curated list. By shape alone `example.com` is
+  indistinguishable from `build.sh` or a PARA folder like `2.Areas/note.md`, and
+  a rare TLD left for the author to type beats a working relative link rewritten
+  into an unreachable URL.
+- When the destination ends in a file the app opens, the ambiguity is real
+  (`docs.dev/intro.md` is a folder in someone's vault, `archive.org/note.md` is
+  a web page) and the file system decides it. `LocalDestinationCache` resolves
+  what is typed **in the background as the user types** — through the same
+  `resolveLocalLinkDestination` vault lint uses, so ⌘K and "dead link" cannot
+  disagree — so pressing OK only reads memory, never the disk (§ Performance in
+  `architecture.md`). An answer that has not arrived, or a document with no file
+  yet, reads as unknown and the destination is left alone.
+
+A plain `notes.md` stays local whatever the answer: `md` is not a completable
+TLD, so linking a note before creating it keeps working.
+
 ## Link index
 
 `Views/LinkIndex.swift` maintains the in-memory graph: outgoing links,

@@ -57,9 +57,67 @@ private let authorityLessSchemes: Set<String> =
 /// The destination to store for what the link dialog holds. A field the user
 /// never touched is stored byte-identical: opening ⌘K on an existing link and
 /// confirming must not rewrite its destination.
-func linkDestination(typed raw: String, existing: String) -> String {
+func linkDestination(typed raw: String, existing: String,
+                     localFileExists: (String) -> Bool? = { _ in nil }) -> String {
     let typed = raw.trimmingCharacters(in: .whitespaces)
-    return typed == existing ? typed : normalizedLinkURL(typed)
+    return typed == existing
+        ? typed
+        : normalizedLinkURL(typed, localFileExists: localFileExists)
+}
+
+/// Answers "does this destination name a file that is really there?" for the link
+/// dialog, turning the one genuine ambiguity — `docs.dev/intro.md` is a folder in
+/// this vault, `archive.org/note.md` is a web page — from a guess into a fact.
+///
+/// Resolution runs off the main actor **while the user types**, so pressing OK
+/// only reads memory: the main actor must not touch the disk
+/// (`docs/architecture.md` § Performance), and a vault on a network volume is
+/// exactly why. An answer that has not arrived yet reads as `nil`, and an unknown
+/// destination is left alone — the conservative side.
+final class LocalDestinationCache: @unchecked Sendable {
+    private let fileDir: URL?
+    private let vaultRoot: URL?
+    private let lock = NSLock()
+    private var answers: [String: Bool] = [:]
+
+    /// `fileURL` is the document being edited; nil (an unsaved document) leaves
+    /// every answer unknown, since there is nothing to resolve against.
+    init(fileURL: URL?, vaultRoot: URL?) {
+        // Links inside a textbundle resolve against the bundle itself.
+        fileDir = fileURL.map {
+            $0.pathExtension == "textbundle" ? $0 : $0.deletingLastPathComponent()
+        }
+        self.vaultRoot = vaultRoot
+    }
+
+    /// Starts resolving `destination` unless the answer is already in hand.
+    func prefetch(_ destination: String) {
+        let target = destination.trimmingCharacters(in: .whitespaces)
+        guard fileDir != nil || vaultRoot != nil,
+              !target.isEmpty, answer(for: target) == nil
+        else { return }
+        let dir = fileDir
+        let root = vaultRoot
+        Task.detached(priority: .userInitiated) { [weak self] in
+            // The same resolver vault-lint uses to call a relative link dead, so
+            // ⌘K and the lint cannot disagree about what exists.
+            let hit = resolveLocalLinkDestination(target, fileDir: dir, vaultRoot: root)
+            self?.store(target, hit != nil)
+        }
+    }
+
+    /// True/false once resolved, nil while unknown.
+    func answer(for destination: String) -> Bool? {
+        lock.lock()
+        defer { lock.unlock() }
+        return answers[destination.trimmingCharacters(in: .whitespaces)]
+    }
+
+    private func store(_ destination: String, _ exists: Bool) {
+        lock.lock()
+        answers[destination] = exists
+        lock.unlock()
+    }
 }
 
 /// The destination for a URL the user typed: a bare host — `example.com`,
@@ -69,17 +127,22 @@ func linkDestination(typed raw: String, existing: String) -> String {
 /// port but no domain (`localhost:3000`, `192.168.1.5:8080`) gets `http://`,
 /// which is what such a server almost always speaks.
 ///
-/// The vault wins every ambiguity. Returned untouched: anything already carrying
-/// a scheme (`http://`, `mailto:`, `editmd://` — unknown ones too), anchors and
-/// paths (`#top`, `/a`, `./a`, `../a`), anything whose host is a single label
-/// (`notes`, `docs/intro.md`), any host whose TLD is not in `completableTLDs`,
-/// and — whatever the rest looks like — anything **ending** in a file this app
-/// opens: `notes.md`, `notes.md#heading`, `docs.dev/intro.md`,
-/// `archive.org/note.md`. That last rule costs the scheme-less remote URL that
-/// ends in `.md` or `.png` (rare, and visibly unfinished when it happens);
-/// rewriting a working vault-relative path into an unreachable URL is the worse
-/// mistake, because the file is right there and the link silently stops resolving.
-func normalizedLinkURL(_ raw: String) -> String {
+/// Returned untouched: anything already carrying a scheme (`http://`, `mailto:`,
+/// `editmd://` — unknown ones too), anchors and paths (`#top`, `/a`, `./a`,
+/// `../a`), anything whose host is a single label (`notes`, `docs/intro.md`), and
+/// any host whose TLD is not in `completableTLDs`.
+///
+/// A destination that **ends** in a file this app opens is the ambiguous case —
+/// `docs.dev/intro.md` is a folder in someone's vault, `archive.org/note.md` is a
+/// web page — and `localFileExists` settles it by fact: a file that is really
+/// there stays a path. When the answer is unknown (`nil`: no document to resolve
+/// against, or the probe has not finished) the vault keeps the benefit of the
+/// doubt, since rewriting a working relative link into an unreachable URL is the
+/// worse mistake — the file sits right there and the link just stops resolving.
+/// A plain `notes.md` stays local either way: `md` is not a completable TLD, so
+/// linking a note before creating it keeps working.
+func normalizedLinkURL(_ raw: String,
+                       localFileExists: (String) -> Bool? = { _ in nil }) -> String {
     let s = raw.trimmingCharacters(in: .whitespaces)
     guard let first = s.first, !hasURLScheme(s),
           first != "#", first != "/", first != "?",
@@ -91,9 +154,10 @@ func normalizedLinkURL(_ raw: String) -> String {
     // Any other `@` is userinfo (`user@host/path`) — not ours to complete.
     guard !s.contains("@") else { return s }
 
-    // What the destination *ends* in decides it: a file we open means a path in
-    // the vault, however host-like the first segment reads.
-    if let ext = fileExtension(pathTail(s)), vaultFileExtensions.contains(ext) {
+    // What the destination ends in raises the question; the file system answers
+    // it. Only a known-missing file falls through to be completed.
+    if let ext = fileExtension(pathTail(s)), vaultFileExtensions.contains(ext),
+       localFileExists(s) != false {
         return s
     }
 
@@ -252,9 +316,12 @@ enum LinkEditResult: Equatable {
 
 /// Presents the shared add/edit-link dialog. `existingURL` non-empty switches
 /// the title to "Edit Link" and offers "Remove Link". Runs modally on the main
-/// thread; returns the user's choice.
+/// thread; returns the user's choice. `fileURL` is the document being edited —
+/// what a relative destination is resolved against while the user types
+/// (`LocalDestinationCache`); without it a scheme is completed by shape alone.
 @MainActor
-func runLinkEditPrompt(existingText: String, existingURL: String) -> LinkEditResult {
+func runLinkEditPrompt(existingText: String, existingURL: String,
+                       fileURL: URL? = nil) -> LinkEditResult {
     let editing = !existingURL.isEmpty
     let alert = NSAlert()
     alert.messageText = editing ? String(localized: "Edit Link") : String(localized: "Add Link")
@@ -277,10 +344,21 @@ func runLinkEditPrompt(existingText: String, existingURL: String) -> LinkEditRes
     alert.addButton(withTitle: String(localized: "Cancel"))
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
+    // Resolve what is typed against the vault in the background, so the decision
+    // at OK costs nothing on the main actor. The watcher must outlive the modal
+    // run — the field only holds its delegate weakly.
+    let destinations = LocalDestinationCache(
+        fileURL: fileURL,
+        vaultRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
+    let watcher = LinkURLFieldWatcher(destinations: destinations)
+    urlField.delegate = watcher
+    destinations.prefetch(existingURL)
+
     // Adding a link starts in the URL field (the label is usually the
     // selection); editing an existing one starts in its text.
     let response = runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
-    let url = linkDestination(typed: urlField.stringValue, existing: existingURL)
+    let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
+                              localFileExists: { destinations.answer(for: $0) })
     let text = textField.stringValue
 
     switch response {
@@ -290,5 +368,21 @@ func runLinkEditPrompt(existingText: String, existingURL: String) -> LinkEditRes
         return .remove
     default:
         return .cancel
+    }
+}
+
+/// Keeps `LocalDestinationCache` a keystroke ahead of the OK button: every edit
+/// of the URL field starts resolving what it now holds.
+@MainActor
+private final class LinkURLFieldWatcher: NSObject, NSTextFieldDelegate {
+    private let destinations: LocalDestinationCache
+
+    init(destinations: LocalDestinationCache) {
+        self.destinations = destinations
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField else { return }
+        destinations.prefetch(field.stringValue)
     }
 }

@@ -1253,7 +1253,8 @@ struct SourceTextView: NSViewRepresentable {
                 existingURL = match.url
             }
 
-            switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL) {
+            switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL,
+                                     fileURL: parent.fileURL) {
             case .apply(let text, let url):
                 let label = text.isEmpty ? url : text
                 let replacement = markdownLinkSyntax(text: label, url: url)

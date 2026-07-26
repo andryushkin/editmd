@@ -611,7 +611,8 @@ extension VisualMarkdownView.Coordinator {
             }
         }
 
-        switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL) {
+        switch runLinkEditPrompt(existingText: existingText, existingURL: existingURL,
+                                 fileURL: parent.fileURL) {
         case .apply(let display, let url):
             let linkText = display.isEmpty ? url : display
             guard textView.shouldChangeText(in: selection, replacementString: linkText)

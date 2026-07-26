@@ -79,12 +79,46 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
-    func testDottedFolderWithTLDSuffixStaysLocal() {
-        // The vault wins the ambiguity: a folder whose suffix happens to be a
-        // real TLD is still a folder when the path ends in a file we open.
+    func testDottedFolderWithTLDSuffixStaysLocalWhenUnknown() {
+        // No probe (unsaved document): a folder whose suffix happens to be a real
+        // TLD keeps the benefit of the doubt.
         for dest in ["docs.dev/intro.md", "archive.org/note.md",
                      "notes.io/assets/shot.png", "data.info/table.csv"] {
             XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testExistingLocalFileDecidesAgainstCompletion() {
+        // The file is really there → a path, whatever the first segment reads like.
+        for dest in ["docs.dev/intro.md", "archive.org/note.md", "example.com/img.png"] {
+            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in true }), dest)
+        }
+    }
+
+    func testMissingLocalFileIsCompletedWhenHostIsPlausible() {
+        // No such file → the host wins, which is what the TLD says it is.
+        XCTAssertEqual(normalizedLinkURL("archive.org/note.md", localFileExists: { _ in false }),
+                       "https://archive.org/note.md")
+        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md", localFileExists: { _ in false }),
+                       "https://docs.dev/intro.md")
+        XCTAssertEqual(normalizedLinkURL("example.com/img.png", localFileExists: { _ in false }),
+                       "https://example.com/img.png")
+    }
+
+    func testMissingFileStillStaysLocalWithoutAPlausibleHost() {
+        // Linking a note before creating it is normal, and `md`/`areas` are not
+        // completable TLDs — a missing file must not turn these into URLs.
+        for dest in ["notes.md", "2.Areas/note.md", "assets.old/img.png", "v1.x/spec.md"] {
+            XCTAssertEqual(normalizedLinkURL(dest, localFileExists: { _ in false }), dest)
+        }
+    }
+
+    func testProbeIsNotConsultedForUnambiguousInput() {
+        // A plain host has no file reading to check, so the answer cannot matter.
+        for exists in [true, false] {
+            XCTAssertEqual(normalizedLinkURL("example.com", localFileExists: { _ in exists }),
+                           "https://example.com")
+            XCTAssertEqual(normalizedLinkURL("#top", localFileExists: { _ in exists }), "#top")
         }
     }
 
@@ -181,6 +215,81 @@ final class LinkEditTests: XCTestCase {
 
     func testNoLinkInPlainText() {
         XCTAssertNil(inlineLinkMatch(in: "just some words", at: 5))
+    }
+}
+
+/// The background probe behind the ⌘K dialog's local/web decision.
+final class LocalDestinationCacheTests: XCTestCase {
+
+    private func makeVault() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("editmd-linkedit-\(UUID().uuidString)")
+        // A folder whose name ends in a real TLD is the whole point of the probe.
+        try FileManager.default.createDirectory(
+            at: dir.appendingPathComponent("docs.dev"), withIntermediateDirectories: true)
+        try "# Intro".write(to: dir.appendingPathComponent("docs.dev/intro.md"),
+                           atomically: true, encoding: .utf8)
+        try "# Home".write(to: dir.appendingPathComponent("home.md"),
+                           atomically: true, encoding: .utf8)
+        return dir
+    }
+
+    /// The answer lands asynchronously — poll rather than sleep a fixed spell.
+    private func awaitAnswer(_ cache: LocalDestinationCache,
+                             for destination: String) throws -> Bool {
+        for _ in 0..<200 {
+            if let answer = cache.answer(for: destination) { return answer }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        throw XCTSkip("probe did not answer in 2s")
+    }
+
+    func testResolvesAnExistingFileInATLDLookingFolder() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          vaultRoot: vault)
+
+        cache.prefetch("docs.dev/intro.md")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md"))
+        // …and the same destination now decides the normalizer against completing.
+        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md",
+                                         localFileExists: { cache.answer(for: $0) }),
+                       "docs.dev/intro.md")
+    }
+
+    func testReportsAMissingFileAsMissing() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          vaultRoot: vault)
+
+        cache.prefetch("archive.org/note.md")
+        XCTAssertFalse(try awaitAnswer(cache, for: "archive.org/note.md"))
+        XCTAssertEqual(normalizedLinkURL("archive.org/note.md",
+                                         localFileExists: { cache.answer(for: $0) }),
+                       "https://archive.org/note.md")
+    }
+
+    func testAnchorIsIgnoredWhenResolving() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let cache = LocalDestinationCache(fileURL: vault.appendingPathComponent("home.md"),
+                                          vaultRoot: vault)
+
+        cache.prefetch("docs.dev/intro.md#setup")
+        XCTAssertTrue(try awaitAnswer(cache, for: "docs.dev/intro.md#setup"))
+    }
+
+    func testUnknownUntilAnswered() {
+        let cache = LocalDestinationCache(fileURL: nil, vaultRoot: nil)
+        cache.prefetch("docs.dev/intro.md")
+        // No document to resolve against: the answer stays unknown, and unknown
+        // leaves the destination alone.
+        XCTAssertNil(cache.answer(for: "docs.dev/intro.md"))
+        XCTAssertEqual(normalizedLinkURL("docs.dev/intro.md",
+                                         localFileExists: { cache.answer(for: $0) }),
+                       "docs.dev/intro.md")
     }
 }
 
