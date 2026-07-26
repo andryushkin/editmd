@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit
+    # Pinned rather than macos-latest: the project needs Xcode 26 (Swift 6.2),
+    # and this image is the one that carries it. xcodegen is not preinstalled.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # audit.sh compares a range against a base; a shallow clone has none,
+          # and the script fails closed rather than auditing less than it says.
+          fetch-depth: 0
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Run audit
+        env:
+          AUDIT_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+        run: ./scripts/audit.sh
+
+  build:
+    name: Build and test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec EditMD/project.yml
+      - name: Build
+        run: |
+          xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD \
+            -destination 'platform=macOS' build
+      - name: Test
+        # Retried once: the suite has two known warm-up/timing flakes (issue #3).
+        # Drop the retry when they are fixed — it hides a real intermittent bug
+        # just as well as it hides a known one.
+        run: |
+          xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD \
+            -destination 'platform=macOS' -retry-tests-on-failure -test-iterations 2 test

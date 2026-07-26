@@ -32,7 +32,9 @@ is a reproducible bug report or a well-argued idea, not a pull request.
   closed even when the code is clean: a decline is a design call, not a review
   of your work.
 - For PRs that do get a go-ahead: build and tests are described in the
-  [README](README.md#build) and must pass.
+  [README](README.md#build) and must pass. CI runs the same build, the same
+  suite, and the repository audit on every pull request — a red run is the
+  first thing to fix, before a review is worth anyone's time.
 
 ## Expectations
 

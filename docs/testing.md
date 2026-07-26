@@ -27,6 +27,24 @@ Requires macOS 14+, Xcode 26+ (Swift 6.2), and XcodeGen.
 - On a hang, capture `sample <pid> 3` first and optimize the confirmed hot
   path, not the suspected one.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull
+request, in two jobs on the `macos-26` image (pinned because the project needs
+Xcode 26; XcodeGen is installed by the workflow):
+
+- **Audit** — `scripts/audit.sh` with `AUDIT_BASE` set explicitly. The script
+  fails closed without a base, and a default shallow checkout has none, so the
+  job clones with full history and points the base at the pull request's base
+  branch (`HEAD~1` for a push).
+- **Build and test** — generate, build, then the full suite with
+  `-retry-tests-on-failure -test-iterations 2`. The retry is there for the two
+  known warm-up/timing flakes only; remove it once they are fixed, because it
+  hides a genuine intermittent failure just as effectively.
+
+CI is a second opinion, not a substitute for running the suite locally before
+pushing: it starts after the push it is meant to protect.
+
 ## Test layout
 
 All tests live in `EditMD/EditMDTests/` (XCTest). The test host forces
