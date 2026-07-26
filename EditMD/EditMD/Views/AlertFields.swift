@@ -14,13 +14,35 @@ import AppKit
 /// which covers this border.
 @MainActor
 func alertTextField(width: CGFloat, height: CGFloat = 24) -> NSTextField {
-    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
-    field.wantsLayer = true
-    field.layer?.cornerRadius = 6
-    field.layer?.borderWidth = 1
-    field.layer?.borderColor = NSColor.separatorColor.cgColor
-    field.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+    let field = BoxedTextField(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    // One-line prompts: a pasted newline would otherwise survive into a file
+    // name or a link destination.
+    field.usesSingleLineMode = true
+    field.cell?.wraps = false
+    field.cell?.isScrollable = true
+    field.drawBox()
     return field
+}
+
+/// The field of `alertTextField`, drawing its own box. A subclass so the colours
+/// can be resolved again under the field's *own* effective appearance — the alert
+/// panel's, once it is in the window — instead of being frozen as CGColors under
+/// whatever appearance happened to be current at construction time.
+private final class BoxedTextField: NSTextField {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        drawBox()
+    }
+
+    func drawBox() {
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        }
+    }
 }
 
 /// Runs `alert` modally with `field` focused, so the user can type straight
@@ -41,15 +63,27 @@ func runModal(_ alert: NSAlert, focusing field: NSView) -> NSApplication.ModalRe
     return response
 }
 
-/// Makes `field` the first responder as soon as its window becomes key, and
-/// once more when the modal loop starts: AppKit's own first-responder pass can
-/// land on either side of `didBecomeKey`, and in the app it ran *after* it and
-/// moved focus to the first field of the accessory view.
+/// Claims first responder for `field` while the alert opens: when the panel
+/// becomes key, and then on a short repeating tick, because AppKit's own
+/// first-responder pass can land on either side of `didBecomeKey` — in the app it
+/// ran *after* the notification and moved focus to the first accessory field.
+///
+/// The claiming window is deliberately short and self-closing. Once it is over
+/// the alert is the user's: a claim that outlived the opening would steal focus
+/// back — and reselect the whole field — every time the panel became key again,
+/// e.g. after a trip to another app to copy the URL.
 @MainActor
 private final class FirstResponderClaim {
+    /// How long to keep watching after the panel opens, and how often. The watch
+    /// normally ends long before the deadline — see `tick()`.
+    private static let window: TimeInterval = 0.3
+    private static let tick: TimeInterval = 0.05
+
     private let field: NSView
     private var token: NSObjectProtocol?
     private var timer: Timer?
+    private var deadline: Date?
+    private var claims = 0
 
     init(field: NSView, window: NSWindow) {
         self.field = field
@@ -61,12 +95,13 @@ private final class FirstResponderClaim {
                 self.claim()
             }
         }
+        deadline = Date().addingTimeInterval(Self.window)
         // Scheduled by hand in the modal mode: the main queue does not drain
         // while an alert is up.
-        let timer = Timer(timeInterval: 0.05, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.claim()
+                self.tick()
             }
         }
         RunLoop.main.add(timer, forMode: .modalPanel)
@@ -78,14 +113,25 @@ private final class FirstResponderClaim {
         token = nil
         timer?.invalidate()
         timer = nil
+        deadline = nil
+    }
+
+    /// AppKit's pass runs once, so a claim that has had to take focus *back* is
+    /// the last one needed: stop there rather than keep watching to the deadline,
+    /// which is only the fallback for a pass that never comes.
+    private func tick() {
+        claim()
+        let expired = deadline.map { Date() >= $0 } ?? true
+        if claims >= 2 || expired { cancel() }
     }
 
     private func claim() {
         guard let window = field.window else { return }
         // Already editing this field: re-claiming would reselect its whole
-        // contents, which would undo what the user has typed by then.
+        // contents, discarding what the user has typed by then.
         if let editor = window.firstResponder as? NSTextView,
            let edited = editor.delegate as? NSView, edited === field { return }
         window.makeFirstResponder(field)
+        claims += 1
     }
 }

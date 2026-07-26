@@ -132,12 +132,18 @@ editor, the folder/file name prompts) — both were learned the hard way:
   swallows their key equivalents, so ⌘V does nothing anywhere in a dialog. A
   stock nil-target `paste:` item revalidates against the real responder chain
   and reaches the panel's field editor. The same trap applies to any command
-  whose shortcut a dialog needs (⌘Z is still ours, and still shadowed there).
-- An alert with a text field is run through `runModal(_:focusing:)`
-  (`Views/AlertFieldFocus.swift`), never `alert.runModal()`.
-  `window.initialFirstResponder` does not survive: AppKit applies the panel's
-  own initial first responder while the alert becomes key, so the panel keeps
-  focus and every keystroke is dropped until the user clicks a field.
+  whose shortcut a dialog needs: ⌘Z is still ours, so it is inert inside a
+  dialog — measured inert, not dangerous, the disabled item does not fire the
+  document's undo either.
+- An alert with a text field is built and run through `Views/AlertFields.swift`:
+  `alertTextField(width:)` for the field, `runModal(_:focusing:)` instead of
+  `alert.runModal()`. Two things there are ours because AppKit's do not work in
+  our alerts — `window.initialFirstResponder` is overridden while the panel
+  becomes key (so focus is claimed from `didBecomeKey`, then briefly re-claimed,
+  since AppKit's own pass can run after it), and the bezel of an unfocused field
+  is not painted at all (so the resting box is drawn by the field's layer). Both
+  are app-specific: an isolated alert built from the same code behaves, which is
+  why the workarounds are aimed at the symptoms.
 
 ## Paste
 

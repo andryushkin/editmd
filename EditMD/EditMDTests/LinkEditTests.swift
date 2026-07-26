@@ -56,6 +56,61 @@ final class LinkEditTests: XCTestCase {
         XCTAssertEqual(normalizedLinkURL("docs/intro.md"), "docs/intro.md")
     }
 
+    func testLocalFileKeepsAnchorAndQuery() {
+        // The file check must not depend on the name being the whole string.
+        XCTAssertEqual(normalizedLinkURL("notes.md#heading"), "notes.md#heading")
+        XCTAssertEqual(normalizedLinkURL("notes.md?plain=1"), "notes.md?plain=1")
+        XCTAssertEqual(normalizedLinkURL("assets/shot.png#fig"), "assets/shot.png#fig")
+    }
+
+    func testUnknownExtensionsStayLocal() {
+        // Not a curated TLD → a file in the vault, not a host to complete.
+        for dest in ["build.sh", "schema.sql", "report.docx", "data.xlsx",
+                     "main.swift", "lib.rs", "script.pl"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testDottedFolderInPathStaysLocal() {
+        // PARA / versioned vault folders: the first segment has a dot but is
+        // not a host.
+        for dest in ["2.Areas/note.md", "assets.old/img.png", "v1.x/spec.md"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testServerWithPortGetsHTTP() {
+        // A port with no domain is a server on this network, and those speak
+        // http far more often than https.
+        XCTAssertEqual(normalizedLinkURL("localhost:3000"), "http://localhost:3000")
+        XCTAssertEqual(normalizedLinkURL("localhost:8080/preview"),
+                       "http://localhost:8080/preview")
+        XCTAssertEqual(normalizedLinkURL("192.168.1.5:8080"), "http://192.168.1.5:8080")
+    }
+
+    func testColonThatIsNotAPortOrSchemeIsKept() {
+        for dest in ["C:\\notes", "foo:bar", "https:example.com"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    // MARK: - linkDestination
+
+    func testUntouchedDestinationIsStoredVerbatim() {
+        // Opening ⌘K on an existing link and confirming must not rewrite it,
+        // however odd the destination looks to the normalizer.
+        for existing in ["notes.md", "2.Areas/note.md", "build.sh", "example.com"] {
+            XCTAssertEqual(linkDestination(typed: existing, existing: existing), existing)
+        }
+    }
+
+    func testEditedDestinationIsNormalized() {
+        XCTAssertEqual(linkDestination(typed: "example.com", existing: "notes.md"),
+                       "https://example.com")
+        XCTAssertEqual(linkDestination(typed: "  example.com  ", existing: ""),
+                       "https://example.com")
+    }
+
     func testBareAddressGetsMailto() {
         XCTAssertEqual(normalizedLinkURL("user@example.com"), "mailto:user@example.com")
         XCTAssertEqual(normalizedLinkURL("user.name+tag@sub.example.co.uk"),
