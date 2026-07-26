@@ -79,6 +79,23 @@ final class LinkEditTests: XCTestCase {
         }
     }
 
+    func testDottedFolderWithTLDSuffixStaysLocal() {
+        // The vault wins the ambiguity: a folder whose suffix happens to be a
+        // real TLD is still a folder when the path ends in a file we open.
+        for dest in ["docs.dev/intro.md", "archive.org/note.md",
+                     "notes.io/assets/shot.png", "data.info/table.csv"] {
+            XCTAssertEqual(normalizedLinkURL(dest), dest)
+        }
+    }
+
+    func testWebPathThatIsNotAVaultFileIsCompleted() {
+        // Nothing in the vault ends in `.html`, so a page keeps completing.
+        XCTAssertEqual(normalizedLinkURL("example.com/index.html"),
+                       "https://example.com/index.html")
+        XCTAssertEqual(normalizedLinkURL("example.com/docs/intro"),
+                       "https://example.com/docs/intro")
+    }
+
     func testServerWithPortGetsHTTP() {
         // A port with no domain is a server on this network, and those speak
         // http far more often than https.

@@ -21,14 +21,14 @@ func markdownAutolinkSyntax(url: String) -> String {
 
 // MARK: - Bare-host normalization
 
-/// Extensions that make a dotted name a *file next to this document* rather than
-/// a host: `notes.md` is a document, even though `md` is also a country TLD, and
+/// Extensions that make a destination a *file in this vault* rather than a web
+/// address: `notes.md` is a document, even though `md` is also a country TLD, and
 /// in a Markdown editor the file reading is the one that was meant. Built on the
 /// wiki-link index set, so a `[[target]]` type and a ⌘K local type cannot drift
-/// apart.
-private let localFileLinkExtensions: Set<String> =
-    WikiLinkCore.indexedExtensions.union(["txt", "html", "htm", "csv",
-                                          "json", "yml", "yaml"])
+/// apart. `html` is deliberately **not** here — `example.com/index.html` is a
+/// page, not a file next to the document.
+private let vaultFileExtensions: Set<String> =
+    WikiLinkCore.indexedExtensions.union(["txt", "csv", "json", "yml", "yaml"])
 
 /// Top-level domains a missing scheme is completed for. A curated list on
 /// purpose: by shape alone `example.com` is indistinguishable from `build.sh` or
@@ -69,12 +69,16 @@ func linkDestination(typed raw: String, existing: String) -> String {
 /// port but no domain (`localhost:3000`, `192.168.1.5:8080`) gets `http://`,
 /// which is what such a server almost always speaks.
 ///
-/// Returned untouched: anything already carrying a scheme (`http://`, `mailto:`,
-/// `editmd://` — unknown ones too), anchors and paths (`#top`, `/a`, `./a`,
-/// `../a`), anything whose host is a single label (`notes`, `docs/intro.md`), a
-/// name that ends in an extension we open locally — whatever follows it
-/// (`notes.md`, `notes.md#heading`, `shot.png`) — and any host whose TLD is not
-/// in `completableTLDs`.
+/// The vault wins every ambiguity. Returned untouched: anything already carrying
+/// a scheme (`http://`, `mailto:`, `editmd://` — unknown ones too), anchors and
+/// paths (`#top`, `/a`, `./a`, `../a`), anything whose host is a single label
+/// (`notes`, `docs/intro.md`), any host whose TLD is not in `completableTLDs`,
+/// and — whatever the rest looks like — anything **ending** in a file this app
+/// opens: `notes.md`, `notes.md#heading`, `docs.dev/intro.md`,
+/// `archive.org/note.md`. That last rule costs the scheme-less remote URL that
+/// ends in `.md` or `.png` (rare, and visibly unfinished when it happens);
+/// rewriting a working vault-relative path into an unreachable URL is the worse
+/// mistake, because the file is right there and the link silently stops resolving.
 func normalizedLinkURL(_ raw: String) -> String {
     let s = raw.trimmingCharacters(in: .whitespaces)
     guard let first = s.first, !hasURLScheme(s),
@@ -87,13 +91,15 @@ func normalizedLinkURL(_ raw: String) -> String {
     // Any other `@` is userinfo (`user@host/path`) — not ours to complete.
     guard !s.contains("@") else { return s }
 
+    // What the destination *ends* in decides it: a file we open means a path in
+    // the vault, however host-like the first segment reads.
+    if let ext = fileExtension(pathTail(s)), vaultFileExtensions.contains(ext) {
+        return s
+    }
+
     // Only the authority is inspected; the path, query and fragment ride along.
     guard let host = hostParts(s.prefix { $0 != "/" && $0 != "?" && $0 != "#" })
     else { return s }
-    // A local file keeps its name whatever follows it (`notes.md#heading`).
-    if let ext = fileExtension(host.name), localFileLinkExtensions.contains(ext) {
-        return s
-    }
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
     guard labels.allSatisfy({ !$0.isEmpty }) else { return s }
     if labels.count >= 2, let tld = labels.last?.lowercased(),
@@ -135,6 +141,14 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
     default:
         return nil
     }
+}
+
+/// The file-name end of a destination: query and fragment dropped, then the last
+/// path segment (`docs.dev/intro.md#top` → `intro.md`).
+private func pathTail(_ s: String) -> Substring {
+    let path = s.prefix { $0 != "?" && $0 != "#" }
+    guard let slash = path.lastIndex(of: "/") else { return path }
+    return path[path.index(after: slash)...]
 }
 
 /// The lowercased extension of a name that has one (`notes.md` → `md`).
