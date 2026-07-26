@@ -120,6 +120,25 @@ is the epoch gate that drops such stale publishes:
 - Gutter-owned controls belong to the gutter lane and never collapse into "…";
   the mode switcher is never overlapped.
 
+## Menus and AppKit panels
+
+Two rules keep the keyboard alive inside the app's AppKit dialogs (the ⌘K link
+editor, the folder/file name prompts) — both were learned the hard way:
+
+- The Edit menu's Cut / Copy / Paste / Select All stay **stock** SwiftUI items.
+  Re-implementing them as SwiftUI `Button`s that send the same standard
+  selectors looks equivalent but is not: while an AppKit panel is the key
+  window, SwiftUI validates its own menu items as disabled and yet still
+  swallows their key equivalents, so ⌘V does nothing anywhere in a dialog. A
+  stock nil-target `paste:` item revalidates against the real responder chain
+  and reaches the panel's field editor. The same trap applies to any command
+  whose shortcut a dialog needs (⌘Z is still ours, and still shadowed there).
+- An alert with a text field is run through `runModal(_:focusing:)`
+  (`Views/AlertFieldFocus.swift`), never `alert.runModal()`.
+  `window.initialFirstResponder` does not survive: AppKit applies the panel's
+  own initial first responder while the alert becomes key, so the panel keeps
+  focus and every keystroke is dropped until the user clicks a field.
+
 ## Paste
 
 Special paste is an ordered lazy funnel — Source: table → image → plain text;

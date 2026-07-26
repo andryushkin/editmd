@@ -75,6 +75,10 @@ domain docs.
 - `openDiff` is blocking: its continuation completes exactly once for
   Accept/Reject/close/disconnect/timeout.
 - IDE/control services do not start under XCTest.
+- The Edit menu's Cut/Copy/Paste/Select All stay stock SwiftUI items, and an
+  alert with a text field runs through `runModal(_:focusing:)` — otherwise the
+  keyboard dies inside the app's own dialogs
+  (`docs/architecture.md` § Menus and AppKit panels).
 - The `editmd://` scheme is an untrusted entry point (any web page can open
   one): it only creates files — re-sanitized name, uniquified, never
   overwriting — and ignores what it does not understand

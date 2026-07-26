@@ -114,12 +114,13 @@ func runLinkEditPrompt(existingText: String, existingURL: String) -> LinkEditRes
     stack.addArrangedSubview(textField)
     stack.addArrangedSubview(urlField)
     alert.accessoryView = stack
-    alert.window.initialFirstResponder = existingURL.isEmpty ? urlField : textField
     alert.addButton(withTitle: String(localized: "OK"))
     alert.addButton(withTitle: String(localized: "Cancel"))
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
-    let response = alert.runModal()
+    // Adding a link starts in the URL field (the label is usually the
+    // selection); editing an existing one starts in its text.
+    let response = runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
     let url = urlField.stringValue.trimmingCharacters(in: .whitespaces)
     let text = textField.stringValue
 

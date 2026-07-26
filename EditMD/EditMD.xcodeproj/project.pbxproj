@@ -43,6 +43,7 @@
 		1E1C496DB940AEC5A01CD263 /* ClaudeIDETools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7534B860CEE234DA0F13BA8B /* ClaudeIDETools.swift */; };
 		1F98502F42351A68FBD4C40F /* GitCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75D9EDD5F391199A959F85D /* GitCLITests.swift */; };
 		1FADA243D146E995B05E2AFF /* opensans-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 7A643ECA46C69BFB2A077F38 /* opensans-LICENSE.txt */; };
+		1FF3BB64C9C3CE2128462B78 /* AlertFieldFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC39C4DB2BB0DB29B358959C /* AlertFieldFocus.swift */; };
 		21577D8F9B1EC7A8D3E178A5 /* SearchQueryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0DE4EC9E426532AD54632F /* SearchQueryTests.swift */; };
 		21CCD5D29689C467770C05BE /* ClaudeIDEServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3C2AB359BF2BE62F0B571C /* ClaudeIDEServerTests.swift */; };
 		22FE563AAF328F7A5FEE963B /* MarkdownLint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA44CE853828E5B49C3A9C8B /* MarkdownLint.swift */; };
@@ -459,6 +460,7 @@
 		DA44CE853828E5B49C3A9C8B /* MarkdownLint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLint.swift; sourceTree = "<group>"; };
 		DAEEE1AA157CDFE8823C73A1 /* EditMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditMenuTests.swift; sourceTree = "<group>"; };
 		DBC28EEF1DCFD0D801EB4E4F /* hooks.fragment.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = hooks.fragment.json; sourceTree = "<group>"; };
+		DC39C4DB2BB0DB29B358959C /* AlertFieldFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertFieldFocus.swift; sourceTree = "<group>"; };
 		DC6A7C545B906B7D027022F1 /* EditorPositionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPositionStore.swift; sourceTree = "<group>"; };
 		DD16A03238CB74404043EB7D /* TagsSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagsSidebar.swift; sourceTree = "<group>"; };
 		DDB8AB2EE2DAC64CCEF5EDE1 /* VaultLint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLint.swift; sourceTree = "<group>"; };
@@ -704,6 +706,7 @@
 				B1BC9BF1D3CAE691CF9E5FA4 /* ActiveFormatsGate.swift */,
 				05BD6FEE37D46DDCB2327414 /* AgentActivityUI.swift */,
 				829CF3E9A159E9535A91EF84 /* AIProposalChrome.swift */,
+				DC39C4DB2BB0DB29B358959C /* AlertFieldFocus.swift */,
 				1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */,
 				307C7F64AC7988D119B02721 /* BackgroundActivity.swift */,
 				052C9727323D4C755E9B8FAD /* BarControls.swift */,
@@ -1171,6 +1174,7 @@
 				B8CAF95FD16B223634751E50 /* AgentActivityUI.swift in Sources */,
 				959F2DEF3ADC7D1773FE3D70 /* AgentHooksInstaller.swift in Sources */,
 				5451F3CFE9373AD73090A4A2 /* AgentPromptCatalog.swift in Sources */,
+				1FF3BB64C9C3CE2128462B78 /* AlertFieldFocus.swift in Sources */,
 				B8AFDF57F19025E8B002F0E3 /* AppDelegate.swift in Sources */,
 				531B054F811B678A753CC758 /* AppLanguage.swift in Sources */,
 				7096713EEEF40CD4F23A7F75 /* AppState.swift in Sources */,

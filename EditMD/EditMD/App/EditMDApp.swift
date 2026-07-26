@@ -168,29 +168,15 @@ struct EditMDApp: App {
                 .disabled(documentUndoActions == nil)
             }
 
-            CommandGroup(replacing: .pasteboard) {
-                Button("Cut") {
-                    NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("x")
-
-                Button("Copy") {
-                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("c")
-
-                Button("Paste") {
-                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("v")
-
-                Divider()
-
-                Button("Select All") {
-                    NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-                }
-                .keyboardShortcut("a")
-
+            // Cut / Copy / Paste / Select All stay the stock SwiftUI items on
+            // purpose. Our own Buttons for them (they only re-sent the same
+            // standard selectors) broke ⌘X/⌘C/⌘V/⌘A in every AppKit panel of
+            // the app — the link dialog, the name prompts: while a panel is key
+            // SwiftUI validates its menu items as disabled, yet they still
+            // swallow the key equivalent, so nothing happens at all. A stock
+            // nil-target `paste:` item revalidates against the real responder
+            // chain instead and reaches the panel's field editor.
+            CommandGroup(after: .pasteboard) {
                 Divider()
 
                 Menu("Find") {

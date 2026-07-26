@@ -263,8 +263,7 @@ func promptForNewName(title: String, message: String, defaultName: String,
     let field = NSTextField(string: defaultName)
     field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
     alert.accessoryView = field
-    alert.window.initialFirstResponder = field
-    guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+    guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
     let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     return name.isEmpty && !allowsEmpty ? nil : name
 }
@@ -296,9 +295,8 @@ func promptForNewMarkdownFile(in folder: URL) -> (name: String, template: FileTe
     grid.rowSpacing = 8
     grid.frame = NSRect(x: 0, y: 0, width: 300, height: 58)
     alert.accessoryView = grid
-    alert.window.initialFirstResponder = field
 
-    guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+    guard runModal(alert, focusing: field) == .alertFirstButtonReturn else { return nil }
     let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty,
           let rawTemplate = templatePicker.selectedItem?.representedObject as? String,

@@ -2431,16 +2431,6 @@
         }
       }
     },
-    "Cut" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вырезать"
-          }
-        }
-      }
-    },
     "Cut (⌘X)" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5579,16 +5569,6 @@
         }
       }
     },
-    "Paste" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вставить"
-          }
-        }
-      }
-    },
     "Paste (⌘V)" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6638,16 +6618,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "В Preview (или Source/Visual) выдели фрагмент, затем нажми +."
-          }
-        }
-      }
-    },
-    "Select All" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выбрать все"
           }
         }
       }
