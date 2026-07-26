@@ -506,8 +506,9 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     alert.addButton(withTitle: String(localized: "Cancel"))
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
-    // Resolve what is typed against the vault in the background, so the decision
-    // at OK costs nothing on the main actor.
+    // Resolve what is typed against the vault in the background, so OK reads an
+    // answer that is already there — and, in the worst case, waits a bounded
+    // moment for one still on its way rather than touching the disk itself.
     let destinations = LocalDestinationCache(
         fileURL: fileURL,
         adoptedRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
@@ -524,20 +525,22 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     let response = withExtendedLifetime(watcher) {
         runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
     }
-    let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
-                              localFileExists: {
-                                  destinations.answer(
-                                      for: $0,
-                                      waitingUpTo: LocalDestinationCache.answerWait)
-                              })
-    // A label is one line: a two-line paste would otherwise put a newline inside
-    // `[…]`, which breaks the link in Source and makes one link attribute span
-    // two paragraphs in Visual.
-    let text = singleLineFieldText(textField.stringValue)
-
     switch response {
-    case .alertFirstButtonReturn where !url.isEmpty:
-        return .apply(text: text, url: url)
+    case .alertFirstButtonReturn:
+        // Only a confirmed dialog pays for the destination: waiting on the probe
+        // — and normalizing at all — is pointless for a value Cancel or Remove
+        // Link is about to drop, and on a slow volume that wait would be felt.
+        let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
+                                  localFileExists: {
+                                      destinations.answer(
+                                          for: $0,
+                                          waitingUpTo: LocalDestinationCache.answerWait)
+                                  })
+        guard !url.isEmpty else { return .cancel }
+        // A label is one line: a two-line paste would otherwise put a newline
+        // inside `[…]`, which breaks the link in Source and makes one link
+        // attribute span two paragraphs in Visual.
+        return .apply(text: singleLineFieldText(textField.stringValue), url: url)
     case .alertThirdButtonReturn:
         return .remove
     default:
