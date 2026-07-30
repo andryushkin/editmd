@@ -1,15 +1,32 @@
 import AppKit
 
+/// The run's area, one rect per line fragment it spans. Horizontally each rect
+/// is the glyph box — widening that would light up the gutter and the space past
+/// EOL (the phantom underline) — and vertically it is the whole line fragment,
+/// because the leading above and below the glyphs still belongs to that line.
+func visualRunRects(_ range: NSRange, layoutManager: NSLayoutManager,
+                    textContainer: NSTextContainer) -> [NSRect] {
+    guard range.length > 0 else { return [] }
+    let glyphRange = layoutManager.glyphRange(forCharacterRange: range,
+                                              actualCharacterRange: nil)
+    guard glyphRange.length > 0 else { return [] }
+    var rects: [NSRect] = []
+    layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, lineGlyphs, _ in
+        let part = NSIntersectionRange(glyphRange, lineGlyphs)
+        guard part.length > 0 else { return }
+        let box = layoutManager.boundingRect(forGlyphRange: part, in: textContainer)
+        rects.append(NSRect(x: box.minX, y: usedRect.minY,
+                            width: box.width, height: usedRect.height))
+    }
+    return rects
+}
+
 func visualPointHitsCharacterRange(_ point: NSPoint, range: NSRange,
                                    layoutManager: NSLayoutManager,
                                    textContainer: NSTextContainer,
                                    tolerance: CGFloat = 2) -> Bool {
-    guard range.length > 0 else { return false }
-    let glyphRange = layoutManager.glyphRange(forCharacterRange: range,
-                                              actualCharacterRange: nil)
-    guard glyphRange.length > 0 else { return false }
-    let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-    return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(point)
+    visualRunRects(range, layoutManager: layoutManager, textContainer: textContainer)
+        .contains { $0.insetBy(dx: -tolerance, dy: 0).contains(point) }
 }
 
 // MARK: - Text view with drawn markers
@@ -528,39 +545,61 @@ final class VisualNSTextView: NSTextView {
         repaintLinkUnderlines()
     }
 
+    /// The link run under `containerPoint`, found from the LINKS' own geometry.
+    /// Starting from the nearest glyph instead (`glyphIndex(for:)`) makes a small
+    /// vertical move snap to the line above or below while the pointer is still
+    /// inside this link's line fragment: the run then resolves to nil and the
+    /// hand flickers back to the I-beam.
+    private func linkRun(hitAt containerPoint: NSPoint) -> NSRange? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        let visibleGlyphs = layoutManager.glyphRange(
+            forBoundingRect: visibleRect.offsetBy(dx: -textContainerOrigin.x,
+                                                  dy: -textContainerOrigin.y),
+            in: textContainer)
+        let visible = layoutManager.characterRange(forGlyphRange: visibleGlyphs,
+                                                   actualGlyphRange: nil)
+        guard visible.length > 0 else { return nil }
+        var hit: NSRange?
+        for key in [NSAttributedString.Key.mdLink, .mdWikiLink] {
+            storage.enumerateAttribute(key, in: visible) { value, range, stop in
+                guard value != nil,
+                      visualPointHitsCharacterRange(containerPoint, range: range,
+                                                    layoutManager: layoutManager,
+                                                    textContainer: textContainer)
+                else { return }
+                hit = range
+                stop.pointee = true
+            }
+            if hit != nil { break }
+        }
+        return hit
+    }
+
     /// ⌘-hover state: from mouseMoved / flagsChanged.
+    ///
+    /// The underline only needs a repaint when the run changes. The pointing
+    /// hand must be re-asserted on EVERY call while the hover is live:
+    /// `NSTextView` re-publishes the I-beam from its own cursor rects on each
+    /// mouse-moved, and cursor rects we add in `resetCursorRects` never win
+    /// that channel (measured — see architecture.md § Mouse cursor).
     private func updateHoverLinkAffordance(commandDown: Bool, windowPoint: NSPoint) {
         var next: NSRange?
-        if commandDown, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
-           let layoutManager, let textContainer, let storage = textStorage,
-           storage.length > 0 {
+        if commandDown, !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
             let point = convert(windowPoint, from: nil)
-            let containerPoint = NSPoint(x: point.x - textContainerInset.width,
-                                         y: point.y - textContainerInset.height)
-            var fraction: CGFloat = 0
-            let glyphIndex = layoutManager.glyphIndex(
-                for: containerPoint, in: textContainer,
-                fractionOfDistanceThroughGlyph: &fraction)
-            // glyphIndex(for:) snaps to the NEAREST glyph — without the rect
-            // check, hovering the gutter or empty space past EOL lights up
-            // the closest link (phantom underline).
-            if let run = linkRun(at: layoutManager.characterIndexForGlyph(at: glyphIndex)),
-               visualPointHitsCharacterRange(containerPoint, range: run,
-                                             layoutManager: layoutManager,
-                                             textContainer: textContainer) {
-                next = run
-            }
+            next = linkRun(hitAt: NSPoint(x: point.x - textContainerInset.width,
+                                          y: point.y - textContainerInset.height))
         }
-        guard next != hoverLinkRange else { return }
         let hadHover = hoverLinkRange != nil
-        hoverLinkRange = next
-        repaintLinkUnderlines()
+        if next != hoverLinkRange {
+            hoverLinkRange = next
+            repaintLinkUnderlines()
+        }
         if next != nil {
             NSCursor.pointingHand.set()
         } else if hadHover {
-            // ⌘ released without a mouseMoved would otherwise leave the
-            // pointing hand stuck; mouseMoved re-asserts openHand for row
-            // handles right after this call.
+            // ⌘ released or the pointer left the link without a mouseMoved that
+            // would re-assert openHand for a row handle.
             NSCursor.iBeam.set()
         }
     }
@@ -1092,7 +1131,8 @@ final class VisualNSTextView: NSTextView {
         let finalGap = rowDrag?.gap
         rowDrag = nil
         needsDisplay = true
-        NSCursor.arrow.set()
+        // the drag loop owned the cursor while the button was down.
+        NSCursor.iBeam.set()
         if let finalGap, finalGap != handle.body, finalGap != handle.body + 1 {
             if visualCoordinator?.moveTableRow(target: handle.target,
                                                fromBody: handle.body,
@@ -1126,7 +1166,11 @@ final class VisualNSTextView: NSTextView {
         guard rowDrag == nil else { return }
         let handle = rowHandle(at: convert(event.locationInWindow, from: nil))
         setHoverRowHandle(handle)
-        if handle != nil { NSCursor.openHand.set() }
+        // Same channel rule as the link hand: re-assert every move. Skip when
+        // ⌘-hover already owns the pointer — pointingHand must win for open.
+        if handle != nil, hoverLinkRange == nil {
+            NSCursor.openHand.set()
+        }
     }
 
     override func mouseExited(with event: NSEvent) {

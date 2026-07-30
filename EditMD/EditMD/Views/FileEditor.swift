@@ -243,16 +243,19 @@ private struct MainChrome<Content: View>: View {
                         onOpenFolder: { AppState.shared.openInMainWindow($0) }
                     )
                     .frame(width: panes.sidebar)
-                    paneDivider(scale: panes.scale)
-                        .zIndex(1)
+                    PaneDivider()
                 }
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            // Named space so the divider drag reads x from the chrome's own left
-            // edge. `.global` is screen-relative — on a window not flush to the
-            // screen's left it would inflate the width toward the max.
-            .coordinateSpace(name: Self.paneSpace)
+            // The strip lives on this container so hit testing reaches it over
+            // both panes, and its x is read from the chrome's own left edge —
+            // `.global` is screen-relative and would inflate the width on a
+            // window not flush to the screen's left.
+            .paneGrabStrip(lineX: sidebarVisible ? panes.sidebar : nil) { x in
+                sidebarWidth = preferredPaneWidthFromDrag(
+                    displayWidth: x, scale: panes.scale, range: Self.widthRange)
+            }
             .animation(.easeInOut(duration: 0.15), value: sidebarVisible)
         }
         .toolbar {
@@ -298,12 +301,6 @@ private struct MainChrome<Content: View>: View {
     /// The sidebar starts at x=0 of the chrome's coordinate space, so the
     /// cursor x IS the sidebar's display width — inverted through the clamp
     /// scale so a resize in a clamped window keeps the preferred width.
-    private func paneDivider(scale: CGFloat) -> some View {
-        PaneDivider(space: .named(Self.paneSpace)) { x in
-            sidebarWidth = preferredPaneWidthFromDrag(
-                displayWidth: x, scale: scale, range: Self.widthRange)
-        }
-    }
 }
 
 /// Finds the enclosing `NSWindow` after layout and lets the caller configure it

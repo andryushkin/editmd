@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 func builtInPluginConfigurationDiagnosticsForStatusBar(
     mode: EditorMode,
@@ -146,18 +147,79 @@ func preferredPaneWidthFromDrag(
     return min(range.upperBound, max(range.lowerBound, preferred))
 }
 
-/// agterm-style divider between the editor and a side pane: a 1px separator
-/// plus a wider invisible grab strip. Shared by all four call sites (workspace
-/// sidebar, editor inspector, folder inspector, Source/Preview split) so the
-/// grab width and the cursor behaviour cannot drift apart.
+/// The grab strip, as an AppKit view that owns both the cursor and the drag.
 ///
-/// The drag reports the ABSOLUTE cursor x in `space`, not accumulated
-/// translation — the divider moves with the resize, so translation-based
-/// dragging feeds back on itself and flickers.
-struct PaneDivider: View {
-    let space: CoordinateSpace
+/// Cursor arbitration starts from the deepest view the pointer HIT-TESTS to, so
+/// whoever wins is decided by hit testing, not by drawing order: an imperative
+/// `NSCursor.set` from SwiftUI is simply the last writer until the next move,
+/// and `zIndex` buys nothing. This view must therefore both take part in hit
+/// testing (f32f4b9 made it transparent, and ↔ stopped appearing at all) and
+/// live inside a full-size ancestor — an `NSView` in a branch that overhangs its
+/// parent is not reliably reached by `hitTest`, which is why the strip is
+/// attached with `paneGrabStrip` to the whole pane container instead of to the
+/// 1pt line. Being opaque to the pointer, it owns the resize drag as well.
+private final class DividerGrabView: NSView {
+    /// X of the strip's left edge in the caller's coordinate space, kept fresh
+    /// by `updateNSView`: the drag reports an absolute x there, and the strip
+    /// itself moves with every resize tick.
+    var originX: CGFloat = 0
+    var onDrag: ((CGFloat) -> Void)?
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    /// A SwiftUI neighbour publishes no cursor at all, so nothing replaces ↔ when
+    /// the pointer leaves this rect and the strip reads as far wider than it is.
+    /// `.inVisibleRect` deliberately mirrors the cursor rect above, which covers
+    /// the whole (visible) view.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self))
+    }
+
+    /// An AppKit neighbour restores its own shape on the next move; only leave
+    /// the arrow where nobody would.
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        let hit = window?.contentView?.hitTest(event.locationInWindow)
+        if !(hit is NSTextView), !(hit is WKWebView) { NSCursor.arrow.set() }
+    }
+
+    override func mouseDown(with event: NSEvent) { report(event) }
+
+    override func mouseDragged(with event: NSEvent) {
+        // a drag past a pane's width clamp leaves the strip behind, and the
+        // cursor rect with it; hold ↔ for as long as the mouse is down.
+        NSCursor.resizeLeftRight.set()
+        report(event)
+    }
+
+    private func report(_ event: NSEvent) {
+        onDrag?(originX + convert(event.locationInWindow, from: nil).x)
+    }
+}
+
+private struct DividerGrabStrip: NSViewRepresentable {
+    let originX: CGFloat
     let onDrag: (CGFloat) -> Void
 
+    func makeNSView(context: Context) -> DividerGrabView { DividerGrabView() }
+
+    func updateNSView(_ nsView: DividerGrabView, context: Context) {
+        nsView.originX = originX
+        nsView.onDrag = onDrag
+    }
+}
+
+/// agterm-style divider between the editor and a side pane: the 1px separator
+/// line alone. Its interactive half is `paneGrabStrip`, attached to the pane
+/// CONTAINER — see `DividerGrabView` for why it cannot hang off this line.
+struct PaneDivider: View {
     /// Grab strip width, centred on the 1px line. Was 12; the pointer target
     /// is what the user aims at, and 1px of visible line is not it.
     static let grabWidth: CGFloat = 14
@@ -167,33 +229,27 @@ struct PaneDivider: View {
             .fill(Color(nsColor: .separatorColor))
             .frame(width: 1)
             .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear
-                    .frame(width: Self.grabWidth)
-                    .contentShape(Rectangle())
-                    // Re-assert the cursor on EVERY move inside the strip, not
-                    // once on enter: AppKit re-resolves the pointer from the
-                    // cursor rects under it on each mouse-moved, so a single
-                    // `.onHover` set is immediately overwritten by the
-                    // neighbouring text view's I-beam and ↔ only flashes.
-                    //
-                    // Do NOT "fix" this with an AppKit cursor rect / cursorUpdate
-                    // strip: staying transparent to the drag (`hitTest` → nil)
-                    // also drops the view out of cursor resolution, and ↔ stops
-                    // appearing entirely (tried in f32f4b9, reverted). The known
-                    // cost here is a pointer parked on the strip without moving —
-                    // a neighbour may hold the cursor until the next move.
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active: NSCursor.resizeLeftRight.set()
-                        case .ended: NSCursor.arrow.set()
-                        }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: space)
-                            .onChanged { onDrag($0.location.x) }
-                    )
+    }
+}
+
+extension View {
+    /// Overlay the grab strip for a divider whose line sits at `lineX` in this
+    /// container's own coordinates, centred on it and overhanging both panes.
+    /// `lineX` is nil while that divider is not on screen.
+    ///
+    /// The drag reports the ABSOLUTE cursor x in those coordinates, not
+    /// accumulated translation — the divider moves with the resize, so
+    /// translation-based dragging feeds back on itself and flickers.
+    func paneGrabStrip(lineX: CGFloat?, onDrag: @escaping (CGFloat) -> Void) -> some View {
+        let width = PaneDivider.grabWidth
+        return overlay(alignment: .leading) {
+            if let lineX {
+                DividerGrabStrip(originX: lineX - width / 2, onDrag: onDrag)
+                    .frame(width: width)
+                    .frame(maxHeight: .infinity)
+                    .offset(x: lineX - width / 2)
             }
+        }
     }
 }
 
@@ -341,15 +397,7 @@ struct ContentView: View {
                     editorArea
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if inspectorVisible {
-                        // Grab strip LEFT of the right panel.
-                        PaneDivider(space: .named("mainPanes")) { x in
-                            // Inspector is last: its display width is the span from
-                            // the divider to the right edge. Invert the clamp too.
-                            inspectorWidth = preferredPaneWidthFromDrag(
-                                displayWidth: geo.size.width - x, scale: panes.scale,
-                                range: InspectorPane.widthRange)
-                        }
-                        .zIndex(1)
+                        PaneDivider()
                         InspectorSidebar(
                             fileURL: fileURL,
                             outlineContent: document.content,
@@ -372,7 +420,15 @@ struct ContentView: View {
                         .frame(width: panes.inspector)
                     }
                 }
-                .coordinateSpace(name: "mainPanes")
+                // the strip belongs to this container, not to the 1pt line: only
+                // here does hit testing reach it on both sides of the divider.
+                .paneGrabStrip(lineX: inspectorVisible ? geo.size.width - panes.inspector : nil) { x in
+                    // Inspector is last: its display width is the span from the
+                    // divider to the right edge. Invert the clamp too.
+                    inspectorWidth = preferredPaneWidthFromDrag(
+                        displayWidth: geo.size.width - x, scale: panes.scale,
+                        range: InspectorPane.widthRange)
+                }
                 .animation(.easeInOut(duration: 0.15), value: inspectorVisible)
             }
             statusBar
@@ -659,17 +715,16 @@ struct ContentView: View {
                     HStack(spacing: 0) {
                         editorPane
                             .frame(width: splitEditorWidth)
-                        PaneDivider(space: .named("editorSplit")) { x in
-                            splitFraction = min(Self.splitFractionRange.upperBound,
-                                                max(Self.splitFractionRange.lowerBound,
-                                                    Double(x) / max(1, Double(geo.size.width))))
-                        }
-                        .zIndex(1)
+                        PaneDivider()
                         MarkdownPreviewView(document: document, fileURL: fileURL,
                                             positionStore: positionStore)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .coordinateSpace(name: "editorSplit")
+                    .paneGrabStrip(lineX: splitEditorWidth) { x in
+                        splitFraction = min(Self.splitFractionRange.upperBound,
+                                            max(Self.splitFractionRange.lowerBound,
+                                                Double(x) / max(1, Double(geo.size.width))))
+                    }
                 case .source, .visual:
                     editorPane
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

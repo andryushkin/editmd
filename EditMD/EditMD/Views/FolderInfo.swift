@@ -90,17 +90,16 @@ struct FolderInfoHost: View {
                 FolderInfoCard(folderURL: folderURL)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if inspectorVisible {
-                    PaneDivider(space: .named("folderPanes")) { x in
-                        inspectorWidth = preferredPaneWidthFromDrag(
-                            displayWidth: geo.size.width - x, scale: panes.scale,
-                            range: InspectorPane.widthRange)
-                    }
-                    .zIndex(1)
+                    PaneDivider()
                     FolderInspectorPanel(folderURL: folderURL)
                         .frame(width: panes.inspector)
                 }
             }
-            .coordinateSpace(name: "folderPanes")
+            .paneGrabStrip(lineX: inspectorVisible ? geo.size.width - panes.inspector : nil) { x in
+                inspectorWidth = preferredPaneWidthFromDrag(
+                    displayWidth: geo.size.width - x, scale: panes.scale,
+                    range: InspectorPane.widthRange)
+            }
             .animation(.easeInOut(duration: 0.15), value: inspectorVisible)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

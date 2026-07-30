@@ -145,6 +145,54 @@ editor, the folder/file name prompts) — both were learned the hard way:
   are app-specific: an isolated alert built from the same code behaves, which is
   why the workarounds are aimed at the symptoms.
 
+## Mouse cursor over the pane dividers
+
+`PaneDivider`'s 14pt grab strip overhangs its neighbours, and its ↔ competes
+with whatever they publish. **This is unfinished work, not a settled contract**
+— the strip is an AppKit view publishing its own cursor rect, attached to the
+pane container by `paneGrabStrip`, and the zone is still one-sided. What follows
+is what has been measured so far.
+
+Mechanism, as far as it was established:
+
+- There is no priority ladder. Cursor rects, tracking-area cursor updates and
+  `NSCursor.set` all end in the same place, and the **last write for that event
+  wins**. Arbitration starts from the deepest view the pointer HIT-TESTS to.
+- `.cursorUpdate` on a tracking area fires on enter and exit, not per move, so
+  it cannot hold against a neighbour that publishes per move.
+- An `NSView` in a SwiftUI branch that overhangs its parent (the strip inside an
+  overlay on the 1pt line) is not reliably reached by `hitTest`, at any
+  `zIndex`. The strip now hangs off the whole pane container instead, which
+  removes that objection — yet the zone stayed one-sided, and THAT is where the
+  next session has to start: measure the strip's frame and `contentView.hitTest`
+  at points either side of the line before changing anything else.
+- `WKWebView` publishes nothing over blank regions, so a ↔ set over it simply
+  stays until someone else writes — this is what "the zone extends far to the
+  right" actually was, not a wider strip.
+
+Dead ends, all confirmed by hand:
+
+- Cursor rects added inside `VisualNSTextView` (before or after `super`) never
+  produce the pointing hand at all. `NSTextView` does not yield that channel;
+  the ⌘-link hand and the table-row open hand must use imperative
+  `NSCursor.set`, re-asserted on every `mouseMoved` / `flagsChanged` while the
+  affordance is live (otherwise the I-beam from the text view's own rects
+  overwrites the hand on the next move and the cursor flickers).
+- Making the strip transparent to hit testing (f32f4b9) drops it out of cursor
+  resolution entirely.
+- Reserving the strip's 14pt in layout removes the overlap and the flicker with
+  it, but narrows both panes.
+
+The ⌘-hover flicker under small VERTICAL moves has a separate, non-AppKit
+cause (fixed in `linkRun(hitAt:)`): picking the candidate from
+`glyphIndex(for:)` snaps to the NEAREST glyph and jumps to the line above or
+below while the pointer is still inside the link's own line fragment; the run
+then resolves to nil and the hover drops. The hit is resolved from the link
+runs' own rects instead (`visualRunRects`: one per line fragment, glyph box
+horizontally, fragment height vertically). That selection step is independent
+of the cursor-channel rule above — both are required for a stable pointing
+hand.
+
 ## Paste
 
 Special paste is an ordered lazy funnel — Source: table → image → plain text;
