@@ -197,16 +197,55 @@ final class WorkspaceCollectionsTests: XCTestCase {
 
     // MARK: - Presentation only
 
+    /// Everything a link ends up carrying once it is resolved — the shape the
+    /// backlinks panel, vault lint and ⌘-click all read.
+    private struct ResolvedLink: Equatable, CustomStringConvertible {
+        let kind: OutgoingLink.Kind
+        let rawTarget: String
+        let resolved: URL?
+        let candidates: [URL]
+
+        var description: String {
+            "\(kind.rawValue) \(rawTarget) → \(resolved?.path ?? "nil") \(candidates.map(\.path))"
+        }
+    }
+
+    /// The same walk `LinkIndex` performs: scan, build the wiki index over the
+    /// index roots, resolve. Anything grouping might disturb — which root wins
+    /// as the vault, which basenames are in the index, whether a target becomes
+    /// ambiguous — shows up in the result.
+    private func resolvedLinks(in model: WorkspaceModel) -> [URL: [ResolvedLink]] {
+        let roots = model.linkIndexRoots
+        let scan = LinkGraphEngine.scanWorkspaceOutgoing(roots: roots)
+        let wikiIndex = WikiLinkCore.buildIndex(roots: roots)
+        var result: [URL: [ResolvedLink]] = [:]
+        for (source, links) in scan.outgoing {
+            let resolved = LinkGraphEngine.resolveScannedLinks(
+                links, source: source, roots: roots,
+                vaultFallback: roots.first, wikiIndex: wikiIndex,
+                environment: scan.environment)
+            result[source] = resolved.links.map {
+                ResolvedLink(kind: $0.kind, rawTarget: $0.rawTarget,
+                             resolved: $0.resolved, candidates: $0.candidates)
+            }
+        }
+        return result
+    }
+
     /// Acceptance: grouping the same roots must not move a single index,
     /// resolution result, or path-keyed piece of sidebar state.
     func testGroupingChangesNothingOutsideThePresentation() throws {
         let a = try root("A"), b = try root("B")
-        try "[[note]]\n".write(to: a.appendingPathComponent("index.md"),
-                               atomically: true, encoding: .utf8)
-        try "note\n".write(to: a.appendingPathComponent("note.md"),
-                           atomically: true, encoding: .utf8)
-        try "[[note]]\n".write(to: b.appendingPathComponent("other.md"),
-                               atomically: true, encoding: .utf8)
+        try "---\ntags: [work]\n---\n[[note]] and [link](note.md)\n"
+            .write(to: a.appendingPathComponent("index.md"), atomically: true, encoding: .utf8)
+        try "note in A\n".write(to: a.appendingPathComponent("note.md"),
+                                atomically: true, encoding: .utf8)
+        // Same basename in the other root: if a collection ever merged vaults,
+        // `[[note]]` would gain a second candidate.
+        try "note in B\n".write(to: b.appendingPathComponent("note.md"),
+                                atomically: true, encoding: .utf8)
+        try "---\ntags: [personal]\n---\n[[note]]\n"
+            .write(to: b.appendingPathComponent("other.md"), atomically: true, encoding: .utf8)
 
         let model = model(roots: [a, b])
         model.noteActive(a.appendingPathComponent("index.md"))
@@ -217,7 +256,9 @@ final class WorkspaceCollectionsTests: XCTestCase {
         let activeBefore = model.activeWorkspaceRoot
         let hiddenBefore = model.hiddenFiles
         let favoritesBefore = model.favoritePathsByWorkspace
-        let scanBefore = LinkGraphEngine.scanWorkspaceOutgoing(roots: rootsBefore)
+        let linksBefore = resolvedLinks(in: model)
+        let tagsBefore = scanWorkspaceTags(roots: model.workspaces.map(\.url))
+        let searchBefore = collectSearchFileMetas(roots: model.workspaces.map(\.url))
 
         let collection = try XCTUnwrap(model.createCollection(named: "Work", with: model.workspaces[0]))
         model.assign(model.workspaces.first { $0.folderName == "B" }!, to: collection)
@@ -227,16 +268,26 @@ final class WorkspaceCollectionsTests: XCTestCase {
         XCTAssertEqual(model.hiddenFiles, hiddenBefore)
         XCTAssertEqual(model.favoritePathsByWorkspace, favoritesBefore)
 
-        // A collection is never a vault: the scan still covers the active root
-        // alone and resolves exactly the same links.
-        let scanAfter = LinkGraphEngine.scanWorkspaceOutgoing(roots: model.linkIndexRoots)
-        XCTAssertEqual(scanAfter.filesScanned, scanBefore.filesScanned)
-        XCTAssertEqual(
-            scanAfter.outgoing.mapValues { $0.map(\.rawTarget) },
-            scanBefore.outgoing.mapValues { $0.map(\.rawTarget) })
-        XCTAssertFalse(scanAfter.outgoing.keys.contains {
+        // A collection is never a vault: the same links resolve to the same
+        // files, with the same candidate sets, out of the same single root.
+        let linksAfter = resolvedLinks(in: model)
+        XCTAssertEqual(linksAfter, linksBefore)
+        let indexLinks = try XCTUnwrap(linksAfter[a.appendingPathComponent("index.md")
+            .standardizedFileURL])
+        let wiki = try XCTUnwrap(indexLinks.first { $0.kind == .wiki })
+        XCTAssertEqual(wiki.resolved, a.appendingPathComponent("note.md").standardizedFileURL)
+        XCTAssertTrue(wiki.candidates.allSatisfy {
+            $0.path.hasPrefix(a.standardizedFileURL.path + "/")
+        }, "grouping must not pull the other root's note.md into resolution")
+        XCTAssertFalse(linksAfter.keys.contains {
             $0.path.hasPrefix(b.standardizedFileURL.path + "/")
         })
+
+        // Tags and search still cover every adopted root, grouped or not.
+        let tagsAfter = scanWorkspaceTags(roots: model.workspaces.map(\.url))
+        XCTAssertEqual(tagsAfter.mapValues { Set($0) }, tagsBefore.mapValues { Set($0) })
+        XCTAssertEqual(Set(collectSearchFileMetas(roots: model.workspaces.map(\.url)).map(\.url)),
+                       Set(searchBefore.map(\.url)))
     }
 
     /// The launch reopens one branch — it must be visible even when its
