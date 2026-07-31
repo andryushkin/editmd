@@ -8245,6 +8245,16 @@
           }
         }
       }
+    },
+    "Group “%@” and “%@” in the sidebar under a name. This does not move anything on disk." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сгруппируйте «%@» и «%@» в сайдбаре под общим именем. На диске ничего не перемещается."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

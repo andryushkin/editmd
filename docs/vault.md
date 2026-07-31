@@ -61,6 +61,17 @@ source of order:
   inside its own block, so a root can never wedge itself into a foreign
   collection.
 
+Collections are made and joined by dragging as well as from the context menu:
+a root dropped on an ungrouped root asks for a name and groups both, a root
+dropped on a grouped root or on a collection header joins that collection
+(`rootDropOutcome` — pure, so the rules are testable without a drag session).
+Roots travel under their own drag type (`com.editmd.sidebar-root`, declared in
+`Info.plist`) rather than sharing the file-move type: the way agterm's outline
+view gives sessions and workspaces separate pasteboard types, a distinct type
+lets a target refuse a drag it cannot act on instead of accepting it and doing
+nothing — a subfolder never lights up for a root, a collection header never
+lights up for a file.
+
 A collapsed collection hides its members outright: `visibleWorkspaces` (and
 through it `sidebarVisibleFileOrder`) skips them, so a Shift-click range never
 walks rows that are off screen. The roots keep their own collapsed state, and

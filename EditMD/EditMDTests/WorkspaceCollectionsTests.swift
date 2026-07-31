@@ -163,6 +163,74 @@ final class WorkspaceCollectionsTests: XCTestCase {
         XCTAssertEqual(model.collection(of: model.workspaces[0])?.id, collection.id)
     }
 
+    // MARK: - Drag a root onto a root / a collection
+
+    func testDroppingARootOnAnUngroupedRootAsksForANewCollection() {
+        let workspaces = [ws("a"), ws("b")]
+        XCTAssertEqual(rootDropOutcome(dragged: "/tmp/a", onto: "/tmp/b", workspaces: workspaces),
+                       .createCollection(dragged: "/tmp/a", target: "/tmp/b"))
+    }
+
+    func testDroppingARootOnAGroupedRootJoinsThatCollection() {
+        let workspaces = [ws("a"), ws("b", collection: "c1")]
+        XCTAssertEqual(rootDropOutcome(dragged: "/tmp/a", onto: "/tmp/b", workspaces: workspaces),
+                       .join(collectionID: "c1"))
+    }
+
+    func testRootDropIsIgnoredOnItselfOnAMemberOfTheSameCollectionAndOnStrangers() {
+        let workspaces = [ws("a", collection: "c1"), ws("b", collection: "c1")]
+        XCTAssertEqual(rootDropOutcome(dragged: "/tmp/a", onto: "/tmp/a", workspaces: workspaces),
+                       .ignore)
+        XCTAssertEqual(rootDropOutcome(dragged: "/tmp/a", onto: "/tmp/b", workspaces: workspaces),
+                       .ignore)
+        // A path that is not an adopted root (a subfolder, a stale drag).
+        XCTAssertEqual(rootDropOutcome(dragged: "/tmp/a", onto: "/tmp/a/sub", workspaces: workspaces),
+                       .ignore)
+    }
+
+    /// Both drop paths end in the same state as the menu commands do.
+    func testDropOutcomesApplyToTheModel() throws {
+        let a = try root("A"), b = try root("B"), c = try root("C")
+        let model = model(roots: [a, b, c])
+
+        // A dropped on B, neither grouped → the caller names a new collection.
+        guard case .createCollection = rootDropOutcome(
+            dragged: a.path, onto: b.path, workspaces: model.workspaces)
+        else { return XCTFail("expected a new collection") }
+        let collection = try XCTUnwrap(
+            model.createCollection(named: "Work", with: model.workspaces.first { $0.folderName == "B" }!))
+        model.assign(model.workspaces.first { $0.folderName == "A" }!, to: collection)
+
+        // C dropped on A, which is now grouped → C joins the same collection.
+        guard case .join(let id) = rootDropOutcome(
+            dragged: c.path, onto: a.path, workspaces: model.workspaces)
+        else { return XCTFail("expected a join") }
+        XCTAssertEqual(id, collection.id)
+        model.assign(model.workspaces.first { $0.folderName == "C" }!,
+                     to: try XCTUnwrap(model.collection(withID: id)))
+
+        XCTAssertEqual(model.collections.count, 1)
+        XCTAssertEqual(model.sidebarTopLevelItems.count, 1)
+        // The block keeps the roots' own order and sits at the first member's
+        // place — dropping never shuffles the list beyond making it contiguous.
+        XCTAssertEqual(names(model.visibleWorkspaces), ["A", "B", "C"])
+    }
+
+    /// Roots travel under their own drag type, so a file target never sees a
+    /// root drag and a root target never sees a file drag.
+    func testRootDragUsesItsOwnTypeAndRoundTrips() throws {
+        XCTAssertNotEqual(sidebarRootDragContentType, sidebarFileDragContentType)
+
+        let data = try encodeSidebarRootDragPayload(SidebarRootDragPayload(path: "/tmp/a"))
+        XCTAssertEqual(decodeSidebarRootDragPayload(data), "/tmp/a")
+
+        // A file payload is not a root payload even if it reaches this decoder.
+        let fileData = try encodeSidebarFileDragPayload(
+            SidebarFileDragPayload(files: [URL(fileURLWithPath: "/tmp/a/note.md")]))
+        XCTAssertNil(decodeSidebarRootDragPayload(fileData))
+        XCTAssertNil(decodeSidebarRootDragPayload(Data(#"{"hello":"world"}"#.utf8)))
+    }
+
     // MARK: - Persistence and legacy data
 
     func testArrangementSurvivesRelaunch() throws {

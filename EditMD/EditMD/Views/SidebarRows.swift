@@ -8,6 +8,10 @@ enum SidebarTree {
     static let indentStep: CGFloat = 14
     static let chevronWidth: CGFloat = 10
     static let rowSpacing: CGFloat = 6
+    /// A root inside a collection starts at the collection's icon column, so
+    /// the collection reads as the level above its roots rather than a label
+    /// pinned to the same ladder rung.
+    static let collectionIndent: CGFloat = chevronWidth + rowSpacing
 }
 
 // MARK: - File row
@@ -31,13 +35,16 @@ struct FileRow: View {
     /// Hidden file shown in review mode — soften label, keep eye button crisp.
     var dimmed = false
     var depth: Int = 0
+    /// Extra leading offset shared by a whole subtree (a root inside a
+    /// collection hangs its entire tree off the collection's label column).
+    var baseIndent: CGFloat = 0
     let trailing: Trailing
     let onTap: () -> Void
     var onTrailing: () -> Void = {}
 
     @State private var hovering = false
 
-    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep }
+    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep + baseIndent }
 
     var body: some View {
         HStack(spacing: SidebarTree.rowSpacing) {

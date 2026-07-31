@@ -52,6 +52,188 @@ func sidebarFileItemProvider(files: [URL]) -> NSItemProvider {
     return provider
 }
 
+/// Drag type for a sidebar workspace root. Roots travel under a type of their
+/// own (declared in `Info.plist`), the way agterm's outline view gives sessions
+/// and workspaces separate pasteboard types: a target that only moves files
+/// never lights up for a root drag, and a collection header never lights up for
+/// a file drag — the drop is refused by the system instead of being accepted
+/// and quietly ignored.
+let sidebarRootDragContentType = UTType(exportedAs: "com.editmd.sidebar-root")
+
+struct SidebarRootDragPayload: Codable, Equatable, Sendable {
+    static let format = "com.editmd.root-group.v1"
+
+    let format: String
+    let processToken: String
+    let path: String
+
+    init(path: String) {
+        format = Self.format
+        processToken = SidebarFileDragPayload.processToken
+        self.path = path
+    }
+}
+
+func encodeSidebarRootDragPayload(_ payload: SidebarRootDragPayload) throws -> Data {
+    try JSONEncoder().encode(payload)
+}
+
+/// The dragged root's path, or nil for anything this process did not write.
+func decodeSidebarRootDragPayload(_ data: Data) -> String? {
+    guard let payload = try? JSONDecoder().decode(SidebarRootDragPayload.self, from: data),
+          payload.format == SidebarRootDragPayload.format,
+          payload.processToken == SidebarFileDragPayload.processToken
+    else { return nil }
+    return payload.path
+}
+
+@MainActor
+func sidebarRootItemProvider(root: URL) -> NSItemProvider {
+    let provider = NSItemProvider()
+    let payload = SidebarRootDragPayload(path: root.standardizedFileURL.path)
+    guard let data = try? encodeSidebarRootDragPayload(payload) else { return provider }
+    provider.registerDataRepresentation(
+        forTypeIdentifier: sidebarRootDragContentType.identifier,
+        visibility: .ownProcess
+    ) { completion in
+        completion(data, nil)
+        return nil
+    }
+    return provider
+}
+
+/// What dropping one adopted root onto another should do. Pure so the rules —
+/// no self-drop, no re-adding a member, join the target's collection when it
+/// has one — are testable without a drag session.
+enum RootDropOutcome: Equatable {
+    case ignore
+    /// Target already belongs to a collection: the dragged root joins it.
+    case join(collectionID: String)
+    /// Neither root is grouped yet: ask for a name and make one for both.
+    case createCollection(dragged: String, target: String)
+}
+
+func rootDropOutcome(
+    dragged rawDragged: String,
+    onto rawTarget: String,
+    workspaces: [WorkspaceModel.Workspace]
+) -> RootDropOutcome {
+    let dragged = (rawDragged as NSString).standardizingPath
+    let target = (rawTarget as NSString).standardizingPath
+    guard dragged != target,
+          let draggedRoot = workspaces.first(where: { $0.folderPath == dragged }),
+          let targetRoot = workspaces.first(where: { $0.folderPath == target })
+    else { return .ignore }
+    if let id = targetRoot.collectionID {
+        return draggedRoot.collectionID == id ? .ignore : .join(collectionID: id)
+    }
+    return .createCollection(dragged: dragged, target: target)
+}
+
+/// Drop target for a root dragged onto a workspace root row: the two roots
+/// become a collection (the caller is asked for a name), or the dragged root
+/// joins the collection the target already belongs to. File drags are a
+/// different type and keep going to `fileMoveDropTarget`.
+private struct RootGroupDropTargetModifier: ViewModifier {
+    @ObservedObject var workspace: WorkspaceModel
+    let root: URL
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+            .onDrop(of: [sidebarRootDragContentType], isTargeted: $isTargeted) { providers in
+                loadDraggedRoot(from: providers) { path in
+                    groupRoot(path)
+                }
+            }
+    }
+
+    @MainActor private func groupRoot(_ path: String) {
+        let target = root.standardizedFileURL.path
+        switch rootDropOutcome(dragged: path, onto: target, workspaces: workspace.workspaces) {
+        case .ignore:
+            return
+        case .join(let collectionID):
+            guard let dragged = workspace.workspaces.first(where: { $0.folderPath == path }),
+                  let collection = workspace.collection(withID: collectionID)
+            else { return }
+            workspace.assign(dragged, to: collection)
+        case .createCollection(let draggedPath, let targetPath):
+            guard let dragged = workspace.workspaces.first(where: { $0.folderPath == draggedPath }),
+                  let anchor = workspace.workspaces.first(where: { $0.folderPath == targetPath }),
+                  let name = promptForNewName(
+                    title: String(localized: "New Collection"),
+                    message: String(localized: "Group “\(anchor.name)” and “\(dragged.name)” in the sidebar under a name. This does not move anything on disk."),
+                    defaultName: String(localized: "Collection"),
+                    confirmTitle: String(localized: "Create")),
+                  let collection = workspace.createCollection(named: name, with: anchor)
+            else { return }
+            workspace.assign(dragged, to: collection)
+        }
+    }
+}
+
+/// Drop target for a collection header: a root dropped on it joins.
+private struct CollectionDropTargetModifier: ViewModifier {
+    @ObservedObject var workspace: WorkspaceModel
+    let collection: WorkspaceCollection
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+            .onDrop(of: [sidebarRootDragContentType], isTargeted: $isTargeted) { providers in
+                loadDraggedRoot(from: providers) { path in
+                    guard let dragged = workspace.workspaces.first(where: {
+                        $0.folderPath == (path as NSString).standardizingPath
+                    }), dragged.collectionID != collection.id else { return }
+                    workspace.assign(dragged, to: collection)
+                }
+            }
+    }
+}
+
+/// Shared plumbing for both root drop targets: pull the payload off the one
+/// provider that carries it and hand the path to the main actor.
+private func loadDraggedRoot(
+    from providers: [NSItemProvider],
+    then apply: @escaping @MainActor (String) -> Void
+) -> Bool {
+    let identifier = sidebarRootDragContentType.identifier
+    guard let provider = providers.first(where: {
+        $0.hasItemConformingToTypeIdentifier(identifier)
+    }) else { return false }
+    provider.loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in
+        guard let data, let path = decodeSidebarRootDragPayload(data) else { return }
+        Task { @MainActor in apply(path) }
+    }
+    return true
+}
+
+extension View {
+    /// Root rows accept both kinds of drag: files move into the folder, a root
+    /// makes or joins a collection.
+    func rootGroupDropTarget(root: URL, workspace: WorkspaceModel) -> some View {
+        modifier(RootGroupDropTargetModifier(workspace: workspace, root: root))
+    }
+
+    func collectionDropTarget(
+        _ collection: WorkspaceCollection,
+        workspace: WorkspaceModel
+    ) -> some View {
+        modifier(CollectionDropTargetModifier(workspace: workspace, collection: collection))
+    }
+}
+
 /// Command-click toggles individual rows; Shift-click selects the visible range
 /// from the stable anchor. A normal click replaces the group and opens the row,
 /// so the visually inspected file is already the selection anchor.
@@ -425,7 +607,7 @@ struct WorkspaceSidebar: View {
                             collectionHeader(collection)
                             if !collection.collapsed {
                                 ForEach(members) { ws in
-                                    workspaceGroup(ws, depth: 1)
+                                    workspaceGroup(ws, baseIndent: SidebarTree.collectionIndent)
                                 }
                             }
                         }
@@ -554,6 +736,7 @@ struct WorkspaceSidebar: View {
         .padding(.horizontal, 8)
         .padding(.top, 10)
         .padding(.bottom, 3)
+        .collectionDropTarget(collection, workspace: workspace)
         .contextMenu {
             Button("Rename Collection…") { promptToRenameCollection(collection) }
             Button("Ungroup Collection") { workspace.dissolveCollection(collection) }
@@ -606,19 +789,18 @@ struct WorkspaceSidebar: View {
 
     // MARK: - Workspace group
 
-    /// `depth` is 0 for a root of its own and 1 for a root inside a collection,
-    /// so a collection indents its whole subtree by one step.
+    /// `baseIndent` offsets the root and everything under it: a root inside a
+    /// collection hangs off the collection's label column, so each level below
+    /// keeps its own step and the hierarchy still reads as one ladder.
     @ViewBuilder private func workspaceGroup(
-        _ ws: WorkspaceModel.Workspace, depth: Int = 0
+        _ ws: WorkspaceModel.Workspace, baseIndent: CGFloat = 0
     ) -> some View {
         let selected = isActive(ws.url)
         // Mark the owning root through its icon when the open file lives inside it.
         let ownsActive = selected || containsActiveFile(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
-            if depth > 0 {
-                Spacer().frame(width: CGFloat(depth) * SidebarTree.indentStep)
-            }
+            if baseIndent > 0 { Spacer().frame(width: baseIndent) }
             // Chevron alone toggles expand/collapse (Finder/VS Code).
             Button {
                 workspace.toggleCollapsed(ws)
@@ -667,13 +849,17 @@ struct WorkspaceSidebar: View {
         .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
             clearFileSelection()
         }
+        .rootGroupDropTarget(root: ws.url, workspace: workspace)
+        // Dragging a root onto another root (or onto a collection header) is
+        // how collections are made and joined without a trip to the menu.
+        .onDrag { sidebarRootItemProvider(root: ws.url) }
 
         if !ws.collapsed {
             // Folders first (md-bearing; empty only with eye), then files.
             // contentEpoch: re-scan when New File/Folder mutates disk.
             let _ = workspace.contentEpoch
             ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -683,7 +869,7 @@ struct WorkspaceSidebar: View {
             // User-created empty folders stay visible; only found-on-disk empties
             // hide behind the eye.
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: ws.url)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -692,7 +878,7 @@ struct WorkspaceSidebar: View {
             }
             if showHidden {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: ws.url)), id: \.self) { sub in
-                    SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                    SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                                   filter: filterQuery, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
@@ -702,12 +888,12 @@ struct WorkspaceSidebar: View {
             }
             ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { url in
-                fileRow(url, in: ws, hidden: false, depth: depth + 1)
+                fileRow(url, in: ws, hidden: false, baseIndent: baseIndent)
             }
             if showHidden {
                 ForEach(workspace.hiddenFilesList(ws).filter { nameMatches($0.lastPathComponent) },
                         id: \.self) { url in
-                    fileRow(url, in: ws, hidden: true, depth: depth + 1)
+                    fileRow(url, in: ws, hidden: true, baseIndent: baseIndent)
                 }
             }
         }
@@ -723,7 +909,7 @@ struct WorkspaceSidebar: View {
     }
 
     private func fileRow(_ url: URL, in ws: WorkspaceModel.Workspace,
-                         hidden: Bool, depth: Int = 1) -> some View {
+                         hidden: Bool, baseIndent: CGFloat = 0) -> some View {
         // depth 1 = same column as root subfolders (chevron slot reserved).
         // Visible → eye.slash hides. Hidden (only listed in review mode) → eye unhides.
         FileRow(name: url.lastPathComponent,
@@ -732,7 +918,8 @@ struct WorkspaceSidebar: View {
                 isActive: isActive(url),
                 isSelected: selectedFiles.contains(url.standardizedFileURL),
                 dimmed: hidden,
-                depth: depth,
+                depth: 1,
+                baseIndent: baseIndent,
                 trailing: hidden ? .unhide : .hide,
                 onTap: { handleFileTap(url) },
                 onTrailing: { hidden ? workspace.unhide(url, in: ws) : workspace.hide(url, in: ws) })
@@ -882,6 +1069,9 @@ private struct SubfolderNode: View {
     @ObservedObject var workspace: WorkspaceModel
     let folder: URL
     let depth: Int
+    /// Leading offset inherited from the workspace root (collections indent
+    /// their members' whole subtree).
+    var baseIndent: CGFloat = 0
     /// Empty = no filter. Same rules as the root: name match, or expanded so
     /// matching children stay reachable without a full recursive scan.
     let filter: String
@@ -894,7 +1084,7 @@ private struct SubfolderNode: View {
     let onOpen: (URL) -> Void
     let onOpenFolder: (URL) -> Void
 
-    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep }
+    private var indent: CGFloat { CGFloat(depth) * SidebarTree.indentStep + baseIndent }
     private var isFiltering: Bool { !filter.isEmpty }
     private var selected: Bool {
         folder.standardizedFileURL == activeURL?.standardizedFileURL
@@ -974,7 +1164,7 @@ private struct SubfolderNode: View {
             // md folders → kept empty folders → found-on-disk empty folders (eye)
             // → visible files → hidden files (eye).
             ForEach(filteredFolders(workspace.markdownSubfolders(in: folder)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                               filter: filter, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -982,7 +1172,7 @@ private struct SubfolderNode: View {
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
             }
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: folder)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                               filter: filter, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -991,7 +1181,7 @@ private struct SubfolderNode: View {
             }
             if showHidden {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: folder)), id: \.self) { sub in
-                    SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
+                    SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                                   filter: filter, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
@@ -1019,6 +1209,7 @@ private struct SubfolderNode: View {
                 isSelected: selectedFiles.contains(file.standardizedFileURL),
                 dimmed: hidden,
                 depth: depth + 1,
+                baseIndent: baseIndent,
                 trailing: hidden ? .unhide : .hide,
                 onTap: { handleFileTap(file) },
                 onTrailing: {

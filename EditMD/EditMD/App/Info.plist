@@ -93,6 +93,20 @@
                 </array>
             </dict>
         </dict>
+        <dict>
+            <!-- In-process drag of a sidebar workspace root onto another root
+                 or onto a collection header. A type of its own so a drop target
+                 that only moves files refuses it outright instead of accepting
+                 a drag it cannot act on. -->
+            <key>UTTypeIdentifier</key>
+            <string>com.editmd.sidebar-root</string>
+            <key>UTTypeDescription</key>
+            <string>EditMD Sidebar Folder</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
     </array>
     <key>UTImportedTypeDeclarations</key>
     <array>
