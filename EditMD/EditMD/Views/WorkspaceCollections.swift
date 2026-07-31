@@ -275,12 +275,22 @@ extension WorkspaceModel {
     /// falls back to the first root — the branch a fresh launch opens — so a
     /// reorder can move the vault the link graph answers for. The arrangement
     /// stays presentation, but the index must not keep answering for the root
-    /// that used to be first: re-key it (a no-op unless someone built it).
-    private func applyArrangement(_ arranged: [Workspace], index: LinkIndex = .shared) {
+    /// that used to be first.
+    private func applyArrangement(_ arranged: [Workspace]) {
         guard arranged != workspaces else { return }
+        trackingEffectiveRoot { workspaces = arranged }
+    }
+
+    /// Runs a mutation of the adopted-root set or its order and re-keys the
+    /// link graph when the effective vault moved — adopting a nested root can
+    /// change which root owns the open document, and reordering or removing
+    /// can change the fallback first root. Re-keying is a no-op unless someone
+    /// already built the index, and `ensureIndex` early-returns on an
+    /// unchanged key, so a mutation that leaves the vault alone costs nothing.
+    func trackingEffectiveRoot(_ mutate: () -> Void) {
         let rootBefore = activeWorkspaceRoot
-        workspaces = arranged
+        mutate()
         guard activeWorkspaceRoot != rootBefore else { return }
-        index.noteActiveDocumentChanged(workspace: self)
+        linkIndex.noteActiveDocumentChanged(workspace: self)
     }
 }

@@ -267,6 +267,48 @@ final class WorkspaceCollectionsTests: XCTestCase {
         XCTAssertEqual(model.activeWorkspaceRoot, b.standardizedFileURL)
     }
 
+    /// The re-key itself, not just the computed root: a live index must stop
+    /// answering for the root that is no longer the vault. Covers both paths —
+    /// reordering the sidebar and dropping the root the index was built for.
+    func testMovingTheVaultRekeysALiveIndex() async throws {
+        for scenario in ["reorder", "remove"] {
+            let a = try root("A-\(scenario)"), b = try root("B-\(scenario)")
+            try "[[note]]\n".write(to: a.appendingPathComponent("index.md"),
+                                   atomically: true, encoding: .utf8)
+            try "note\n".write(to: b.appendingPathComponent("note.md"),
+                               atomically: true, encoding: .utf8)
+
+            let index = LinkIndex()
+            // A suite of its own: the two scenarios must not inherit each
+            // other's adopted roots through the shared store.
+            let suite = "colltest-\(UUID().uuidString)"
+            let store = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { store.removePersistentDomain(forName: suite) }
+            let model = WorkspaceModel(defaults: store, index: index)
+            model.addWorkspace(a)
+            model.addWorkspace(b)
+            // Nothing open: the vault is the first root, and the index is live.
+            index.seedForTesting(outgoing: [:], roots: [a], key: "seeded")
+            XCTAssertEqual(model.activeWorkspaceRoot, a.standardizedFileURL)
+
+            let before = index.fullScanCount
+            switch scenario {
+            case "reorder":
+                model.moveWorkspace(model.workspaces[0], by: 1)
+            default:
+                model.removeWorkspace(model.workspaces[0])
+            }
+            XCTAssertEqual(model.activeWorkspaceRoot, b.standardizedFileURL, scenario)
+
+            let deadline = Date().addingTimeInterval(3)
+            while index.fullScanCount == before, Date() < deadline {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            XCTAssertGreaterThan(index.fullScanCount, before,
+                                 "\(scenario) left the index answering for the old vault")
+        }
+    }
+
     /// Renaming an adopted root on disk rewrites every path-keyed entry — the
     /// collection membership has to ride along with it.
     func testRenamingARootOnDiskKeepsItsCollection() async throws {
@@ -284,14 +326,31 @@ final class WorkspaceCollectionsTests: XCTestCase {
     }
 
     /// Hand-edited or merged defaults can repeat an id. Only the first one
-    /// could ever be rendered, so the rest must not survive startup as rows
-    /// nobody can see, rename or collapse.
-    func testDuplicateCollectionIDsDoNotSurvive() {
+    /// could ever be rendered, so the rest must not reach the live model as
+    /// rows nobody can see, rename or collapse. (The stored JSON keeps them
+    /// until the next mutation rewrites the key — every load prunes them, so
+    /// they never surface.)
+    func testDuplicateCollectionIDsDoNotSurvivePruning() {
         let pruned = WorkspaceModel.prunedCollections(
             [WorkspaceCollection(id: "x", name: "Work"),
              WorkspaceCollection(id: "x", name: "Personal")],
             workspaces: [ws("a", collection: "x")])
         XCTAssertEqual(pruned.map(\.name), ["Work"])
+    }
+
+    func testDuplicateCollectionIDsDoNotSurviveStartup() throws {
+        let a = try root("A")
+        let stored = [["id": "x", "name": "Work", "collapsed": false],
+                      ["id": "x", "name": "Personal", "collapsed": false]]
+        defaults.set(try JSONSerialization.data(withJSONObject: stored),
+                     forKey: "workspace.collections")
+        defaults.set(try JSONSerialization.data(withJSONObject:
+            [["folderPath": a.path, "collapsed": false, "collectionID": "x"]]),
+                     forKey: "workspace.folders")
+
+        let model = WorkspaceModel(defaults: defaults)
+        XCTAssertEqual(model.collections.map(\.name), ["Work"])
+        XCTAssertEqual(model.sidebarTopLevelItems.count, 1)
     }
 
     // MARK: - Persistence and legacy data

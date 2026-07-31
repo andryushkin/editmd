@@ -79,6 +79,9 @@ final class WorkspaceModel: ObservableObject {
     private var fileMovesInFlight = Set<String>()
 
     private let defaults: UserDefaults
+    /// The link graph this sidebar re-keys when the effective vault moves.
+    /// Injectable so a test can watch the re-key without the shared index.
+    let linkIndex: LinkIndex
 
     private enum Keys {
         static let folders = "workspace.folders"
@@ -95,8 +98,10 @@ final class WorkspaceModel: ObservableObject {
     /// `shared` instance (and a test that asks for a temp file) touches disk.
     let snapshot: SidebarSnapshotStore
 
-    init(defaults: UserDefaults = .standard, snapshotURL: URL? = nil) {
+    init(defaults: UserDefaults = .standard, snapshotURL: URL? = nil,
+         index: LinkIndex = .shared) {
         self.defaults = defaults
+        linkIndex = index
         snapshot = SidebarSnapshotStore(fileURL: snapshotURL)
         let storedWorkspaces: [Workspace] = Self.load(defaults, Keys.folders) ?? []
         let storedCollections: [WorkspaceCollection] = Self.load(defaults, Keys.collections) ?? []
@@ -518,14 +523,20 @@ final class WorkspaceModel: ObservableObject {
     func addWorkspace(_ folder: URL) {
         let path = folder.standardizedFileURL.path
         guard !workspaces.contains(where: { $0.folderPath == path }) else { return }
-        workspaces.append(Workspace(folderPath: path))
+        // Adopting can change the vault under the open document (a nested root
+        // becomes its closer owner) or the fallback first root.
+        trackingEffectiveRoot {
+            workspaces.append(Workspace(folderPath: path))
+        }
         // A loose file that now lives inside an adopted folder is no longer loose.
         looseFiles.removeAll { $0.deletingLastPathComponent().path == path }
     }
 
     func removeWorkspace(_ ws: Workspace) {
-        workspaces.removeAll { $0.id == ws.id }
-        rearrange()
+        trackingEffectiveRoot {
+            workspaces.removeAll { $0.id == ws.id }
+            rearrange()
+        }
     }
 
     /// Set a custom display name; empty / whitespace clears back to folder basename.
