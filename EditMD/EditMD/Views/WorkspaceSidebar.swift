@@ -179,7 +179,9 @@ func sidebarVisibleFileOrder(
         }
     }
 
-    for root in workspace.workspaces where !root.collapsed {
+    // Members of a collapsed collection are off screen — they must not enter
+    // the order a Shift-click range walks.
+    for root in workspace.visibleWorkspaces where !root.collapsed {
         for subfolder in filteredFolders(workspace.markdownSubfolders(in: root.url)) {
             appendExpandedFolder(subfolder)
         }
@@ -415,8 +417,18 @@ struct WorkspaceSidebar: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                     }
-                    ForEach(workspace.workspaces) { ws in
-                        workspaceGroup(ws)
+                    ForEach(workspace.sidebarTopLevelItems) { item in
+                        switch item {
+                        case .root(let ws):
+                            workspaceGroup(ws)
+                        case .collection(let collection, let members):
+                            collectionHeader(collection)
+                            if !collection.collapsed {
+                                ForEach(members) { ws in
+                                    workspaceGroup(ws, depth: 1)
+                                }
+                            }
+                        }
                     }
                     if !filteredLoose.isEmpty {
                         Rectangle()
@@ -505,14 +517,108 @@ struct WorkspaceSidebar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - Collections
+
+    /// Header row of a named collection: chevron + name. Collapsing it hides
+    /// every member root at once; the roots keep their own expanded state.
+    private func collectionHeader(_ collection: WorkspaceCollection) -> some View {
+        HStack(spacing: SidebarTree.rowSpacing) {
+            Button {
+                workspace.toggleCollapsed(collection)
+            } label: {
+                Image(systemName: collection.collapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: SidebarTree.chevronWidth, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                workspace.toggleCollapsed(collection)
+            } label: {
+                HStack(spacing: SidebarTree.rowSpacing) {
+                    Image(systemName: "square.stack")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(collection.name.uppercased())
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 10)
+        .padding(.bottom, 3)
+        .contextMenu {
+            Button("Rename Collection…") { promptToRenameCollection(collection) }
+            Button("Ungroup Collection") { workspace.dissolveCollection(collection) }
+            Divider()
+            Button("Move Up") { workspace.moveCollection(collection, by: -1) }
+            Button("Move Down") { workspace.moveCollection(collection, by: 1) }
+        }
+    }
+
+    /// Per-root collection commands, appended to the folder context menu.
+    @ViewBuilder private func collectionMenu(for ws: WorkspaceModel.Workspace) -> some View {
+        let current = workspace.collection(of: ws)
+        Menu("Collection") {
+            Button("New Collection…") { promptToCreateCollection(with: ws) }
+            let others = workspace.collections.filter { $0.id != current?.id }
+            if !others.isEmpty {
+                Divider()
+                ForEach(others) { collection in
+                    Button(collection.name) { workspace.assign(ws, to: collection) }
+                }
+            }
+            if current != nil {
+                Divider()
+                Button("Remove from Collection") { workspace.assign(ws, to: nil) }
+            }
+        }
+        Button("Move Up") { workspace.moveWorkspace(ws, by: -1) }
+        Button("Move Down") { workspace.moveWorkspace(ws, by: 1) }
+    }
+
+    private func promptToCreateCollection(with ws: WorkspaceModel.Workspace) {
+        guard let name = promptForNewName(
+            title: String(localized: "New Collection"),
+            message: String(localized: "Group folders in the sidebar under a name. This does not move anything on disk."),
+            defaultName: String(localized: "Collection"),
+            confirmTitle: String(localized: "Create")
+        ) else { return }
+        workspace.createCollection(named: name, with: ws)
+    }
+
+    private func promptToRenameCollection(_ collection: WorkspaceCollection) {
+        guard let name = promptForNewName(
+            title: String(localized: "Rename Collection"),
+            message: String(localized: "Enter a new name for “\(collection.name)”."),
+            defaultName: collection.name,
+            confirmTitle: String(localized: "Rename")
+        ) else { return }
+        workspace.renameCollection(collection, to: name)
+    }
+
     // MARK: - Workspace group
 
-    @ViewBuilder private func workspaceGroup(_ ws: WorkspaceModel.Workspace) -> some View {
+    /// `depth` is 0 for a root of its own and 1 for a root inside a collection,
+    /// so a collection indents its whole subtree by one step.
+    @ViewBuilder private func workspaceGroup(
+        _ ws: WorkspaceModel.Workspace, depth: Int = 0
+    ) -> some View {
         let selected = isActive(ws.url)
         // Mark the owning root through its icon when the open file lives inside it.
         let ownsActive = selected || containsActiveFile(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
+            if depth > 0 {
+                Spacer().frame(width: CGFloat(depth) * SidebarTree.indentStep)
+            }
             // Chevron alone toggles expand/collapse (Finder/VS Code).
             Button {
                 workspace.toggleCollapsed(ws)
@@ -555,6 +661,8 @@ struct WorkspaceSidebar: View {
         .padding(.bottom, 3)
         .contextMenu {
             FolderContextMenu(workspace: workspace, folder: ws.url, showsOpen: true)
+            Divider()
+            collectionMenu(for: ws)
         }
         .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
             clearFileSelection()
@@ -565,7 +673,7 @@ struct WorkspaceSidebar: View {
             // contentEpoch: re-scan when New File/Folder mutates disk.
             let _ = workspace.contentEpoch
             ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -575,7 +683,7 @@ struct WorkspaceSidebar: View {
             // User-created empty folders stay visible; only found-on-disk empties
             // hide behind the eye.
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: ws.url)), id: \.self) { sub in
-                SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                               filter: filterQuery, activeURL: activeURL,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
@@ -584,7 +692,7 @@ struct WorkspaceSidebar: View {
             }
             if showHidden {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: ws.url)), id: \.self) { sub in
-                    SubfolderNode(workspace: workspace, folder: sub, depth: 1,
+                    SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1,
                                   filter: filterQuery, activeURL: activeURL,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
@@ -594,12 +702,12 @@ struct WorkspaceSidebar: View {
             }
             ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { url in
-                fileRow(url, in: ws, hidden: false)
+                fileRow(url, in: ws, hidden: false, depth: depth + 1)
             }
             if showHidden {
                 ForEach(workspace.hiddenFilesList(ws).filter { nameMatches($0.lastPathComponent) },
                         id: \.self) { url in
-                    fileRow(url, in: ws, hidden: true)
+                    fileRow(url, in: ws, hidden: true, depth: depth + 1)
                 }
             }
         }
@@ -614,7 +722,8 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    private func fileRow(_ url: URL, in ws: WorkspaceModel.Workspace, hidden: Bool) -> some View {
+    private func fileRow(_ url: URL, in ws: WorkspaceModel.Workspace,
+                         hidden: Bool, depth: Int = 1) -> some View {
         // depth 1 = same column as root subfolders (chevron slot reserved).
         // Visible → eye.slash hides. Hidden (only listed in review mode) → eye unhides.
         FileRow(name: url.lastPathComponent,
@@ -623,7 +732,7 @@ struct WorkspaceSidebar: View {
                 isActive: isActive(url),
                 isSelected: selectedFiles.contains(url.standardizedFileURL),
                 dimmed: hidden,
-                depth: 1,
+                depth: depth,
                 trailing: hidden ? .unhide : .hide,
                 onTap: { handleFileTap(url) },
                 onTrailing: { hidden ? workspace.unhide(url, in: ws) : workspace.hide(url, in: ws) })

@@ -31,6 +31,42 @@ existence probe runs on a detached task and applies on the main actor behind an
 unchanged-snapshot guard (mirroring `refreshFavoriteAvailability`), so a network
 or offline workspace volume never stalls the UI.
 
+### Collections
+
+A dozen adopted roots read as noise in one flat list, so roots can be grouped
+into named collections (`Views/WorkspaceCollections.swift`) — "Work",
+"Personal", one per family of projects. A collection is **presentation only**:
+it is never a search, link, tag or graph boundary, never an answer to
+`activeWorkspaceRoot`, and it changes no path-keyed state (`hiddenFiles`,
+`keptFolders`, favorites, Git grouping, `<root>/.editmd/link-index.json`).
+Wiki-links and the index keep resolving per root, exactly as before.
+
+Membership lives on the root itself (`Workspace.collectionID`), not in a list
+of member paths inside the collection: the sidebar already rewrites `Workspace`
+values on rename and removal, so membership rides along and can never name a
+root that is no longer adopted. `collections` persists under its own defaults
+key, so an install that predates the feature decodes untouched — a missing key
+and a missing `collectionID` both mean "ungrouped".
+
+The arrangement rules are pure statics over `[Workspace]`, which is the single
+source of order:
+
+- `normalizedWorkspaces` makes each collection's members contiguous, anchored
+  at the first member's place (grouping never teleports a block to the end),
+  and decays a membership whose collection is gone to "ungrouped";
+- `prunedCollections` drops a collection nobody is in — an empty container is a
+  row that can only be deleted;
+- `topLevelItems` projects the array into what the tree renders, and
+  `movingTopLevelItem` / `movingMember` reorder either whole blocks or a root
+  inside its own block, so a root can never wedge itself into a foreign
+  collection.
+
+A collapsed collection hides its members outright: `visibleWorkspaces` (and
+through it `sidebarVisibleFileOrder`) skips them, so a Shift-click range never
+walks rows that are off screen. The roots keep their own collapsed state, and
+`normalizeStartupTree` expands the collection owning the reopened branch —
+otherwise the launch would restore an invisible selection.
+
 ### File and folder operations
 
 Context menus create (New File / New Folder), move, rename and trash items.

@@ -20,6 +20,9 @@ final class WorkspaceModel: ObservableObject {
         var collapsed: Bool = false
         /// Optional display name; nil / empty → folder basename (legacy decode OK).
         var customName: String? = nil
+        /// Collection this root sits in, `nil` for a root of its own (legacy
+        /// decode OK — every install before collections has ungrouped roots).
+        var collectionID: String? = nil
         var id: String { folderPath }
         var url: URL { URL(fileURLWithPath: folderPath) }
         var folderName: String { url.lastPathComponent }
@@ -33,6 +36,9 @@ final class WorkspaceModel: ObservableObject {
 
     /// Adopted folders, always visible, collapsible.
     @Published var workspaces: [Workspace] { didSet { persist(workspaces, Keys.folders) } }
+    /// Named containers grouping roots in the sidebar (`WorkspaceCollections`).
+    /// Presentation only — never a search, link or index boundary.
+    @Published var collections: [WorkspaceCollection] { didSet { persist(collections, Keys.collections) } }
     /// workspace root path → set of **relative paths** of hidden markdown files
     /// (e.g. `note.md`, `sub/a.md`). Legacy entries without `/` are root basenames.
     @Published var hiddenFiles: [String: Set<String>] { didSet { persist(hiddenFiles, Keys.hidden) } }
@@ -76,6 +82,7 @@ final class WorkspaceModel: ObservableObject {
 
     private enum Keys {
         static let folders = "workspace.folders"
+        static let collections = "workspace.collections"
         static let hidden = "workspace.hidden"
         static let kept = "workspace.keptFolders"
         static let pinned = "workspace.pinned"
@@ -91,7 +98,11 @@ final class WorkspaceModel: ObservableObject {
     init(defaults: UserDefaults = .standard, snapshotURL: URL? = nil) {
         self.defaults = defaults
         snapshot = SidebarSnapshotStore(fileURL: snapshotURL)
-        workspaces = Self.load(defaults, Keys.folders) ?? []
+        let storedWorkspaces: [Workspace] = Self.load(defaults, Keys.folders) ?? []
+        let storedCollections: [WorkspaceCollection] = Self.load(defaults, Keys.collections) ?? []
+        let liveCollections = Self.prunedCollections(storedCollections, workspaces: storedWorkspaces)
+        collections = liveCollections
+        workspaces = Self.normalizedWorkspaces(storedWorkspaces, collections: liveCollections)
         hiddenFiles = Self.load(defaults, Keys.hidden) ?? [:]
         keptFolders = Self.load(defaults, Keys.kept) ?? [:]
         pinnedLoosePaths = Self.load(defaults, Keys.pinned) ?? []
@@ -169,6 +180,9 @@ final class WorkspaceModel: ObservableObject {
         for i in workspaces.indices {
             workspaces[i].collapsed = (workspaces[i].id != owner.id)
         }
+        // A collapsed collection hides its members outright, so the branch the
+        // launch reopens would be invisible — open the one that owns it.
+        if let collection = collection(of: owner) { expandCollection(collection) }
         expandedFolders = Self.ancestorFolders(of: active, under: owner.folderPath)
     }
 
@@ -511,6 +525,7 @@ final class WorkspaceModel: ObservableObject {
 
     func removeWorkspace(_ ws: Workspace) {
         workspaces.removeAll { $0.id == ws.id }
+        rearrange()
     }
 
     /// Set a custom display name; empty / whitespace clears back to folder basename.
@@ -828,6 +843,7 @@ final class WorkspaceModel: ObservableObject {
         let root = folder.path
 
         workspaces.removeAll { Self.path($0.folderPath, isInside: root) }
+        rearrange()
         pinnedLoosePaths.removeAll { Self.path($0, isInside: root) }
         looseFiles.removeAll {
             Self.path($0.standardizedFileURL.path, isInside: root)

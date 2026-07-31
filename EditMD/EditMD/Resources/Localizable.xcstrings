@@ -8145,6 +8145,106 @@
           }
         }
       }
+    },
+    "Collection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Коллекция"
+          }
+        }
+      }
+    },
+    "Group folders in the sidebar under a name. This does not move anything on disk." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сгруппируйте папки в сайдбаре под общим именем. На диске ничего не перемещается."
+          }
+        }
+      }
+    },
+    "Move Down" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переместить вниз"
+          }
+        }
+      }
+    },
+    "Move Up" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переместить вверх"
+          }
+        }
+      }
+    },
+    "New Collection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая коллекция"
+          }
+        }
+      }
+    },
+    "New Collection…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая коллекция…"
+          }
+        }
+      }
+    },
+    "Remove from Collection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать из коллекции"
+          }
+        }
+      }
+    },
+    "Rename Collection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переименовать коллекцию"
+          }
+        }
+      }
+    },
+    "Rename Collection…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переименовать коллекцию…"
+          }
+        }
+      }
+    },
+    "Ungroup Collection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разгруппировать коллекцию"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

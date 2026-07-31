@@ -97,6 +97,7 @@
 		531B054F811B678A753CC758 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D06DBDE9F723AE71A26A275 /* AppLanguage.swift */; };
 		53FAFC3933BC24E2EADF3207 /* EditorToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB851CD26B911D4370D78D4C /* EditorToolbar.swift */; };
 		5451F3CFE9373AD73090A4A2 /* AgentPromptCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D244CCE350BF9AEF4155563C /* AgentPromptCatalog.swift */; };
+		54FFB14780223C785755A18A /* WorkspaceCollections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB3FA0BC0CC516173BC6DBD /* WorkspaceCollections.swift */; };
 		5780A32D0C86F48FBFB1376D /* ControlGraphPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3837EA11A605A047AD80937D /* ControlGraphPayload.swift */; };
 		58DBAB6542D2F2A8BE5F52B9 /* SKILL.md in Resources */ = {isa = PBXBuildFile; fileRef = FE5080F7B3A6DAB057513435 /* SKILL.md */; };
 		5D0294AD8C32BB3AAF640E76 /* MarkdownLintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD551E24AD78CA9438FAAAD /* MarkdownLintTests.swift */; };
@@ -122,6 +123,7 @@
 		745DA0DB3B31E29DA9B63F5C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E846D593359014AA812A9A3 /* AppIcon.icns */; };
 		75ED2C4FF8872DD52EDB4BD2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92161BAEF22CB4D7970B98F1 /* ContentView.swift */; };
 		7657AD7D127CE8651A55E0B5 /* ReviewMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0D208F7CCA0ADB03E5D756 /* ReviewMarks.swift */; };
+		78587C40E0F04C27D0570F12 /* WorkspaceCollectionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDA38966C7478750361BFF88 /* WorkspaceCollectionsTests.swift */; };
 		79823E36D01FEE90C02A01C1 /* ClaudeIDEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8BD79FED04D5B6B2FC2C55 /* ClaudeIDEService.swift */; };
 		7A150495A6916CEBA771156E /* TagsSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD16A03238CB74404043EB7D /* TagsSidebar.swift */; };
 		7A4E694B97739F877CBA0691 /* ReviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14742851ED5AEE37BAF1419 /* ReviewModel.swift */; };
@@ -387,6 +389,7 @@
 		855030C27B3542DC0CF21A0F /* PDFViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFViewerView.swift; sourceTree = "<group>"; };
 		86F9ED453EE48ACB9CABC905 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8AB3AC0B3DFD484DFDD271D8 /* StarterFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarterFolder.swift; sourceTree = "<group>"; };
+		8DB3FA0BC0CC516173BC6DBD /* WorkspaceCollections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCollections.swift; sourceTree = "<group>"; };
 		8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileEditor.swift; sourceTree = "<group>"; };
 		902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundTripTests.swift; sourceTree = "<group>"; };
 		906AA5ED9EE032E4C4DEEA24 /* troubleshooting.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = troubleshooting.md; sourceTree = "<group>"; };
@@ -480,6 +483,7 @@
 		EA1CE5357EB0D86C3400514D /* GitCommitWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitCommitWatcher.swift; sourceTree = "<group>"; };
 		EAD73E6D5C4DEDA7B5C86BED /* ClaudeIDEServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeIDEServer.swift; sourceTree = "<group>"; };
 		ECCAF1E63D464F5284EAD6AD /* TableClipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableClipboard.swift; sourceTree = "<group>"; };
+		EDA38966C7478750361BFF88 /* WorkspaceCollectionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCollectionsTests.swift; sourceTree = "<group>"; };
 		EDDA15226FE19583870CDF72 /* SourceTextView+Highlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SourceTextView+Highlighting.swift"; sourceTree = "<group>"; };
 		EF12B04334689B39D654FE1E /* SourceNSTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceNSTextView.swift; sourceTree = "<group>"; };
 		EFCED5DC382D884472BF2D8E /* BuiltInPlugins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInPlugins.swift; sourceTree = "<group>"; };
@@ -754,6 +758,7 @@
 				F0F8168427D07FB7434DF304 /* VaultLintReportView.swift */,
 				7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */,
 				AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */,
+				8DB3FA0BC0CC516173BC6DBD /* WorkspaceCollections.swift */,
 				3A6510639C139A366128A045 /* WorkspaceModel.swift */,
 				3F77DF16DCFB0ABC29266097 /* WorkspaceModelDiskMoves.swift */,
 				B9ED6E1B1B01C53E6210BD88 /* WorkspaceSearchModel.swift */,
@@ -912,6 +917,7 @@
 				826B3718B5967A1074331A2A /* WikiCompletionTests.swift */,
 				7EA8007CB637137CEE171BBA /* WikiLinkResolverTests.swift */,
 				3E4345BEA71C0AD64B5639E0 /* WikiLinkScannerTests.swift */,
+				EDA38966C7478750361BFF88 /* WorkspaceCollectionsTests.swift */,
 				3AE1CCCC29A3B872EBDEBC71 /* WorkspaceModelTests.swift */,
 			);
 			path = EditMDTests;
@@ -1167,6 +1173,7 @@
 				97DCCC0A884ED4AAD6CD95EC /* WikiCompletionTests.swift in Sources */,
 				D112EA02036A16D2DE50C707 /* WikiLinkResolverTests.swift in Sources */,
 				29F5C1D1B76FC477819ACDB6 /* WikiLinkScannerTests.swift in Sources */,
+				78587C40E0F04C27D0570F12 /* WorkspaceCollectionsTests.swift in Sources */,
 				9133952BAFF33E8C67ED34C8 /* WorkspaceModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1311,6 +1318,7 @@
 				C106C0911196133FE31E1962 /* WikiLink.swift in Sources */,
 				B38040D7C9FD07223C539021 /* WikiLinkCore.swift in Sources */,
 				103C913D0A53FFB04BE50594 /* WikiLinkResolver.swift in Sources */,
+				54FFB14780223C785755A18A /* WorkspaceCollections.swift in Sources */,
 				07AB6D24D38C0EA12C5E0A38 /* WorkspaceModel.swift in Sources */,
 				B35859FCE7B0D641E6361C3F /* WorkspaceModelDiskMoves.swift in Sources */,
 				E48458C5519A874FB25441FB /* WorkspaceSearchModel.swift in Sources */,
