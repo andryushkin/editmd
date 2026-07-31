@@ -56,7 +56,16 @@ extension WorkspaceModel {
             return workspace
         }
 
+        // Bucket once: this runs inside the sidebar's body, so it must stay
+        // linear in roots rather than re-scanning the array per collection.
+        var members: [String: [Workspace]] = [:]
+        for workspace in cleaned {
+            guard let id = workspace.collectionID else { continue }
+            members[id, default: []].append(workspace)
+        }
+
         var result: [Workspace] = []
+        result.reserveCapacity(cleaned.count)
         var emitted = Set<String>()
         for workspace in cleaned {
             guard let id = workspace.collectionID else {
@@ -64,19 +73,23 @@ extension WorkspaceModel {
                 continue
             }
             guard emitted.insert(id).inserted else { continue }
-            result.append(contentsOf: cleaned.filter { $0.collectionID == id })
+            result.append(contentsOf: members[id] ?? [])
         }
         return result
     }
 
     /// Collections nobody is in are dropped: an empty named container is a row
-    /// that can only be deleted, never used.
+    /// that can only be deleted, never used. A repeated id is dropped with
+    /// them — only the first one could ever be rendered, so a duplicate from
+    /// hand-edited or merged defaults would persist as a row nobody can see,
+    /// rename or collapse.
     nonisolated static func prunedCollections(
         _ collections: [WorkspaceCollection],
         workspaces: [Workspace]
     ) -> [WorkspaceCollection] {
         let used = Set(workspaces.compactMap(\.collectionID))
-        return collections.filter { used.contains($0.id) }
+        var seen = Set<String>()
+        return collections.filter { used.contains($0.id) && seen.insert($0.id).inserted }
     }
 
     /// Top level of the tree, over an already normalized array.
@@ -89,6 +102,13 @@ extension WorkspaceModel {
             byID[collection.id] = collection
         }
         let normalized = normalizedWorkspaces(workspaces, collections: collections)
+        // Members are contiguous after normalization, so one pass collects each
+        // block — no per-collection re-scan of the array (this runs in `body`).
+        var members: [String: [Workspace]] = [:]
+        for workspace in normalized {
+            guard let id = workspace.collectionID else { continue }
+            members[id, default: []].append(workspace)
+        }
         var items: [SidebarTopLevelItem] = []
         var emitted = Set<String>()
         for workspace in normalized {
@@ -97,7 +117,7 @@ extension WorkspaceModel {
                 continue
             }
             guard emitted.insert(id).inserted else { continue }
-            items.append(.collection(collection, normalized.filter { $0.collectionID == id }))
+            items.append(.collection(collection, members[id] ?? []))
         }
         return items
     }
@@ -230,17 +250,17 @@ extension WorkspaceModel {
 
     func moveWorkspace(_ ws: Workspace, by delta: Int) {
         guard let current = workspaces.first(where: { $0.id == ws.id }) else { return }
-        workspaces = current.collectionID == nil
+        applyArrangement(current.collectionID == nil
             ? Self.movingTopLevelItem(id: "r:" + current.folderPath, by: delta,
                                       workspaces: workspaces, collections: collections)
             : Self.movingMember(path: current.folderPath, by: delta,
-                                workspaces: workspaces, collections: collections)
+                                workspaces: workspaces, collections: collections))
     }
 
     func moveCollection(_ collection: WorkspaceCollection, by delta: Int) {
-        workspaces = Self.movingTopLevelItem(
+        applyArrangement(Self.movingTopLevelItem(
             id: "c:" + collection.id, by: delta,
-            workspaces: workspaces, collections: collections)
+            workspaces: workspaces, collections: collections))
     }
 
     /// Re-applies contiguity and drops collections left empty. Called after
@@ -248,7 +268,19 @@ extension WorkspaceModel {
     func rearrange() {
         let pruned = Self.prunedCollections(collections, workspaces: workspaces)
         if pruned != collections { collections = pruned }
-        let normalized = Self.normalizedWorkspaces(workspaces, collections: collections)
-        if normalized != workspaces { workspaces = normalized }
+        applyArrangement(Self.normalizedWorkspaces(workspaces, collections: collections))
+    }
+
+    /// Installs a new arrangement. With no document open, `activeWorkspaceRoot`
+    /// falls back to the first root — the branch a fresh launch opens — so a
+    /// reorder can move the vault the link graph answers for. The arrangement
+    /// stays presentation, but the index must not keep answering for the root
+    /// that used to be first: re-key it (a no-op unless someone built it).
+    private func applyArrangement(_ arranged: [Workspace], index: LinkIndex = .shared) {
+        guard arranged != workspaces else { return }
+        let rootBefore = activeWorkspaceRoot
+        workspaces = arranged
+        guard activeWorkspaceRoot != rootBefore else { return }
+        index.noteActiveDocumentChanged(workspace: self)
     }
 }

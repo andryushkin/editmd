@@ -231,6 +231,69 @@ final class WorkspaceCollectionsTests: XCTestCase {
         XCTAssertNil(decodeSidebarRootDragPayload(Data(#"{"hello":"world"}"#.utf8)))
     }
 
+    // MARK: - Reordering and the active root
+
+    /// With a document open, the vault is the root that owns it — reordering
+    /// the sidebar must not move it.
+    func testReorderingDoesNotMoveTheVaultWhileADocumentIsOpen() throws {
+        let a = try root("A"), b = try root("B")
+        try "note\n".write(to: b.appendingPathComponent("note.md"),
+                           atomically: true, encoding: .utf8)
+        let model = model(roots: [a, b])
+        model.noteActive(b.appendingPathComponent("note.md"))
+
+        model.moveWorkspace(model.workspaces.first { $0.folderName == "B" }!, by: -1)
+        XCTAssertEqual(names(model.workspaces), ["B", "A"])
+        XCTAssertEqual(model.activeWorkspaceRoot, b.standardizedFileURL)
+        XCTAssertEqual(model.linkIndexRoots, [b.standardizedFileURL])
+    }
+
+    /// With nothing open the vault is the first root — the branch a fresh
+    /// launch opens — so it follows the arrangement, and grouping alone (which
+    /// only makes members contiguous) must not disturb it.
+    func testFallbackVaultFollowsTheFirstRootAndSurvivesGrouping() throws {
+        let a = try root("A"), b = try root("B")
+        let model = model(roots: [a, b])
+        XCTAssertEqual(model.activeWorkspaceRoot, a.standardizedFileURL)
+
+        let collection = try XCTUnwrap(
+            model.createCollection(named: "Work", with: model.workspaces.first { $0.folderName == "B" }!))
+        XCTAssertEqual(model.activeWorkspaceRoot, a.standardizedFileURL)
+        model.assign(model.workspaces.first { $0.folderName == "A" }!, to: collection)
+        XCTAssertEqual(model.activeWorkspaceRoot, a.standardizedFileURL)
+
+        model.moveWorkspace(model.workspaces.first { $0.folderName == "A" }!, by: 1)
+        XCTAssertEqual(names(model.workspaces), ["B", "A"])
+        XCTAssertEqual(model.activeWorkspaceRoot, b.standardizedFileURL)
+    }
+
+    /// Renaming an adopted root on disk rewrites every path-keyed entry — the
+    /// collection membership has to ride along with it.
+    func testRenamingARootOnDiskKeepsItsCollection() async throws {
+        let a = try root("A"), b = try root("B")
+        let model = model(roots: [a, b])
+        let collection = try XCTUnwrap(model.createCollection(named: "Work", with: model.workspaces[0]))
+        model.assign(model.workspaces.first { $0.folderName == "B" }!, to: collection)
+
+        _ = try await model.renameFolderOnDisk(
+            model.workspaces[0], to: "Renamed", openDocumentURLs: [])
+        let renamed = try XCTUnwrap(model.workspaces.first { $0.folderName == "Renamed" })
+        XCTAssertEqual(model.collection(of: renamed)?.id, collection.id)
+        XCTAssertEqual(model.collections.count, 1)
+        XCTAssertEqual(model.sidebarTopLevelItems.count, 1)
+    }
+
+    /// Hand-edited or merged defaults can repeat an id. Only the first one
+    /// could ever be rendered, so the rest must not survive startup as rows
+    /// nobody can see, rename or collapse.
+    func testDuplicateCollectionIDsDoNotSurvive() {
+        let pruned = WorkspaceModel.prunedCollections(
+            [WorkspaceCollection(id: "x", name: "Work"),
+             WorkspaceCollection(id: "x", name: "Personal")],
+            workspaces: [ws("a", collection: "x")])
+        XCTAssertEqual(pruned.map(\.name), ["Work"])
+    }
+
     // MARK: - Persistence and legacy data
 
     func testArrangementSurvivesRelaunch() throws {
