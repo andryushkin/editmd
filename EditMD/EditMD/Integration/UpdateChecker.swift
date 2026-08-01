@@ -353,13 +353,16 @@ final class UpdateChecker {
     /// The one check that may be in flight. Held (rather than a bare flag) so
     /// a second caller joins the running request instead of starting its own
     /// — and so a manual click during the daily check still gets an answer.
-    private var inFlight: Task<Result<Probe, Error>, Never>?
+    /// The request in flight, carrying its own generation so a joiner cannot
+    /// read a newer number after waking late and pair it with an older result.
+    private var inFlight: (generation: Int, task: Task<Result<Probe, Error>, Never>)?
     /// Which round trip a result belongs to. Everyone joining one request
-    /// shares its number, and a number is answered at most once — that is what
-    /// stops the two paths waiting on a single request from each raising an
-    /// alert, whichever order they wake in.
-    private var currentGeneration = 0
-    private var answeredGeneration: Int?
+    /// shares its number, and nothing older than the last answered number ever
+    /// speaks — that is what stops the paths waiting on a single request from
+    /// each raising an alert, whichever order they wake in, and what keeps a
+    /// slow older alert from following a fresher one onto the screen.
+    private var lastGeneration = 0
+    private var answeredGeneration = 0
     /// Set when someone asked in person while a silent check was already
     /// running: the silent path then stays quiet and lets the manual one
     /// answer, honestly — re-judged without their skip.
@@ -461,8 +464,14 @@ final class UpdateChecker {
                           generation: Int) async {
         if case .upToDate = result, urgency == .unsolicited { return }
         if case .failed = result, urgency == .unsolicited { return }
-        guard answeredGeneration != generation else { return }
-        let shown = await present(result, urgency: urgency)
+        guard generation > answeredGeneration else { return }
+        guard await takeScreen(urgency: urgency) else { return }
+        defer { releaseScreen() }
+        // Again, now that this call owns the screen. Two callers can both pass
+        // the check above and then queue; without this the second one shows
+        // the answer the first has already given.
+        guard generation > answeredGeneration else { return }
+        let shown = await presenter.present(result, checker: self, urgency: urgency)
         guard shown else { return }
         // Marked only once something reached the screen, so an alert that
         // never found its moment does not silence the path behind it.
@@ -474,18 +483,6 @@ final class UpdateChecker {
 
     /// One alert at a time.
     ///
-    /// An unsolicited one steps aside entirely when something is already on
-    /// screen — its news is either already there or can wait for tomorrow. A
-    /// requested one waits its turn instead: the user pressed a button and is
-    /// owed an answer.
-    @discardableResult
-    private func present(_ result: UpdateCheckResult,
-                         urgency: PresentationUrgency) async -> Bool {
-        guard await takeScreen(urgency: urgency) else { return false }
-        defer { releaseScreen() }
-        return await presenter.present(result, checker: self, urgency: urgency)
-    }
-
     /// `false` only for an unsolicited alert that found the screen busy — its
     /// news is either already up there or can wait for tomorrow. A requested
     /// one queues, because the user pressed a button.
@@ -524,9 +521,9 @@ final class UpdateChecker {
     /// The number identifies the round trip, so joiners can tell they are
     /// looking at the same answer.
     private func probe() async -> (Result<Probe, Error>, Int) {
-        if let inFlight { return (await inFlight.value, currentGeneration) }
-        currentGeneration += 1
-        let generation = currentGeneration
+        if let inFlight { return (await inFlight.task.value, inFlight.generation) }
+        lastGeneration += 1
+        let generation = lastGeneration
         let fetcher = self.fetcher
         let url = Self.feedURL
         let bundlePath = Bundle.main.bundlePath
@@ -543,7 +540,7 @@ final class UpdateChecker {
                 return .failure(error)
             }
         }
-        inFlight = task
+        inFlight = (generation, task)
         let result = await task.value
         inFlight = nil
         return (result, generation)

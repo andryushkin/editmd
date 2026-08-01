@@ -481,6 +481,25 @@ final class UpdateCheckerServiceTests: XCTestCase {
         XCTAssertEqual(presenter.peakConcurrent, 1, "two alerts stood at once")
     }
 
+    func testTwoImpatientClicksStillGetOneAnswer() async {
+        // Both join one fetch, so both pass the "already answered?" check
+        // before either owns the screen. They are serialised, so peak
+        // concurrency stays 1 — the duplicate only shows up in the count.
+        let gate = Gate()
+        let presenter = Presenter()
+        presenter.gate = gate
+        let checker = makeChecker(body: feed("99.0.0"), presenter: presenter)
+
+        async let first: Void = checker.runManual()
+        await Task.yield()
+        async let second: Void = checker.runManual()
+        await Task.yield()
+        await gate.openUp()
+        _ = await (first, second)
+
+        XCTAssertEqual(presenter.shown.count, 1, "the same answer was given twice")
+    }
+
     func testSeeingItByHandCountsAsHavingBeenTold() async {
         // Looking the incompatible release up today must not mean being told
         // about it again tomorrow.
