@@ -180,7 +180,9 @@ final class WorkspaceModel: ObservableObject {
         guard let active = lastActivePath,
               let owner = workspaceOwning(URL(fileURLWithPath: active)) else {
             // No remembered branch: show the first root's own contents, nothing
-            // nested (a fresh adopt looks the same way).
+            // nested (a fresh adopt looks the same way). A collapsed collection
+            // around that root stays collapsed — there is no branch to reveal,
+            // and a persisted collapse is the user's own choice.
             for i in workspaces.indices { workspaces[i].collapsed = (i != 0) }
             expandedFolders = []
             return

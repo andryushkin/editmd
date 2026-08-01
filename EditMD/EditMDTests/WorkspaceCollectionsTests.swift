@@ -514,6 +514,21 @@ final class WorkspaceCollectionsTests: XCTestCase {
                        Set(searchBefore.map(\.url)))
     }
 
+    /// With nothing remembered there is no branch to reveal, so a collapsed
+    /// collection stays collapsed — the launch must not undo the user's own
+    /// collapse just because the first root happens to sit inside it.
+    func testStartupKeepsACollapsedCollectionWithNoRememberedBranch() throws {
+        let a = try root("A"), b = try root("B")
+        let first = model(roots: [a, b])
+        let collection = try XCTUnwrap(first.createCollection(named: "Work", with: first.workspaces[0]))
+        first.toggleCollapsed(collection)
+
+        let reopened = WorkspaceModel(defaults: defaults)
+        XCTAssertNil(reopened.lastActivePath)
+        XCTAssertTrue(reopened.collections[0].collapsed)
+        XCTAssertEqual(names(reopened.visibleWorkspaces), ["B"])
+    }
+
     /// The launch reopens one branch — it must be visible even when its
     /// collection was left collapsed.
     func testStartupExpandsTheCollectionOwningTheActiveBranch() throws {
