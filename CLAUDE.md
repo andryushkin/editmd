@@ -119,7 +119,7 @@ skill.
   explicit approval.
 - Releases follow `docs/releasing.md`: version bumps in `project.yml` are
   routine, but `CHANGELOG.md` sections, tags, and GitHub Releases are cut
-  only on the maintainer's explicit request (`.agents/skills/editmd-release`).
+  only on the maintainer's explicit request (`.agents/skills/editmd-push`).
   A release ends with redeploying `dotmd.tools` — installed copies learn about
   it from `/editmd/latest.json`, which is only as fresh as that deploy.
 - Durable new rules are added here briefly; subsystem explanations belong in

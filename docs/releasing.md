@@ -26,8 +26,13 @@ release ritual, on the maintainer's request ("patch-ship"): bump
 the patch version (and the build number), add a `## vX.Y.Z - YYYY-MM-DD`
 changelog section for the shipped changes, pass the audit, push. **No tag
 and no GitHub Release** — those stay exclusive to a cut release. A version
-bump with no user-visible changes still needs no changelog section. The
-project skill `.agents/skills/editmd-ship` orchestrates this.
+bump with no user-visible changes still needs no changelog section.
+
+Reserve this for work no user can see — documentation, tests, agent skills.
+Since installed copies learn about a release from the site deploy rather than
+from the tag, patch-shipping user-visible work leaves them on an old version
+with nothing to tell them otherwise. `.agents/skills/editmd-push` treats this
+as the stated exception, not the default.
 
 ## When a release is cut
 
@@ -114,8 +119,12 @@ the next patch version, not re-tagged.
 
 ## Process
 
-The project skill `.agents/skills/editmd-release` orchestrates a release:
+The project skill `.agents/skills/editmd-push` orchestrates the whole cycle:
 verify a clean tree and a passing audit, collect changes since the last tag,
 draft the changelog section, show a preview, and only after the maintainer
-approves it — commit, tag, push, and publish the GitHub Release. Nothing is
-pushed or published before that approval.
+approves it — commit, tag, push, publish the GitHub Release with the DMG,
+deploy the site (which is how installed copies learn the release exists), and
+update the Homebrew cask. Nothing is pushed or published before that approval.
+It replaces the earlier `editmd-release` and `editmd-ship` skills: three
+descriptions of one process drift apart, and the halves that got forgotten
+were always the ones after the tag.
