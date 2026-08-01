@@ -259,6 +259,21 @@ struct URLSessionFeedFetcher: UpdateFeedFetching {
     /// it into memory is the only harm it could do us.
     static let maxBytes = 64 * 1024
 
+    /// The cap itself, apart from the network, so it can be tested for what it
+    /// actually does rather than by injecting the error it is supposed to
+    /// raise.
+    static func collect<Bytes: AsyncSequence>(_ bytes: Bytes,
+                                              cap: Int = maxBytes) async throws -> Data
+    where Bytes.Element == UInt8 {
+        var data = Data()
+        data.reserveCapacity(1024)
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count > cap { throw URLError(.dataLengthExceedsMaximum) }
+        }
+        return data
+    }
+
     func data(from url: URL) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -284,13 +299,7 @@ struct URLSessionFeedFetcher: UpdateFeedFetching {
         }
         // Streamed rather than buffered by URLSession, so a server that
         // ignores its own Content-Length cannot make us hold the whole body.
-        var data = Data()
-        data.reserveCapacity(1024)
-        for try await byte in stream {
-            data.append(byte)
-            if data.count > Self.maxBytes { throw URLError(.dataLengthExceedsMaximum) }
-        }
-        return data
+        return try await Self.collect(stream)
     }
 }
 
@@ -300,7 +309,14 @@ struct URLSessionFeedFetcher: UpdateFeedFetching {
 /// tested for what it decides to show, without AppKit in the way.
 @MainActor
 protocol UpdatePresenting {
-    func present(_ result: UpdateCheckResult, checker: UpdateChecker)
+    /// Returns once the alert has actually been in front of the user —
+    /// `false` if the moment never came and nothing was shown.
+    ///
+    /// The caller records "already told them" only on `true`. Marking it
+    /// beforehand meant a quit during the wait suppressed the message
+    /// permanently, without it ever having been seen.
+    @discardableResult
+    func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool
 }
 
 // MARK: - The service
@@ -396,11 +412,15 @@ final class UpdateChecker {
         guard !manualJoined else { return }
         switch judge(outcome, skipping: skippedVersion) {
         case .available(let update):
-            present(.available(update))
+            await present(.available(update))
         case .requiresNewerSystem(let version, let minimum):
             guard announcedIncompatibleVersion != version else { return }
-            announcedIncompatibleVersion = version
-            present(.requiresNewerSystem(version: version, minimum: minimum))
+            // Recorded only once it has actually been seen: a quit while the
+            // alert was still waiting for a calm moment would otherwise mute
+            // this release for good.
+            if await present(.requiresNewerSystem(version: version, minimum: minimum)) {
+                announcedIncompatibleVersion = version
+            }
         case .upToDate, .failed:
             break
         }
@@ -413,15 +433,19 @@ final class UpdateChecker {
         let outcome = await probe()
         manualJoined = false
         lastAutomaticCheck = now()
-        present(judge(outcome, skipping: nil))
+        await present(judge(outcome, skipping: nil))
     }
 
     /// First one through for a given request wins; the other path has nothing
-    /// left to say.
-    private func present(_ result: UpdateCheckResult) {
-        guard !presentationClaimed else { return }
+    /// left to say. A claim that never reached the screen is released, so the
+    /// answer is not lost with it.
+    @discardableResult
+    private func present(_ result: UpdateCheckResult) async -> Bool {
+        guard !presentationClaimed else { return false }
         presentationClaimed = true
-        presenter.present(result, checker: self)
+        let shown = await presenter.present(result, checker: self)
+        if !shown { presentationClaimed = false }
+        return shown
     }
 
     private func judge(_ outcome: Result<Probe, Error>,

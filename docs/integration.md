@@ -256,6 +256,13 @@ What the decision rests on is pure and tested (`UpdateCheckerTests`):
 - `UpdateDecision.canPresentNow` — an alert waits for the app to be active with
   no modal up. `runModal` nested inside an open panel traps the user, and an
   alert raised while they are in another app lands where they are not looking.
+  The wait polls (one second, up to five minutes) rather than observing
+  activation: AppKit posts nothing when a modal session *ends* while the app
+  stays active, so an observer would leave the alert pending and then fire it
+  at an unrelated moment. `present` reports whether the alert was really seen,
+  and the once-per-version record for an incompatible release is written only
+  then — marking it beforehand let a quit during the wait mute that release
+  permanently, unseen.
 
 `UpdateChecker` keeps **one request in flight**: a manual click during the
 daily check joins it rather than racing it, and whichever path presents first

@@ -243,6 +243,33 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(UpdateDecision.isDue(last: now.addingTimeInterval(86_400), now: now))
     }
 
+    // MARK: - The size cap
+
+    /// Bytes as the fetcher really consumes them, so the cap is tested for
+    /// what it does rather than by injecting the error it should raise.
+    private func stream(of count: Int) -> AsyncStream<UInt8> {
+        AsyncStream { continuation in
+            for _ in 0..<count { continuation.yield(UInt8(ascii: "x")) }
+            continuation.finish()
+        }
+    }
+
+    func testABodyWithinTheCapIsRead() async throws {
+        let data = try await URLSessionFeedFetcher.collect(stream(of: 512), cap: 1024)
+        XCTAssertEqual(data.count, 512)
+    }
+
+    func testAnEndlessBodyIsCutOffAtTheCap() async {
+        // A server ignoring its own Content-Length must not be able to make
+        // the app hold the whole thing.
+        do {
+            _ = try await URLSessionFeedFetcher.collect(stream(of: 4096), cap: 1024)
+            XCTFail("expected the cap to stop the read")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .dataLengthExceedsMaximum)
+        }
+    }
+
     // MARK: - Presentation timing
 
     func testAnAlertWaitsForAMomentTheUserIsActuallyThere() {
@@ -264,8 +291,13 @@ final class UpdateCheckerServiceTests: XCTestCase {
 
     private final class Presenter: UpdatePresenting {
         var shown: [UpdateCheckResult] = []
-        func present(_ result: UpdateCheckResult, checker: UpdateChecker) {
+        /// Set false to stand in for an alert that never found its moment —
+        /// the app was never activated again, or a modal stayed up.
+        var succeeds = true
+        func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool {
+            guard succeeds else { return false }
             shown.append(result)
+            return true
         }
     }
 
@@ -381,6 +413,36 @@ final class UpdateCheckerServiceTests: XCTestCase {
         }
         // It cannot change until they upgrade macOS, so it must not repeat.
         await checker.runAutomatic()
+        XCTAssertEqual(presenter.shown.count, 1)
+    }
+
+    func testAnUnseenAnnouncementIsNotRememberedAsSeen() async {
+        // Marking it beforehand meant a quit while the alert was still waiting
+        // for a calm moment muted the release permanently, unseen.
+        let body = #"{"version": "99.0.0", "minimumSystemVersion": "999.0"}"#
+        let presenter = Presenter()
+        presenter.succeeds = false
+        let checker = makeChecker(body: body, presenter: presenter)
+        await checker.runAutomatic()
+        XCTAssertTrue(presenter.shown.isEmpty)
+
+        // Next launch, a moment presents itself: they must still be told.
+        presenter.succeeds = true
+        await checker.runAutomatic()
+        guard case .requiresNewerSystem = presenter.shown.first else {
+            return XCTFail("an announcement that was never shown must be retried")
+        }
+    }
+
+    func testAClaimThatNeverReachedTheScreenIsReleased() async {
+        // Otherwise the first silent failure would also silence the manual
+        // check that follows it.
+        let presenter = Presenter()
+        presenter.succeeds = false
+        let checker = makeChecker(body: feed("99.0.0"), presenter: presenter)
+        await checker.runAutomatic()
+        presenter.succeeds = true
+        await checker.runManual()
         XCTAssertEqual(presenter.shown.count, 1)
     }
 

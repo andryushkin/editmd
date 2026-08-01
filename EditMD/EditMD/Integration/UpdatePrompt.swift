@@ -11,16 +11,19 @@ struct UpdateAlertPresenter: UpdatePresenting {
     /// a command they cannot run.
     static let brewCommand = "brew upgrade --cask andryushkin/apps/editmd"
 
-    func present(_ result: UpdateCheckResult, checker: UpdateChecker) {
+    /// How long an alert will wait for its moment before giving up. Past this
+    /// the news is stale enough not to be worth ambushing anyone with, and the
+    /// caller is told nothing was shown. `nonisolated` so it can be a default
+    /// argument — those are evaluated outside the actor.
+    nonisolated static let patience: TimeInterval = 5 * 60
+
+    @discardableResult
+    func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool {
         // `runModal` nested inside an open panel or another alert traps the
         // user, and an alert raised while they are in another app arrives
         // where they are not looking. Wait for a calm moment instead — a
         // release is not urgent enough to interrupt anything.
-        guard UpdateDecision.canPresentNow(appIsActive: NSApp.isActive,
-                                           hasModalWindow: NSApp.modalWindow != nil) else {
-            waitForCalm { present(result, checker: checker) }
-            return
-        }
+        guard await waitForCalm() else { return false }
         switch result {
         case .upToDate:
             inform(title: String(localized: "EditMD is up to date"),
@@ -34,19 +37,22 @@ struct UpdateAlertPresenter: UpdatePresenting {
         case .available(let update):
             offer(update, checker: checker)
         }
+        return true
     }
 
-    /// One-shot: fires on the next activation, then unsubscribes. Only ever
-    /// one is outstanding, because a single request presents at most once.
-    private func waitForCalm(_ retry: @escaping @MainActor () -> Void) {
-        var token: (any NSObjectProtocol)?
-        token = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil, queue: .main
-        ) { _ in
-            if let token { NotificationCenter.default.removeObserver(token) }
-            MainActor.assumeIsolated { retry() }
+    /// Polls rather than waiting on a notification. AppKit posts nothing when
+    /// a modal session *ends* while the app stays active, so an
+    /// activation-only observer would leave the alert pending indefinitely —
+    /// and then fire it at some unrelated later moment. A one-second tick
+    /// costs nothing on a check that happens once a day.
+    private func waitForCalm(patience: TimeInterval = patience) async -> Bool {
+        let deadline = Date().addingTimeInterval(patience)
+        while !UpdateDecision.canPresentNow(appIsActive: NSApp.isActive,
+                                            hasModalWindow: NSApp.modalWindow != nil) {
+            if Date() >= deadline { return false }
+            try? await Task.sleep(for: .seconds(1))
         }
+        return true
     }
 
     private func offer(_ update: AvailableUpdate, checker: UpdateChecker) {
