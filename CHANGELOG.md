@@ -3,6 +3,30 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.47.14 - 2026-08-01
+
+### New Features
+
+- Folders in the Files sidebar can be grouped into named collections — Work,
+  Personal, one per family of projects. A collection can be renamed, moved, and
+  collapsed as a unit, hiding all of its folders at once, and the arrangement
+  survives a relaunch. Drag one folder onto another to make a collection, or
+  onto a collection to join it; the same commands live in the folder's context
+  menu. Grouping is presentation only: search, tags, wiki-links and the link
+  index keep working per folder exactly as before.
+
+### Bug Fixes
+
+- Scrolling with the pointer near a pane divider works again — the invisible
+  grab strip along the divider used to swallow the wheel.
+- Clicking a sidebar row close to a divider no longer nudges the pane: only an
+  actual drag resizes it, and a drag started from the edge of the divider's
+  grab area now follows the pointer instead of jumping.
+- The resize cursor no longer stays behind over the Preview after leaving a
+  divider.
+- ⌘-hovering a link that runs off the top or bottom of the window underlines
+  the whole link, not just its visible half.
+
 ## v0.47.13 - 2026-07-26
 
 ### New Features
