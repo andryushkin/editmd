@@ -312,6 +312,37 @@ final class WorkspaceCollectionsTests: XCTestCase {
         }
     }
 
+    /// The sidebar dims Move Up/Down from a row's position; the model answers
+    /// from the arrangement. They must never disagree, or a live menu item
+    /// does nothing (or a possible move looks impossible).
+    func testRowMoveFlagsAgreeWithTheModel() throws {
+        let a = try root("A"), b = try root("B"), c = try root("C"), d = try root("D")
+        let model = model(roots: [a, b, c, d])
+        let collection = try XCTUnwrap(
+            model.createCollection(named: "Work", with: model.workspaces.first { $0.folderName == "B" }!))
+        model.assign(model.workspaces.first { $0.folderName == "C" }!, to: collection)
+
+        let items = model.sidebarTopLevelItems
+        for (index, item) in items.enumerated() {
+            let moves = SidebarMoves(position: index, count: items.count)
+            switch item {
+            case .root(let ws):
+                XCTAssertEqual(moves.up, model.canMoveWorkspace(ws, by: -1), ws.folderName)
+                XCTAssertEqual(moves.down, model.canMoveWorkspace(ws, by: 1), ws.folderName)
+            case .collection(let collection, let members):
+                XCTAssertEqual(moves.up, model.canMoveCollection(collection, by: -1))
+                XCTAssertEqual(moves.down, model.canMoveCollection(collection, by: 1))
+                for (i, member) in members.enumerated() {
+                    let inside = SidebarMoves(position: i, count: members.count)
+                    XCTAssertEqual(inside.up, model.canMoveWorkspace(member, by: -1),
+                                   member.folderName)
+                    XCTAssertEqual(inside.down, model.canMoveWorkspace(member, by: 1),
+                                   member.folderName)
+                }
+            }
+        }
+    }
+
     /// Renaming an adopted root on disk rewrites every path-keyed entry — the
     /// collection membership has to ride along with it.
     func testRenamingARootOnDiskKeepsItsCollection() async throws {

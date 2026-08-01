@@ -102,6 +102,21 @@ func sidebarRootItemProvider(root: URL) -> NSItemProvider {
     return provider
 }
 
+/// Whether a row's Move Up / Move Down can do anything, from its position in
+/// the list it can move within: the top level for a collection block and an
+/// ungrouped root, the member list for a root inside a collection. Same answer
+/// `WorkspaceModel.canMove…` computes from the arrangement, at O(1) per row —
+/// `WorkspaceCollectionsTests` holds the two in agreement.
+struct SidebarMoves: Equatable {
+    let up: Bool
+    let down: Bool
+
+    init(position: Int, count: Int) {
+        up = position > 0
+        down = position < count - 1
+    }
+}
+
 /// What dropping one adopted root onto another should do. Pure so the rules —
 /// no self-drop, no re-adding a member, join the target's collection when it
 /// has one — are testable without a drag session.
@@ -163,7 +178,8 @@ private struct RootGroupDropTargetModifier: ViewModifier {
         case .ignore:
             return
         case .join(let collectionID):
-            guard let dragged = workspace.workspaces.first(where: { $0.folderPath == path }),
+            let dropped = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard let dragged = workspace.workspaces.first(where: { $0.folderPath == dropped }),
                   let collection = workspace.collection(withID: collectionID)
             else { return }
             workspace.assign(dragged, to: collection)
@@ -604,15 +620,24 @@ struct WorkspaceSidebar: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                     }
-                    ForEach(workspace.sidebarTopLevelItems) { item in
+                    // One projection per render, and the Move Up/Down flags
+                    // come from positions inside it: asking the model per row
+                    // would rebuild the whole arrangement twice per row, and
+                    // SwiftUI builds every row's context menu eagerly.
+                    let items = workspace.sidebarTopLevelItems
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        let moves = SidebarMoves(position: index, count: items.count)
                         switch item {
                         case .root(let ws):
-                            workspaceGroup(ws)
+                            workspaceGroup(ws, moves: moves)
                         case .collection(let collection, let members):
-                            collectionHeader(collection)
+                            collectionHeader(collection, moves: moves)
                             if !collection.collapsed {
-                                ForEach(members) { ws in
-                                    workspaceGroup(ws, baseIndent: SidebarTree.collectionIndent)
+                                ForEach(Array(members.enumerated()), id: \.element.id) { i, ws in
+                                    workspaceGroup(
+                                        ws,
+                                        baseIndent: SidebarTree.collectionIndent,
+                                        moves: SidebarMoves(position: i, count: members.count))
                                 }
                             }
                         }
@@ -708,7 +733,9 @@ struct WorkspaceSidebar: View {
 
     /// Header row of a named collection: chevron + name. Collapsing it hides
     /// every member root at once; the roots keep their own expanded state.
-    private func collectionHeader(_ collection: WorkspaceCollection) -> some View {
+    private func collectionHeader(
+        _ collection: WorkspaceCollection, moves: SidebarMoves
+    ) -> some View {
         HStack(spacing: SidebarTree.rowSpacing) {
             Button {
                 workspace.toggleCollapsed(collection)
@@ -747,14 +774,16 @@ struct WorkspaceSidebar: View {
             Button("Ungroup Collection") { workspace.dissolveCollection(collection) }
             Divider()
             Button("Move Up") { workspace.moveCollection(collection, by: -1) }
-                .disabled(!workspace.canMoveCollection(collection, by: -1))
+                .disabled(!moves.up)
             Button("Move Down") { workspace.moveCollection(collection, by: 1) }
-                .disabled(!workspace.canMoveCollection(collection, by: 1))
+                .disabled(!moves.down)
         }
     }
 
     /// Per-root collection commands, appended to the folder context menu.
-    @ViewBuilder private func collectionMenu(for ws: WorkspaceModel.Workspace) -> some View {
+    @ViewBuilder private func collectionMenu(
+        for ws: WorkspaceModel.Workspace, moves: SidebarMoves
+    ) -> some View {
         let current = workspace.collection(of: ws)
         Menu("Collection") {
             Button("New Collection…") { promptToCreateCollection(with: ws) }
@@ -771,9 +800,9 @@ struct WorkspaceSidebar: View {
             }
         }
         Button("Move Up") { workspace.moveWorkspace(ws, by: -1) }
-            .disabled(!workspace.canMoveWorkspace(ws, by: -1))
+            .disabled(!moves.up)
         Button("Move Down") { workspace.moveWorkspace(ws, by: 1) }
-            .disabled(!workspace.canMoveWorkspace(ws, by: 1))
+            .disabled(!moves.down)
     }
 
     private func promptToCreateCollection(with ws: WorkspaceModel.Workspace) {
@@ -802,7 +831,7 @@ struct WorkspaceSidebar: View {
     /// collection hangs off the collection's label column, so each level below
     /// keeps its own step and the hierarchy still reads as one ladder.
     @ViewBuilder private func workspaceGroup(
-        _ ws: WorkspaceModel.Workspace, baseIndent: CGFloat = 0
+        _ ws: WorkspaceModel.Workspace, baseIndent: CGFloat = 0, moves: SidebarMoves
     ) -> some View {
         let selected = isActive(ws.url)
         // Mark the owning root through its icon when the open file lives inside it.
@@ -853,7 +882,7 @@ struct WorkspaceSidebar: View {
         .contextMenu {
             FolderContextMenu(workspace: workspace, folder: ws.url, showsOpen: true)
             Divider()
-            collectionMenu(for: ws)
+            collectionMenu(for: ws, moves: moves)
         }
         .fileMoveDropTarget(folder: ws.url, workspace: workspace) {
             clearFileSelection()

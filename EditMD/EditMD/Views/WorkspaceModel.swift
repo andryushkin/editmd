@@ -98,10 +98,13 @@ final class WorkspaceModel: ObservableObject {
     /// `shared` instance (and a test that asks for a temp file) touches disk.
     let snapshot: SidebarSnapshotStore
 
+    /// `index: nil` → the shared graph in the app, a private one under XCTest:
+    /// adopting a root re-keys the index, and a test's temporary roots must
+    /// never start a scan in the shared one (same rule as `snapshotURL`).
     init(defaults: UserDefaults = .standard, snapshotURL: URL? = nil,
-         index: LinkIndex = .shared) {
+         index: LinkIndex? = nil) {
         self.defaults = defaults
-        linkIndex = index
+        linkIndex = index ?? (AppDelegate.isRunningUnitTests ? LinkIndex() : .shared)
         snapshot = SidebarSnapshotStore(fileURL: snapshotURL)
         let storedWorkspaces: [Workspace] = Self.load(defaults, Keys.folders) ?? []
         let storedCollections: [WorkspaceCollection] = Self.load(defaults, Keys.collections) ?? []

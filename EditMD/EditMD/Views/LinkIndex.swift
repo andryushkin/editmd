@@ -49,6 +49,11 @@ final class LinkIndex: ObservableObject {
     /// would cancel the scan and drop its work). Weak — purely a callback
     /// target for `refreshLinkGraphAfterActivation`.
     private weak var pendingActivationWorkspace: WorkspaceModel?
+    /// The workspace whose state the current (or deferred) scan was asked for.
+    /// A superseded scan replays through `ensureIndex`, which must re-read
+    /// THAT model — falling back to the app singleton would make an injected
+    /// index scan someone else's roots.
+    private weak var scanWorkspace: WorkspaceModel?
     private var fullScanTask: Task<Void, Never>?
     private var roots: [URL] = []
     /// Per-file results of the last full scan; survives `invalidate()` so the
@@ -63,6 +68,7 @@ final class LinkIndex: ObservableObject {
     /// workspace — cheaply, because `scanCache` keeps other workspaces'
     /// per-file parse/resolve entries across the switch.
     func ensureIndex(workspace: WorkspaceModel = .shared) {
+        scanWorkspace = workspace
         let roots = workspace.linkIndexRoots
         let key = Self.scanKey(epoch: workspace.linkEpoch, roots: roots)
         if indexKey == key, hasCompletedFullScan { return }
@@ -335,8 +341,13 @@ final class LinkIndex: ObservableObject {
                 }
                 if self.scanPending {
                     self.scanPending = false
-                    // Re-read live workspace state.
-                    self.ensureIndex()
+                    // Re-read live workspace state — of the model that asked
+                    // for the scan, which is not always the app singleton.
+                    if let workspace = self.scanWorkspace {
+                        self.ensureIndex(workspace: workspace)
+                    } else {
+                        self.ensureIndex()
+                    }
                 }
                 // AFTER the pending-rescan block: if that block just started
                 // a new scan, the activation refresh re-defers instead of
