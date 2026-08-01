@@ -3,6 +3,21 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.47.15 - 2026-08-01
+
+### New Features
+
+- EditMD now says when a newer version has been released. It asks
+  dotmd.tools once a day and speaks only when there is something newer — the
+  app still never updates itself. A copy installed with Homebrew is handed
+  the `brew upgrade` command; everyone else is offered the download page. A
+  release this Mac is too old to run is explained rather than passed over in
+  silence.
+- Check for Updates… in the EditMD menu asks on the spot and always answers,
+  including "you are up to date". The daily check can be switched off in
+  Settings ▸ General; the request carries the version and the macOS it comes
+  from, and nothing that identifies you.
+
 ## v0.47.14 - 2026-08-01
 
 ### New Features
