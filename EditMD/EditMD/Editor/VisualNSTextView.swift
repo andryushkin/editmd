@@ -562,15 +562,9 @@ final class VisualNSTextView: NSTextView {
             forBoundingRect: visibleRect.offsetBy(dx: -textContainerOrigin.x,
                                                   dy: -textContainerOrigin.y),
             in: textContainer)
-        let clipped = layoutManager.characterRange(forGlyphRange: visibleGlyphs,
+        let visible = layoutManager.characterRange(forGlyphRange: visibleGlyphs,
                                                    actualGlyphRange: nil)
-        guard clipped.length > 0 else { return nil }
-        // Enumerating the visible range alone clips its runs, so a link across
-        // the viewport edge would hover as its visible half only. Widening to
-        // whole paragraphs restores it without merging neighbours the way
-        // `longestEffectiveRange` would: equal destinations are not one link
-        // (issue #9), and no link spans a paragraph break.
-        let visible = (storage.string as NSString).paragraphRange(for: clipped)
+        guard visible.length > 0 else { return nil }
         var hit: NSRange?
         for key in [NSAttributedString.Key.mdLink, .mdWikiLink] {
             storage.enumerateAttribute(key, in: visible) { value, range, stop in
@@ -579,7 +573,16 @@ final class VisualNSTextView: NSTextView {
                                                     layoutManager: layoutManager,
                                                     textContainer: textContainer)
                 else { return }
-                hit = range
+                // The walk clips its runs to the visible range, so a link
+                // across the viewport edge would hover as its visible half.
+                // The ORDINARY effective range re-opens the run the storage
+                // actually holds — bounded, unlike a paragraph walk over a
+                // megabyte-long block, and without widening past that run.
+                // (Adjacent links with equal destinations are one run in the
+                // storage either way — that is issue #9, not this hit test.)
+                var effective = NSRange(location: 0, length: 0)
+                _ = storage.attribute(key, at: range.location, effectiveRange: &effective)
+                hit = effective.length > 0 ? effective : range
                 stop.pointee = true
             }
             if hit != nil { break }

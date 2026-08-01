@@ -173,7 +173,10 @@ Mechanism, as far as it was established:
   thing to protect on the way out — nothing publishes over blank regions, so a
   ↔ left for it stays for good, while over content WebKit publishes per move
   and overwrites the arrow anyway. Only a text view keeps the arrow away, and
-  it is looked for among the hit view's ANCESTORS, not in the leaf.
+  it is looked for among the hit view's ANCESTORS, not in the leaf. The
+  residual risk is accepted, not overlooked: if WebKit publishes before the
+  strip's `mouseExited`, crossing onto Preview content and stopping shows the
+  arrow until the next move — which clears itself, unlike a stuck ↔.
 
 Being opaque to the pointer costs the strip two things it has to hand back:
 

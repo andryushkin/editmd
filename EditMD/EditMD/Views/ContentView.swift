@@ -196,10 +196,13 @@ private final class DividerGrabView: NSView {
     /// hit view's ANCESTORS, because `hitTest` returns the deepest view and a
     /// text view's document view is not always the leaf.
     ///
-    /// `WKWebView` is deliberately NOT in that list: it publishes nothing over
-    /// blank regions (§ Mouse cursor), so treating it as a cursor owner leaves
-    /// ↔ lying across the Preview. Over content it publishes per move and
-    /// overwrites the arrow immediately, so the arrow costs nothing there.
+    /// `WKWebView` is deliberately NOT in that list, and the trade is known:
+    /// it publishes nothing over blank regions (§ Mouse cursor), so counting
+    /// it as a cursor owner leaves ↔ lying across the whole Preview — the
+    /// complaint this work started from. Without it, crossing straight onto
+    /// linked Preview content and stopping can show the arrow until the next
+    /// move, if WebKit published before this callback. A stuck ↔ needs a trip
+    /// elsewhere to clear; an arrow clears itself on the next move.
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         let hit = window?.contentView?.hitTest(event.locationInWindow)
