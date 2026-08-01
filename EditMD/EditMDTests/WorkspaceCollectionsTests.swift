@@ -32,8 +32,11 @@ final class WorkspaceCollectionsTests: XCTestCase {
         return url
     }
 
+    /// An index of its own: adopting a root re-keys the link graph, and the
+    /// shared index may already have scanned under the full suite — these
+    /// temp roots must never start a background scan in it.
     private func model(roots: [URL]) -> WorkspaceModel {
-        let model = WorkspaceModel(defaults: defaults)
+        let model = WorkspaceModel(defaults: defaults, index: LinkIndex())
         for root in roots { model.addWorkspace(root) }
         return model
     }

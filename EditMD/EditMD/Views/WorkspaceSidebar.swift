@@ -118,8 +118,12 @@ func rootDropOutcome(
     onto rawTarget: String,
     workspaces: [WorkspaceModel.Workspace]
 ) -> RootDropOutcome {
-    let dragged = (rawDragged as NSString).standardizingPath
-    let target = (rawTarget as NSString).standardizingPath
+    // The same normalization the adopted roots and the drag payload use.
+    // `NSString.standardizingPath` is NOT it — it also expands `~` and strips
+    // `/private`, so the identity comparison below could never match a root
+    // reached through such a path.
+    let dragged = URL(fileURLWithPath: rawDragged).standardizedFileURL.path
+    let target = URL(fileURLWithPath: rawTarget).standardizedFileURL.path
     guard dragged != target,
           let draggedRoot = workspaces.first(where: { $0.folderPath == dragged }),
           let targetRoot = workspaces.first(where: { $0.folderPath == target })
@@ -193,8 +197,9 @@ private struct CollectionDropTargetModifier: ViewModifier {
             }
             .onDrop(of: [sidebarRootDragContentType], isTargeted: $isTargeted) { providers in
                 loadDraggedRoot(from: providers) { path in
+                    let dropped = URL(fileURLWithPath: path).standardizedFileURL.path
                     guard let dragged = workspace.workspaces.first(where: {
-                        $0.folderPath == (path as NSString).standardizingPath
+                        $0.folderPath == dropped
                     }), dragged.collectionID != collection.id else { return }
                     workspace.assign(dragged, to: collection)
                 }
@@ -742,7 +747,9 @@ struct WorkspaceSidebar: View {
             Button("Ungroup Collection") { workspace.dissolveCollection(collection) }
             Divider()
             Button("Move Up") { workspace.moveCollection(collection, by: -1) }
+                .disabled(!workspace.canMoveCollection(collection, by: -1))
             Button("Move Down") { workspace.moveCollection(collection, by: 1) }
+                .disabled(!workspace.canMoveCollection(collection, by: 1))
         }
     }
 
@@ -764,7 +771,9 @@ struct WorkspaceSidebar: View {
             }
         }
         Button("Move Up") { workspace.moveWorkspace(ws, by: -1) }
+            .disabled(!workspace.canMoveWorkspace(ws, by: -1))
         Button("Move Down") { workspace.moveWorkspace(ws, by: 1) }
+            .disabled(!workspace.canMoveWorkspace(ws, by: 1))
     }
 
     private func promptToCreateCollection(with ws: WorkspaceModel.Workspace) {

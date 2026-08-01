@@ -248,6 +248,24 @@ extension WorkspaceModel {
         rearrange()
     }
 
+    /// Whether Move Up / Move Down would do anything: a member at the edge of
+    /// its collection and a block at the edge of the list have nowhere to go,
+    /// and a menu item that silently does nothing is worse than a dim one.
+    func canMoveWorkspace(_ ws: Workspace, by delta: Int) -> Bool {
+        guard let current = workspaces.first(where: { $0.id == ws.id }) else { return false }
+        let moved = current.collectionID == nil
+            ? Self.movingTopLevelItem(id: "r:" + current.folderPath, by: delta,
+                                      workspaces: workspaces, collections: collections)
+            : Self.movingMember(path: current.folderPath, by: delta,
+                                workspaces: workspaces, collections: collections)
+        return moved != workspaces
+    }
+
+    func canMoveCollection(_ collection: WorkspaceCollection, by delta: Int) -> Bool {
+        Self.movingTopLevelItem(id: "c:" + collection.id, by: delta,
+                                workspaces: workspaces, collections: collections) != workspaces
+    }
+
     func moveWorkspace(_ ws: Workspace, by delta: Int) {
         guard let current = workspaces.first(where: { $0.id == ws.id }) else { return }
         applyArrangement(current.collectionID == nil

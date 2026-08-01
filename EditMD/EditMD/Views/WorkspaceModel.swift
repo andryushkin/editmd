@@ -138,7 +138,7 @@ final class WorkspaceModel: ObservableObject {
         // The active document may live in a different workspace — the link
         // graph is scoped to one workspace at a time (`linkIndexRoots`).
         // Lazy: a no-op unless someone already built (or is building) it.
-        LinkIndex.shared.noteActiveDocumentChanged(workspace: self)
+        linkIndex.noteActiveDocumentChanged(workspace: self)
     }
 
     /// The workspace the app currently works in: the one owning the active
@@ -1065,7 +1065,7 @@ final class WorkspaceModel: ObservableObject {
         contentEpoch += 1
         linkEpoch += 1
         // Link graph is presentation state over the tree — rebuild in background.
-        LinkIndex.shared.invalidate(workspace: self)
+        linkIndex.invalidate(workspace: self)
     }
 
     /// Creates a markdown file in `folder`. `name` is the user-facing name
