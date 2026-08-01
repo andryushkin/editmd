@@ -140,6 +140,28 @@ final class PaneLayoutTests: XCTestCase {
         XCTAssertLessThan(panes.scale, 1)
     }
 
+    // MARK: - dividerLineX (the grab keeps its offset for the whole drag)
+
+    /// Grabbing the strip 6pt left of the line and moving 1pt right must move
+    /// the divider 1pt right — not snap it 6pt left on the first drag event.
+    func testDividerDragMovesByThePointerNotToIt() {
+        let originX: CGFloat = 293      // strip left edge, line at 300, width 14
+        let pressLocalX: CGFloat = 1    // pressed at window x 294
+        let grabOffset = pressLocalX - 7 // bounds.midX of a 14pt strip
+
+        XCTAssertEqual(dividerLineX(originX: originX, localX: pressLocalX,
+                                    grabOffset: grabOffset), 300)
+        XCTAssertEqual(dividerLineX(originX: originX, localX: pressLocalX + 1,
+                                    grabOffset: grabOffset), 301)
+        XCTAssertEqual(dividerLineX(originX: originX, localX: pressLocalX - 4,
+                                    grabOffset: grabOffset), 296)
+    }
+
+    /// A press on the line itself keeps the pointer on the line.
+    func testDividerDragFromTheLineItselfHasNoOffset() {
+        XCTAssertEqual(dividerLineX(originX: 293, localX: 7, grabOffset: 0), 300)
+    }
+
     // MARK: - preferredPaneWidthFromDrag (divider drag inverts the clamp)
 
     func testUnclampedDragWritesRawWidth() {

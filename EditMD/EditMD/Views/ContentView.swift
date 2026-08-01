@@ -147,6 +147,15 @@ func preferredPaneWidthFromDrag(
     return min(range.upperBound, max(range.lowerBound, preferred))
 }
 
+/// Where the divider line goes for a pointer at `localX` inside the strip,
+/// which starts at `originX`. The grab offset — how far from the line the
+/// press landed — is held for the whole drag, so grabbing the strip's edge
+/// moves the divider BY the pointer's movement instead of snapping the line
+/// under the cursor on the first drag event.
+func dividerLineX(originX: CGFloat, localX: CGFloat, grabOffset: CGFloat) -> CGFloat {
+    originX + localX - grabOffset
+}
+
 /// The grab strip, as an AppKit view that owns both the cursor and the drag.
 ///
 /// Cursor arbitration starts from the deepest view the pointer HIT-TESTS to, so
@@ -184,24 +193,32 @@ private final class DividerGrabView: NSView {
 
     /// An AppKit neighbour restores its own shape on the next move; only leave
     /// the arrow where nobody would. The neighbour is looked for among the
-    /// hit view's ANCESTORS: `hitTest` returns the deepest view, and a web
-    /// view never is one — it hit-tests to its own content view, so testing
-    /// the leaf alone never recognized the Preview.
+    /// hit view's ANCESTORS, because `hitTest` returns the deepest view and a
+    /// text view's document view is not always the leaf.
+    ///
+    /// `WKWebView` is deliberately NOT in that list: it publishes nothing over
+    /// blank regions (§ Mouse cursor), so treating it as a cursor owner leaves
+    /// ↔ lying across the Preview. Over content it publishes per move and
+    /// overwrites the arrow immediately, so the arrow costs nothing there.
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         let hit = window?.contentView?.hitTest(event.locationInWindow)
         let ownsCursor = sequence(first: hit, next: { $0?.superview })
-            .contains { $0 is NSTextView || $0 is WKWebView }
+            .contains { $0 is NSTextView }
         if !ownsCursor { NSCursor.arrow.set() }
     }
 
     /// Press without movement is not a resize: reporting from `mouseDown` made
     /// a plain click anywhere on the 14pt strip commit that x as the new pane
     /// width, so clicking a sidebar row the strip overhangs nudged the pane.
-    /// The drag below reports an absolute x, so nothing has to be anchored.
+    /// The press only records where the line was grabbed.
     override func mouseDown(with event: NSEvent) {
         NSCursor.resizeLeftRight.set()
+        grabOffset = convert(event.locationInWindow, from: nil).x - bounds.midX
     }
+
+    /// Pointer-to-line distance at the press, held for the drag.
+    private var grabOffset: CGFloat = 0
 
     /// Being opaque to the pointer, the strip would also swallow the wheel —
     /// the pane under it is a SIBLING subtree, so the default responder walk
@@ -234,7 +251,9 @@ private final class DividerGrabView: NSView {
     }
 
     private func report(_ event: NSEvent) {
-        onDrag?(originX + convert(event.locationInWindow, from: nil).x)
+        onDrag?(dividerLineX(originX: originX,
+                             localX: convert(event.locationInWindow, from: nil).x,
+                             grabOffset: grabOffset))
     }
 }
 

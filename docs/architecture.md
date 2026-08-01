@@ -169,8 +169,11 @@ Mechanism, as far as it was established:
 - `WKWebView` publishes nothing over blank regions, so a ↔ set over it simply
   stays until someone else writes — this is what "the zone extends far to the
   right" actually was, not a wider strip. It is also never the view `hitTest`
-  returns: it hit-tests to its own content view, so "is the pointer over the
-  Preview" has to be asked of the hit view's ANCESTORS.
+  returns: it hit-tests to its own content view. Both facts make it the wrong
+  thing to protect on the way out — nothing publishes over blank regions, so a
+  ↔ left for it stays for good, while over content WebKit publishes per move
+  and overwrites the arrow anyway. Only a text view keeps the arrow away, and
+  it is looked for among the hit view's ANCESTORS, not in the leaf.
 
 Being opaque to the pointer costs the strip two things it has to hand back:
 
@@ -181,7 +184,9 @@ Being opaque to the pointer costs the strip two things it has to hand back:
 - the plain click — a press with no movement is not a resize, and reporting
   from `mouseDown` committed the pointer's x as the new pane width, so
   clicking a row the strip overhangs nudged the pane. Only `mouseDragged`
-  reports.
+  reports — from the grab offset the press recorded (`dividerLineX`), so
+  grabbing the strip's edge moves the divider BY the pointer instead of
+  snapping the line under it on the first drag.
 
 Dead ends, all confirmed by hand:
 
@@ -202,7 +207,9 @@ cause (fixed in `linkRun(hitAt:)`): picking the candidate from
 below while the pointer is still inside the link's own line fragment; the run
 then resolves to nil and the hover drops. The hit is resolved from the link
 runs' own rects instead (`visualRunRects`: one per line fragment, glyph box
-horizontally, fragment height vertically). That selection step is independent
+horizontally, used height vertically — `lineSpacing`, `minimumLineHeight` and
+`lineHeightMultiple` land inside it; paragraph spacing does not, and should
+not: the gap between two blocks belongs to neither). That selection step is independent
 of the cursor-channel rule above — both are required for a stable pointing
 hand.
 

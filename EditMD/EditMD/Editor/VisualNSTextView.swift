@@ -11,9 +11,11 @@ func visualRunRects(_ range: NSRange, layoutManager: NSLayoutManager,
                                               actualCharacterRange: nil)
     guard glyphRange.length > 0 else { return [] }
     var rects: [NSRect] = []
-    // `usedRect` and the fragment rect differ in WIDTH (the fragment spans the
-    // container), not in height — measured with `lineSpacing` set, TextKit 1
-    // gives both the same height, so the line's leading is already covered.
+    // `usedRect` is the part of the fragment that holds glyphs. Measured in
+    // TextKit 1, `lineSpacing`, `minimumLineHeight` and `lineHeightMultiple`
+    // land inside it — the leading around the glyphs is covered. Paragraph
+    // spacing does not, and should not: the gap BETWEEN two blocks belongs to
+    // neither, and a link must not answer for a point outside its own block.
     layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, lineGlyphs, _ in
         let part = NSIntersectionRange(glyphRange, lineGlyphs)
         guard part.length > 0 else { return }
@@ -560,9 +562,15 @@ final class VisualNSTextView: NSTextView {
             forBoundingRect: visibleRect.offsetBy(dx: -textContainerOrigin.x,
                                                   dy: -textContainerOrigin.y),
             in: textContainer)
-        let visible = layoutManager.characterRange(forGlyphRange: visibleGlyphs,
+        let clipped = layoutManager.characterRange(forGlyphRange: visibleGlyphs,
                                                    actualGlyphRange: nil)
-        guard visible.length > 0 else { return nil }
+        guard clipped.length > 0 else { return nil }
+        // Enumerating the visible range alone clips its runs, so a link across
+        // the viewport edge would hover as its visible half only. Widening to
+        // whole paragraphs restores it without merging neighbours the way
+        // `longestEffectiveRange` would: equal destinations are not one link
+        // (issue #9), and no link spans a paragraph break.
+        let visible = (storage.string as NSString).paragraphRange(for: clipped)
         var hit: NSRange?
         for key in [NSAttributedString.Key.mdLink, .mdWikiLink] {
             storage.enumerateAttribute(key, in: visible) { value, range, stop in
@@ -571,14 +579,7 @@ final class VisualNSTextView: NSTextView {
                                                     layoutManager: layoutManager,
                                                     textContainer: textContainer)
                 else { return }
-                // `enumerateAttribute` clips runs to the range it walks, so a
-                // link crossing the top or bottom edge would underline only its
-                // visible half. Re-open it over the whole storage.
-                var effective = NSRange(location: 0, length: 0)
-                _ = storage.attribute(key, at: range.location,
-                                      longestEffectiveRange: &effective,
-                                      in: NSRange(location: 0, length: storage.length))
-                hit = effective.length > 0 ? effective : range
+                hit = range
                 stop.pointee = true
             }
             if hit != nil { break }
