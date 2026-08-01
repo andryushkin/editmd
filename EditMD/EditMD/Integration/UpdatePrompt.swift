@@ -11,19 +11,21 @@ struct UpdateAlertPresenter: UpdatePresenting {
     /// a command they cannot run.
     static let brewCommand = "brew upgrade --cask andryushkin/apps/editmd"
 
-    /// How long an alert will wait for its moment before giving up. Past this
-    /// the news is stale enough not to be worth ambushing anyone with, and the
-    /// caller is told nothing was shown. `nonisolated` so it can be a default
-    /// argument — those are evaluated outside the actor.
-    nonisolated static let patience: TimeInterval = 5 * 60
+    /// How long an *unsolicited* alert waits for its moment before giving up.
+    /// Past this the news is stale enough not to be worth ambushing anyone
+    /// with, and the caller is told nothing was shown. An answer the user
+    /// asked for has no such limit — they are owed it whenever they come back.
+    nonisolated static let unsolicitedPatience: TimeInterval = 5 * 60
 
     @discardableResult
-    func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool {
+    func present(_ result: UpdateCheckResult, checker: UpdateChecker,
+                 urgency: PresentationUrgency) async -> Bool {
         // `runModal` nested inside an open panel or another alert traps the
         // user, and an alert raised while they are in another app arrives
         // where they are not looking. Wait for a calm moment instead — a
         // release is not urgent enough to interrupt anything.
-        guard await waitForCalm() else { return false }
+        let patience = urgency == .unsolicited ? Self.unsolicitedPatience : nil
+        guard await waitForCalm(patience: patience) else { return false }
         switch result {
         case .upToDate:
             inform(title: String(localized: "EditMD is up to date"),
@@ -45,12 +47,20 @@ struct UpdateAlertPresenter: UpdatePresenting {
     /// activation-only observer would leave the alert pending indefinitely —
     /// and then fire it at some unrelated later moment. A one-second tick
     /// costs nothing on a check that happens once a day.
-    private func waitForCalm(patience: TimeInterval = patience) async -> Bool {
-        let deadline = Date().addingTimeInterval(patience)
+    /// `patience` of `nil` waits indefinitely — that is the requested answer,
+    /// which must not evaporate because the user stepped away.
+    private func waitForCalm(patience: TimeInterval?) async -> Bool {
+        let deadline = patience.map { Date().addingTimeInterval($0) }
         while !UpdateDecision.canPresentNow(appIsActive: NSApp.isActive,
                                             hasModalWindow: NSApp.modalWindow != nil) {
-            if Date() >= deadline { return false }
-            try? await Task.sleep(for: .seconds(1))
+            if let deadline, Date() >= deadline { return false }
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                // Cancelled: give up now rather than spinning on a sleep that
+                // throws immediately for the rest of the deadline.
+                return false
+            }
         }
         return true
     }

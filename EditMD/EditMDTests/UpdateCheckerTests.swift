@@ -291,12 +291,27 @@ final class UpdateCheckerServiceTests: XCTestCase {
 
     private final class Presenter: UpdatePresenting {
         var shown: [UpdateCheckResult] = []
+        var urgencies: [PresentationUrgency] = []
         /// Set false to stand in for an alert that never found its moment —
         /// the app was never activated again, or a modal stayed up.
         var succeeds = true
-        func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool {
+        /// When set, presentation suspends until the gate opens, so a test can
+        /// hold an alert "on screen" and see what a second request does.
+        var gate: Gate?
+        /// How many presentations were on screen at once — the thing two
+        /// competing alerts would give away.
+        private(set) var peakConcurrent = 0
+        private var live = 0
+
+        func present(_ result: UpdateCheckResult, checker: UpdateChecker,
+                     urgency: PresentationUrgency) async -> Bool {
+            live += 1
+            peakConcurrent = max(peakConcurrent, live)
+            defer { live -= 1 }
+            if let gate { await gate.wait() }
             guard succeeds else { return false }
             shown.append(result)
+            urgencies.append(urgency)
             return true
         }
     }
@@ -444,6 +459,48 @@ final class UpdateCheckerServiceTests: XCTestCase {
         presenter.succeeds = true
         await checker.runManual()
         XCTAssertEqual(presenter.shown.count, 1)
+    }
+
+    func testASecondRequestCannotStandBesideALiveAlert() async {
+        // The interleaving that used to produce two alerts: an automatic one
+        // waiting behind a modal, then Check Now arriving before it resolved.
+        // The old shared flag was reset by the new request, freeing the screen
+        // that was still occupied.
+        let gate = Gate()
+        let presenter = Presenter()
+        presenter.gate = gate
+        let checker = makeChecker(body: feed("99.0.0"), presenter: presenter)
+
+        async let automatic: Void = checker.runAutomatic()
+        await Task.yield()
+        async let manual: Void = checker.runManual()
+        await Task.yield()
+        await gate.openUp()
+        _ = await (automatic, manual)
+
+        XCTAssertEqual(presenter.peakConcurrent, 1, "two alerts stood at once")
+    }
+
+    func testSeeingItByHandCountsAsHavingBeenTold() async {
+        // Looking the incompatible release up today must not mean being told
+        // about it again tomorrow.
+        let body = #"{"version": "99.0.0", "minimumSystemVersion": "999.0"}"#
+        let presenter = Presenter()
+        let checker = makeChecker(body: body, presenter: presenter)
+        await checker.runManual()
+        guard case .requiresNewerSystem = presenter.shown.first else {
+            return XCTFail("a manual check must report it")
+        }
+        await checker.runAutomatic()
+        XCTAssertEqual(presenter.shown.count, 1, "the silent path repeated it")
+    }
+
+    func testTheTwoPathsAskForDifferentPatience() async {
+        let presenter = Presenter()
+        let checker = makeChecker(body: feed("99.0.0"), presenter: presenter)
+        await checker.runAutomatic()
+        await checker.runManual()
+        XCTAssertEqual(presenter.urgencies, [.unsolicited, .requested])
     }
 
     func testAnOversizedBodyIsAFailureRatherThanMemory() async {

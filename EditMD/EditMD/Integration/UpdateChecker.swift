@@ -305,6 +305,17 @@ struct URLSessionFeedFetcher: UpdateFeedFetching {
 
 // MARK: - Presentation seam
 
+/// Why an alert is being raised — which decides how long it may wait for a
+/// calm moment, and nothing else.
+enum PresentationUrgency: Equatable, Sendable {
+    /// Nobody asked. Waits a while for the app to be usable, then gives up:
+    /// news this old is not worth ambushing anyone with.
+    case unsolicited
+    /// The user pressed Check for Updates… and is owed an answer, however
+    /// long they take to come back to the app.
+    case requested
+}
+
 /// What the checker needs from a screen. A protocol so the service can be
 /// tested for what it decides to show, without AppKit in the way.
 @MainActor
@@ -316,7 +327,8 @@ protocol UpdatePresenting {
     /// beforehand meant a quit during the wait suppressed the message
     /// permanently, without it ever having been seen.
     @discardableResult
-    func present(_ result: UpdateCheckResult, checker: UpdateChecker) async -> Bool
+    func present(_ result: UpdateCheckResult, checker: UpdateChecker,
+                 urgency: PresentationUrgency) async -> Bool
 }
 
 // MARK: - The service
@@ -342,14 +354,25 @@ final class UpdateChecker {
     /// a second caller joins the running request instead of starting its own
     /// — and so a manual click during the daily check still gets an answer.
     private var inFlight: Task<Result<Probe, Error>, Never>?
+    /// Which round trip a result belongs to. Everyone joining one request
+    /// shares its number, and a number is answered at most once — that is what
+    /// stops the two paths waiting on a single request from each raising an
+    /// alert, whichever order they wake in.
+    private var currentGeneration = 0
+    private var answeredGeneration: Int?
     /// Set when someone asked in person while a silent check was already
     /// running: the silent path then stays quiet and lets the manual one
     /// answer, honestly — re-judged without their skip.
     private var manualJoined = false
-    /// Whoever presents first for a given request takes this; it stops the
-    /// two paths waiting on one request from raising two alerts, whichever
-    /// order they happen to wake in.
-    private var presentationClaimed = false
+    /// Whether an alert is on screen or waiting for its moment, and who is
+    /// queued behind it.
+    ///
+    /// Presentation spans suspensions, so this is held for the whole span and
+    /// released only by the caller that took it. An earlier version reset a
+    /// shared flag at the start of every request, which could revoke a live
+    /// alert's claim and let two stand at once.
+    private var isPresenting = false
+    private var waitingForScreen: [CheckedContinuation<Void, Never>] = []
 
     /// What one round trip yields. The channel travels with the feed because
     /// detecting it is file-system work that belongs off the main actor.
@@ -405,47 +428,81 @@ final class UpdateChecker {
     /// Internal rather than private so the tests can drive one round of the
     /// silent path directly, without a clock or a settings toggle in the way.
     func runAutomatic() async {
-        let outcome = await probe()
+        let (outcome, generation) = await probe()
         lastAutomaticCheck = now()
         // Someone asked in person while this was out: their answer is the
         // honest one, and it is theirs to show.
         guard !manualJoined else { return }
-        switch judge(outcome, skipping: skippedVersion) {
-        case .available(let update):
-            await present(.available(update))
-        case .requiresNewerSystem(let version, let minimum):
-            guard announcedIncompatibleVersion != version else { return }
-            // Recorded only once it has actually been seen: a quit while the
-            // alert was still waiting for a calm moment would otherwise mute
-            // this release for good.
-            if await present(.requiresNewerSystem(version: version, minimum: minimum)) {
-                announcedIncompatibleVersion = version
-            }
-        case .upToDate, .failed:
-            break
-        }
+        let verdict = judge(outcome, skipping: skippedVersion)
+        if case .requiresNewerSystem(let version, _) = verdict,
+           announcedIncompatibleVersion == version { return }
+        // Recorded only once it has actually been seen: a quit while the
+        // alert was still waiting for a calm moment would otherwise mute
+        // this release for good.
+        await announce(verdict, urgency: .unsolicited, generation: generation)
     }
 
     func runManual() async {
         // Join a running silent check rather than racing it: two requests
         // would mean two alerts about the same release.
         if inFlight != nil { manualJoined = true }
-        let outcome = await probe()
+        let (outcome, generation) = await probe()
         manualJoined = false
         lastAutomaticCheck = now()
-        await present(judge(outcome, skipping: nil))
+        await announce(judge(outcome, skipping: nil), urgency: .requested,
+                       generation: generation)
     }
 
-    /// First one through for a given request wins; the other path has nothing
-    /// left to say. A claim that never reached the screen is released, so the
-    /// answer is not lost with it.
+    /// Show a verdict and remember what showing it implies. Seeing the
+    /// "needs a newer macOS" notice counts however it was reached — otherwise
+    /// looking it up by hand today means being told again tomorrow.
+    private func announce(_ result: UpdateCheckResult,
+                          urgency: PresentationUrgency,
+                          generation: Int) async {
+        if case .upToDate = result, urgency == .unsolicited { return }
+        if case .failed = result, urgency == .unsolicited { return }
+        guard answeredGeneration != generation else { return }
+        let shown = await present(result, urgency: urgency)
+        guard shown else { return }
+        // Marked only once something reached the screen, so an alert that
+        // never found its moment does not silence the path behind it.
+        answeredGeneration = generation
+        if case .requiresNewerSystem(let version, _) = result {
+            announcedIncompatibleVersion = version
+        }
+    }
+
+    /// One alert at a time.
+    ///
+    /// An unsolicited one steps aside entirely when something is already on
+    /// screen — its news is either already there or can wait for tomorrow. A
+    /// requested one waits its turn instead: the user pressed a button and is
+    /// owed an answer.
     @discardableResult
-    private func present(_ result: UpdateCheckResult) async -> Bool {
-        guard !presentationClaimed else { return false }
-        presentationClaimed = true
-        let shown = await presenter.present(result, checker: self)
-        if !shown { presentationClaimed = false }
-        return shown
+    private func present(_ result: UpdateCheckResult,
+                         urgency: PresentationUrgency) async -> Bool {
+        guard await takeScreen(urgency: urgency) else { return false }
+        defer { releaseScreen() }
+        return await presenter.present(result, checker: self, urgency: urgency)
+    }
+
+    /// `false` only for an unsolicited alert that found the screen busy — its
+    /// news is either already up there or can wait for tomorrow. A requested
+    /// one queues, because the user pressed a button.
+    private func takeScreen(urgency: PresentationUrgency) async -> Bool {
+        while isPresenting {
+            guard urgency == .requested else { return false }
+            await withCheckedContinuation { waitingForScreen.append($0) }
+        }
+        isPresenting = true
+        return true
+    }
+
+    private func releaseScreen() {
+        isPresenting = false
+        let queued = waitingForScreen
+        waitingForScreen.removeAll()
+        queued.forEach { $0.resume() }
     }
 
     private func judge(_ outcome: Result<Probe, Error>,
@@ -464,9 +521,12 @@ final class UpdateChecker {
     }
 
     /// One request at a time, shared by everyone who asks while it is out.
-    private func probe() async -> Result<Probe, Error> {
-        if let inFlight { return await inFlight.value }
-        presentationClaimed = false
+    /// The number identifies the round trip, so joiners can tell they are
+    /// looking at the same answer.
+    private func probe() async -> (Result<Probe, Error>, Int) {
+        if let inFlight { return (await inFlight.value, currentGeneration) }
+        currentGeneration += 1
+        let generation = currentGeneration
         let fetcher = self.fetcher
         let url = Self.feedURL
         let bundlePath = Bundle.main.bundlePath
@@ -486,6 +546,6 @@ final class UpdateChecker {
         inFlight = task
         let result = await task.value
         inFlight = nil
-        return result
+        return (result, generation)
     }
 }

@@ -265,8 +265,13 @@ What the decision rests on is pure and tested (`UpdateCheckerTests`):
   permanently, unseen.
 
 `UpdateChecker` keeps **one request in flight**: a manual click during the
-daily check joins it rather than racing it, and whichever path presents first
-claims the answer, so one request can never raise two alerts. Automatic
+daily check joins it rather than racing it. Each round trip carries a
+generation number and is answered at most once, so the two paths waiting on a
+single request cannot each raise an alert whichever order they wake in — and,
+separately, only one alert holds the screen at a time. An unsolicited one
+steps aside when the screen is busy; a requested one queues, because somebody
+pressed a button and is owed an answer. That is also why patience differs:
+five minutes for an alert nobody asked for, unlimited for one they did. Automatic
 checking is one request a day, on by default, switchable in Settings ▸ General,
 and never runs under XCTest. The request carries a deliberate `User-Agent`
 (`EditMD/<version> (macOS <version>)`) instead of URLSession's default, which
