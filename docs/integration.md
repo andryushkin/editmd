@@ -220,30 +220,52 @@ dotmd.tools** — see [releasing.md](releasing.md).
 ```
 
 The shape is a contract with copies we can no longer change: **add fields,
-never rename or drop them**. Decoding tolerates missing and empty values, and
-keeps only `http(s)` links — a document off the network must not be able to
-hand `NSWorkspace` a `file:` path or somebody else's scheme.
+never rename or drop them**. Decoding tolerates missing and empty values.
 
-What the whole thing rests on is pure and tested (`UpdateCheckerTests`):
+The feed is **untrusted input** — a document off the network, parsed by copies
+we cannot patch — and is handled as such:
 
-- `AppVersion.compare` — dotted numeric compare, so 0.47.10 beats 0.47.9.
-- `UpdateDecision.evaluate` — the verdict. An empty version means silence, not
-  a prompt (a site built without network falls back to a pinned number). A
-  release the Mac cannot run is *explained*, because silence there reads as
-  "no updates". A skipped version mutes only itself, and only on the automatic
-  path — `Check for Updates…` always answers honestly.
+- Only **HTTPS links on `dotmd.tools`** survive decoding. The alert opens one
+  behind a label the reader trusts, so a tampered feed must not be able to aim
+  it at an attacker's build, plain HTTP, or a look-alike domain. A rejected or
+  absent link falls back to `UpdateFeed.productPage`, compiled into the binary,
+  so the button is never a no-op.
+- The body is **capped at 64 KB** and streamed, so a server ignoring its own
+  `Content-Length` cannot make the app hold the whole thing.
+- Network wait, parse and the install-channel probes all run **off the main
+  actor** (`Task.detached` in `UpdateChecker.probe()`).
+
+What the decision rests on is pure and tested (`UpdateCheckerTests`):
+
+- `AppVersion.parse` — **strict**: an optional `v`, then 1–4 groups of at most
+  six digits. Anything else does not parse, and an unparsable version means
+  silence. Reading junk as zero is how a feed saying `.999` would otherwise
+  become a confident "version 999 is available".
+- `UpdateDecision.evaluate` — the verdict. A missing or unparsable version is
+  silence, never an invented prompt. A release the Mac cannot run is
+  *explained* (silence there reads as "no updates"), but announced **once per
+  version** — it cannot change until they upgrade macOS. An unparsable
+  `minimumSystemVersion` is ignored rather than obeyed: one malformed field
+  must not swallow a real release. A skipped version mutes **only itself**, and
+  only on the automatic path — `Check for Updates…` always answers honestly.
 - `InstallChannel.detect` — Homebrew only when the cask exists *and* the
-  running copy sits in an Applications folder. It decides the **advice**, not
-  the download: telling a brew user to drag a DMG desynchronizes them from
-  brew, and telling everyone else to run `brew` hands out a command most of
-  them do not have.
+  running bundle is exactly the app a cask installs (`EditMD.app`, directly
+  inside an Applications folder). It decides the **advice**, not the download:
+  telling a brew user to drag a DMG desynchronizes them from brew, and telling
+  everyone else to run `brew` hands out a command most of them do not have.
+- `UpdateDecision.canPresentNow` — an alert waits for the app to be active with
+  no modal up. `runModal` nested inside an open panel traps the user, and an
+  alert raised while they are in another app lands where they are not looking.
 
-Automatic checking is one request a day, on by default, switchable in
-Settings ▸ General; it stays silent unless there is really something newer, and
-never runs under XCTest. The request carries a deliberate `User-Agent`
+`UpdateChecker` keeps **one request in flight**: a manual click during the
+daily check joins it rather than racing it, and whichever path presents first
+claims the answer, so one request can never raise two alerts. Automatic
+checking is one request a day, on by default, switchable in Settings ▸ General,
+and never runs under XCTest. The request carries a deliberate `User-Agent`
 (`EditMD/<version> (macOS <version>)`) instead of URLSession's default, which
 already leaks a build number — nothing in it distinguishes one copy from
-another. `UpdatePrompt.swift` is the only part that needs a screen.
+another. `UpdatePrompt.swift` (`UpdateAlertPresenter`) is the only part that
+needs a screen, behind the `UpdatePresenting` seam the service tests use.
 
 ## Review handoff
 
