@@ -11,6 +11,9 @@ func visualRunRects(_ range: NSRange, layoutManager: NSLayoutManager,
                                               actualCharacterRange: nil)
     guard glyphRange.length > 0 else { return [] }
     var rects: [NSRect] = []
+    // `usedRect` and the fragment rect differ in WIDTH (the fragment spans the
+    // container), not in height — measured with `lineSpacing` set, TextKit 1
+    // gives both the same height, so the line's leading is already covered.
     layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, lineGlyphs, _ in
         let part = NSIntersectionRange(glyphRange, lineGlyphs)
         guard part.length > 0 else { return }
@@ -568,7 +571,14 @@ final class VisualNSTextView: NSTextView {
                                                     layoutManager: layoutManager,
                                                     textContainer: textContainer)
                 else { return }
-                hit = range
+                // `enumerateAttribute` clips runs to the range it walks, so a
+                // link crossing the top or bottom edge would underline only its
+                // visible half. Re-open it over the whole storage.
+                var effective = NSRange(location: 0, length: 0)
+                _ = storage.attribute(key, at: range.location,
+                                      longestEffectiveRange: &effective,
+                                      in: NSRange(location: 0, length: storage.length))
+                hit = effective.length > 0 ? effective : range
                 stop.pointee = true
             }
             if hit != nil { break }

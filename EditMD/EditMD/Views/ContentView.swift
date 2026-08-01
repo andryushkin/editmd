@@ -183,14 +183,48 @@ private final class DividerGrabView: NSView {
     }
 
     /// An AppKit neighbour restores its own shape on the next move; only leave
-    /// the arrow where nobody would.
+    /// the arrow where nobody would. The neighbour is looked for among the
+    /// hit view's ANCESTORS: `hitTest` returns the deepest view, and a web
+    /// view never is one — it hit-tests to its own content view, so testing
+    /// the leaf alone never recognized the Preview.
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         let hit = window?.contentView?.hitTest(event.locationInWindow)
-        if !(hit is NSTextView), !(hit is WKWebView) { NSCursor.arrow.set() }
+        let ownsCursor = sequence(first: hit, next: { $0?.superview })
+            .contains { $0 is NSTextView || $0 is WKWebView }
+        if !ownsCursor { NSCursor.arrow.set() }
     }
 
-    override func mouseDown(with event: NSEvent) { report(event) }
+    /// Press without movement is not a resize: reporting from `mouseDown` made
+    /// a plain click anywhere on the 14pt strip commit that x as the new pane
+    /// width, so clicking a sidebar row the strip overhangs nudged the pane.
+    /// The drag below reports an absolute x, so nothing has to be anchored.
+    override func mouseDown(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+    }
+
+    /// Being opaque to the pointer, the strip would also swallow the wheel —
+    /// the pane under it is a SIBLING subtree, so the default responder walk
+    /// (up through the SwiftUI hosting chain) never reaches its scroll view
+    /// and the event dies. Hand it to whoever is behind the strip instead.
+    override func scrollWheel(with event: NSEvent) {
+        passesThroughHitTest = true
+        let behind = window?.contentView?.hitTest(event.locationInWindow)
+        passesThroughHitTest = false
+        guard let behind, behind !== self else {
+            super.scrollWheel(with: event)
+            return
+        }
+        behind.scrollWheel(with: event)
+    }
+
+    /// Set only for the hit test above: `hitTest` must keep returning self for
+    /// every other event, which is what makes the strip grabbable at all.
+    private var passesThroughHitTest = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        passesThroughHitTest ? nil : super.hitTest(point)
+    }
 
     override func mouseDragged(with event: NSEvent) {
         // a drag past a pane's width clamp leaves the strip behind, and the

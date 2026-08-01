@@ -168,7 +168,20 @@ Mechanism, as far as it was established:
   at points either side of the line before changing anything else.
 - `WKWebView` publishes nothing over blank regions, so a ↔ set over it simply
   stays until someone else writes — this is what "the zone extends far to the
-  right" actually was, not a wider strip.
+  right" actually was, not a wider strip. It is also never the view `hitTest`
+  returns: it hit-tests to its own content view, so "is the pointer over the
+  Preview" has to be asked of the hit view's ANCESTORS.
+
+Being opaque to the pointer costs the strip two things it has to hand back:
+
+- the wheel — the pane under the strip is a SIBLING subtree, so the default
+  responder walk never reaches its scroll view and the event would die.
+  `scrollWheel` re-hit-tests with the strip made transparent for that one call
+  and forwards to whoever is behind it;
+- the plain click — a press with no movement is not a resize, and reporting
+  from `mouseDown` committed the pointer's x as the new pane width, so
+  clicking a row the strip overhangs nudged the pane. Only `mouseDragged`
+  reports.
 
 Dead ends, all confirmed by hand:
 

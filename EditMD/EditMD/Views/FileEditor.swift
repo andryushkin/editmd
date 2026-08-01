@@ -214,8 +214,6 @@ private struct MainChrome<Content: View>: View {
     private static var widthRange: ClosedRange<Double> {
         sidePaneWidthRange(floor: WorkspaceSidebar.minimumPaneWidth)
     }
-    private static var paneSpace: String { "mainChromePanes" }
-
     private var appearanceIsDark: Bool { editorSettings.general.appearance.isDark }
 
     var body: some View {
@@ -297,10 +295,6 @@ private struct MainChrome<Content: View>: View {
         }
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
     }
-
-    /// The sidebar starts at x=0 of the chrome's coordinate space, so the
-    /// cursor x IS the sidebar's display width — inverted through the clamp
-    /// scale so a resize in a clamped window keeps the preferred width.
 }
 
 /// Finds the enclosing `NSWindow` after layout and lets the caller configure it
