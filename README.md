@@ -43,6 +43,11 @@ Or download the DMG from the
 [latest release](https://github.com/andryushkin/editmd/releases/latest). The
 app is Developer ID signed and notarized; macOS 14 (Sonoma) or newer.
 
+EditMD checks once a day whether a newer version exists and says so when there
+is one — updating itself stays manual (`brew upgrade`, or replacing the app).
+The check can be turned off in Settings ▸ General, and `Check for Updates…` in
+the EditMD menu asks on demand.
+
 ## Build
 
 Requires macOS 14+, Xcode 26+ (Swift 6.2), and

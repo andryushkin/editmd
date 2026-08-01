@@ -154,6 +154,13 @@ private struct GeneralTab: View {
                 Text("Notes sent from the browser extension (editmd://) are created here, never overwriting: a taken name becomes “Name 2.md”. A URL may name an adopted workspace with &workspace=<name>; unknown names land here instead.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Updates") {
+                Toggle("Check for updates automatically",
+                       isOn: $settings.general.checkForUpdates)
+                Button("Check Now…") { UpdateChecker.shared.checkManually() }
+                Text("Once a day EditMD asks dotmd.tools whether a newer version exists, and says so only when there is one. The request carries the version and macOS it is asking from, nothing that identifies you or your files. Updating stays manual — with Homebrew, or by replacing the app.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Claude Code") {
                 Text("Moved to Settings ▸ Integrations (skill, hooks, ✈️ command, auto-spawn).")
                     .font(.caption).foregroundStyle(.secondary)

@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             installBackForwardMouseMonitor()
             seedStarterFolder()
+            // Once a day, and silent unless there is really something newer —
+            // the app has no updater, so this is the only way a copy learns a
+            // release happened. Follows Settings ▸ General (default on).
+            UpdateChecker.shared.checkAutomaticallyIfDue()
         }
     }
 

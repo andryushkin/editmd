@@ -293,6 +293,15 @@ struct EditMDApp: App {
                 .keyboardShortcut("l", modifiers: [.command, .shift, .control])
             }
 
+            // Where macOS apps outside the App Store put it: the app menu,
+            // right under About. The automatic check is a Settings ▸ General
+            // switch; this item works whatever that switch says.
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    UpdateChecker.shared.checkManually()
+                }
+            }
+
             CommandGroup(after: .help) {
                 Button("Install Agent Skill…") {
                     SkillInstaller.installWithUI()

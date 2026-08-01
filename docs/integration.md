@@ -201,6 +201,50 @@ next to the instructions.
   and shell prompts so the editor can display what an agent is doing
   (`AgentActivityModel.swift`, `Views/AgentActivityUI.swift`).
 
+## Update check
+
+EditMD ships outside the App Store and has no updater: it can tell you a
+release exists, and that is all it claims to do. Replacing the app stays
+manual — `UpdateChecker.swift` never downloads or installs anything.
+
+The question goes to **`https://dotmd.tools/editmd/latest.json`**, not to
+GitHub's API: the request stays with the site the app belongs to, has no rate
+limit, and lets the site decide what a released copy is told. The document is
+generated at deploy time by the site's `build.py` from `products.yaml`
+(`update_feed:`), so **cutting a release ends with rebuilding and deploying
+dotmd.tools** — see [releasing.md](releasing.md).
+
+```json
+{ "version": "0.47.14", "page": "https://dotmd.tools/editmd",
+  "notes": "https://dotmd.tools/editmd/changelog", "minimumSystemVersion": "14.0" }
+```
+
+The shape is a contract with copies we can no longer change: **add fields,
+never rename or drop them**. Decoding tolerates missing and empty values, and
+keeps only `http(s)` links — a document off the network must not be able to
+hand `NSWorkspace` a `file:` path or somebody else's scheme.
+
+What the whole thing rests on is pure and tested (`UpdateCheckerTests`):
+
+- `AppVersion.compare` — dotted numeric compare, so 0.47.10 beats 0.47.9.
+- `UpdateDecision.evaluate` — the verdict. An empty version means silence, not
+  a prompt (a site built without network falls back to a pinned number). A
+  release the Mac cannot run is *explained*, because silence there reads as
+  "no updates". A skipped version mutes only itself, and only on the automatic
+  path — `Check for Updates…` always answers honestly.
+- `InstallChannel.detect` — Homebrew only when the cask exists *and* the
+  running copy sits in an Applications folder. It decides the **advice**, not
+  the download: telling a brew user to drag a DMG desynchronizes them from
+  brew, and telling everyone else to run `brew` hands out a command most of
+  them do not have.
+
+Automatic checking is one request a day, on by default, switchable in
+Settings ▸ General; it stays silent unless there is really something newer, and
+never runs under XCTest. The request carries a deliberate `User-Agent`
+(`EditMD/<version> (macOS <version>)`) instead of URLSession's default, which
+already leaks a build number — nothing in it distinguishes one copy from
+another. `UpdatePrompt.swift` is the only part that needs a screen.
+
 ## Review handoff
 
 The review queue (`.smotr-queue.json`) and the harness launch line are

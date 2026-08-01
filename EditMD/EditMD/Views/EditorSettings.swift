@@ -484,6 +484,11 @@ struct GeneralSettings: Codable, Equatable {
     /// Folder for `.folder` destination. Empty → the folder EditMD created
     /// on first launch (`StarterFolder.defaultURL`).
     var clipsFolderPath: String
+    /// Ask `dotmd.tools` once a day whether a newer EditMD exists. On by
+    /// default: shipped outside the App Store, a copy that never asks is a
+    /// copy whose owner never learns a release happened. Off = the app makes
+    /// no network request of its own (`UpdateChecker`).
+    var checkForUpdates: Bool
 
     init(appearance: AppearanceMode = .system,
          textColorHex: String? = nil, accentColorHex: String? = nil,
@@ -493,7 +498,8 @@ struct GeneralSettings: Codable, Equatable {
          agentCustomCommand: String = "",
          autoReloadCleanExternal: Bool = true,
          clipDestination: ClipDestinationMode = .folder,
-         clipsFolderPath: String = "") {
+         clipsFolderPath: String = "",
+         checkForUpdates: Bool = true) {
         self.appearance = appearance
         self.textColorHex = textColorHex
         self.accentColorHex = accentColorHex
@@ -506,6 +512,7 @@ struct GeneralSettings: Codable, Equatable {
         self.autoReloadCleanExternal = autoReloadCleanExternal
         self.clipDestination = clipDestination
         self.clipsFolderPath = clipsFolderPath
+        self.checkForUpdates = checkForUpdates
     }
 
     init(from decoder: Decoder) throws {
@@ -523,6 +530,9 @@ struct GeneralSettings: Codable, Equatable {
         autoReloadCleanExternal = try c.decodeIfPresent(Bool.self, forKey: .autoReloadCleanExternal) ?? true
         clipDestination = try c.decodeIfPresent(ClipDestinationMode.self, forKey: .clipDestination) ?? .folder
         clipsFolderPath = try c.decodeIfPresent(String.self, forKey: .clipsFolderPath) ?? ""
+        // Installs from before the update check gain it switched on, the same
+        // as a fresh one — the point is telling people a release exists.
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? true
     }
 }
 

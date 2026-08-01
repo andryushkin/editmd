@@ -38,7 +38,23 @@ audit passes and `main` is pushed. A release consists of:
    present when the version was patch-shipped),
 2. an annotated git tag `vX.Y.Z` on the released commit,
 3. a GitHub Release with that changelog section as its notes (no binaries
-   yet; artifacts join when packaging exists).
+   yet; artifacts join when packaging exists),
+4. a **redeploy of dotmd.tools** — the last step, and the one nothing will
+   remind you about.
+
+Step 4 is what makes installed copies learn about the release. The site's
+`build.py` resolves the version from the newest GitHub release and writes
+`/editmd/latest.json`, which every EditMD asks once a day (see the update
+check in [integration.md](integration.md)). Until the site is redeployed the
+feed still names the previous version, so nobody is told anything:
+
+```bash
+cd ~/Server/dotmdtools && uv run build.py && npx wrangler deploy
+```
+
+Always both commands, in that order — `dist/` is gitignored, so deploying
+without building ships the previous build. Homebrew users are served by the
+cask bump instead, which is its own step.
 
 ## Changelog format
 

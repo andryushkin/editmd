@@ -8255,6 +8255,176 @@
           }
         }
       }
+    },
+    "Check for Updates…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверить обновления…"
+          }
+        }
+      }
+    },
+    "EditMD is up to date" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У вас последняя версия EditMD"
+          }
+        }
+      }
+    },
+    "You are running version %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлена версия %@."
+          }
+        }
+      }
+    },
+    "EditMD %@ needs a newer macOS" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для EditMD %@ нужна более новая macOS"
+          }
+        }
+      }
+    },
+    "It requires macOS %@, and this Mac runs macOS %@. You are running EditMD %@, which keeps working." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Требуется macOS %@, а на этом Mac — macOS %@. У вас EditMD %@, и она продолжит работать."
+          }
+        }
+      }
+    },
+    "Could not check for updates" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось проверить обновления"
+          }
+        }
+      }
+    },
+    "EditMD %@ is available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступна EditMD %@"
+          }
+        }
+      }
+    },
+    "You are running %@. This copy was installed with Homebrew, so update it there:\n\n%@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У вас %@. Эта копия установлена через Homebrew — обновите её там:\n\n%@"
+          }
+        }
+      }
+    },
+    "Copy Command" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать команду"
+          }
+        }
+      }
+    },
+    "You are running %@. The download page has the new version and what changed in it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У вас %@. На странице загрузки — новая версия и описание изменений."
+          }
+        }
+      }
+    },
+    "Open Download Page" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть страницу загрузки"
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позже"
+          }
+        }
+      }
+    },
+    "Skip This Version" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пропустить эту версию"
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновления"
+          }
+        }
+      }
+    },
+    "Check for updates automatically" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверять обновления автоматически"
+          }
+        }
+      }
+    },
+    "Check Now…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверить сейчас…"
+          }
+        }
+      }
+    },
+    "Once a day EditMD asks dotmd.tools whether a newer version exists, and says so only when there is one. The request carries the version and macOS it is asking from, nothing that identifies you or your files. Updating stays manual — with Homebrew, or by replacing the app." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раз в сутки EditMD спрашивает dotmd.tools, есть ли более новая версия, и сообщает, только если она есть. В запросе передаются версия и macOS, с которых он отправлен, — ничего, что опознаёт вас или ваши файлы. Обновление остаётся ручным: через Homebrew или заменой приложения."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
