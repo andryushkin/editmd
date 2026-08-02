@@ -21,7 +21,9 @@ Website: [dotmd.tools/editmd](https://dotmd.tools/editmd), part of the
 ## Features
 
 - **Workspace sidebar** — folders and standalone files, outline, git status and
-  per-file history, tags, full-text search.
+  per-file history, tags, full-text search. Folders group into named
+  collections, and the branch holding the open document is marked all the way
+  down — so where you are is legible without reading a single name.
 - **Wiki-links** — `[[link]]` completion, backlinks, a persistent link index,
   vault lint (dead links, orphans), and a frontmatter properties panel.
 - **Review marks** — inline comment threads stored in a sidecar file, rendered
@@ -32,6 +34,16 @@ Website: [dotmd.tools/editmd](https://dotmd.tools/editmd), part of the
   outline, lint) even when the app is not running.
 - **Also**: PDF export, PDF/image viewer, smart paste (tables from
   Excel/Numbers, images, URLs), textbundle assets, English/Russian UI.
+
+<img src="docs/images/sidebar-active-branch.png" width="300"
+     alt="The Files sidebar: a collection named COLLECTION holding HANDBOOK, JOURNAL and RESEARCH; inside HANDBOOK the folder reference is accented and settings.md is open." />
+
+The mark follows the open document rather than the folders you happened to
+expand: everything above it is filled, and the folder it actually sits in is
+accented.
+
+<img src="docs/images/sidebar-icons.png" width="540"
+     alt="Sidebar rows and what each state means: collection with the open document inside, adopted folder with and without it, the folder the file sits in, a folder off the branch, and the open file." />
 
 ## Install
 
