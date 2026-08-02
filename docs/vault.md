@@ -31,6 +31,25 @@ existence probe runs on a detached task and applies on the main actor behind an
 unchanged-snapshot guard (mirroring `refreshFavoriteAvailability`), so a network
 or offline workspace volume never stalls the UI.
 
+### Where the open document is
+
+A tree deep enough to be useful is deep enough to get lost in, so the rows mark
+the branch holding the open document: `sidebarFolderMark` (`Views/SidebarRows.swift`)
+answers **filled** for every folder the document is under, and **accented** for
+the one it actually sits in — the direct parent of an open file, or the folder
+itself when a folder card is what is open. Adopted roots and collection headers
+are accented as soon as they are filled: they stand for a whole branch, and a
+collapsed collection is the only thing still on screen once its member is
+hidden. Both answers come from the active URL alone, so walking into another
+branch takes the mark along instead of leaving a trail — filling a folder
+because it is *expanded* did exactly that, and expansion already speaks through
+the chevron.
+
+Whether the active URL is a folder card or a document cannot be read from the
+URL, and no row may `stat` inside a SwiftUI body: `MainWindowView.centerBranch`
+resolves the pane once per `body` (it needs the answer anyway) and passes
+`activeIsFolder` down through `MainChrome` to the rows.
+
 ### Collections
 
 A dozen adopted roots read as noise in one flat list, so roots can be grouped
@@ -71,6 +90,14 @@ view gives sessions and workspaces separate pasteboard types, a distinct type
 lets a target refuse a drag it cannot act on instead of accepting it and doing
 nothing — a subfolder never lights up for a root, a collection header never
 lights up for a file.
+
+A root inside a collection hangs its whole subtree off the collection's label
+column (`SidebarTree.collectionIndent`), and joining or leaving one changes
+nothing about those rows except that inherited offset. The sidebar's lazy stack
+keeps rows it has already realized, so the header moved to the new column while
+everything below it stayed on the old one until the next launch; the rows carry
+their placement in their identity (`SidebarSubtreeRowID`) precisely so a change
+of membership ends their lifetime and rebuilds the subtree where it now belongs.
 
 A collapsed collection hides its members outright: `visibleWorkspaces` (and
 through it `sidebarVisibleFileOrder`) skips them, so a Shift-click range never

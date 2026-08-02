@@ -449,6 +449,10 @@ struct WorkspaceSidebar: View {
 
     @ObservedObject var workspace: WorkspaceModel
     let activeURL: URL?
+    /// `activeURL` is the folder card, not a document — see `sidebarFolderMark`.
+    /// Required, not defaulted: a caller that forgets it would silently accent
+    /// the parent of an open folder.
+    let activeIsFolder: Bool
     /// Left-click a file: the host decides (replace in place, or the
     /// "already open in another window" modal).
     let onOpen: (URL) -> Void
@@ -631,7 +635,9 @@ struct WorkspaceSidebar: View {
                         case .root(let ws):
                             workspaceGroup(ws, moves: moves)
                         case .collection(let collection, let members):
-                            collectionHeader(collection, moves: moves)
+                            collectionHeader(collection,
+                                             ownsActive: collectionOwnsActive(members),
+                                             moves: moves)
                             if !collection.collapsed {
                                 ForEach(Array(members.enumerated()), id: \.element.id) { i, ws in
                                     workspaceGroup(
@@ -733,8 +739,11 @@ struct WorkspaceSidebar: View {
 
     /// Header row of a named collection: chevron + name. Collapsing it hides
     /// every member root at once; the roots keep their own expanded state.
+    /// `ownsActive` fills the glyph while the open document lives in one of the
+    /// members — the same "you are here" rule the roots below follow, so the
+    /// mark travels with the active file instead of staying where it was lit.
     private func collectionHeader(
-        _ collection: WorkspaceCollection, moves: SidebarMoves
+        _ collection: WorkspaceCollection, ownsActive: Bool, moves: SidebarMoves
     ) -> some View {
         HStack(spacing: SidebarTree.rowSpacing) {
             Button {
@@ -752,9 +761,9 @@ struct WorkspaceSidebar: View {
                 workspace.toggleCollapsed(collection)
             } label: {
                 HStack(spacing: SidebarTree.rowSpacing) {
-                    Image(systemName: "square.stack")
+                    Image(systemName: ownsActive ? "tray.2.fill" : "tray.2")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
                     Text(collection.name.uppercased())
                         .font(.system(size: 10.5, weight: .bold))
                         .foregroundStyle(.secondary)
@@ -838,7 +847,7 @@ struct WorkspaceSidebar: View {
         let baseIndent: CGFloat = inCollection ? SidebarTree.collectionIndent : 0
         let selected = isActive(ws.url)
         // Mark the owning root through its icon when the open file lives inside it.
-        let ownsActive = selected || containsActiveFile(ws)
+        let ownsActive = rootOwnsActive(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
             if baseIndent > 0 { Spacer().frame(width: baseIndent) }
@@ -866,7 +875,7 @@ struct WorkspaceSidebar: View {
                 }
             } label: {
                 HStack(spacing: SidebarTree.rowSpacing) {
-                    Image(systemName: ownsActive ? "folder.fill" : "folder")
+                    Image(systemName: ownsActive ? "tray.full.fill" : "tray.full")
                         .font(.system(size: 11))
                         .foregroundStyle(ownsActive ? Color.accentColor : Color.secondary)
                     Text(ws.name.uppercased())
@@ -905,6 +914,7 @@ struct WorkspaceSidebar: View {
             ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
+                              activeIsFolder: activeIsFolder,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
@@ -916,6 +926,7 @@ struct WorkspaceSidebar: View {
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
+                              activeIsFolder: activeIsFolder,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
@@ -926,6 +937,7 @@ struct WorkspaceSidebar: View {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: ws.url)), id: \.self) { sub in
                     SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                                   filter: filterQuery, activeURL: activeURL,
+                                  activeIsFolder: activeIsFolder,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
                                   selectionAnchor: $selectionAnchor,
@@ -1094,11 +1106,19 @@ struct WorkspaceSidebar: View {
         url.standardizedFileURL == activeURL?.standardizedFileURL
     }
 
-    /// Active file lives under this workspace root (not the root itself).
-    private func containsActiveFile(_ ws: WorkspaceModel.Workspace) -> Bool {
-        guard let path = activeURL?.standardizedFileURL.path else { return false }
-        let root = (ws.folderPath as NSString).standardizingPath
-        return path.hasPrefix(root + "/")
+    /// The open document is this root or lives anywhere below it. A root marks
+    /// the whole branch it owns, so unlike a subfolder it is accented as soon
+    /// as it is filled — it is the entry to where the document sits.
+    private func rootOwnsActive(_ ws: WorkspaceModel.Workspace) -> Bool {
+        sidebarFolderMark(folder: ws.url, activeURL: activeURL,
+                          activeIsFolder: activeIsFolder).filled
+    }
+
+    /// A collection is "here" when any of its roots is: the header marks the
+    /// branch the open document is in, including while the collection is
+    /// collapsed and the owning root is not on screen.
+    private func collectionOwnsActive(_ members: [WorkspaceModel.Workspace]) -> Bool {
+        members.contains { rootOwnsActive($0) }
     }
 
     /// Shared context-menu item: absolute path → pasteboard.
@@ -1125,6 +1145,8 @@ private struct SubfolderNode: View {
     /// matching children stay reachable without a full recursive scan.
     let filter: String
     let activeURL: URL?
+    /// See `sidebarFolderMark`: an open folder accents itself, not its parent.
+    let activeIsFolder: Bool
     let showHidden: Bool
     /// No markdown in this folder’s tree — dimmed; only listed when eye is on.
     var isEmptyFolder: Bool = false
@@ -1153,6 +1175,8 @@ private struct SubfolderNode: View {
 
     var body: some View {
         let expanded = workspace.isExpanded(folder)
+        let mark = sidebarFolderMark(folder: folder, activeURL: activeURL,
+                                     activeIsFolder: activeIsFolder)
         let _ = workspace.contentEpoch
         HStack(spacing: SidebarTree.rowSpacing) {
             if indent > 0 { Spacer().frame(width: indent) }
@@ -1178,9 +1202,13 @@ private struct SubfolderNode: View {
                 }
             } label: {
                 HStack(spacing: SidebarTree.rowSpacing) {
-                    Image(systemName: (expanded || selected) ? "folder.fill" : "folder")
+                    // The mark follows the open document, not the disclosure
+                    // state: every folder above it is filled, the one holding
+                    // it is accented (`sidebarFolderMark`). Expansion says its
+                    // own thing through the chevron.
+                    Image(systemName: mark.filled ? "folder.fill" : "folder")
                         .font(.system(size: 11))
-                        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(mark.accented ? Color.accentColor : Color.secondary)
                         .opacity(isEmptyFolder ? 0.55 : 1)
                     Text(folder.lastPathComponent)
                         .font(.system(size: 12, weight: selected ? .semibold : .regular))
@@ -1215,6 +1243,7 @@ private struct SubfolderNode: View {
             ForEach(filteredFolders(workspace.markdownSubfolders(in: folder)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                               filter: filter, activeURL: activeURL,
+                              activeIsFolder: activeIsFolder,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
@@ -1223,6 +1252,7 @@ private struct SubfolderNode: View {
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: folder)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                               filter: filter, activeURL: activeURL,
+                              activeIsFolder: activeIsFolder,
                               showHidden: showHidden, isEmptyFolder: false,
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
@@ -1232,6 +1262,7 @@ private struct SubfolderNode: View {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: folder)), id: \.self) { sub in
                     SubfolderNode(workspace: workspace, folder: sub, depth: depth + 1, baseIndent: baseIndent,
                                   filter: filter, activeURL: activeURL,
+                                  activeIsFolder: activeIsFolder,
                                   showHidden: showHidden, isEmptyFolder: true,
                                   selectedFiles: $selectedFiles,
                                   selectionAnchor: $selectionAnchor,

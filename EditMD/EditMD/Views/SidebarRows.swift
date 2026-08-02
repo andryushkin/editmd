@@ -31,6 +31,34 @@ struct SidebarSubtreeRowID: Hashable {
     }
 }
 
+/// How a folder row marks the open document. `filled` means "it is somewhere
+/// below me" and follows the whole chain from the adopted root down; `accented`
+/// means "it is right here" — the folder itself when a folder is what's open,
+/// the direct parent when a file is. Both are read from the active URL alone,
+/// so walking into another branch takes the mark with it instead of leaving a
+/// trail of lit folders behind.
+struct SidebarFolderMark: Equatable {
+    var filled = false
+    var accented = false
+}
+
+/// `activeIsFolder` tells the folder card apart from a document: an open folder
+/// is where the user is, so it accents itself and leaves its parent filled.
+///
+/// Paths, not URLs: `deletingLastPathComponent()` returns a directory URL with
+/// a trailing slash, which never compares equal to the folder's own URL.
+func sidebarFolderMark(folder rawFolder: URL, activeURL: URL?,
+                       activeIsFolder: Bool = false) -> SidebarFolderMark {
+    guard let active = activeURL?.standardizedFileURL.path else { return SidebarFolderMark() }
+    let folder = rawFolder.standardizedFileURL.path
+    if active == folder { return SidebarFolderMark(filled: true, accented: true) }
+    // "/" is its own separator — "//" would match nothing.
+    let below = folder == "/" ? "/" : folder + "/"
+    guard active.hasPrefix(below) else { return SidebarFolderMark() }
+    let parent = (active as NSString).deletingLastPathComponent
+    return SidebarFolderMark(filled: true, accented: !activeIsFolder && parent == folder)
+}
+
 // MARK: - File row
 
 /// One file row: doc icon, name (+ optional path subtitle), active tint, hover

@@ -113,31 +113,37 @@ struct MainWindowView: View {
     @ObservedObject private var editorSettings = EditorSettings.shared
     @Environment(\.openWindow) private var openWindow
 
-    /// True when the center pane is the markdown editor (which carries its
-    /// own status bar with the same activity chip).
-    private var isEditorBranch: Bool {
-        if appState.isWelcome { return false }
-        guard let url = appState.currentURL else { return true }
-        return !isPDFFile(url) && !isImageFile(url) && !AppState.isFolder(url)
+    /// Which pane the active URL routes to. Answering costs a disk check
+    /// (`AppState.isFolder`) and `body` asks four times over — inspector
+    /// availability, the sidebar's active-branch mark, the activity bar and the
+    /// pane itself — so it is resolved once per `body` and read from there.
+    private struct CenterBranch {
+        /// The markdown editor, which carries its own status bar with the same
+        /// activity chip.
+        var isEditor = false
+        /// The folder card — it hosts its own right inspector (whole-subtree
+        /// analytics), so the toggle must be enabled.
+        var isFolder = false
+        /// The inspector toggle has a pane to show on the editor and folder branches.
+        var inspectorAvailable: Bool { isEditor || isFolder }
     }
 
-    /// True when the center pane is a folder card — it now hosts its own right
-    /// inspector (whole-subtree analytics), so the toggle must be enabled.
-    private var isFolderBranch: Bool {
-        guard let url = appState.currentURL else { return false }
-        return AppState.isFolder(url)
+    private var centerBranch: CenterBranch {
+        if appState.isWelcome { return CenterBranch() }
+        guard let url = appState.currentURL else { return CenterBranch(isEditor: true) }
+        if AppState.isFolder(url) { return CenterBranch(isFolder: true) }
+        return CenterBranch(isEditor: !isPDFFile(url) && !isImageFile(url))
     }
-
-    /// The inspector toggle has a pane to show on the editor and folder branches.
-    private var inspectorAvailable: Bool { isEditorBranch || isFolderBranch }
 
     var body: some View {
+        let branch = centerBranch
         // The workspace sidebar lives in `MainChrome`, a stable parent that is
         // NOT `.id`-swapped per file. Only the CENTER (welcome / pdf / folder /
         // editor) is `.id`-recreated on navigation, so the sidebar survives file
         // switches — its scroll offset, selection and filter persist (A1).
         MainChrome(activeURL: appState.currentURL,
-                   inspectorAvailable: inspectorAvailable) {
+                   activeIsFolder: branch.isFolder,
+                   inspectorAvailable: branch.inspectorAvailable) {
             VStack(spacing: 0) {
                 Group {
                     if appState.isWelcome {
@@ -151,7 +157,7 @@ struct MainWindowView: View {
                         // Images are read-only and never enter the Markdown document path.
                         ImageViewerHost(fileURL: url)
                             .id("image:" + url.absoluteString)
-                    } else if let url = appState.currentURL, AppState.isFolder(url) {
+                    } else if let url = appState.currentURL, branch.isFolder {
                         FolderInfoHost(folderURL: url)
                             .id("folder:" + url.absoluteString)
                     } else {
@@ -163,7 +169,7 @@ struct MainWindowView: View {
                 // Panes without an editor status bar still surface background
                 // workspace work (index scan / vault-lint) — the editor branch
                 // shows the same chip inside its own status bar.
-                if !isEditorBranch {
+                if !branch.isEditor {
                     StandaloneActivityBar()
                 }
             }
@@ -194,6 +200,11 @@ struct MainWindowView: View {
 private struct MainChrome<Content: View>: View {
     /// The file/folder currently on screen — highlights the active row.
     let activeURL: URL?
+    /// Whether `activeURL` is the folder card rather than a document: the
+    /// sidebar accents the folder that holds the open file, and an open folder
+    /// holds itself, not its parent. Read here, where the branch is already
+    /// resolved, so no row has to stat the disk.
+    let activeIsFolder: Bool
     /// True when the center pane has a right inspector to show — the editor and
     /// folder branches. Keeps the trailing button set constant while disabling
     /// the toggle on the welcome / PDF / image panes.
@@ -237,6 +248,7 @@ private struct MainChrome<Content: View>: View {
                     WorkspaceSidebar(
                         workspace: workspace,
                         activeURL: activeURL,
+                        activeIsFolder: activeIsFolder,
                         onOpen: { openFileFromWorkspaceSidebar($0, currentURL: activeURL) },
                         onOpenFolder: { AppState.shared.openInMainWindow($0) }
                     )

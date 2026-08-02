@@ -1833,3 +1833,85 @@ struct FolderInspectorAggregateTests {
         #expect(agg.contentPartial)
     }
 }
+
+/// The "you are here" mark the folder rows draw, as a rule rather than as
+/// pixels: filled along the branch that holds the open document, accented
+/// where it actually sits.
+@Suite("Sidebar folder marks")
+struct SidebarFolderMarkTests {
+
+    @Test("Every folder above the open file is filled, only its parent accented")
+    func folderMarkFollowsTheChain() {
+        let file = URL(fileURLWithPath: "/tmp/root/a/b/note.md")
+        let chain = ["/tmp/root", "/tmp/root/a", "/tmp/root/a/b"]
+        for path in chain.dropLast() {
+            let mark = sidebarFolderMark(folder: URL(fileURLWithPath: path), activeURL: file)
+            #expect(mark == SidebarFolderMark(filled: true, accented: false))
+        }
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: chain[2]), activeURL: file)
+                == SidebarFolderMark(filled: true, accented: true))
+    }
+
+    @Test("An open folder marks itself, its parents only fill")
+    func folderMarkForOpenFolder() {
+        let folder = URL(fileURLWithPath: "/tmp/root/a/b")
+        #expect(sidebarFolderMark(folder: folder, activeURL: folder, activeIsFolder: true)
+                == SidebarFolderMark(filled: true, accented: true))
+        // The parent of an open folder is on the way, not the destination —
+        // unlike the parent of an open file, which is where the file sits.
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: "/tmp/root/a"),
+                                  activeURL: folder, activeIsFolder: true)
+                == SidebarFolderMark(filled: true, accented: false))
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: "/tmp/root/a"),
+                                  activeURL: URL(fileURLWithPath: "/tmp/root/a/note.md"))
+                == SidebarFolderMark(filled: true, accented: true))
+    }
+
+    @Test("Walking elsewhere clears the mark instead of leaving a trail")
+    func folderMarkClearsOnNavigation() {
+        let folder = URL(fileURLWithPath: "/tmp/root/a")
+        // Sibling branch, a prefix that is not a path boundary, and the
+        // welcome screen all leave the folder unmarked.
+        #expect(sidebarFolderMark(folder: folder,
+                                  activeURL: URL(fileURLWithPath: "/tmp/root/c/note.md"))
+                == SidebarFolderMark())
+        #expect(sidebarFolderMark(folder: folder,
+                                  activeURL: URL(fileURLWithPath: "/tmp/root/ab/note.md"))
+                == SidebarFolderMark())
+        #expect(sidebarFolderMark(folder: folder, activeURL: nil) == SidebarFolderMark())
+    }
+
+    @Test("The mark standardizes both sides")
+    func folderMarkStandardizes() {
+        let messy = URL(fileURLWithPath: "/tmp/root/./x/../a/note.md")
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: "/tmp/root/a"), activeURL: messy)
+                == SidebarFolderMark(filled: true, accented: true))
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: "/tmp/root/./a"),
+                                  activeURL: URL(fileURLWithPath: "/tmp/root/a/note.md"))
+                == SidebarFolderMark(filled: true, accented: true))
+    }
+
+    @Test("A root at the filesystem root still owns what is under it")
+    func folderMarkAtFilesystemRoot() {
+        let root = URL(fileURLWithPath: "/")
+        // "/" is its own separator: naive `folder + "/"` would ask for "//".
+        #expect(sidebarFolderMark(folder: root,
+                                  activeURL: URL(fileURLWithPath: "/note.md"))
+                == SidebarFolderMark(filled: true, accented: true))
+        #expect(sidebarFolderMark(folder: root,
+                                  activeURL: URL(fileURLWithPath: "/tmp/note.md"))
+                == SidebarFolderMark(filled: true, accented: false))
+        #expect(sidebarFolderMark(folder: root, activeURL: root, activeIsFolder: true)
+                == SidebarFolderMark(filled: true, accented: true))
+    }
+
+    /// Spelling is the identity everywhere else in the app (documents and
+    /// adopted roots are keyed by standardized path), so the mark does not
+    /// case-fold either — folding only here would disagree with them.
+    @Test("Case differences are different paths, not the same one")
+    func folderMarkDoesNotCaseFold() {
+        #expect(sidebarFolderMark(folder: URL(fileURLWithPath: "/tmp/Root"),
+                                  activeURL: URL(fileURLWithPath: "/tmp/root/note.md"))
+                == SidebarFolderMark())
+    }
+}
