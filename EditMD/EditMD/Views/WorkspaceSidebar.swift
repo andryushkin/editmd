@@ -636,7 +636,7 @@ struct WorkspaceSidebar: View {
                                 ForEach(Array(members.enumerated()), id: \.element.id) { i, ws in
                                     workspaceGroup(
                                         ws,
-                                        baseIndent: SidebarTree.collectionIndent,
+                                        inCollection: true,
                                         moves: SidebarMoves(position: i, count: members.count))
                                 }
                             }
@@ -827,12 +827,15 @@ struct WorkspaceSidebar: View {
 
     // MARK: - Workspace group
 
-    /// `baseIndent` offsets the root and everything under it: a root inside a
-    /// collection hangs off the collection's label column, so each level below
-    /// keeps its own step and the hierarchy still reads as one ladder.
+    /// A root inside a collection hangs off the collection's label column, so
+    /// the whole subtree is offset by `baseIndent` and each level below keeps
+    /// its own step — the hierarchy still reads as one ladder. Membership is
+    /// the parameter and the indent follows from it: the rows below carry the
+    /// placement in their identity (`SidebarSubtreeRowID`).
     @ViewBuilder private func workspaceGroup(
-        _ ws: WorkspaceModel.Workspace, baseIndent: CGFloat = 0, moves: SidebarMoves
+        _ ws: WorkspaceModel.Workspace, inCollection: Bool = false, moves: SidebarMoves
     ) -> some View {
+        let baseIndent: CGFloat = inCollection ? SidebarTree.collectionIndent : 0
         let selected = isActive(ws.url)
         // Mark the owning root through its icon when the open file lives inside it.
         let ownsActive = selected || containsActiveFile(ws)
@@ -896,6 +899,9 @@ struct WorkspaceSidebar: View {
             // Folders first (md-bearing; empty only with eye), then files.
             // contentEpoch: re-scan when New File/Folder mutates disk.
             let _ = workspace.contentEpoch
+            // `.id` carries the root's placement (see `SidebarSubtreeRowID`):
+            // without it a root that joins or leaves a collection keeps its
+            // already rendered subtree on the old column.
             ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
@@ -903,6 +909,7 @@ struct WorkspaceSidebar: View {
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
+                    .id(SidebarSubtreeRowID(sub, inCollection: inCollection))
             }
             // User-created empty folders stay visible; only found-on-disk empties
             // hide behind the eye.
@@ -913,6 +920,7 @@ struct WorkspaceSidebar: View {
                               selectedFiles: $selectedFiles,
                               selectionAnchor: $selectionAnchor,
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
+                    .id(SidebarSubtreeRowID(sub, inCollection: inCollection))
             }
             if showHidden {
                 ForEach(filteredFolders(workspace.unkeptEmptySubfolders(in: ws.url)), id: \.self) { sub in
@@ -922,16 +930,19 @@ struct WorkspaceSidebar: View {
                                   selectedFiles: $selectedFiles,
                                   selectionAnchor: $selectionAnchor,
                                   onOpen: onOpen, onOpenFolder: onOpenFolder)
+                        .id(SidebarSubtreeRowID(sub, inCollection: inCollection))
                 }
             }
             ForEach(workspace.visibleFiles(ws).filter { nameMatches($0.lastPathComponent) },
                     id: \.self) { url in
                 fileRow(url, in: ws, hidden: false, baseIndent: baseIndent)
+                    .id(SidebarSubtreeRowID(url, inCollection: inCollection))
             }
             if showHidden {
                 ForEach(workspace.hiddenFilesList(ws).filter { nameMatches($0.lastPathComponent) },
                         id: \.self) { url in
                     fileRow(url, in: ws, hidden: true, baseIndent: baseIndent)
+                        .id(SidebarSubtreeRowID(url, inCollection: inCollection))
                 }
             }
         }

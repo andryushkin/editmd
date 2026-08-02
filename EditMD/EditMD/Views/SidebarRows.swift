@@ -14,6 +14,23 @@ enum SidebarTree {
     static let collectionIndent: CGFloat = chevronWidth + rowSpacing
 }
 
+/// Identity of a row under an adopted root, placement included. Joining or
+/// leaving a collection changes nothing about a row except the indent it
+/// inherits, and the sidebar's lazy stack keeps rows it has already realized:
+/// the root's header moved to the collection's column while its whole subtree
+/// stayed on the old ladder until the next launch. Carrying the placement in
+/// the identity ends those rows' lifetime, so the subtree is rendered with the
+/// indent its root has now.
+struct SidebarSubtreeRowID: Hashable {
+    let path: String
+    let inCollection: Bool
+
+    init(_ url: URL, inCollection: Bool) {
+        path = url.standardizedFileURL.path
+        self.inCollection = inCollection
+    }
+}
+
 // MARK: - File row
 
 /// One file row: doc icon, name (+ optional path subtitle), active tint, hover
