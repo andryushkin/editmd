@@ -69,7 +69,7 @@ Five things follow a push, and the maintainer expects all of them:
       `dist/EditMD-v<version>.dmg`. Fail-closed by design, so a DMG it
       reports as done is safe to attach; `--adhoc` tests packaging only and
       must never be distributed. `gh release upload vX.Y.Z dist/EditMD-vX.Y.Z.dmg`.
-   6. **Site** (`~/Server/dotmdtools`): rewrite
+   6. **Site** (`~/dev/dotMD/dotmdtools`): rewrite
       `content/editmd-changelog.md` — the site's rule is that this page is
       **rewritten, not copied**: drop the New Features / Improvements / Bug
       Fixes headings and give each entry a bold lead naming the change and a

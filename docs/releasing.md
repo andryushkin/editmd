@@ -54,7 +54,7 @@ check in [integration.md](integration.md)). Until the site is redeployed the
 feed still names the previous version, so nobody is told anything:
 
 ```bash
-cd ~/Server/dotmdtools && uv run build.py && npx wrangler deploy
+cd ~/dev/dotMD/dotmdtools && uv run build.py && npx wrangler deploy
 ```
 
 Always both commands, in that order — `dist/` is gitignored, so deploying
