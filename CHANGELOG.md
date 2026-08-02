@@ -3,6 +3,24 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.47.16 - 2026-08-02
+
+### Improvements
+
+- The sidebar marks the branch the open document is in: every folder above it
+  is filled, and the folder holding it is accented — the adopted folder and the
+  collection that own it included, so a collapsed collection still says the
+  document is somewhere inside. A filled folder used to mean "expanded", which
+  left a lit trail behind every branch you had walked through.
+- Collections and adopted folders have glyphs of their own, so a collection no
+  longer reads as one more folder among the folders it contains.
+
+### Bug Fixes
+
+- A folder dragged into a collection takes its contents with it. The header
+  moved to the collection's column while everything below it stayed on the old
+  one, and only a relaunch straightened the tree out.
+
 ## v0.47.15 - 2026-08-01
 
 ### New Features
