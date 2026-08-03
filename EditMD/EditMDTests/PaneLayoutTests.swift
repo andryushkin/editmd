@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// B1: side panels must never overflow their slots and overlap when the window
+/// Side panels must never overflow their slots and overlap when the window
 /// is too narrow — `resolveSidePaneWidths` clamps the rigid panel widths so the
 /// flexible editor keeps its floor and every pane stays side-by-side. Divider
 /// drags invert that clamp so a resize keeps the *preferred* width.

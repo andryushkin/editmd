@@ -1,9 +1,8 @@
 import Foundation
 
 /// Pure wiki-link machinery shared by the app's `WikiLinkResolver` actor and
-/// the offline `editmdctl` engine (plan 10): building the basename index over
-/// workspace roots and looking targets up in a captured snapshot. No AppKit,
-/// no app state.
+/// the offline `editmdctl` engine: basename index over workspace roots +
+/// lookups in a captured snapshot. No AppKit, no app state.
 enum WikiLinkCore {
 
     /// Every file EditMD can display directly may be a `[[target]]`.

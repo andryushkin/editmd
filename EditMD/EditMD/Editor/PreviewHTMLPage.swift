@@ -2,29 +2,19 @@ import Foundation
 
 // MARK: - Full page for Preview's WKWebView
 
-/// A rendered Preview page plus the one capability of its shell that outlives
-/// the load: whether the KaTeX assets are actually embedded in it.
-///
-/// The live `innerHTML` path needs that bit to decide when a document that
-/// grew its first formula requires a new shell. It MUST come from here rather
-/// than a second scan of the markdown: `markdownHTMLRender` strips YAML
-/// frontmatter before it looks for math, so `$…$` inside frontmatter would
-/// otherwise claim assets the page never received — and every later formula in
-/// the body would sit there as raw TeX, because no reload was ever triggered.
+/// Rendered Preview page + whether the shell embeds the KaTeX assets. The live
+/// `innerHTML` path needs the bit to reload when a document grows its first
+/// formula, and it must come from the render, not a rescan: `markdownHTMLRender`
+/// strips frontmatter before looking for math, so `$…$` there would claim
+/// assets the page never received and later formulas would stay raw TeX.
 struct PreviewPageRender {
     let html: String
     let hasMathAssets: Bool
 }
 
-/// Wraps the rendered body in a standalone page. Colors follow the system
-/// appearance via `color-scheme` + CSS system colors, so the WKWebView tracks
-/// the app's light/dark toggle without reloading.
-///
-/// Typography mirrors the editor (FSNotes' getPreviewStyle idea): the body
-/// uses the editor's exact font size and page padding matches the editor's
-/// `textContainerInset` (`insetH` / `insetV`), so toggling edit↔preview
-/// doesn't jump. Top gap under the action strip is controlled by Vertical
-/// margin in Settings — not a hardcoded 24px.
+/// Wraps the rendered body in a standalone page. `color-scheme` + CSS system
+/// colors track light/dark without reloading; body font size and padding mirror
+/// the editor's `textContainerInset` so toggling edit↔preview doesn't jump.
 func previewHTMLPage(markdown: String,
                      fontSize: CGFloat,
                      insetH: CGFloat = 32,
@@ -55,19 +45,17 @@ func previewHTMLPageRender(markdown: String,
                            /// Top (and minimum bottom) page padding — Settings ▸ Vertical.
                            insetV: CGFloat = 24,
                            lineHeight: CGFloat = 1.6,
-                           /// A centered reading column; `0` disables it (full width,
-                           /// left-aligned to `insetH` — matches the editor's inset
-                           /// so toggling edit↔preview doesn't shift the text).
+                           /// Centered reading column; `0` = full width aligned
+                           /// to `insetH` (matches the editor inset).
                            columnWidth: CGFloat = 0,
                            fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
                            fontWeight: Int = 400,
                            elements: ElementStyles = ElementStyles(),
-                           /// Base text / link color overrides (hex). Nil keeps the
-                           /// adaptive system colors (Canvas/CanvasText/LinkText).
+                           /// Base text / link hex overrides; nil keeps adaptive
+                           /// system colors (Canvas/CanvasText/LinkText).
                            textColorHex: String? = nil,
                            accentColorHex: String? = nil,
-                           /// `PreviewTheme.css` — a rules layer between the base
-                           /// CSS and the user's element CSS (base < theme < user).
+                           /// `PreviewTheme.css` layer: base < theme < user.
                            themeCSS: String = "",
                            gutter: PreviewGutterOptions = .off,
                            syntaxHighlighting: Bool = true,
@@ -75,29 +63,24 @@ func previewHTMLPageRender(markdown: String,
     let (body, hasMath) = markdownHTMLRender(markdown, imageResolver: imageResolver,
                                              gutter: gutter,
                                              syntaxHighlighting: syntaxHighlighting)
-    // KaTeX is ~640 KB inline (JS + CSS with data-URI fonts) — embedded only
-    // when the document actually contains math. Without the assets the page
-    // shows raw TeX (`.math` spans keep their escaped source text).
+    // KaTeX is ~640 KB inline — embedded only when the document has math;
+    // without assets `.math` spans show raw TeX.
     let mathAssets = hasMath && KaTeXResources.isAvailable
     let mathHead = mathAssets ? "<style>\n\(KaTeXResources.css)\n</style>" : ""
-    // Preview is a document viewer, not a script host — and a markdown file is
-    // untrusted input (a vault syncs, a repo is cloned). A nonce'd script-src
-    // is what actually enforces that: the shell's own scripts carry the nonce,
-    // while raw-HTML `<script>` AND inline event handlers (`<img onerror=…>`,
-    // the vector `previewSafeRawHTML` alone cannot reach) have none and never
-    // run. Verified against WebKit: WKUserScript (the selection bridge) and
-    // evaluateJavaScript/callAsyncJavaScript are host-privileged and bypass CSP,
-    // and `el.onclick = fn` from our own script keeps working — only handlers
-    // parsed out of markup are blocked. Styles stay 'unsafe-inline': the page
-    // bakes its CSS inline and hljs tokens carry `style="--tl:…"`.
+    // CSP: markdown is untrusted input; Preview is a viewer, not a script host.
+    // Nonce'd script-src enforces it — shell scripts carry the nonce; raw-HTML
+    // `<script>` and inline handlers (`<img onerror=…>`, the vector
+    // `previewSafeRawHTML` alone cannot reach) never run. Verified: WKUserScript
+    // and evaluateJavaScript are host-privileged and bypass CSP; `el.onclick =
+    // fn` from our script still works — only handlers parsed from markup are
+    // blocked. Styles stay 'unsafe-inline' (inline CSS + hljs `--tl:` tokens).
     let scriptNonce = UUID().uuidString
     let csp = "default-src 'none'; "
         + "img-src data: https: http:; media-src data: https: http:; "
         + "style-src 'unsafe-inline'; font-src data:; "
         + "script-src 'nonce-\(scriptNonce)'"
-    // The library stays outside #preview-content so live innerHTML replacement
-    // cannot remove it. Rendering newly inserted math is handled by the shared
-    // hydrate function below rather than a one-shot page-load script.
+    // Library sits outside #preview-content so live innerHTML swaps cannot
+    // remove it; newly inserted math renders via the shared hydrate function.
     let mathScripts = mathAssets ? """
     <script nonce="\(scriptNonce)">
     \(KaTeXResources.js)
@@ -107,8 +90,8 @@ func previewHTMLPageRender(markdown: String,
     let margin = columnWidth > 0 ? "0 auto" : "0"
     let bodyColor = textColorHex ?? "CanvasText"
     let accentColor = accentColorHex ?? "LinkText"
-    // Bottom keeps a comfortable scroll pad when Vertical is small; top is
-    // exactly insetV so the strip→title gap matches Source/Visual.
+    // Top is exactly insetV (strip→title gap matches Source/Visual); bottom
+    // keeps a scroll pad when Vertical is small.
     let padTop = Int(insetV.rounded())
     let padBottom = Int(max(64, insetV).rounded())
     let padH = Int(insetH.rounded())
@@ -122,12 +105,9 @@ func previewHTMLPageRender(markdown: String,
     let lineNumberGapPx = Int(PreviewGutterMetrics.gapPx)
     let padHLeft = padH + Int(PreviewGutterMetrics.railPx(for: gutter))
 
-    // Per-element rules generated from ElementStyles — appended after the base
-    // rules AND the theme layer so they win. Heading size uses `em` (= the
-    // scale), matching how Visual multiplies its base size, so the two modes
-    // stay consistent. Values still at their defaults emit nothing: the base
-    // rules below carry the same numbers, and staying silent is what lets a
-    // theme restyle an element the user never touched.
+    // ElementStyles rules appended after base AND theme so they win. Heading
+    // size in `em`, matching Visual's base-size multiply. Default values emit
+    // nothing — silence lets a theme restyle untouched elements.
     func numstr(_ v: CGFloat) -> String { String(format: "%.4g", v) }
     let defaultElements = ElementStyles()
     var elementCSS = ""

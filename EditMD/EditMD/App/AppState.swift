@@ -1,10 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// App-wide delayed progress state for operations that may outlive an
-/// interaction frame. Work starts (and input is blocked) immediately, while
-/// the visual indicator appears only after a short delay to avoid flashing for
-/// fast operations. Multiple callers can overlap safely.
+/// App-wide delayed progress: input blocks immediately, the indicator appears
+/// only after `revealDelay` (no flash for fast ops). Overlapping callers safe.
 @MainActor
 final class LongRunningOperationCenter: ObservableObject {
     struct Operation: Identifiable, Equatable, Sendable {
@@ -108,8 +106,8 @@ enum EditorOpenReason: Sendable {
     case finder
 }
 
-/// Existing in-app navigation preserves the user's current mode. Creation and
-/// Finder/Dock opens have explicit read/write-first defaults.
+/// In-app navigation keeps the mode; create → Visual (write-first),
+/// Finder/Dock → Preview (read-first).
 func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
     switch reason {
     case .existing: return nil
@@ -118,24 +116,21 @@ func editorModeOverride(for reason: EditorOpenReason) -> EditorMode? {
     }
 }
 
-/// Cold-launch reset for editor mode. The mode is sticky within a session
-/// (`@AppStorage("editorMode")`) but must NOT survive a relaunch — every cold
-/// launch starts in read-first Preview. Also drops the orphaned per-document
-/// mode map left in prefs by older builds (`EditorModeStore`, since removed) —
-/// nothing reads that key anymore, so this is pure hygiene, not a guard.
-/// The raw reset. Whether a launch may run it is decided by
-/// `AppState.applyColdLaunchEditorMode()` — a launch caused by an `editmd://`
-/// URL delivers the open BEFORE `applicationDidFinishLaunching`, so the reset
-/// has to stand aside for a mode that open has already picked or reserved.
-/// A free function so it can be unit-tested against an injected `UserDefaults`.
+/// Raw cold-launch reset: editor mode is session-sticky
+/// (`@AppStorage("editorMode")`) but must NOT survive relaunch — cold launch
+/// starts in Preview. Also drops the orphaned `editorMode.byPath` key of the
+/// removed EditorModeStore (hygiene only, nothing reads it).
+/// Gated by `AppState.applyColdLaunchEditorMode()`: an `editmd://` launch
+/// delivers its open BEFORE `applicationDidFinishLaunching`, so the reset must
+/// stand aside for a mode that open picked or reserved. Free function for
+/// testing against injected `UserDefaults`.
 func resetEditorModeForColdLaunch(_ defaults: UserDefaults) {
     defaults.set(EditorMode.preview.rawValue, forKey: "editorMode")
     defaults.removeObject(forKey: "editorMode.byPath")
 }
 
-/// Pure queue behind `AppState`'s filesystem-mutation routing gate. Keeping the path
-/// bookkeeping separate makes the suspension/replay contract deterministic
-/// and testable without opening real app windows.
+/// Pure queue behind `AppState`'s fs-mutation routing gate; keeps the
+/// suspend/replay contract deterministic and testable without app windows.
 struct PathMutationRouteQueue {
     enum Destination: Equatable, Sendable {
         case main
@@ -241,18 +236,14 @@ struct PathMutationRouteQueue {
     }
 }
 
-/// App-wide window routing state (Phase 2 of the move off DocumentGroup).
+/// App-wide window routing. Main window = single `Window` scene showing
+/// `currentURL` (file editor or folder card); opening in place is a mutation of
+/// that property. Lite windows = value-based `WindowGroup` (files only).
 ///
-/// The MAIN workspace window is a single `Window` scene that shows whatever
-/// `currentURL` points at — a markdown file (editor) or a directory (folder
-/// info card). Opening "in place" is just a mutation of this property.
-/// Separate (lite) windows are value-based `WindowGroup` windows opened via
-/// the captured `openWindow` action (files only).
-///
-/// SwiftUI's `openWindow`/`Window` actions only exist inside a live scene, so
-/// the main window view hands them here on appear; AppKit-side callers (the
-/// `AppDelegate` Finder-open handler, menu commands) then drive windows through
-/// this object. Opens that arrive before a scene is alive are buffered.
+/// SwiftUI window actions exist only inside a live scene, so the main view
+/// hands them here on appear; AppKit callers (Finder-open handler, menu
+/// commands) drive windows through this object. Opens arriving before a scene
+/// is alive are buffered.
 @MainActor
 final class AppState: ObservableObject {
 
@@ -282,31 +273,28 @@ final class AppState: ObservableObject {
     private weak var mainWindow: NSWindow?
     private let defaults: UserDefaults
 
-    /// Pending control-channel jump (url + UTF-16 markdown offset), consumed
-    /// by the main window once the target file is mounted. Replaces the old
-    /// fixed-delay notification, which silently dropped the jump whenever the
-    /// file took longer than the timer to open.
+    /// Pending control-channel jump (url + UTF-16 offset), consumed once the
+    /// target mounts — a fixed-delay notification dropped jumps on slow opens.
     private var pendingControlJump: (url: URL, offset: Int)?
 
-    /// True once an open has chosen the editor mode for this launch. An open
-    /// that arrived before `applicationDidFinishLaunching` (a launch-by-URL
-    /// does) must not be overruled by the cold-launch reset.
+    /// True once an open picked this launch's editor mode. An open arriving
+    /// before `applicationDidFinishLaunching` (launch-by-URL) must not be
+    /// overruled by the cold-launch reset.
     private(set) var didApplyEditorModeOverride = false
 
-    /// Creates that have not landed yet and will pick the mode when they do
-    /// (a clip writes on a background task). They hold off the cold-launch
-    /// reset without touching `editorMode` — the setting is global, so writing
-    /// Visual up front would yank the document the user is reading into Visual
-    /// for the length of the write, and leave it there if the write fails.
+    /// In-flight creates that will pick the mode when they land (a clip writes
+    /// off-main). They hold off the cold-launch reset WITHOUT writing
+    /// `editorMode`: the setting is global, so writing Visual up front would
+    /// yank the current document into Visual — and strand it there on a failed
+    /// write.
     private var pendingCreatedModeClaims = 0
 
     /// Set when the cold-launch reset stood aside for a reservation; it is
     /// replayed if that create never lands.
     private var coldLaunchResetDeferred = false
 
-    /// True while an open has picked this launch's editor mode, or a create in
-    /// flight has reserved the right to pick it. Read by launch-time work that
-    /// must not steal a window someone else is already filling.
+    /// An open picked the mode, or an in-flight create reserved the right.
+    /// Launch-time work must not steal a window someone else is filling.
     var hasEditorModeClaim: Bool {
         didApplyEditorModeOverride || pendingCreatedModeClaims > 0
     }
@@ -317,9 +305,8 @@ final class AppState: ObservableObject {
 
     // MARK: Control-channel jump
 
-    /// Control channel requests a caret/scroll jump. If the target is already
-    /// mounted, the notification handler consumes it immediately; otherwise
-    /// ContentView consumes it on mount (onAppear / fileURL change).
+    /// Caret/scroll jump: consumed immediately when the target is mounted,
+    /// else by ContentView on mount (onAppear / fileURL change).
     func requestControlJump(url: URL, offset: Int) {
         pendingControlJump = (url.standardizedFileURL, offset)
         NotificationCenter.default.post(name: .editMDControlJump, object: nil)
@@ -335,28 +322,25 @@ final class AppState: ObservableObject {
 
     // MARK: Back/Forward
 
-    /// True when the main window (the one whose trail the history tracks) is
-    /// key. The mouse side buttons gate on this so a click from a detached
-    /// lite window doesn't quietly spin the main window's history.
+    /// Gates the mouse side buttons: a click from a detached lite window must
+    /// not spin the main window's history.
     var mainWindowIsKey: Bool { mainWindow?.isKeyWindow == true }
 
-    /// View ▸ Back and the mouse "back" button. No-op at the start of history.
+    /// View ▸ Back / mouse "back". No-op at the start of history.
     func historyBack() {
         DocumentHistory.shared.goBack { navigateToHistory($0) }
     }
 
-    /// View ▸ Forward and the mouse "forward" button. No-op at the tip.
+    /// View ▸ Forward / mouse "forward". No-op at the tip.
     func historyForward() {
         DocumentHistory.shared.goForward { navigateToHistory($0) }
     }
 
-    /// Opens a history entry in the main window and restores its remembered
-    /// caret offset. Always the main window — Back/Forward is that window's own
-    /// trail, so a target already open in a detached lite window is still
-    /// brought back in place rather than stealing focus to the lite window
-    /// (whose non-main editor would drop the caret restore). The restore rides
+    /// Always the main window — Back/Forward is that window's own trail, so a
+    /// target open in a lite window is still brought back in place (the lite
+    /// window's non-main editor would drop the caret restore). Restore rides
     /// the control-jump path; `openInMainWindow` re-records the same URL as a
-    /// no-op because `DocumentHistory` has already moved its index onto it.
+    /// no-op because `DocumentHistory` already moved its index onto it.
     private func navigateToHistory(_ visit: DocumentHistory.Visit) {
         requestControlJump(url: visit.url, offset: visit.offset)
         openInMainWindow(visit.url)
@@ -367,14 +351,13 @@ final class AppState: ObservableObject {
 
     // MARK: Scene wiring
 
-    /// Called from the main window's `onAppear` — captures the environment's
-    /// window action and flushes anything that wanted a window before now.
+    /// Main window's `onAppear`: capture the window action, flush buffered opens.
     func bindOpenWindow(_ action: OpenWindowAction) {
         openWindow = action
         let pending = pendingSeparateURLs
         pendingSeparateURLs.removeAll()
         // Re-enter the ordinary route so a path-mutation gate installed while
-        // the scene was unavailable can defer and relocate this URL too.
+        // the scene was unavailable can defer/relocate this URL too.
         for url in pending { openInSeparateWindow(url) }
     }
 
@@ -384,12 +367,11 @@ final class AppState: ObservableObject {
 
     // MARK: Routing
 
-    /// Routes a file opened from Finder per the Lite-mode setting.
-    /// Always starts in Preview — Finder/Dock opens are read-first; mode
-    /// switches still persist for subsequent in-app opens (sidebar, wiki, etc.).
+    /// Finder open, routed per Lite-mode setting. Starts in Preview
+    /// (read-first); later mode switches persist for in-app opens.
     func handleOpen(_ url: URL) {
         applyEditorModeOverride(for: .finder)
-        // Finder only delivers files (and packages); folders come from the sidebar.
+        // Finder delivers only files/packages; folders come from the sidebar.
         if EditorSettings.shared.general.liteMode {
             openInSeparateWindow(url)
         } else {
@@ -397,8 +379,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Shows the welcome home screen in the main window (cold-start default;
-    /// also reachable via View ▸ Welcome when we add it later).
+    /// Welcome home screen in the main window (cold-start default).
     func showWelcome() {
         isUntitled = false
         currentURL = nil
@@ -413,8 +394,7 @@ final class AppState: ObservableObject {
         openWindow?(id: WindowID.main)
     }
 
-    /// Opens a file that EditMD has just created. New documents start in the
-    /// write-first Visual mode; ordinary navigation keeps the selected mode.
+    /// Open a file EditMD just created — starts in write-first Visual.
     func openCreatedFile(_ url: URL) {
         applyEditorModeOverride(for: .created)
         openInMainWindow(url)
@@ -447,16 +427,15 @@ final class AppState: ObservableObject {
             WorkspaceModel.shared.noteActive(std)
             DocumentHistory.shared.recordVisit(std)
         } else {
-            // Explicit nil → welcome (not a scratch). Callers that want New
-            // use `openUntitled()`.
+            // Explicit nil → welcome, not a scratch (New = `openUntitled()`).
             isUntitled = false
             currentURL = nil
         }
         openWindow?(id: WindowID.main)
     }
 
-    /// Opens `url` in its own sidebar-less window. Buffered if no scene has
-    /// handed us the action yet. Folders are rejected (no lite folder UI).
+    /// Sidebar-less lite window. Buffered until a scene hands over the action;
+    /// folders rejected (no lite folder UI).
     func openInSeparateWindow(_ url: URL) {
         openInSeparateWindow(url, ignoringPathMutationIDs: [])
     }
@@ -498,10 +477,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Defers every route into `url` while detached filesystem work is
-    /// suspended. This closes the reentrancy window where Finder/control
-    /// opens could create a URL-bound registry entry after preflight but
-    /// before a file or folder reaches its destination.
+    /// Defers every route into `url` while detached fs work runs — closes the
+    /// reentrancy window where a Finder/control open could create a URL-bound
+    /// registry entry between preflight and the item reaching its destination.
     @discardableResult
     func beginPathMutation(at url: URL) -> UUID {
         pathMutationRoutes.begin(at: url)
@@ -511,22 +489,21 @@ final class AppState: ObservableObject {
         pathMutationRoutes.isBlocked(url)
     }
 
-    /// Releases routes buffered by `beginPathMutation`. Call the matching
-    /// `relocateFile`/`relocateFolder` first on success so queued URLs follow
-    /// the destination; on failure they replay at their original paths.
+    /// Releases routes buffered by `beginPathMutation`. On success call
+    /// `relocateFile`/`relocateFolder` FIRST so queued URLs follow the
+    /// destination; on failure they replay at their original paths.
     func finishPathMutation(_ id: UUID) {
         replay(pathMutationRoutes.finish(id))
     }
 
-    /// Drops opens aimed at a path whose rollback left no unambiguous file.
-    /// Replaying such a route would either open a duplicate source or create a
-    /// new document at a path that no longer exists.
+    /// Drops opens aimed at a path whose rollback left no unambiguous file —
+    /// replaying would open a duplicate source or create at a dead path.
     func discardPathMutation(_ id: UUID) {
         finishPathMutations([id], discardingRouteIDs: [id])
     }
 
-    /// Releases every source/destination gate of one filesystem transaction
-    /// in one step so deferred window routes replay in user-request order.
+    /// Releases all gates of one fs transaction in one step so deferred window
+    /// routes replay in user-request order.
     func finishPathMutations(
         _ ids: Set<UUID>,
         discardingRouteIDs: Set<UUID> = []
@@ -538,9 +515,9 @@ final class AppState: ObservableObject {
             discardingRouteIDs: discardingRouteIDs))
     }
 
-    /// Drops navigation state under roots whose files no longer exist —
-    /// discarded move destinations and trashed folders. Sends the main window
-    /// to Welcome when it pointed inside, and prunes DocumentHistory.
+    /// Drops navigation state under roots whose files no longer exist
+    /// (discarded move destinations, trashed folders): main window → Welcome
+    /// when it pointed inside; DocumentHistory pruned.
     func discardPathState(inside roots: [URL]) {
         guard !roots.isEmpty else { return }
         let isDropped: (URL) -> Bool = { url in
@@ -567,9 +544,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Captures and closes every presentation of a file before its path moves.
-    /// The singleton main window stays alive on Welcome; value-based lite
-    /// windows close and are recreated with the destination URL.
+    /// Capture + close every presentation of a file before its path moves.
+    /// Main window (singleton) parks on Welcome; lite windows close and are
+    /// recreated at the destination URL.
     func detachFileForMove(_ url: URL) -> FilePresentationState {
         let source = url.standardizedFileURL
         let wasInMain = currentURL?.standardizedFileURL == source
@@ -597,8 +574,8 @@ final class AppState: ObservableObject {
             focus: focus)
     }
 
-    /// Restores the same main/lite presentation topology after a move (or at
-    /// the old URL after rollback), reopening the previously focused kind last.
+    /// Restores the main/lite topology after a move (or at the old URL after
+    /// rollback); the previously focused kind reopens last.
     func restoreFilePresentation(
         _ state: FilePresentationState,
         at url: URL,
@@ -645,15 +622,14 @@ final class AppState: ObservableObject {
 
     // MARK: URL scheme (`editmd://`)
 
-    /// Entry point for the `editmd://` scheme, called from the AppDelegate both
-    /// for a running app and for a cold launch. Any web page can open such a
-    /// URL, so this path only ever CREATES a file — it never overwrites,
-    /// deletes, or interprets the body (see `EditMDURLCommand`).
+    /// `editmd://` entry (running app and cold launch). Untrusted — any web
+    /// page can open it, so this path only ever CREATES a file; never
+    /// overwrites, deletes, or interprets the body
+    /// (docs/integration.md § URL scheme).
     func handleURLCommand(_ url: URL) {
         guard let command = EditMDURLCommand.parse(url) else {
-            // Command word only: the query carries the note's title and, with
-            // the reserved `content=`, its whole body — that must not land in
-            // the unified log.
+            // Log the command word only: the query carries the title and (via
+            // reserved `content=`) the body — must not land in the unified log.
             urlSchemeLog.notice(
                 "ignored editmd:// command \(url.host ?? "(none)", privacy: .public)")
             return
@@ -664,14 +640,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// `editmd://new` — write the pasteboard into a new file and open it.
-    ///
-    /// Only the pasteboard read and the workspace lookup happen on the main
-    /// actor; creating the folder and writing up to a few MB runs off it, so a
-    /// slow or network-mounted vault cannot freeze the UI from a URL any web
-    /// page can open. Across that suspension the launch's editor mode is only
-    /// *reserved* — Visual is written by `openCreatedFile` once the file
-    /// exists, and a failed write leaves the mode exactly as it was.
+    /// `editmd://new` — pasteboard → new file, then open it.
+    /// Main actor: pasteboard read + workspace lookup only; folder create and
+    /// the (up to a few MB) write run off it — a slow/network vault must not
+    /// freeze the UI from a URL any page can open. Across that suspension the
+    /// editor mode is only *reserved*: Visual is written by `openCreatedFile`
+    /// once the file exists; a failed write leaves the mode untouched.
     private func createClip(_ clip: EditMDURLCommand.NewClip) {
         let body = clip.usesClipboard
             ? (NSPasteboard.general.string(forType: .string) ?? "")
@@ -686,9 +660,8 @@ final class AppState: ObservableObject {
                     case .folder(let chosen):
                         folder = chosen
                     case .starterFolder:
-                        // The launch may be seeding that folder right now, and
-                        // on a launch caused by this very clip it has not run
-                        // yet: one owner answers both.
+                        // Seeding may be racing (or not started yet on a
+                        // launch-by-clip): one owner answers both.
                         folder = try await StarterFolderOwner.shared.folder()
                     }
                     return try ClipFile.write(body, baseName: clip.name, in: folder)
@@ -696,8 +669,8 @@ final class AppState: ObservableObject {
                 WorkspaceModel.shared.noteFilesystemChange()
                 urlSchemeLog.info(
                     "created clip \(url.lastPathComponent, privacy: .private)")
-                // The handoff comes from a browser window; without this the new
-                // file opens behind it when EditMD was already running.
+                // Handoff comes from a browser window; without this the file
+                // opens behind it when EditMD was already running.
                 NSApp.activate()
                 openCreatedFile(url)
                 endEditorModeReservation()
@@ -712,9 +685,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Collects the destination inputs — the Web clips setting and the sidebar's
-    /// adopted roots — on the main actor. The decision itself, and the stat
-    /// that validates a folder, run off it (see `createClip`).
+    /// Collects destination inputs (Web clips setting, adopted roots) on the
+    /// main actor; the decision and the validating stat run off it (`createClip`).
     static func clipDestination(
         for clip: EditMDURLCommand.NewClip,
         settings: EditorSettings = .shared,
@@ -731,8 +703,8 @@ final class AppState: ObservableObject {
             activeWorkspaceRoot: workspace.activeWorkspaceRoot)
     }
 
-    /// Editable documents live in DocumentRegistry; PDFs and images bypass it
-    /// but still expose representedURL on their AppKit window.
+    /// Editable documents live in DocumentRegistry; PDFs/images bypass it but
+    /// still expose representedURL on their window.
     static func openDocumentURLsForDiskMutation() -> [URL] {
         let representedFiles = NSApp.windows.compactMap(\.representedURL).filter {
             !isFolder($0)
@@ -740,8 +712,7 @@ final class AppState: ObservableObject {
         return Array(Set(DocumentRegistry.shared.openURLs + representedFiles))
     }
 
-    /// True for a real directory on disk that is not a package (`.textbundle`
-    /// is a document, not a folder panel target).
+    /// Real on-disk directory that is not a package (`.textbundle` = document).
     nonisolated static func isFolder(_ url: URL) -> Bool {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
@@ -755,15 +726,14 @@ final class AppState: ObservableObject {
         // Same key as ContentView's `@AppStorage("editorMode")`.
         defaults.set(mode.rawValue, forKey: "editorMode")
         didApplyEditorModeOverride = true
-        // The launch's mode is settled; nothing left for the reset to replay.
+        // Mode settled; nothing left for the reset to replay.
         coldLaunchResetDeferred = false
     }
 
     // MARK: Cold-launch editor mode
 
-    /// `applicationDidFinishLaunching`: a cold launch starts in read-first
-    /// Preview — unless an open has already picked the mode, or a create is in
-    /// flight that will pick it (`reserveEditorModeForCreate`). A reservation
+    /// From `applicationDidFinishLaunching`. Cold launch → Preview, unless an
+    /// open picked the mode or an in-flight create reserved it; a reservation
     /// that never lands replays this reset instead.
     func applyColdLaunchEditorMode() {
         guard !hasEditorModeClaim else {
@@ -773,16 +743,15 @@ final class AppState: ObservableObject {
         resetEditorModeForColdLaunch(defaults)
     }
 
-    /// Claims the launch's editor mode for a create that has not finished yet,
-    /// without writing it: only the *right* to pick is reserved here, the mode
-    /// itself is applied by `openCreatedFile` once the file exists.
+    /// Reserves only the *right* to pick the mode for an unfinished create;
+    /// the mode itself is applied by `openCreatedFile` once the file exists.
     func reserveEditorModeForCreate() {
         pendingCreatedModeClaims += 1
     }
 
-    /// Balances `reserveEditorModeForCreate`. When no create picked a mode
-    /// after all and the cold-launch reset stood aside for this reservation,
-    /// the reset runs now so the launch still ends in Preview.
+    /// Balances `reserveEditorModeForCreate`. If no create picked a mode and
+    /// the reset stood aside for this reservation, run it now (launch still
+    /// ends in Preview).
     func endEditorModeReservation() {
         pendingCreatedModeClaims = max(0, pendingCreatedModeClaims - 1)
         guard pendingCreatedModeClaims == 0,

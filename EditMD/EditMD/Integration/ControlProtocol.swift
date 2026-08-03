@@ -1,8 +1,8 @@
 import Foundation
 
-// Control-channel protocol (v38, phase 3): JSON-lines over a unix domain
-// socket. One request line → one response line. Shared by the app server and
-// the `editmdctl` CLI (the CLI target recompiles this file).
+// Control-channel protocol: JSON-lines over a unix domain socket. One request
+// line → one response line. Shared by the app server and the `editmdctl` CLI
+// (the CLI target recompiles this file).
 //
 // Shape:
 //   → {"id":"1","cmd":"open","args":{"path":"/a.md","line":10}}
@@ -107,12 +107,12 @@ enum ControlCommandName: String, CaseIterable, Sendable {
     case marksList = "marks.list"
     case marksAdd = "marks.add"
     case diffShow = "diff.show"
-    /// D6: adopt a folder as workspace root (absolute path).
+    /// Adopt a folder as workspace root (absolute path).
     case workspaceAdd = "workspace.add"
-    /// Plan 09: harness → app presence channel.
+    /// Harness → app presence channel.
     case agentStatus = "agent-status"
-    // Plan 10 «wikillm ready»: the agent asks EditMD for the vault graph
-    // instead of walking the vault itself. Protocol output is English-only.
+    // Vault-graph commands: the agent asks EditMD instead of walking the
+    // vault itself. Protocol output is English-only.
     case linksOutgoing = "links.outgoing"
     case linksBacklinks = "links.backlinks"
     case linksResolve = "links.resolve"

@@ -1,24 +1,12 @@
 import Foundation
 import os
 
-// Per-keystroke performance instrument for the Source and Visual editors.
-//
-// Typing can drive CPU toward 100% when a per-keystroke phase (synchronous
-// highlight, Visual serialization, stats) turns heavy. This mirrors how agterm
-// and the rest of EditMD surface diagnostics: Apple unified logging under the
-// `andryushkin.EditMD` subsystem plus os_signpost intervals for Instruments — not
-// bespoke NSLog or an on-screen HUD.
-//
-// Two audiences, always on (signposts are near-free until an Instruments trace
-// records them; the warning is silent until a keystroke blows the budget):
-//   • Instruments — the `typing` signpost track shows one `keystroke` interval
-//     per edit with a nested interval per phase.
-//   • Console / `log show` — a `.warning` fires only for a slow keystroke,
-//     naming the total and the heaviest phases:
-//       log show --predicate 'subsystem == "andryushkin.EditMD" && category == "typing"' --last 5m
-//
-// Tune the threshold without a rebuild:
-//   defaults write andryushkin.EditMD EditMDTypingBudgetMs 8
+// Per-keystroke performance instrument for Source and Visual. Unified logging
+// (subsystem `andryushkin.EditMD`) + os_signpost intervals — not NSLog or a HUD.
+// Always on: signposts are near-free until an Instruments trace records them;
+// the `.warning` fires only when a keystroke blows the budget.
+//   log show --predicate 'subsystem == "andryushkin.EditMD" && category == "typing"' --last 5m
+// Tune without a rebuild: defaults write andryushkin.EditMD EditMDTypingBudgetMs 8
 
 let typingLog = Logger(subsystem: "andryushkin.EditMD", category: "typing")
 let typingSignposter = OSSignposter(subsystem: "andryushkin.EditMD", category: "typing")
@@ -29,11 +17,9 @@ let typingSignposter = OSSignposter(subsystem: "andryushkin.EditMD", category: "
 let typingBudget: Duration = .milliseconds(
     typingBudgetMs(from: UserDefaults.standard.object(forKey: "EditMDTypingBudgetMs")))
 
-/// Parses the `EditMDTypingBudgetMs` default into a millisecond budget, falling
-/// back to `fallback` for a missing, non-numeric or non-positive value. Accepts
-/// both an NSNumber (`defaults write … -int 8`) and a numeric string (the bare
-/// `defaults write … 8` form, which stores a string) — a plain `as? Double`
-/// bridges neither. Pure, so the parsing is directly testable.
+/// Parses `EditMDTypingBudgetMs`; `fallback` for missing/non-numeric/≤0.
+/// Accepts NSNumber (`-int 8`) and numeric string (bare `defaults write` stores
+/// a string) — a plain `as? Double` bridges neither. Pure, testable.
 func typingBudgetMs(from raw: Any?, fallback: Double = 16) -> Double {
     let parsed: Double?
     switch raw {
@@ -71,8 +57,8 @@ struct KeystrokeProfiler {
     mutating func phase<T>(_ name: StaticString, _ body: () -> T) -> T {
         let state = typingSignposter.beginInterval(name, id: keystrokeID)
         let start = clock.now
-        // defer so the interval always closes even if a future body throws or
-        // returns early — the timing entry and signpost stay balanced.
+        // defer: interval always closes even if a future body throws/returns
+        // early — timing entry and signpost stay balanced.
         defer {
             phases.append((name, start.duration(to: clock.now)))
             typingSignposter.endInterval(name, state)
@@ -94,8 +80,7 @@ struct KeystrokeProfiler {
     }
 }
 
-/// Formats the heaviest phases as `name=1.2ms`, largest first (top `limit`).
-/// Pure and side-effect-free so it is directly testable.
+/// Heaviest phases as `name=1.2ms`, largest first (top `limit`). Pure, testable.
 func slowKeystrokeBreakdown(_ phases: [(name: StaticString, duration: Duration)],
                             limit: Int = 4) -> String {
     phases

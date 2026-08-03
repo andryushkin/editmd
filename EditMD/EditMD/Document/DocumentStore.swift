@@ -19,56 +19,52 @@ enum DocumentMovePreparationError: LocalizedError, Equatable, Sendable {
     }
 }
 
-/// Opaque ownership token for a document parked while its path is changing.
-/// The token carries only the immutable snapshot that may cross off MainActor;
-/// the document model and undo stack stay isolated inside DocumentRegistry.
+/// Opaque token for a document parked during a path change. Carries only the
+/// immutable snapshot that may cross off MainActor; model + undo stack stay
+/// inside DocumentRegistry.
 struct DocumentMovePreparation: Sendable {
     fileprivate let id: UUID
     fileprivate let url: URL
     fileprivate let snapshot: MarkdownDocument.Snapshot?
 }
 
-/// One in-memory `MarkdownDocument` per file URL, reference-counted for open
-/// windows. Every open (Finder, sidebar, lite window) resolves its document
-/// HERE so the same file in several windows shares one model, one `content`,
-/// one save path, and one **undo stack**.
+/// One in-memory `MarkdownDocument` per file URL, refcounted per open window.
+/// Every open path resolves HERE so several windows on one file share one
+/// model, one `content`, one save path, one undo stack.
 ///
-/// When the last window leaves a file the model is **not discarded** — it goes
-/// into a session LRU cache so switching A → B → A keeps independent ⌘Z
-/// histories. `isOpen` only reflects windows that currently hold a refcount
-/// (the "already open elsewhere" modal).
+/// Last release does NOT discard the model — it parks in a session LRU so
+/// A → B → A keeps independent ⌘Z histories. `isOpen` reflects only refcount
+/// holders (the "already open elsewhere" modal).
 ///
-/// Autosave is debounced via `markDirty(_:)` (owner view on content change).
-/// Last `release` flushes dirty content to disk before parking the model.
+/// Autosave: debounced via `markDirty(_:)`; last `release` flushes dirty
+/// content before parking.
 ///
-/// **External disk changes** (another app / agent writing the open file) are
-/// picked up automatically: each live entry watches its path via
-/// `DispatchSource`, and `syncFromDiskIfNeeded` also runs on re-acquire from
-/// the session cache and when the app becomes active.
-///
-/// - **Clean** buffer → auto-reload + `ExternalChangeNotice.applied` (banner + Diff).
-/// - **Dirty** buffer → keep local text, post `.conflict` (Keep Mine / Take Disk).
+/// External disk changes: each live entry watches its path via
+/// `DispatchSource`; `syncFromDiskIfNeeded` also runs on cache re-acquire and
+/// app-becomes-active.
+/// - Clean buffer → auto-reload + `ExternalChangeNotice.applied`.
+/// - Dirty buffer → keep local text, post `.conflict` (Keep Mine / Take Disk).
 @MainActor
 final class DocumentRegistry {
 
     static let shared = DocumentRegistry()
 
-    /// How many recently closed documents keep their undo stack in memory.
+    /// Recently closed documents that keep their undo stack in memory.
     static let sessionCacheLimit = 24
 
     typealias MoveWriter = @Sendable (MarkdownDocument.Snapshot, URL) throws -> Void
 
-    /// Local history snapshots (plan 05). Injectable for tests.
+    /// Local history snapshots. Injectable for tests.
     private let revisionStore: FileRevisionStore
 
-    /// Internal (not private) so tests can spin up an isolated registry instead
-    /// of mutating the shared singleton.
+    /// Internal (not private): tests spin up isolated registries instead of
+    /// mutating the shared singleton.
     init(moveWriter: @escaping MoveWriter = DocumentRegistry.writeSnapshot,
          revisionStore: FileRevisionStore = .shared) {
         self.moveWriter = moveWriter
         self.revisionStore = revisionStore
-        // Belt-and-suspenders: FS events can miss on some volumes; re-check
-        // every open file when the user returns to EditMD.
+        // FS events can miss on some volumes; re-check every open file on
+        // return to EditMD.
         NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -84,20 +80,19 @@ final class DocumentRegistry {
         var refcount = 1
         var isDirty = false
         var autosaveTask: Task<Void, Never>?
-        /// Last known `contentModificationDate` — used to skip no-op reloads
-        /// and to ignore our own autosave writes when the event races.
+        /// Last known `contentModificationDate` — skips no-op reloads; ignores
+        /// our own autosave writes when the event races.
         var knownModDate: Date?
-        /// After external apply / conflict: ignore `markDirty` from residual
-        /// `objectWillChange` (and don't autosave) until the user actually types.
-        /// A single `suppressNextDirty` was not enough — two publishes or a
+        /// After external apply/conflict: ignore `markDirty` from residual
+        /// `objectWillChange` (and don't autosave) until the user types. A
+        /// single suppress-next flag was not enough — two publishes or a
         /// follow-up autosave wiped the status chip and/or overwrote disk.
         var holdAutosaveUntilUserEdit = false
         /// Disk content already announced as a conflict (avoid re-posting).
         var pendingConflictDiskContent: String?
         var pendingConflictDiskAssets: FileWrapper?
         var pendingConflictDiskAssetsFingerprint: DocumentAssetsFingerprint?
-        /// Last external notice payload we posted (applied or conflict) — used
-        /// so we never auto-dismiss while the user still needs Diff stats.
+        /// Never auto-dismiss while the user still needs Diff stats.
         var hasOpenExternalNotice = false
         var fileWatch: DispatchSourceFileSystemObject?
         var fileDescriptor: Int32 = -1
@@ -105,18 +100,17 @@ final class DocumentRegistry {
         var diskEventDebounce: Task<Void, Never>?
         /// Accumulated `DispatchSource.FileSystemEvent` flags for the burst.
         var pendingDiskFlags: DispatchSource.FileSystemEvent?
-        /// Content we last wrote ourselves (autosave / ⌘S). An FS echo of the
-        /// same bytes must not re-baseline dirty-line marks (C2 / v34).
+        /// Content we last wrote (autosave / ⌘S): an FS echo of the same bytes
+        /// must not re-baseline dirty-line marks.
         var lastSelfWriteContent: String?
-        /// When that write happened — the echo guard honours it only briefly,
-        /// so a LATER external writer landing identical bytes (git checkout of
-        /// the saved state) is still reported as external.
+        /// Echo guard honours the self-write only briefly — a LATER external
+        /// writer landing identical bytes (git checkout of the saved state)
+        /// still counts as external.
         var lastSelfWriteAt: Date?
-        /// Last text payload actually observed on disk. Unlike `document.content`,
-        /// this remains the pre-edit baseline while a local dirty buffer exists,
-        /// so a forced move preflight can distinguish "our unsaved edit differs
-        /// from disk" from "disk changed behind our unsaved edit" without
-        /// relying on filesystem timestamp resolution.
+        /// Last text actually observed on disk. Unlike `document.content` it
+        /// stays the pre-edit baseline while a dirty buffer exists, so move
+        /// preflight can tell "our unsaved edit differs from disk" from "disk
+        /// changed behind our edit" without trusting fs timestamp resolution.
         var knownDiskContent: String?
         var knownDiskAssetsFingerprint: DocumentAssetsFingerprint?
         init(
@@ -140,16 +134,16 @@ final class DocumentRegistry {
         case available
     }
 
-    /// A move transaction owns these models until its presentation is restored
-    /// at either the old or the new URL. This store is deliberately separate
-    /// from the ordinary 24-entry session LRU: a batch may contain any number
-    /// of open documents, and evicting one would lose its identity + undo stack.
+    /// Owned by a move transaction until its presentation is restored at old
+    /// or new URL. Deliberately separate from the capped session LRU: a batch
+    /// may hold any number of open documents; evicting one loses identity +
+    /// undo stack.
     private struct PreparedDocument {
         let id: UUID
         let document: MarkdownDocument?
-        /// Live presentations need an uncapped hand-off until DocHost re-acquires
-        /// the model. A recently closed model can return to the ordinary LRU as
-        /// soon as the transaction is cancelled or relocated.
+        /// Live presentations need an uncapped hand-off until DocHost
+        /// re-acquires; a recently closed model returns to the LRU on
+        /// cancel/relocate.
         let wasOpen: Bool
         var knownModDate: Date?
         var knownDiskContent: String?
@@ -165,33 +159,31 @@ final class DocumentRegistry {
         let knownDiskContent: String?
         let knownDiskAssetsFingerprint: DocumentAssetsFingerprint?
         let isDirty: Bool
-        /// A path transaction may change the URL (or allow a writer to race
-        /// while the model is parked). The next acquire must therefore read the
-        /// actual path even when its mtime happens to equal the old one.
+        /// A path transaction may change the URL (or let a writer race while
+        /// parked): the next acquire must read the actual path even when the
+        /// mtime equals the old one.
         let requiresDiskReconciliation: Bool
     }
 
     /// Windows currently showing the file (refcount > 0).
     private var entries: [URL: Entry] = [:]
     /// Recently released documents (undo history), most-recent first.
-    /// `knownModDate`/`knownDiskContent` describe the last disk state we synced.
-    /// Ordinary re-acquire reads only a newer file; a path transaction marks its
-    /// cache item for one mandatory actual-path reconciliation.
+    /// `knownModDate`/`knownDiskContent` = last synced disk state. Ordinary
+    /// re-acquire reads only a newer file; a path transaction marks its item
+    /// for one mandatory actual-path reconciliation.
     private var sessionCache: [CachedDocument] = []
     private var preparedDocuments: [URL: PreparedDocument] = [:]
     private let moveWriter: MoveWriter
     private let autosaveDelayNanos: UInt64 = 600_000_000
 
-    /// URLs currently held by at least one window (used to detect "already open
-    /// in another window" for the sidebar-click modal).
+    /// URLs held by at least one window ("already open elsewhere" detection).
     var openURLs: [URL] { Array(entries.keys) }
     func isOpen(_ url: URL) -> Bool { entries[url.standardizedFileURL] != nil }
     func isDirty(_ url: URL) -> Bool { entries[url.standardizedFileURL]?.isDirty ?? false }
 
-    /// True when any live entry, session-cached (recently closed) document, or
-    /// parked move document at or under `root` still holds unsaved changes.
-    /// Folder trash warns from this before the buffers are discarded — the
-    /// open-document guard alone cannot see closed dirty buffers.
+    /// Unsaved changes in any live, session-cached, or parked-move document at
+    /// or under `root`. Folder trash warns from this — the open-document guard
+    /// cannot see closed dirty buffers.
     func hasUnsavedChanges(inside rawRoot: URL) -> Bool {
         let root = rawRoot.standardizedFileURL
         if entries.contains(where: {
@@ -221,8 +213,8 @@ final class DocumentRegistry {
         let key = url.standardizedFileURL
         if let entry = entries[key] {
             entry.refcount += 1
-            // Another window opened the same file — still re-check disk in case
-            // the live model is stale (watch may have missed a write).
+            // Second window on the same file: still re-check disk — the watch
+            // may have missed a write.
             syncFromDisk(entry, skipIfNotNewer: true)
             return entry.document
         }
@@ -231,8 +223,8 @@ final class DocumentRegistry {
                 throw DocumentMovePreparationError.moveInProgress(key.lastPathComponent)
             }
             guard let document = prepared.document else {
-                // A URL-only reservation has reached its terminal state. There
-                // is no identity to restore; consume it and load the actual path.
+                // Terminal URL-only reservation: no identity to restore —
+                // consume it, load the actual path.
                 preparedDocuments.removeValue(forKey: key)
                 return try acquire(key)
             }
@@ -244,10 +236,10 @@ final class DocumentRegistry {
             entry.knownModDate = prepared.knownModDate
             entry.isDirty = prepared.isDirty
             markDirtyIfBufferDiffersFromKnownDisk(entry)
-            // Cancel/relocate can be followed by an external write before the
-            // presentation is restored. Read the *current* path before making
-            // the parked model live; knownDiskContent prevents the expected
-            // stale disk after a failed dirty write from becoming a false conflict.
+            // An external write can land between cancel/relocate and restore:
+            // read the CURRENT path before making the parked model live.
+            // knownDiskContent keeps the expected stale disk after a failed
+            // dirty write from becoming a false conflict.
             do {
                 try reconcileFromDisk(entry)
             } catch {
@@ -261,9 +253,8 @@ final class DocumentRegistry {
             }
             return document
         }
-        // Re-open within the session: same model + undo stack as last time.
-        // Reload from disk only when the file is newer than when we parked
-        // (external agent edit). Otherwise keep the cached buffer + undo.
+        // Session re-open: same model + undo stack. Reload from disk only when
+        // the file is newer than at park time (external agent edit).
         if let cached = takeFromSessionCache(key) {
             let entry = Entry(
                 url: key,
@@ -302,8 +293,8 @@ final class DocumentRegistry {
         return document
     }
 
-    /// Balances `acquire`. On the last release: flush dirty, then park the
-    /// document in the session cache (keeps per-file undo). Not in `isOpen`.
+    /// Balances `acquire`. Last release: flush dirty, park in session cache
+    /// (keeps per-file undo). No longer in `isOpen`.
     func release(_ url: URL) {
         let key = url.standardizedFileURL
         guard let entry = entries[key] else { return }
@@ -312,9 +303,8 @@ final class DocumentRegistry {
         entry.autosaveTask?.cancel()
         entry.document.commitContentEdit()
         if entry.isDirty { try? flush(entry) }
-        // Closing a document: force a last local revision so history captures
-        // the final on-disk state even when the flush path (or a clean close)
-        // fell inside the debounce window. Content dedup drops duplicates.
+        // Forced last revision: history must capture the final on-disk state
+        // even when close fell inside the debounce window. Dedup drops repeats.
         noteLocalRevision(url: key, content: entry.document.content, force: true)
         stopWatching(entry)
         entries.removeValue(forKey: key)
@@ -327,19 +317,18 @@ final class DocumentRegistry {
             isDirty: entry.isDirty)
     }
 
-    /// Marks the document dirty and (re)schedules a debounced autosave. The
-    /// owning view calls this when `document.content` changes.
+    /// Dirty + debounced autosave; owner view calls on `content` change.
     func markDirty(_ url: URL) {
         guard let entry = entries[url.standardizedFileURL] else { return }
-        // Residual publishes after external reload / conflict must not
-        // re-dirty or schedule an autosave that races the status chip.
+        // Residual publishes after external reload/conflict must not re-dirty
+        // or schedule an autosave racing the status chip.
         if entry.holdAutosaveUntilUserEdit { return }
         entry.isDirty = true
         scheduleAutosave(entry)
     }
 
-    /// Call from editor typing paths so the next edits autosave again after
-    /// an external apply held the flag.
+    /// Editor typing paths call this so edits autosave again after an external
+    /// apply held the flag.
     func noteUserEdit(_ url: URL?) {
         guard let url, let entry = entries[url.standardizedFileURL] else { return }
         entry.holdAutosaveUntilUserEdit = false
@@ -347,8 +336,7 @@ final class DocumentRegistry {
         scheduleAutosave(entry)
     }
 
-    /// Writes immediately, cancelling any pending autosave — for ⌘S and
-    /// save-on-switch / save-on-close.
+    /// Immediate write, cancels pending autosave (⌘S, save-on-switch/close).
     func saveNow(_ url: URL) throws {
         guard let entry = entries[url.standardizedFileURL] else { return }
         entry.autosaveTask?.cancel()
@@ -356,16 +344,14 @@ final class DocumentRegistry {
         try flush(entry)
     }
 
-    /// Synchronously reserves a URL before its path changes. A live entry is
-    /// removed before its presentation closes, a recently closed model leaves
-    /// the session LRU, and even a URL with no in-memory model receives an
-    /// opaque reservation. Thus a re-entrant acquire/agent edit cannot slip
+    /// Synchronously reserves a URL before its path changes: live entry
+    /// removed, cached model pulled from the LRU, even a model-less URL gets
+    /// an opaque reservation — so a re-entrant acquire/agent edit cannot slip
     /// between filesystem preflight and the disk transaction.
     ///
-    /// After this returns, the caller must detach all presentations without an
-    /// intervening suspension and then call `persistMovePreparation`. On any
-    /// later transaction failure call `cancelMovePreparation`; after a disk
-    /// move call `relocatePreparedDocument`.
+    /// Caller contract: detach all presentations with NO intervening
+    /// suspension, then `persistMovePreparation`; on failure
+    /// `cancelMovePreparation`; after the disk move `relocatePreparedDocument`.
     func beginMovePreparation(_ url: URL) throws -> DocumentMovePreparation? {
         let key = url.standardizedFileURL
         if preparedDocuments[key] != nil {
@@ -374,11 +360,10 @@ final class DocumentRegistry {
         let id = UUID()
 
         if let entry = entries[key] {
-            // This explicit Move action is the correctness boundary for a
-            // pending/debounced file event. The synchronous read is deliberate
-            // and bounded to this one user-selected document; writes remain
-            // detached below. knownDiskContent makes the forced read safe for
-            // an ordinary dirty buffer whose disk bytes have not changed.
+            // Explicit Move is the correctness boundary for a pending/debounced
+            // file event. Sync read is deliberate, bounded to this one document;
+            // writes stay detached. knownDiskContent makes the forced read safe
+            // for an ordinary dirty buffer whose disk bytes did not change.
             markDirtyIfBufferDiffersFromKnownDisk(entry)
             try reconcileFromDisk(entry)
             guard entry.pendingConflictDiskContent == nil else {
@@ -455,10 +440,10 @@ final class DocumentRegistry {
         return DocumentMovePreparation(id: id, url: key, snapshot: nil)
     }
 
-    /// Reserves a destination path without adopting or evicting an existing
-    /// document identity. A live, cached, or already-reserved destination is a
-    /// transaction conflict; a free path receives an opaque URL-only token that
-    /// blocks `acquire` and `applyAgentEdit` until cancel/discard releases it.
+    /// Reserves a destination path without adopting/evicting any identity.
+    /// Live, cached, or already-reserved destination = transaction conflict; a
+    /// free path gets an opaque URL-only token blocking `acquire` and
+    /// `applyAgentEdit` until cancel/discard.
     func reserveMoveDestination(_ url: URL) throws -> DocumentMovePreparation {
         let key = url.standardizedFileURL
         guard entries[key] == nil,
@@ -481,10 +466,9 @@ final class DocumentRegistry {
         return DocumentMovePreparation(id: id, url: key, snapshot: nil)
     }
 
-    /// Persists the immutable dirty snapshot after the presentation has been
-    /// detached. Clean documents take the no-I/O branch. Dirty serialization
-    /// and atomic disk I/O always run in a detached task, so the move overlay
-    /// can render and MainActor stays responsive.
+    /// Persists the immutable dirty snapshot after presentations detach.
+    /// Clean documents take the no-I/O branch; dirty serialization + atomic
+    /// I/O run detached so the move overlay renders and MainActor stays live.
     func persistMovePreparation(_ preparation: DocumentMovePreparation) async throws {
         let key = preparation.url
         guard var prepared = preparedDocuments[key],
@@ -500,9 +484,9 @@ final class DocumentRegistry {
                 try await Self.performMoveWrite(
                     snapshot, to: key, writer: moveWriter)
             } catch {
-                // No disk move has happened. Make the exact model available at
-                // the source only after the caller closes the transaction via
-                // cancel; until then a re-entrant acquire/agent edit stays blocked.
+                // No disk move happened. The model becomes available at the
+                // source only after the caller cancels; until then re-entrant
+                // acquire/agent edits stay blocked.
                 if var current = preparedDocuments[key],
                    current.id == preparation.id {
                     current.state = .writeFailed
@@ -533,10 +517,9 @@ final class DocumentRegistry {
         ExternalChangeCenter.shared.dismiss(key)
     }
 
-    /// Makes a reserved/prepared live model available at its original path
-    /// after a transaction abort. Cached models return to the LRU and URL-only
-    /// reservations disappear. The method remains idempotent so callers can use
-    /// one cleanup loop for the entire batch.
+    /// Transaction abort: reserved/prepared live model becomes available at
+    /// its original path; cached models return to the LRU; URL-only
+    /// reservations vanish. Idempotent — one cleanup loop per batch.
     func cancelMovePreparation(_ preparation: DocumentMovePreparation?) {
         guard let preparation,
               let prepared = preparedDocuments[preparation.url],
@@ -561,11 +544,10 @@ final class DocumentRegistry {
         }
     }
 
-    /// Forgets a parked model when rollback left the filesystem at neither a
-    /// trustworthy source nor a trustworthy destination. The dirty snapshot
-    /// was persisted before disk mutation, so a later explicit open must load
-    /// whichever path the user repairs instead of reviving an ambiguously
-    /// keyed in-memory model.
+    /// Forgets a parked model when rollback left neither a trustworthy source
+    /// nor destination. The dirty snapshot was persisted pre-mutation, so a
+    /// later open must load whichever path the user repairs — never revive an
+    /// ambiguously keyed in-memory model.
     func discardMovePreparation(_ preparation: DocumentMovePreparation?) {
         guard let preparation,
               let prepared = preparedDocuments[preparation.url],
@@ -574,7 +556,7 @@ final class DocumentRegistry {
         preparedDocuments.removeValue(forKey: preparation.url)
     }
 
-    /// Re-keys the prepared model after a successful disk move. The next acquire
+    /// Re-keys the prepared model after a successful disk move; next acquire
     /// at `newURL` restores the same document and undo manager.
     func relocatePreparedDocument(from oldURL: URL, to newURL: URL) {
         let old = oldURL.standardizedFileURL
@@ -584,9 +566,9 @@ final class DocumentRegistry {
             preparedDocuments[old] = prepared
             return
         }
-        // Destination preflight guarantees this in the move transaction. Keep
-        // an existing prepared model intact defensively instead of discarding
-        // either identity if a caller violates that contract.
+        // Destination preflight guarantees this; if a caller violates the
+        // contract, keep the existing prepared model rather than discarding
+        // either identity.
         guard preparedDocuments[new] == nil else {
             preparedDocuments[old] = prepared
             return
@@ -608,11 +590,10 @@ final class DocumentRegistry {
         }
     }
 
-    /// Re-keys closed document identities after an adopted root moves. Root
-    /// rename rejects live entries before touching disk, but session-cached
-    /// models still carry undo and must follow the folder. A stale cache entry
-    /// already parked under the destination loses to the source identity that
-    /// belongs to the filesystem item just moved there.
+    /// Re-keys closed identities after an adopted root moves. Root rename
+    /// rejects live entries pre-disk, but session-cached models carry undo and
+    /// must follow the folder; a stale cache entry parked under the
+    /// destination loses to the just-moved source identity.
     func relocateFolder(from oldRoot: URL, to newRoot: URL) {
         let old = oldRoot.standardizedFileURL
         let new = newRoot.standardizedFileURL
@@ -629,8 +610,8 @@ final class DocumentRegistry {
                     isDirty: cached.isDirty,
                     requiresDiskReconciliation: true)
             }
-            // The destination root did not exist at transaction preflight;
-            // any other identity parked under it is stale from an older tree.
+            // Destination root did not exist at preflight; any identity parked
+            // under it is stale from an older tree.
             return Self.isPath(cached.url, inside: new) ? nil : cached
         }
 
@@ -648,9 +629,9 @@ final class DocumentRegistry {
         }
     }
 
-    /// Drops parked identities after an ambiguous root outcome. A later open
-    /// must load the path the user repaired on disk, never revive a model still
-    /// keyed to one of the transaction's unsafe candidates.
+    /// Drops parked identities after an ambiguous root outcome — a later open
+    /// must load the repaired path, never revive a model keyed to one of the
+    /// transaction's unsafe candidates.
     func discardFolderCaches(at rawRoots: [URL]) {
         let roots = rawRoots.map(\.standardizedFileURL)
         sessionCache.removeAll { cached in
@@ -661,10 +642,10 @@ final class DocumentRegistry {
         }
     }
 
-    /// Public re-check for a single open file (window focus, tests).
-    /// Always attempts a content compare when the file exists — callers that
-    /// already know the disk changed (tests, explicit refresh) must not be
-    /// blocked by mtime resolution quirks. The watch path uses the mtime gate.
+    /// Public re-check for one open file (window focus, tests). Always
+    /// compares content when the file exists — callers who KNOW disk changed
+    /// must not be blocked by mtime resolution quirks; the watch path keeps
+    /// the mtime gate.
     @discardableResult
     func syncFromDiskIfNeeded(_ url: URL) -> Bool {
         guard let entry = entries[url.standardizedFileURL] else { return false }
@@ -675,9 +656,9 @@ final class DocumentRegistry {
     func dismissExternalChange(_ url: URL) {
         ExternalChangeCenter.shared.dismiss(url)
         if let entry = entries[url.standardizedFileURL] {
-            // Dismiss hides presentation only. The disk/local choice remains
-            // unresolved until Disk, Mine, or a successful explicit/local
-            // write; move preflight must continue to block meanwhile.
+            // Hides presentation only. The disk/local choice stays unresolved
+            // until Disk, Mine, or a successful write; move preflight keeps
+            // blocking meanwhile.
             entry.hasOpenExternalNotice = false
         }
     }
@@ -693,8 +674,8 @@ final class DocumentRegistry {
         LineChangeTracker.shared.noteBaseline(url: key, content: entry.document.content)
     }
 
-    /// Conflict or post-apply: replace the buffer with `content` from disk/notice.
-    /// `content` just came from disk, so a failed re-persist loses nothing.
+    /// Conflict or post-apply: buffer ← `content` from disk/notice. `content`
+    /// just came from disk, so a failed re-persist loses nothing.
     func applyExternalContent(_ url: URL, content: String, assets: FileWrapper? = nil) {
         guard let entry = entries[url.standardizedFileURL] else { return }
         let hasPendingConflict = entry.pendingConflictDiskContent != nil
@@ -706,9 +687,9 @@ final class DocumentRegistry {
             replaceAssets: hasPendingConflict || assets != nil)
     }
 
-    /// Shared core of external reload and agent accept: swap the buffer, then
-    /// write it out. Throws only from the final disk write — the buffer is
-    /// already swapped by then, so callers decide what a failed write means.
+    /// Shared core of external reload + agent accept: swap buffer, write out.
+    /// Throws only from the final disk write — buffer already swapped by then;
+    /// callers decide what a failed write means.
     private func replaceBufferAndPersist(
         _ entry: Entry,
         content: String,
@@ -739,15 +720,12 @@ final class DocumentRegistry {
         applyExternalContent(url, content: previousContent)
     }
 
-    /// Applies an agent-proposed edit the user accepted (Claude's `openDiff`).
-    ///
-    /// The whole point of routing it here: `flush` advances `knownModDate` and
-    /// re-arms the watch, so our own write is not mistaken for an external
-    /// change (v34). A plain `writeMarkdownDocument` from a tool handler would
-    /// pop the conflict chip on the file the user just approved.
-    ///
-    /// Closed files are written directly — nothing holds a buffer to reconcile,
-    /// but existing `.textbundle` assets must survive the rewrite.
+    /// Applies an accepted agent edit (Claude's `openDiff`). Routing it here is
+    /// the point: `flush` advances `knownModDate` and re-arms the watch so our
+    /// own write is not mistaken for external — a plain `writeMarkdownDocument`
+    /// would pop the conflict chip on the file the user just approved.
+    /// Closed files are written directly (no buffer to reconcile), but existing
+    /// `.textbundle` assets must survive the rewrite.
     func applyAgentEdit(_ url: URL, content: String) throws {
         let key = url.standardizedFileURL
         if var prepared = preparedDocuments[key] {
@@ -774,9 +752,8 @@ final class DocumentRegistry {
             do {
                 try replaceBufferAndPersist(entry, content: content, assets: nil)
             } catch {
-                // Match the live-entry contract: the accepted buffer remains
-                // dirty and retryable, while the failed API call never claims
-                // that disk contains the new bytes.
+                // Live-entry contract: accepted buffer stays dirty/retryable;
+                // the failed call never claims disk has the new bytes.
                 entry.isDirty = true
                 entry.holdAutosaveUntilUserEdit = false
                 prepared.isDirty = true
@@ -801,10 +778,10 @@ final class DocumentRegistry {
             do {
                 try replaceBufferAndPersist(entry, content: content, assets: nil)
             } catch {
-                // Disk still holds the old bytes but the buffer already shows
-                // Claude's. Surface it as an ordinary unsaved edit (autosave/⌘S
-                // retry the write) and rethrow so accept() answers
-                // DIFF_REJECTED — FILE_SAVED must mean bytes on disk.
+                // Disk still old, buffer already Claude's: surface as an
+                // ordinary unsaved edit (autosave/⌘S retry) and rethrow so
+                // accept() answers DIFF_REJECTED — FILE_SAVED must mean bytes
+                // on disk.
                 entry.isDirty = true
                 entry.holdAutosaveUntilUserEdit = false
                 throw error
@@ -817,10 +794,9 @@ final class DocumentRegistry {
         LineChangeTracker.shared.noteBaseline(url: key, content: content)
         // Closed-file agent edit: same incremental index path as flush.
         LinkIndex.shared.noteDocumentPersisted(url: key, content: content)
-        // A brand-new file has to appear in the sidebar without a manual
-        // refresh. Existing files must NOT bump the epoch: that invalidates
-        // the whole link graph, and the incremental path above already
-        // reindexed this file.
+        // New file must appear in the sidebar unprompted. Existing files must
+        // NOT bump the epoch — that invalidates the whole link graph, and the
+        // incremental path above already reindexed this file.
         if isNewFile {
             WorkspaceModel.shared.noteFilesystemChange()
         }
@@ -873,9 +849,9 @@ final class DocumentRegistry {
             requiresDiskReconciliation: cached.requiresDiskReconciliation)
     }
 
-    /// Undo-driven/test edits can change the model before the SwiftUI owner
-    /// delivers `markDirty`. A move boundary cannot trust that transient flag;
-    /// compare the buffer with the last observed disk baseline explicitly.
+    /// Undo-driven/test edits can mutate the model before the SwiftUI owner
+    /// delivers `markDirty` — a move boundary cannot trust that transient flag;
+    /// compare buffer vs last observed disk baseline explicitly.
     private func markDirtyIfBufferDiffersFromKnownDisk(_ entry: Entry) {
         let contentDiffers = entry.knownDiskContent.map {
             $0 != entry.document.content
@@ -905,12 +881,10 @@ final class DocumentRegistry {
                                   to: entry.url)
         entry.isDirty = false
         // Own write: keep session dirty-line baseline (marks live until close /
-        // external apply / commit). Remember payload so a racing FS echo is
-        // not treated as external reload (C2).
+        // external apply / commit); remember payload + time so a racing FS echo
+        // is not treated as an external reload and mtime compares stay correct.
         entry.lastSelfWriteContent = content
         entry.lastSelfWriteAt = Date()
-        // Remember our write so a racing FS event doesn't re-load the same bytes
-        // as an "external" change (and so mtime compares stay correct).
         entry.knownModDate = contentModificationDate(of: entry.url)
         entry.knownDiskContent = content
         entry.knownDiskAssetsFingerprint = DocumentAssetsFingerprint(
@@ -918,12 +892,12 @@ final class DocumentRegistry {
         clearPendingConflict(entry)
         // Atomic replace may invalidate the watched inode — re-arm.
         rearmWatch(entry)
-        // After save, a concurrent `git commit` (or hook) may have advanced;
-        // re-check path hash so dirty-line marks can clear on real commits only.
+        // A concurrent `git commit` (or hook) may have advanced HEAD; re-check
+        // so dirty-line marks clear on real commits only.
         GitCommitWatcher.shared.check(url: entry.url)
-        // Link index: incremental rescan of this file only (plan 02).
+        // Link index: incremental rescan of this file only.
         LinkIndex.shared.noteDocumentPersisted(url: entry.url, content: content)
-        // Local revision history (plan 05) — background, debounced in store.
+        // Local revision history — background, debounced in store.
         noteLocalRevision(url: entry.url, content: content, force: false)
     }
 
@@ -940,8 +914,8 @@ final class DocumentRegistry {
         ExternalChangeCenter.shared.dismiss(entry.url)
     }
 
-    /// `FileWrapper` is not Sendable, but MarkdownDocument.Snapshot is an
-    /// immutable, exclusively-owned transfer value by project contract.
+    /// FileWrapper is not Sendable; MarkdownDocument.Snapshot is an immutable,
+    /// exclusively-owned transfer value by project contract.
     nonisolated private static func writeSnapshot(
         _ snapshot: MarkdownDocument.Snapshot,
         to url: URL
@@ -952,9 +926,9 @@ final class DocumentRegistry {
             to: url)
     }
 
-    /// Atomic document writes are intentionally allowed to finish even if the
-    /// surrounding UI task is cancelled: abandoning one midway would leave the
-    /// move transaction unable to know whether disk contains old or new bytes.
+    /// Atomic writes intentionally finish even if the UI task is cancelled:
+    /// abandoning one midway leaves the move transaction unable to know
+    /// whether disk holds old or new bytes.
     nonisolated private static func performMoveWrite(
         _ snapshot: MarkdownDocument.Snapshot,
         to url: URL,
@@ -969,20 +943,19 @@ final class DocumentRegistry {
 
     private func syncAllOpenFromDisk() {
         for entry in entries.values {
-            // App became active: cheap mtime gate is enough (and necessary —
+            // Become-active: cheap mtime gate is enough (and necessary —
             // re-reading every open buffer would hitch).
             syncFromDisk(entry, skipIfNotNewer: true)
         }
     }
 
-    /// Returns true when clean document content or assets were replaced from disk.
-    /// - Parameter skipIfNotNewer: when true (watch / become-active), skip the
-    ///   full read if mtime has not advanced — protects against FS event storms.
+    /// True when clean content or assets were replaced from disk.
+    /// - Parameter skipIfNotNewer: true (watch / become-active) skips the full
+    ///   read unless mtime advanced — guards against FS event storms.
     @discardableResult
     private func syncFromDisk(_ entry: Entry, skipIfNotNewer: Bool = true) -> Bool {
-        // Fast path: no newer mtime → skip the full read. Without this, every
-        // FS event re-read the whole file on the main thread and could peg the
-        // UI (Claude.md + continuous FS spam).
+        // Fast path: no newer mtime → no full read. Without it every FS event
+        // re-read the whole file on main and could peg the UI.
         if skipIfNotNewer,
            let diskDate = contentModificationDate(of: entry.url),
            let known = entry.knownModDate,
@@ -997,9 +970,9 @@ final class DocumentRegistry {
         return reconcileLoadedDocument(loaded, with: entry)
     }
 
-    /// Mandatory transaction-boundary read. Unlike watcher refresh this
-    /// propagates an unreadable/missing path to the caller and never trusts an
-    /// mtime copied from the source path before a relocation.
+    /// Mandatory transaction-boundary read: propagates an unreadable/missing
+    /// path (watcher refresh does not) and never trusts an mtime copied from
+    /// the source path before a relocation.
     @discardableResult
     private func reconcileFromDisk(_ entry: Entry) throws -> Bool {
         let loaded = try loadMarkdownDocument(from: entry.url)
@@ -1016,12 +989,12 @@ final class DocumentRegistry {
         let diskAssetsFingerprint = DocumentAssetsFingerprint(loaded.assets)
         let memoryAssetsFingerprint = DocumentAssetsFingerprint(
             entry.document.assetsFileWrapper)
-        // Own autosave/⌘S echo: mtime advanced but bytes are what we wrote.
-        // Never re-baseline session dirty marks for our own flush (C2).
-        // Guard window: an echo arrives within seconds; identical bytes long
-        // after (git checkout back to the saved state) are a real external
-        // change. Assets must match too — a .textbundle image swap with an
-        // unchanged text.md is external.
+        // Own autosave/⌘S echo: mtime advanced, bytes are what we wrote —
+        // never re-baseline session dirty marks for our own flush. Guard
+        // window: an echo arrives within seconds; identical bytes long after
+        // (git checkout back to the saved state) are a real external change.
+        // Assets must match too — a .textbundle image swap with unchanged
+        // text.md is external.
         if let selfWrite = entry.lastSelfWriteContent,
            let writtenAt = entry.lastSelfWriteAt,
            disk == selfWrite,
@@ -1046,10 +1019,10 @@ final class DocumentRegistry {
         entry.knownDiskAssetsFingerprint = diskAssetsFingerprint
 
         guard diskContentChanged || diskAssetsChanged else {
-            // Disk is still the baseline we already observed. In particular,
-            // do not mistake a normal unsaved buffer (or a failed move write)
-            // for an external conflict merely because memory differs from disk.
-            // Also do not auto-dismiss an open notice on a follow-up FS echo.
+            // Disk is still the observed baseline: do not mistake a normal
+            // unsaved buffer (or failed move write) for an external conflict
+            // just because memory differs from disk, and do not auto-dismiss
+            // an open notice on a follow-up FS echo.
             return false
         }
 
@@ -1064,9 +1037,9 @@ final class DocumentRegistry {
                entry.pendingConflictDiskAssetsFingerprint == diskAssetsFingerprint {
                 return false
             }
-            // Critical: cancel pending autosave so we don't overwrite the
-            // external file with the old buffer a moment later (that also
-            // made the chip vanish when disk snapped back to mem).
+            // Critical: cancel pending autosave — else the old buffer
+            // overwrites the external file a moment later (and the chip
+            // vanished when disk snapped back to mem).
             entry.autosaveTask?.cancel()
             entry.holdAutosaveUntilUserEdit = true
             entry.pendingConflictDiskContent = disk
@@ -1102,9 +1075,9 @@ final class DocumentRegistry {
 
         if contentChanged {
             if EditorSettings.shared.general.autoReloadCleanExternal {
-                // Stage 7: quiet toast + popover event line. Deliberately NOT
-                // a harness status — the disk write is usually the agent's own
-                // edit, and stamping idle here wiped its live active/blocked.
+                // Quiet toast + popover event line. Deliberately NOT a harness
+                // status: the disk write is usually the agent's own edit, and
+                // stamping idle here wiped its live active/blocked.
                 AgentActivityModel.shared.noteDiskReload(
                     fileName: entry.url.lastPathComponent)
             }
@@ -1127,8 +1100,8 @@ final class DocumentRegistry {
             .contentModificationDate
     }
 
-    /// True when on-disk mtime is strictly newer than the last sync — used when
-    /// re-opening a session-cached document so we don't wipe an unflushed buffer.
+    /// On-disk mtime strictly newer than last sync — session-cache re-open
+    /// must not wipe an unflushed buffer.
     private func diskIsNewerThanKnown(_ entry: Entry) -> Bool {
         guard let diskDate = contentModificationDate(of: entry.url) else { return true }
         guard let known = entry.knownModDate else { return true }
@@ -1147,9 +1120,9 @@ final class DocumentRegistry {
         let fd = open(entry.url.path, O_EVTONLY)
         guard fd >= 0 else { return }
         entry.fileDescriptor = fd
-        // Note: omit `.attrib` — Spotlight / xattr noise was firing continuous
-        // reloads. Content changes arrive as write/extend; atomic replace as
-        // rename/delete. App-activate still does a full mtime re-check.
+        // Omit `.attrib`: Spotlight/xattr noise fired continuous reloads.
+        // Content changes arrive as write/extend; atomic replace as
+        // rename/delete. Become-active still does a full mtime re-check.
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .extend, .rename, .delete, .link, .revoke],
@@ -1186,9 +1159,9 @@ final class DocumentRegistry {
     }
 
     private func handleDiskEvent(_ entry: Entry, flags: DispatchSource.FileSystemEvent) {
-        // Coalesce bursty events (atomic rewrite = delete+rename+write).
+        // Coalesce bursty events (atomic rewrite = delete+rename+write);
+        // OR-accumulate flags so a write+rename pair is seen as one burst.
         entry.diskEventDebounce?.cancel()
-        // OR-accumulate flags across the burst so a write+rename pair is seen.
         let prior = entry.pendingDiskFlags ?? []
         entry.pendingDiskFlags = prior.union(flags)
         entry.diskEventDebounce = Task { [weak self, weak entry] in
@@ -1197,16 +1170,16 @@ final class DocumentRegistry {
                   self.entries[entry.url] != nil else { return }
             let burst = entry.pendingDiskFlags ?? []
             entry.pendingDiskFlags = nil
-            // Only re-arm when the inode may be gone. Rearming on every write
+            // Re-arm only when the inode may be gone: rearming on every write
             // (close+open O_EVTONLY) generated more events → main-thread storm
-            // at >100% CPU even in Source (Claude.md).
+            // at >100% CPU.
             let inodeMaybeReplaced = !burst.isDisjoint(with: [.rename, .delete, .revoke, .link])
             if inodeMaybeReplaced {
                 self.rearmWatch(entry)
             }
             let applied = self.syncFromDisk(entry, skipIfNotNewer: true)
-            // Content changed via atomic replace often shows up as write on a
-            // new inode without rename flags — re-arm if we actually reloaded.
+            // Atomic replace often shows up as write on a NEW inode without
+            // rename flags — re-arm if we actually reloaded.
             if applied, !inodeMaybeReplaced {
                 self.rearmWatch(entry)
             }

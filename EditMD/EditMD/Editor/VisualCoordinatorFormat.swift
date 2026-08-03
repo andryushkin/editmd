@@ -1,8 +1,8 @@
 import AppKit
 
-// Format actions for Visual (WYSIWYG) mode — toolbar / Format-menu / action-strip
-// entry points on VisualMarkdownView.Coordinator. Split out of VisualTextView.swift
-// when it passed 2600 lines; the editing core (delegate, tables, Enter/Tab) stays there.
+// Format actions for Visual (WYSIWYG) mode — toolbar / Format-menu /
+// action-strip entry points on VisualMarkdownView.Coordinator; the editing core
+// (delegate, tables, Enter/Tab) stays in VisualTextView.swift.
 
 extension VisualMarkdownView.Coordinator {
     // MARK: Format actions
@@ -70,7 +70,7 @@ extension VisualMarkdownView.Coordinator {
         }
     }
 
-    /// Strip inline md.* styles on the selection; leave block kind alone (B4).
+    /// Strip inline md.* styles on the selection; leave block kind alone.
     private func clearInlineFormatting() {
         guard let textView, let storage = textView.textStorage else { return }
         let selection = textView.selectedRange()
@@ -589,8 +589,8 @@ extension VisualMarkdownView.Coordinator {
     }
 
     /// ⌘K: add a link on the selection, or edit/remove the link under the
-    /// cursor (D9: prefilled text + URL for existing links). Empty selection
-    /// with no existing link inserts the URL text.
+    /// cursor (prefilled for existing links). Empty selection with no existing
+    /// link inserts the URL text.
     func editLink() {
         guard let textView, let storage = textView.textStorage else { return }
         var selection = textView.selectedRange()

@@ -1,7 +1,6 @@
 import AppKit
 
-// Pure Visual-mode editing helpers (unit-tested), extracted from
-// VisualTextView.swift.
+// Pure Visual-mode editing helpers (unit-tested).
 
 /// Visual uses its semantic Markdown/table door first; image is a fallback.
 /// The URL door comes last (before plain text): it only fires for a pure-URL
@@ -155,10 +154,10 @@ func checklistKind(depth: Int,
     return .taskItem(depth: depth, done: false)
 }
 
-/// Conservative clipboard heuristic: format text only when it carries
-/// unambiguous Markdown structure. Ordinary prose (including punctuation and
-/// underscores in identifiers) must keep the normal plain-text paste path.
-/// Compiled once — paste re-ran 12 NSRegularExpression inits per call before.
+/// Conservative clipboard heuristic: format only unambiguous Markdown
+/// structure; ordinary prose (punctuation, underscores in identifiers) keeps
+/// the plain-text paste path. Compiled once — per-paste regex inits were
+/// measurable.
 private let visualPasteMarkdownRegexes: [NSRegularExpression] = [
     #"(?m)^\s{0,3}#{1,6}\s+\S"#,             // heading
     #"(?m)^\s{0,3}(?:[-+*]|\d+[.)])\s+\S"#, // list

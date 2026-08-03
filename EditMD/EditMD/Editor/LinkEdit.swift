@@ -1,17 +1,15 @@
 import AppKit
 import Markdown
 
-// Shared add / edit / remove-link support: the ⌘K link editor (Source and
-// Visual) and the no-selection URL paste form. Pure helpers are unit-tested;
-// the NSAlert prompt is the single dialog both modes present.
+// ⌘K link editor (Source + Visual) and the no-selection URL paste form. Pure
+// helpers are unit-tested; one NSAlert prompt serves both modes.
 
 // MARK: - Serialization
 
-/// Autolink form for a bare URL pasted with **no** selection: `<url>` renders
-/// as a clickable link in all three modes and round-trips, whereas a plain
-/// bare URL stays literal text (the renderer does not GFM-autolink). The paste
-/// detector already guarantees no internal whitespace; a `<`/`>` inside the URL
-/// (never valid in a CommonMark autolink) falls back to the `[url](url)` form.
+/// `<url>` for a bare URL pasted with no selection — round-trips as a link in
+/// all three modes; a plain bare URL stays literal (renderer does not
+/// GFM-autolink). `<`/`>` inside the URL is invalid in a CommonMark autolink →
+/// fall back to `[url](url)`.
 func markdownAutolinkSyntax(url: String) -> String {
     if url.contains("<") || url.contains(">") {
         return markdownLinkSyntax(text: url, url: url)
@@ -21,26 +19,18 @@ func markdownAutolinkSyntax(url: String) -> String {
 
 // MARK: - Bare-host normalization
 
-/// Extensions that make a destination a *file in this vault* rather than a web
-/// address: `notes.md` is a document, even though `md` is also a country TLD, and
-/// in a Markdown editor the file reading is the one that was meant. Built on the
-/// wiki-link index set, so a `[[target]]` type and a ⌘K local type cannot drift
-/// apart. `html` is deliberately **not** here — `example.com/index.html` is a
-/// page, not a file next to the document.
+/// Extensions that read as a vault file, not a web address. Built on the
+/// wiki-link index set so `[[target]]` and ⌘K cannot drift apart. `html`
+/// deliberately absent: `example.com/index.html` is a page.
 private let vaultFileExtensions: Set<String> =
     WikiLinkCore.indexedExtensions.union(["txt", "csv", "json", "yml", "yaml"])
 
-/// Top-level domains a missing scheme is completed for. A curated list on
-/// purpose: by shape alone `example.com` is indistinguishable from `build.sh` or
-/// the `2.Areas/note.md` of a PARA vault, and rewriting a vault-relative path
-/// into an unreachable URL is far worse than leaving a rare TLD
-/// (`mysite.ninja`) to be typed with its scheme. Absent on purpose are the
-/// two-letter codes that collide with extensions a vault or repo is full of —
-/// `md` as Moldova loses to `md` as Markdown here, likewise `sh`, `rs`, `pl`,
-/// `cc`, `am`, `in`, `pro`, `ai` and `app` (C++, Automake, `config.h.in`, Qt
-/// projects, Illustrator, bundles). Leaving one in and letting the probe settle it
-/// would only mean settling it by timing, which is what the arbitration below
-/// refuses to do.
+/// TLDs a missing scheme is completed for. Curated on purpose: by shape
+/// `example.com` is indistinguishable from `build.sh` or `2.Areas/note.md`, and
+/// a rare TLD left to type beats a vault path rewritten into a dead URL. Omits
+/// codes colliding with common extensions (`md`, `sh`, `rs`, `pl`, `cc`, `am`,
+/// `in`, `pro`, `ai`, `app`) — letting the probe settle those would settle them
+/// by timing. docs/vault.md § Scheme completion.
 private let completableTLDs: Set<String> = [
     "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz",
     "io", "co", "dev", "cloud", "tools", "wiki", "news", "blog",
@@ -52,10 +42,9 @@ private let completableTLDs: Set<String> = [
     "cz", "hu", "ro", "bg", "si", "sk", "lt", "lv", "ee", "ge", "az",
     "tr", "il", "ae", "cn", "jp", "kr", "hk", "sg", "br", "mx", "ar",
     "cl", "za", "eu",
-    // Cyrillic IDN TLDs in both forms a destination arrives in — typed as
-    // Unicode, pasted as punycode. Escaped rather than written out so the repo
-    // stays ASCII outside the allowlist `scripts/audit.sh` check 1 enforces:
-    // \u{440}\u{444} is .rf (xn--p1ai), \u{443}\u{43A}\u{440} is .ukr.
+    // Cyrillic IDN TLDs, typed (Unicode) and pasted (punycode) forms. Escaped
+    // to keep the repo ASCII (scripts/audit.sh check 1): \u{440}\u{444} = .rf,
+    // \u{443}\u{43A}\u{440} = .ukr.
     "\u{440}\u{444}", "xn--p1ai", "\u{443}\u{43A}\u{440}", "xn--j1amh",
 ]
 
@@ -63,40 +52,27 @@ private let completableTLDs: Set<String> = [
 private let authorityLessSchemes: Set<String> =
     ["mailto", "tel", "sms", "geo", "data", "callto", "facetime"]
 
-/// The destination to store for what the link dialog holds. A field the user
-/// never touched is stored byte-identical: opening ⌘K on an existing link and
-/// confirming must not rewrite its destination.
+/// Destination to store for what the dialog holds. An untouched field is stored
+/// byte-identical: confirming ⌘K on an existing link must not rewrite it.
 func linkDestination(typed raw: String, existing: String,
                      localFileExists: (String) -> Bool? = { _ in nil }) -> String {
-    // A destination can hold no control character at all: a two-line paste would
-    // break the link syntax and split the paragraph, and a tab copied out of a
-    // table cell would leave a destination CommonMark refuses to parse.
+    // No control characters: a newline breaks link syntax; a tab from a table
+    // cell yields a destination CommonMark refuses to parse.
     let typed = withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
     return typed == existing
         ? typed
         : normalizedLinkURL(typed, localFileExists: localFileExists)
 }
 
-/// Answers "does this destination name a file that is really there?" for the link
-/// dialog — the evidence that keeps `Makefile.am` and a folder called `docs.io`
-/// from being completed into URLs.
-///
-/// Resolution runs off the main actor **while the user types**, so pressing OK
-/// only reads memory: the main actor must not touch the disk
-/// (`docs/architecture.md` § Performance), and a vault on a network volume is
-/// exactly why. An answer that has not arrived reads as `nil`; only a `true`
-/// changes what the dialog stores, so a late answer can never turn a link the
-/// file system confirmed into something else.
-///
-/// The path resolution is `resolveLocalLinkDestination`, the same one vault lint
-/// applies to a relative link, with the same roots: the adopted workspace, or the
-/// nearest `.obsidian` vault above the file when no workspace owns it. Lint also
-/// accepts a wiki-index basename match for a markdown link, which this does not
-/// consult — a destination that resolves *only* by basename is treated as
-/// missing here.
+/// Answers "is this destination a file that is really there?" — what keeps
+/// `Makefile.am` or a `docs.io` folder from being completed into URLs. Resolves
+/// off-main while the user types; OK only reads memory, never waits
+/// (docs/architecture.md § Performance); only `true` changes what is stored.
+/// Same roots as the link opener and vault lint (adopted workspace, else nearest
+/// `.obsidian`), but a basename-only wiki match counts as missing here.
+/// docs/vault.md § Scheme completion.
 final class LocalDestinationCache: @unchecked Sendable {
-    /// Enough answers for a typed destination and its prefixes; a dialog that
-    /// somehow types past it starts a fresh generation rather than growing.
+    /// Answer cap; typing past it starts a fresh generation rather than growing.
     private static let maxAnswers = 64
     /// Probes allowed to be in flight at once.
     private static let maxInFlight = 8
@@ -107,32 +83,23 @@ final class LocalDestinationCache: @unchecked Sendable {
     private var answers: [String: Bool] = [:]
     /// Keys in the order they were first answered — the eviction order.
     private var arrival: [String] = []
-    /// Keys being resolved right now, so a second keystroke on the same path does
-    /// not start a second probe. Bounded as well: on a stalled volume every probe
-    /// occupies a thread until the file system answers, and a typed path must not
-    /// be able to queue an unbounded number of them. Refusing a slot costs only a
-    /// best-effort save (see `normalizedLinkURL`) — nothing decisive is dropped.
+    /// In-flight keys — dedupes probes. Bounded: on a stalled volume each probe
+    /// holds a thread; refusing a slot only costs a best-effort save.
     private var pending: Set<String> = []
-    /// `.obsidian` fallback root, resolved once off the main actor (it walks the
-    /// file system, so it cannot be computed where the dialog is built). Its own
-    /// lock: the walk holds it, and must never block a lookup from the main actor.
+    /// `.obsidian` fallback root, resolved once off-main (walks the FS). Own
+    /// lock: the walk holds it and must never block a main-actor lookup.
     private let rootLock = NSLock()
     private var fallbackRoot: URL??
 
-    /// `fileURL` is the document being edited; nil (an unsaved document) leaves
-    /// every answer unknown, since there is nothing to resolve against.
-    /// `adoptedRoot` is the workspace owning it, when one does.
+    /// nil `fileURL` (unsaved document) leaves every answer unknown.
     init(fileURL: URL?, adoptedRoot: URL?) {
-        // Same directory the scan resolves a link from: the folder holding the
-        // document, textbundle or not.
+        // Same directory the scan resolves a link from, textbundle or not.
         fileDir = fileURL?.deletingLastPathComponent()
         self.adoptedRoot = adoptedRoot
     }
 
-    /// Starts resolving `destination`, unless it is already in hand or on its way,
-    /// or `localProbeKey` says the normalizer would never ask about it — something
-    /// already schemed, an address, an anchor, a dotless name: probing those would
-    /// stat the disk for nothing.
+    /// Starts resolving unless already answered/in-flight, or `localProbeKey`
+    /// says the normalizer would never ask — probing those stats for nothing.
     func prefetch(_ destination: String) {
         guard fileDir != nil || adoptedRoot != nil,
               let target = localProbeKey(for: destination)
@@ -145,11 +112,8 @@ final class LocalDestinationCache: @unchecked Sendable {
         lock.unlock()
 
         let dir = fileDir
-        // A global queue, not `Task.detached`: `fileExists` blocks, and on an
-        // unresponsive mount it blocks for the mount's timeout. Occupying the
-        // cooperative pool with that would stall every other async subsystem in
-        // the app — the link index, git status, background activity — not just
-        // this dialog.
+        // Global queue, not Task.detached: `fileExists` blocks for the mount's
+        // timeout on a dead volume and would stall the whole cooperative pool.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let hit = resolveLocalLinkDestination(target, fileDir: dir,
@@ -158,10 +122,8 @@ final class LocalDestinationCache: @unchecked Sendable {
         }
     }
 
-    /// True/false once resolved, nil while unknown. Never waits: the main actor
-    /// does not block on the file system (`docs/architecture.md` § Performance),
-    /// and a volume slow enough to still be thinking would not have been saved by
-    /// a timeout either. Unknown is a first-class answer — see `normalizedLinkURL`.
+    /// True/false once resolved, nil while unknown. Never waits
+    /// (docs/architecture.md § Performance); unknown is a first-class answer.
     func answer(for destination: String) -> Bool? {
         guard let key = localProbeKey(for: destination) else { return nil }
         lock.lock()
@@ -169,13 +131,12 @@ final class LocalDestinationCache: @unchecked Sendable {
         return answers[key]
     }
 
-    /// Adopted workspace first, then the nearest `.obsidian` vault above the
-    /// file — the same order the link opener and the lint use. Called only from
-    /// the background task.
+    /// Adopted workspace first, then nearest `.obsidian` above the file — same
+    /// order as the link opener and lint. Background task only.
     private func vaultRoot() -> URL? {
         if let adoptedRoot { return adoptedRoot }
-        // The lock is held across the walk on purpose: racing probes then wait
-        // for the one answer instead of each walking the ancestors again.
+        // Lock held across the walk on purpose: racing probes wait for the one
+        // answer instead of each re-walking the ancestors.
         rootLock.lock()
         defer { rootLock.unlock() }
         if let cached = fallbackRoot { return cached }
@@ -184,9 +145,8 @@ final class LocalDestinationCache: @unchecked Sendable {
         return resolved
     }
 
-    /// Oldest answer out, never a wipe: an answer is a pure function of the path
-    /// and the roots, so a task landing late is merely late — but clearing the
-    /// table under it could drop the answer the dialog is about to read.
+    /// Oldest answer out, never a wipe: a wipe could drop the answer the dialog
+    /// is about to read.
     private func store(_ key: String, _ exists: Bool) {
         lock.lock()
         if answers[key] == nil {
@@ -202,66 +162,45 @@ final class LocalDestinationCache: @unchecked Sendable {
     }
 }
 
-/// The destination for a URL the user typed: a bare host — `example.com`,
-/// `sub.example.com/page?q=1`, `example.com:8080` — gets `https://`, because a
-/// scheme-less destination is resolved as a *relative path* and the link then
-/// silently points nowhere. A bare address gets `mailto:`, and a server with a
-/// port but no domain (`localhost:3000`, `192.168.1.5:8080`) gets `http://`,
-/// which is what such a server almost always speaks.
-///
-/// Returned untouched: anything already carrying a scheme (`http://`, `mailto:`,
-/// `editmd://` — unknown ones too), anchors and paths (`#top`, `/a`, `./a`,
-/// `../a`), anything whose host is a single label (`notes`, `notes/intro.md`), and
-/// any host whose TLD is not in `completableTLDs`.
-///
-/// A destination that **ends** in a file this app opens is the ambiguous case —
-/// `docs.dev/intro.md` is a folder in someone's vault, `archive.org/note.md` is a
-/// web page — and `localFileExists` settles it by fact: a file that is really
-/// there stays a path. When the answer is unknown (`nil`: no document to resolve
-/// against, or the probe has not finished) the vault keeps the benefit of the
-/// doubt, since rewriting a working relative link into an unreachable URL is the
-/// worse mistake — the file sits right there and the link just stops resolving.
-/// A plain `notes.md` stays local either way: `md` is not a completable TLD, so
-/// linking a note before creating it keeps working.
+/// Scheme completion for a typed destination: bare host → `https://` (a
+/// scheme-less destination resolves as a relative path and silently points
+/// nowhere), bare address → `mailto:`, port-only server (`localhost:3000`,
+/// dotted quad) → `http://`. Untouched: anything already schemed, anchors and
+/// paths, single-label hosts, TLDs outside `completableTLDs`. A destination
+/// ending in a vault-file extension is never completed; `localFileExists`
+/// settles the remaining ambiguity by fact, and an unknown answer (`nil`) keeps
+/// the local reading — a dead URL is the worse mistake.
+/// docs/vault.md § Scheme completion.
 func normalizedLinkURL(_ raw: String,
                        localFileExists: (String) -> Bool? = { _ in nil }) -> String {
     guard let s = completionCandidate(raw) else {
         return withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
     }
 
-    // Anything ending in a file this app opens is never completed, and the probe
-    // is not consulted for it: whether the note exists *yet* cannot decide it,
-    // because writing the link before the note is the everyday forward link in a
-    // vault. Asking would also make the outcome depend on whether the answer
-    // arrived — the same keystrokes storing a relative path on one volume and a
-    // URL on another. The cost is a hand-typed bare `archive.org/note.md`, which
-    // stays relative until its scheme is typed; anything pasted from a browser
-    // carries one already.
+    // Never completed and never probed: whether the note exists *yet* cannot
+    // decide the everyday forward link, and consulting the probe would make the
+    // outcome timing-dependent. Cost: a hand-typed `archive.org/note.md` stays
+    // relative until its scheme is typed.
     if looksLikeVaultFile(s) { return s }
 
-    // What the shape alone would store. Nothing to do when it would leave the
-    // destination as it is.
+    // Shape-only outcome; nothing to do when it leaves the destination alone.
     guard let completed = shapeCompletion(s) else { return s }
 
-    // A file that is really there is a path, not a host: `Makefile.am` and a
-    // folder named `docs.io` live in some vaults. Best-effort by nature — a probe
-    // still in flight (or refused a slot) leaves the shape rule in charge — but a
-    // hit can only ever make the answer more conservative.
+    // A file that is really there is a path, not a host. Best-effort: an
+    // in-flight/refused probe leaves the shape rule in charge; a hit only makes
+    // the answer more conservative.
     if localProbeKey(for: s) != nil, localFileExists(s) == true { return s }
     return completed
 }
 
-/// What the shape rules alone would store for `s`, or nil when they would leave
-/// it alone. Split out so the probe can be asked exactly where its answer could
-/// change the outcome — `localProbeKey` calls this too.
+/// What shape alone would store, or nil to leave `s` alone. Split out so the
+/// probe is asked exactly where its answer matters — `localProbeKey` calls this.
 private func shapeCompletion(_ s: String) -> String? {
-    // Everything before the first `/`, `?` or `#`. An `@` in *there* is an
-    // address or userinfo; further down it belongs to the path and means nothing
-    // (`youtube.com/@mkbhd` is an ordinary page).
+    // Authority = before the first `/`, `?`, `#`. `@` there is address/userinfo;
+    // further down it is path (`youtube.com/@mkbhd`).
     let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
     if authority.contains("@") {
-        // Only a whole string that is an address becomes `mailto:`; with a path
-        // glued on it is userinfo in a URL, which is not ours to complete.
+        // Whole-string address only; with a path glued on, `@` is userinfo.
         guard authority.count == s.count else { return nil }
         return mailtoAddress(s)
     }
@@ -271,10 +210,8 @@ private func shapeCompletion(_ s: String) -> String? {
     let labels = host.name.split(separator: ".", omittingEmptySubsequences: false)
     guard labels.allSatisfy(isHostLabel) else { return nil }
     if hasCompletableTLD(labels) { return "https://" + s }
-    // A dotted quad is a host, and so is `localhost` with a port — both are
-    // servers on this network rather than paths in the vault, and both speak http
-    // far more often than https. `chapter:3` is prose that merely looks like a
-    // host and a port, and nothing else here could veto it.
+    // Dotted quad / `localhost:port` are servers, near-always http. `chapter:3`
+    // is prose that merely looks like host:port.
     let isAddress = labels.count == 4 && labels.allSatisfy {
         Int($0).map { (0...255).contains($0) } ?? false
     }
@@ -284,9 +221,8 @@ private func shapeCompletion(_ s: String) -> String? {
     return nil
 }
 
-/// A host label by RFC 1123 shape: alphanumeric at both ends, hyphens inside.
-/// Keeps `-example.com` and `example-.com` from being completed into a URL that
-/// cannot resolve. Unicode letters pass, so an IDN host still completes.
+/// RFC 1123 label shape: alphanumeric ends, hyphens inside; Unicode letters pass
+/// (IDN). Rejects `-example.com` / `example-.com`.
 private func isHostLabel(_ label: Substring) -> Bool {
     guard let first = label.first, let last = label.last,
           first.isLetter || first.isNumber, last.isLetter || last.isNumber
@@ -294,25 +230,21 @@ private func isHostLabel(_ label: Substring) -> Bool {
     return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
 }
 
-/// `mailto:` form of a bare e-mail address: one `@`, a non-empty local part, and
-/// a host that would pass as a completable host on its own. Nil for anything
-/// else, including `user@host/path`, which is userinfo in a URL.
+/// `mailto:` for a bare address: one `@`, non-empty local part, completable
+/// host. Nil otherwise (incl. `user@host/path` — userinfo).
 private func mailtoAddress(_ s: String) -> String? {
     let parts = s.split(separator: "@", omittingEmptySubsequences: false)
-    // The caller only reaches here for a string with no `/`, `?` or `#` in it, so
-    // the colon is the only structural character left to rule out — it makes the
-    // left side userinfo (`user:pass@host`) rather than a local part.
+    // Caller guarantees no `/`, `?`, `#`; a colon — the only structural char
+    // left — makes the left side userinfo (`user:pass@host`).
     guard parts.count == 2, !parts[0].isEmpty,
           !parts[0].contains(":"), !parts[1].contains(":"),
-          // The same host test the web branch uses — an address at a malformed
-          // host (`user@-example.com`) is no more completable than the host is.
+          // Same host test as the web branch: `user@-example.com` fails with it.
           isCompletableHost(parts[1])
     else { return nil }
     return "mailto:" + s
 }
 
-/// True when an authority reads as a host worth completing a scheme for: two or
-/// more RFC 1123 labels and a TLD from `completableTLDs`.
+/// Two or more RFC 1123 labels and a TLD from `completableTLDs`.
 private func isCompletableHost(_ host: Substring) -> Bool {
     let labels = host.split(separator: ".", omittingEmptySubsequences: false)
     return labels.allSatisfy(isHostLabel) && hasCompletableTLD(labels)
@@ -324,19 +256,16 @@ private func hasCompletableTLD(_ labels: [Substring]) -> Bool {
     return completableTLDs.contains(tld)
 }
 
-/// Splits an authority into host name and port, or nil when it is not shaped
-/// like one — a colon followed by anything but digits (`https:example.com`,
-/// `C:\notes`) is not a port, and not something to complete.
+/// Host name + port, or nil when not shaped like one — a colon followed by
+/// non-digits (`https:example.com`, `C:\notes`) is not a port.
 private func hostParts(_ authority: Substring) -> (name: Substring, port: Substring)? {
-    // A bracketed IPv6 authority (`[::1]:8080`) is full of colons: not shaped
-    // like this, and rare enough to leave for its author to write in full.
+    // Bracketed IPv6 (`[::1]:8080`) is full of colons — left for its author.
     guard !authority.hasPrefix("[") else { return nil }
     let pieces = authority.split(separator: ":", omittingEmptySubsequences: false)
     switch pieces.count {
     case 1:
         return (pieces[0], "")
-    // Digits only, no leading zero, in range: `+80` and `0080` are text that
-    // happens to follow a colon, not ports.
+    // Digits only, no leading zero, in range: `+80` / `0080` are text, not ports.
     case 2 where pieces[1].allSatisfy(\.isNumber) && pieces[1].first != "0"
         && (Int(pieces[1]).map { (1...65535).contains($0) } ?? false):
         return (pieces[0], pieces[1])
@@ -345,31 +274,21 @@ private func hostParts(_ authority: Substring) -> (name: Substring, port: Substr
     }
 }
 
-/// The path to resolve for `destination` — and to remember it under — or nil when
-/// the answer could not change what is stored, in which case no stat is worth
-/// starting. That is the case for far more than it looks:
-///
-/// * anything `completionCandidate` already rules out (schemed, anchor, absolute,
-///   dot-relative, whitespace inside);
-/// * a destination ending in a file this app opens, which is never completed —
-///   `notes.md`, `docs.dev/intro.md`, `assets/shot.png#fig`;
-/// * a shape the rules would leave alone anyway: `Makefile.am` and `logo.ai`
-///   (extension not a completable TLD), `chapter:3`, `docs/intro`;
-/// * anything carrying a query or fragment, which is a web address — and whose
-///   path alone would answer for a *different* destination
-///   (`docs.dev?next=/guide` must not be settled by a folder named `docs.dev`);
-/// * an authority with a port, which no file name on this platform can hold.
-///
-/// One definition for both sides — the normalizer asks exactly here — so the
-/// question and the cache key cannot drift apart, and a stalled volume cannot
-/// spend the in-flight budget on probes whose answers nobody reads.
+/// Path to resolve `destination` under — and cache it by — or nil when no answer
+/// could change what is stored (no stat worth starting): ruled out by
+/// `completionCandidate`; ends in a vault-file extension (never completed); a
+/// shape the rules leave alone anyway; carries a query/fragment (its path alone
+/// would answer for a *different* destination — `docs.dev?next=/guide` must not
+/// be settled by a folder `docs.dev`); or a ported authority (no file name holds
+/// one). One definition for both sides, so the question and the cache key cannot
+/// drift and a stalled volume never probes unread answers.
 func localProbeKey(for destination: String) -> String? {
     guard let s = completionCandidate(destination),
           !s.contains("?"), !s.contains("#"),
           !looksLikeVaultFile(s), shapeCompletion(s) != nil
     else { return nil }
-    // An `@` under a path is userinfo in a URL and names nothing local; standing
-    // alone it may still be a file (`user@example.com` in a mail archive).
+    // `@` under a path is userinfo, names nothing local; standing alone it may
+    // still be a file (`user@example.com` in a mail archive).
     let authority = s.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
     guard !authority.contains("@") || authority.count == s.count,
           !authority.contains(":")
@@ -377,11 +296,9 @@ func localProbeKey(for destination: String) -> String? {
     return s
 }
 
-/// The destination in the form both the normalizer and the probe read it, or nil
-/// when neither ever touches it: already carrying a scheme, an anchor, an absolute
-/// or dot-relative path, or whitespace inside. One definition, so the question and
-/// the cache key cannot drift apart — two copies of it had already diverged over
-/// whether control characters are stripped first.
+/// The form both normalizer and probe read, or nil when neither touches it
+/// (schemed, anchor, absolute/dot-relative, inner whitespace). One definition —
+/// two copies had already diverged over control-char stripping.
 private func completionCandidate(_ raw: String) -> String? {
     let s = withoutControlCharacters(raw).trimmingCharacters(in: .whitespaces)
     guard let first = s.first, !hasURLScheme(s),
@@ -405,9 +322,8 @@ private func pathTail(_ s: String) -> Substring {
     return path[path.index(after: slash)...]
 }
 
-/// The lowercased extension of a name that has one (`notes.md` → `md`). A colon
-/// rules it out: `192.168.1.5:8080` ends in a port, not in `5:8080`, and no file
-/// on this platform carries one in its name.
+/// Lowercased extension (`notes.md` → `md`), nil otherwise. A colon rules it
+/// out: `192.168.1.5:8080` ends in a port, and no file name here holds a colon.
 private func fileExtension(_ name: Substring) -> String? {
     guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return nil }
     let ext = name[name.index(after: dot)...]
@@ -415,10 +331,8 @@ private func fileExtension(_ name: Substring) -> String? {
     return ext.lowercased()
 }
 
-/// True when `s` already carries a URL scheme — either `scheme://` or one of the
-/// authority-less forms (`mailto:`, `tel:`). The `//` has to be there because a
-/// bare `host:port` (`localhost:3000`) looks identical up to the colon; a dot,
-/// slash or `?` before the colon rules a scheme out outright.
+/// `scheme://` or an authority-less form (`mailto:`). The `//` is required: bare
+/// `host:port` looks identical up to the colon.
 private func hasURLScheme(_ s: String) -> Bool {
     var scheme = ""
     for ch in s {
@@ -443,31 +357,26 @@ struct InlineLinkMatch: Equatable {
     var range: NSRange
     /// Link label as rendered — what the dialog shows and the user edits.
     var text: String
-    /// Label as *written*: `**bold**` where `text` is `bold`. A label the user
-    /// leaves alone goes back byte-exact, so ⌘K on a formatted link cannot flatten
-    /// it just by being confirmed. Nil when the source could not be established
-    /// (an autolink, or a child without a range) — then only `text` is known, and
-    /// it has to go through the escaping serializer like any other typed label.
+    /// Label as *written* (`**bold**` where `text` is `bold`); an untouched
+    /// label goes back byte-exact so confirming ⌘K cannot flatten formatting.
+    /// Nil when the source range is unavailable (autolink, rangeless child) —
+    /// then `text` goes through the escaping serializer.
     var rawLabel: String?
     /// Destination as authored (angle brackets already stripped by the parser).
     var url: String
 }
 
-/// The inline link whose full span contains `caret` (a UTF-16 offset into
-/// `source`), or nil when the caret isn't on a link. Built from the
-/// swift-markdown AST, so escapes, angle-bracket destinations and code-span
-/// exclusion are handled the same way the renderer handles them. A caret at
-/// either edge of the span counts as inside, so ⌘K just past a link still edits
-/// it. An autolink (`<url>`) matches too — its label prefills with the URL, so
-/// ⌘K there converts it into a regular `[url](url)` link.
+/// Inline link whose span contains `caret` (UTF-16), or nil. AST-based, so
+/// escapes, angle destinations and code-span exclusion match the renderer. A
+/// caret at either edge counts as inside. Autolinks match too — their label
+/// prefills with the URL, so ⌘K converts them to `[url](url)`.
 func inlineLinkMatch(in source: String, at caret: Int) -> InlineLinkMatch? {
     guard !source.isEmpty else { return nil }
     let lineIdx = LineIndex(source)
     let document = Document(parsing: source)
     var collector = InlineLinkRangeCollector(lineIdx: lineIdx, source: source as NSString)
     collector.visit(document)
-    // Innermost wins if links ever nest: the last (deepest-visited) containing
-    // match is returned.
+    // Innermost containing match wins if links nest.
     var best: InlineLinkMatch?
     for m in collector.matches
     where caret >= m.range.location && caret <= NSMaxRange(m.range) {
@@ -491,9 +400,6 @@ private struct InlineLinkRangeCollector: MarkupWalker {
     }
 
     mutating func visitLink(_ link: Link) {
-        // Autolinks (`<url>`) are collected too: their label prefills with the
-        // URL, so ⌘K on one edits it into a regular `[text](url)` link (see
-        // the doc comment on `inlineLinkMatch`).
         if let dest = link.destination, let src = link.range,
            let r = nsRange(for: src), r.length >= 2 {
             matches.append(InlineLinkMatch(range: r,
@@ -504,12 +410,11 @@ private struct InlineLinkRangeCollector: MarkupWalker {
         descendInto(link)
     }
 
-    /// Source text of the label — from the first child's start to the last
-    /// child's end, so emphasis markers and escapes come along. Nil for an
-    /// autolink, which has no label of its own.
+    /// Label source text, first child's start to last child's end (markers and
+    /// escapes included). Nil for an autolink.
     private func rawLabel(of link: Link) -> String? {
-        // Every child must carry a range: dropping one would silently move the
-        // label's start or end and hand back a truncated span as if it were whole.
+        // Every child must carry a range: a dropped one would hand back a
+        // truncated span as if it were whole.
         let childRanges = link.children.map(\.range)
         guard childRanges.allSatisfy({ $0 != nil }),
               let first = childRanges.first ?? nil, let last = childRanges.last ?? nil,
@@ -534,11 +439,9 @@ enum LinkEditResult: Equatable {
     case cancel
 }
 
-/// Presents the shared add/edit-link dialog. `existingURL` non-empty switches
-/// the title to "Edit Link" and offers "Remove Link". Runs modally on the main
-/// thread; returns the user's choice. `fileURL` is the document being edited —
-/// what a relative destination is resolved against while the user types
-/// (`LocalDestinationCache`); without it a scheme is completed by shape alone.
+/// Shared add/edit-link dialog; non-empty `existingURL` → "Edit Link" +
+/// "Remove Link". Modal on main. `fileURL` is what relative destinations
+/// resolve against while typing; without it, shape alone completes.
 @MainActor
 func runLinkEditPrompt(existingText: String, existingURL: String,
                        fileURL: URL? = nil) -> LinkEditResult {
@@ -564,36 +467,29 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     alert.addButton(withTitle: String(localized: "Cancel"))
     if editing { alert.addButton(withTitle: String(localized: "Remove Link")) }
 
-    // Resolve what is typed against the vault in the background, so OK reads an
-    // answer that is already there rather than touching the disk itself. An
-    // untouched destination is never arbitrated (`linkDestination` returns it
-    // verbatim), so there is nothing to prefetch until the field changes.
+    // Background-resolve typed text so OK reads a ready answer. An untouched
+    // destination returns verbatim — nothing to prefetch until the field changes.
     let destinations = LocalDestinationCache(
         fileURL: fileURL,
         adoptedRoot: fileURL.flatMap { WorkspaceModel.shared.workspaceOwning($0)?.url })
     let watcher = LinkURLFieldWatcher(destinations: destinations)
     urlField.delegate = watcher
 
-    // Adding a link starts in the URL field (the label is usually the
-    // selection); editing an existing one starts in its text.
-    // `delegate` is a weak reference and AppKit does not retain it either, so
-    // the watcher's lifetime has to be held open across the modal run by hand —
-    // otherwise ARC may release it right after the assignment and no keystroke
-    // is ever seen.
+    // Add starts in the URL field (label usually = selection); edit in its text.
+    // `delegate` is weak and AppKit does not retain it: hold the watcher across
+    // the modal run or ARC frees it and no keystroke is ever seen.
     let response = withExtendedLifetime(watcher) {
         runModal(alert, focusing: existingURL.isEmpty ? urlField : textField)
     }
     switch response {
     case .alertFirstButtonReturn:
-        // Only a confirmed dialog pays for the destination: waiting on the probe
-        // — and normalizing at all — is pointless for a value Cancel or Remove
-        // Link is about to drop, and on a slow volume that wait would be felt.
+        // Only a confirmed dialog pays for normalization; Cancel/Remove drop
+        // the value, and on a slow volume the wait would be felt.
         let url = linkDestination(typed: urlField.stringValue, existing: existingURL,
                                   localFileExists: { destinations.answer(for: $0) })
         guard !url.isEmpty else { return .cancel }
-        // A label is one line: a two-line paste would otherwise put a newline
-        // inside `[…]`, which breaks the link in Source and makes one link
-        // attribute span two paragraphs in Visual.
+        // Label is one line: a pasted newline inside `[…]` breaks the link in
+        // Source and spans one link attribute across two paragraphs in Visual.
         return .apply(text: singleLineFieldText(textField.stringValue), url: url)
     case .alertThirdButtonReturn:
         return .remove
@@ -602,8 +498,8 @@ func runLinkEditPrompt(existingText: String, existingURL: String,
     }
 }
 
-/// Keeps `LocalDestinationCache` a keystroke ahead of the OK button: every edit
-/// of the URL field starts resolving what it now holds.
+/// Keeps the cache a keystroke ahead of OK: every URL-field edit starts
+/// resolving.
 @MainActor
 private final class LinkURLFieldWatcher: NSObject, NSTextFieldDelegate {
     private let destinations: LocalDestinationCache

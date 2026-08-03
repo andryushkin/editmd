@@ -139,24 +139,23 @@ struct MarkdownPreviewView: NSViewRepresentable {
     let document: MarkdownDocument
     let fileURL: URL?
     var positionStore: EditorPositionStore? = nil
-    /// Full-preview mode only: Return switches back to editing (FSNotes).
+    /// Full-preview mode only: Return switches back to editing.
     var onRequestEdit: (() -> Void)? = nil
-    /// Optional strip bridge (full Preview mode). Coordinator installs
-    /// format closures on make + update.
+    /// Strip bridge (full Preview mode); coordinator installs format closures
+    /// on make + update.
     var toolbarActions: EditorStripActions? = nil
     /// Inline styles uniformly active at the Preview caret/selection.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
-    /// ⌘F find state (full Preview mode only). The coordinator installs the
-    /// search closures and reports match tallies back into it (sprint 5).
+    /// ⌘F find state (full Preview only): coordinator installs search
+    /// closures and reports match tallies back.
     var findModel: PreviewFindModel? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
         let coordinator = context.coordinator
-        // Task checkboxes in the page report their index here; the controller
-        // retains its handlers strongly, so the handler holds the coordinator
-        // weakly to avoid a retain cycle.
+        // Controller retains handlers strongly; each handler holds the
+        // coordinator weakly to avoid a cycle.
         let userContentController = WKUserContentController()
         userContentController.add(TaskToggleHandler(coordinator: coordinator),
                                   name: "taskToggle")
@@ -170,10 +169,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                   name: "previewSelection")
         userContentController.add(PreviewScrollHandler(coordinator: coordinator),
                                   name: "previewScroll")
-        // Cache selection + source offsets (data-md-lo/hi). Keep last non-empty
-        // so a click on the action strip doesn't wipe the range before wrap runs.
-        // Report selection in *markdown source* UTF-16 offsets (data-md-lo/hi).
-        // Used by the format strip and by Review-mark capture (v37) via the
+        // Reports selection in markdown-source UTF-16 offsets (data-md-lo/hi);
+        // last non-empty is kept so a strip click doesn't wipe the range
+        // before wrap runs. Feeds the strip and Review-mark capture via
         // ClaudeIDEBridge — same path as Source/Visual.
         let selectionScript = WKUserScript(
             source: """
@@ -282,9 +280,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
         bindRenderCallbacks(to: coordinator)
         bindFind(to: coordinator)
         coordinator.observe(document: document)
-        // Preview settings changes must re-render: the page bakes font size/
-        // insets/line-height/column width into its CSS, so no content change
-        // would otherwise trigger an update.
+        // Settings changes must re-render: the page bakes typography into its
+        // CSS, so no content change would otherwise trigger an update.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.settingsDidChange),
@@ -299,7 +296,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 name: .editMDJumpToOffset,
                 object: store
             )
-            // D5: editor→preview scroll follow (no Source selection side-effect).
+            // Editor→preview scroll follow (no Source selection side-effect).
             NotificationCenter.default.addObserver(
                 coordinator,
                 selector: #selector(Coordinator.followEditorScroll),
@@ -307,7 +304,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 object: store
             )
         }
-        // Review-mark wash in Preview (primary review surface, v37).
+        // Review-mark wash (Preview is the primary review surface).
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.reviewMarksDidChange),
@@ -365,10 +362,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
     }
 
-    /// Wires the ⌘F find model to this coordinator's web view. Rebound from
-    /// make + update so the closures always point at the live coordinator; the
-    /// model keeps its query/tally across those rebinds (only the transport is
-    /// replaced). Installing closures never runs a search.
+    /// Rebound from make + update so closures point at the live coordinator;
+    /// the model keeps query/tally across rebinds (only transport replaced).
+    /// Installing closures never runs a search.
     private func bindFind(to coordinator: Coordinator) {
         coordinator.findModel = findModel
         guard let findModel else { return }
@@ -662,8 +658,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         /// `-1` means offsets unknown (copy still works; wrap beeps).
         var cachedStart: Int = -1
         var cachedEnd: Int = -1
-        /// ⌘F find state (sprint 5). Weak: the model outlives any single
-        /// coordinator and is owned by ContentView.
+        /// Weak: the model outlives any single coordinator (owned by ContentView).
         weak var findModel: PreviewFindModel?
 
         deinit {
@@ -855,8 +850,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
             scroll(toMarkdownOffset: store.markdownOffset)
         }
 
-        /// D5: split-mode scroll follow reads its own transport field so a
-        /// passive scroll never rewrites the caret (`markdownOffset`).
+        /// Split-mode follow reads its own transport field so a passive
+        /// scroll never rewrites the caret (`markdownOffset`).
         @objc func followEditorScroll() {
             guard let store = positionStore else { return }
             lastFollowedPosition = store.previewScrollPosition
@@ -935,7 +930,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 + "(document.documentElement.scrollHeight - window.innerHeight) * \(fraction)));"
         }
 
-        // MARK: Review-mark wash (Preview is the primary review surface)
+        // MARK: Review-mark wash
 
         @objc func reviewMarksDidChange() {
             applyReviewHighlights()
@@ -977,9 +972,8 @@ struct MarkdownPreviewView: NSViewRepresentable {
                 completionHandler: nil)
         }
 
-        // MARK: ⌘F find (sprint 5)
+        // MARK: ⌘F find
 
-        /// Run a full search in the page and report the tally back to the model.
         func performFind(_ query: String) {
             guard let webView, let findModel else { return }
             Task { @MainActor [weak self, weak findModel] in

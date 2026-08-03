@@ -2,7 +2,7 @@ import XCTest
 import AppKit
 @testable import EditMD
 
-/// Pure helpers behind Visual-mode editing semantics (v21).
+/// Pure helpers behind Visual-mode editing semantics.
 final class VisualEditingTests: XCTestCase {
 
     func testVisualCalloutCarriesPresentationTypeWithoutChangingText() throws {
@@ -40,7 +40,7 @@ final class VisualEditingTests: XCTestCase {
             stripWidth: 500, editingPaneWidth: 700), 500)
     }
 
-    // MARK: - Plan 12.2: layout planner
+    // MARK: - Toolbar layout planner
 
     private func plannerItems() -> [StripLayoutItem] {
         // Mirrors the Visual profile: inline, headings, lists, insert, cleanup.
@@ -95,7 +95,7 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertTrue(planned.allSatisfy { $0.display == .overflow })
     }
 
-    /// Review fix: ordinary overflow states reserve the plain "…" width, not
+    /// Ordinary overflow states reserve the plain "…" width, not
     /// the wider terminal pill; the terminal state costs soloWidth alone (the
     /// group gap disappears with the groups).
     func testPlannerSoloOverflowWidthOnlyAppliesToTerminalState() {
@@ -119,7 +119,7 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertTrue(terminal.allSatisfy { $0.display == .overflow })
     }
 
-    /// Review fix: the flatten invariant holds only if every command-tree
+    /// The flatten invariant holds only if every command-tree
     /// leaf actually resolves to a StripItem — a missing item would silently
     /// vanish from every representation.
     @MainActor
@@ -173,7 +173,7 @@ final class VisualEditingTests: XCTestCase {
         XCTAssertEqual(atReview["inline"], .full)
     }
 
-    // MARK: - Plan 12.2: command tree — same action set in every representation
+    // MARK: - Command tree — same action set in every representation
 
     func testCommandTreeLeavesMatchToolIDsInEveryMode() {
         let configs: [(EditorMode, Bool, Bool)] = [
@@ -207,7 +207,7 @@ final class VisualEditingTests: XCTestCase {
                        "Source folds the one-command Table node into a direct button")
     }
 
-    /// Plan 12.0: the tool lane runs from the field's left edge to the mode
+    /// The tool lane runs from the field's left edge to the mode
     /// switch — the text column's trailing margin must not shrink it.
     func testToolLaneRunsFromLeadToModeSwitch() {
         // Wide window: everything after lead/mode metrics belongs to the lane.

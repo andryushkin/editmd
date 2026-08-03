@@ -2,9 +2,9 @@ import Foundation
 import Combine
 import SwiftUI
 
-// MARK: - Presence / presence channel (stage 1 + 2)
+// MARK: - Presence channel
 
-/// Agent presence reported by harness hooks / `editmdctl agent-status` (stage 2).
+/// Agent presence reported by harness hooks / `editmdctl agent-status`.
 enum AgentHarnessStatus: String, Equatable, Sendable, CaseIterable {
     case idle
     case active
@@ -12,7 +12,7 @@ enum AgentHarnessStatus: String, Equatable, Sendable, CaseIterable {
     case blocked
 }
 
-/// Aggregated face of all AI surfaces (plan 09 stage 1).
+/// Aggregated face of all AI surfaces.
 @MainActor
 final class AgentActivityModel: ObservableObject {
     static let shared = AgentActivityModel()
@@ -33,7 +33,7 @@ final class AgentActivityModel: ObservableObject {
     @Published private(set) var openMarkCount = 0
     @Published private(set) var openSuggestionCount = 0
 
-    /// External harness channel (stage 2); idle when unused.
+    /// External harness channel; idle when unused.
     @Published private(set) var harnessStatus: AgentHarnessStatus = .idle
     @Published private(set) var harnessLabel: String?
     @Published private(set) var harnessName: String?
@@ -43,8 +43,8 @@ final class AgentActivityModel: ObservableObject {
     @Published private(set) var toast: String?
     private var toastTask: Task<Void, Never>?
 
-    /// Last quiet external reload (stage 7) — an event, NOT a harness status:
-    /// it must never overwrite what a live agent reported about itself.
+    /// Last quiet external reload — an event, NOT a harness status: it must
+    /// never overwrite what a live agent reported about itself.
     @Published private(set) var lastDiskReloadFile: String?
     @Published private(set) var lastDiskReloadAt: Date?
 
@@ -151,7 +151,7 @@ final class AgentActivityModel: ObservableObject {
 
     func dismissToast() { toast = nil }
 
-    /// Stage 7: quiet auto-reload happened — toast + popover event line.
+    /// Quiet auto-reload happened — toast + popover event line.
     func noteDiskReload(fileName: String) {
         lastDiskReloadFile = fileName
         lastDiskReloadAt = Date()
@@ -173,7 +173,7 @@ final class AgentActivityModel: ObservableObject {
         nextStepHint = nil
     }
 
-    /// Stage 2 entry: harness reports status over control socket.
+    /// Harness reports status over the control socket.
     func applyHarnessStatus(
         _ status: AgentHarnessStatus,
         label: String? = nil,

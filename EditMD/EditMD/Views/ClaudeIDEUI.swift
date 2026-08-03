@@ -1,7 +1,7 @@
 import SwiftUI
 
-// UI surface of the Claude Code IDE channel (v36): the blocking diff sheet and
-// the status-bar connection chip. Both are thin — the decisions live in
+// UI surface of the Claude Code IDE channel: the blocking diff sheet and the
+// status-bar connection chip. Both are thin — the decisions live in
 // `DiffApprovalController` and `ClaudeIDEService`.
 
 // MARK: - openDiff sheet

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shared visual language for AI proposals (openDiff + review suggests) — plan 09 stage 5.
+/// Shared visual language for AI proposals (openDiff + review suggests).
 enum AIProposalChrome {
     static let acceptTitle = String(localized: "Accept")
     static let declineTitle = String(localized: "Decline")

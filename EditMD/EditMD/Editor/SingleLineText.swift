@@ -1,17 +1,13 @@
 import Foundation
 
-// Filters for what a one-line text field hands back. A field is single-line in
-// layout only — `usesSingleLineMode` does not touch the string — so a pasted
-// newline or tab arrives intact and would otherwise reach a file name or the
-// inside of markdown syntax. Pure, and deliberately not in the AppKit file that
-// builds those fields: the naming funnel these guard has no UI in it.
+// Filters for one-line text fields. `usesSingleLineMode` is layout-only — a
+// pasted newline/tab arrives intact and would reach a file name or markdown
+// syntax. Pure, deliberately outside the AppKit field-building file.
 //
-// Noise here is Unicode's *control* category (Cc) plus the line and paragraph
-// separators (Zl, Zp) — U+2028 arrives with anything copied out of a PDF or Word.
-// `controlCharacters` would have been the obvious set and is wrong twice over: it
-// misses those separators, and it covers format characters (Cf), so a zero-width
-// joiner would count as noise and `👨‍💻 Notes` would come out as two people and
-// a laptop.
+// Noise = Cc + line/paragraph separators (Zl, Zp — U+2028 comes with PDF/Word
+// copies). NOT `controlCharacters`: it misses those separators and covers Cf,
+// so a zero-width joiner would count as noise and `👨‍💻 Notes` would come out
+// as two people and a laptop.
 
 private let noisyCategories: Set<Unicode.GeneralCategory> =
     [.control, .lineSeparator, .paragraphSeparator]

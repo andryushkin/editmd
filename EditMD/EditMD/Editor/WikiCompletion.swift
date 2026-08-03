@@ -1,5 +1,5 @@
-// Wiki-link autocomplete engine (plan 03). Pure over text + caret + catalog —
-// hosts (Source/Visual) only present the popup and apply the replacement.
+// Wiki-link autocomplete engine. Pure over text + caret + catalog — hosts
+// (Source/Visual) only present the popup and apply the replacement.
 
 import Foundation
 
@@ -58,9 +58,8 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
     let caret = max(0, min(caret, n))
     guard caret >= 2 else { return nil }
 
-    // Find the last `[[` on the same line before the caret FIRST — this is
-    // O(line) and almost always bails, while the fence check below is
-    // O(document); the function runs after every keystroke / caret move.
+    // Find the last `[[` on the same line FIRST — O(line) and almost always
+    // bails; the fence check below is O(document) and this runs per keystroke.
     var i = caret - 1
     var open = -1
     while i >= 1 {
@@ -86,11 +85,10 @@ func wikiCompletionSession(text: String, caretUTF16 caret: Int) -> WikiCompletio
     guard innerStart <= caret else { return nil }
     let inner = ns.substring(with: NSRange(location: innerStart, length: caret - innerStart))
 
-    // Leading whitespace aborts (plan: space at start of query ends session).
+    // Space at start of query ends the session.
     if inner.first == " " || inner.first == "\t" { return nil }
 
-    // No `|` alias completion in v1 — after the pipe the user is typing the
-    // alias, not the target, so the session ends.
+    // After `|` the user types the alias, not the target — session ends.
     if inner.contains("|") { return nil }
 
     if let hash = inner.firstIndex(of: "#") {

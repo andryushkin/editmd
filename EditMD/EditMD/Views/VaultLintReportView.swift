@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Workspace-wide vault-lint report (plan 06). Opened from View menu / Info.
+/// Workspace-wide vault-lint report. Opened from View menu / Info.
 struct VaultLintReportView: View {
     @ObservedObject var model: VaultLintModel
     var onOpen: (URL, Int?) -> Void

@@ -595,7 +595,7 @@ final class LinkIndexTests: XCTestCase {
                        "returning to a workspace must not re-resolve its files")
     }
 
-    // MARK: - Persisted index (plan 10)
+    // MARK: - Persisted index
 
     @MainActor
     func testPersistedIndexSeedsColdStart() async throws {

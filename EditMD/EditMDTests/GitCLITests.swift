@@ -105,7 +105,7 @@ final class GitCLITests: XCTestCase {
         XCTAssertTrue(root.path.contains("editmd") || FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path))
     }
 
-    // MARK: - Temp repo write ops (stage 4)
+    // MARK: - Temp repo write ops
 
     func testStageAndCommitSingleFile() throws {
         guard GitCLI.gitExecutable != nil else {

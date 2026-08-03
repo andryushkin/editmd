@@ -4,7 +4,7 @@ import os
 
 let controlLog = Logger(subsystem: "andryushkin.EditMD", category: "control")
 
-/// Executes control-channel commands on the main actor (v38).
+/// Executes control-channel commands on the main actor.
 /// Keeps disk IO off-main where practical; pure decoding is in ControlProtocol.
 @MainActor
 enum ControlRouter {
@@ -125,7 +125,7 @@ enum ControlRouter {
         }
     }
 
-    // MARK: agent-status (plan 09)
+    // MARK: agent-status
 
     private static func agentStatus(_ request: ControlRequest) throws -> Dispatched {
         guard let parsed = parseAgentStatusArgs(request.args) else {
@@ -145,7 +145,7 @@ enum ControlRouter {
         ]))
     }
 
-    // MARK: workspace.add (D6)
+    // MARK: workspace.add
 
     /// Validate path off main (caller may be socket thread via deferred), mutate
     /// WorkspaceModel on main. Idempotent if already adopted.
@@ -474,9 +474,9 @@ enum ControlRouter {
 
     // MARK: diff
 
-    /// The diff itself (disk read + full lineDiff) runs on the socket thread —
-    /// a multi-MB buffer or a dead network mount must not beachball the app
-    /// (v35.3 invariant: full line-diffs never run on main).
+    /// Disk read + full lineDiff run on the socket thread — a multi-MB buffer
+    /// or a dead network mount must not beachball the app; full line-diffs
+    /// never run on main.
     private static func diffShow(_ request: ControlRequest) throws -> Dispatched {
         let url = try fileURL(for: request)
         let buffered = DocumentRegistry.shared.contentIfOpen(url)

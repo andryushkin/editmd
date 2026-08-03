@@ -151,9 +151,9 @@ struct ElementStyles: Codable, Equatable {
     var quote: ElementStyle
 
     init() {
-        // Plan 11.2 ramp — HIG-flavored (Large Title 26 / Title 1 22 /
-        // Title 2 17 at the 15pt base). H6 additionally renders in the
-        // secondary tone (draw-time default, not a baked color).
+        // HIG-flavored ramp (Large Title 26 / Title 1 22 / Title 2 17 at the
+        // 15pt base). H6 also renders in the secondary tone (draw-time
+        // default, not a baked color).
         h1 = ElementStyle(weight: .bold, sizeScale: 1.75)
         h2 = ElementStyle(weight: .semibold, sizeScale: 1.45)
         h3 = ElementStyle(weight: .semibold, sizeScale: 1.2)
@@ -427,9 +427,7 @@ struct PreviewTypographySettings: Codable, Equatable {
 
 // MARK: - General settings
 
-/// Cross-mode look: theme preset, window appearance, and base color overrides.
-/// A nil hex means "use the preset's own color".
-/// Preset for the Review ✈️ agent launch line (plan 09 stage 4).
+/// Preset for the Review ✈️ agent launch line.
 enum AgentCommandPreset: String, Codable, CaseIterable, Identifiable {
     case claude
     case codex
@@ -459,16 +457,15 @@ struct GeneralSettings: Codable, Equatable {
     var appearance: AppearanceMode
     var textColorHex: String?
     var accentColorHex: String?
-    /// When on (default), a double-click in Finder opens the file in its own
-    /// separate (sidebar-less) window; off loads it into the main window.
+    /// On (default): Finder double-click opens a separate sidebar-less
+    /// window; off loads into the main window.
     var liteMode: Bool
-    /// Run the local WebSocket IDE server so `claude` can attach with `/ide`
-    /// (v36). Off = no server, no `~/.claude/ide/*.lock`.
+    /// Run the local WebSocket IDE server so `claude` can attach with `/ide`.
+    /// Off = no server, no `~/.claude/ide/*.lock`.
     var claudeIDEEnabled: Bool
-    /// When on, Review ▸ ➤ also spawns `claude -p "/smotr -pr"` in the
-    /// workspace root after writing `.smotr-queue.json` (v37). Off (default) =
-    /// only write the queue and copy the terminal command — matches smotr
-    /// without `--agent`.
+    /// On: Review ▸ ➤ also spawns the agent in the workspace root after
+    /// writing `.smotr-queue.json`. Off (default) = only write the queue and
+    /// copy the terminal command.
     var claudeReviewAutoSpawn: Bool
     /// Applies language-aware colors to fenced code blocks in Source, Visual,
     /// Preview and PDF. Turning it off preserves code panels and fonts.
@@ -477,7 +474,7 @@ struct GeneralSettings: Codable, Equatable {
     var agentCommandPreset: AgentCommandPreset
     /// Custom shell command when preset is `.custom`.
     var agentCustomCommand: String
-    /// Stage 7: silent reload when buffer is clean (default on).
+    /// Silent reload of external changes when the buffer is clean (default on).
     var autoReloadCleanExternal: Bool
     /// Where notes handed over by the web clipper (`editmd://new`) land.
     var clipDestination: ClipDestinationMode
@@ -520,7 +517,6 @@ struct GeneralSettings: Codable, Equatable {
         appearance = try c.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .system
         textColorHex = try c.decodeIfPresent(String.self, forKey: .textColorHex)
         accentColorHex = try c.decodeIfPresent(String.self, forKey: .accentColorHex)
-        // C5: Finder double-click opens a lite window by default.
         liteMode = try c.decodeIfPresent(Bool.self, forKey: .liteMode) ?? true
         claudeIDEEnabled = try c.decodeIfPresent(Bool.self, forKey: .claudeIDEEnabled) ?? true
         claudeReviewAutoSpawn = try c.decodeIfPresent(Bool.self, forKey: .claudeReviewAutoSpawn) ?? false
@@ -530,8 +526,7 @@ struct GeneralSettings: Codable, Equatable {
         autoReloadCleanExternal = try c.decodeIfPresent(Bool.self, forKey: .autoReloadCleanExternal) ?? true
         clipDestination = try c.decodeIfPresent(ClipDestinationMode.self, forKey: .clipDestination) ?? .folder
         clipsFolderPath = try c.decodeIfPresent(String.self, forKey: .clipsFolderPath) ?? ""
-        // Installs from before the update check gain it switched on, the same
-        // as a fresh one — the point is telling people a release exists.
+        // Pre-update-check installs gain it switched on, same as fresh ones.
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? true
     }
 }
@@ -647,13 +642,11 @@ final class EditorSettings: ObservableObject {
         visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
         preview = Self.load(Keys.preview) ?? Self.previewDefaults()
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
-        // Selection-time geometry rewriting (the previewTypography didSet)
-        // postdates the first typora-theme builds — installs that picked the
-        // theme back then still store stock 15/736, which those versions
-        // RENDERED as the theme's 16/860 via a since-removed render-time
-        // resolver. The one-time upgrade reproduces what those users saw;
-        // the stamp keeps a later deliberate 15/736 choice from being
-        // rewritten again on the next launch.
+        // One-time upgrade for installs that picked a geometry-preferring
+        // theme before selection-time rewriting existed (their stored stock
+        // values were RENDERED as the theme's numbers by a since-removed
+        // render-time resolver). The stamp keeps a later deliberate stock
+        // choice from being rewritten again.
         let previewStamp = UserDefaults.standard.integer(forKey: Keys.previewGeometryBaseline)
         let needsPreviewGeometryUpgrade = previewStamp < Self.previewGeometryBaseline
         if needsPreviewGeometryUpgrade {
@@ -668,8 +661,8 @@ final class EditorSettings: ObservableObject {
         UserDefaults.standard.set(Self.previewGeometryBaseline, forKey: Keys.previewGeometryBaseline)
     }
 
-    /// Baseline Visual defaults (plan 11): the prose reading column matches
-    /// Preview's 736pt; `0` (full width) stays available in Settings.
+    /// Prose reading column matches Preview's 736pt; `0` (full width) stays
+    /// available in Settings.
     private static func visualDefaults() -> ModeSettings {
         ModeSettings(fontSize: 15, insetH: 48, insetV: 24, columnWidth: 736)
     }
@@ -681,12 +674,10 @@ final class EditorSettings: ObservableObject {
         ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
     }
 
-    /// Theme switch: values are rewritten to the incoming theme's effective
-    /// defaults only while they still equal the OUTGOING theme's — anything
-    /// the user touched stays, including explicitly picking the stock
-    /// numbers while another theme is active. This runs once at selection
-    /// time (not at render time), which is what lets a user on the Typora
-    /// theme deliberately choose 15 pt / 736 pt and see exactly that.
+    /// Theme switch: values rewrite to the incoming theme's defaults only
+    /// while they still equal the OUTGOING theme's — anything the user
+    /// touched stays. Runs once at selection time, not render time, so a
+    /// deliberate stock choice under any theme is honored.
     static func migratedPreviewGeometry(_ current: ModeSettings,
                                         from old: PreviewTheme,
                                         to new: PreviewTheme) -> ModeSettings {
@@ -701,34 +692,26 @@ final class EditorSettings: ObservableObject {
         return next
     }
 
-    /// Stamp for the one-time startup upgrade below (1 = typora
-    /// selection-time geometry, 2026-07-23). Bump only when a later change
-    /// must rewrite stored Preview geometry again.
+    /// Stamp for the one-time startup upgrade below. Bump only when a later
+    /// change must rewrite stored Preview geometry again.
     static let previewGeometryBaseline = 1
 
-    /// Startup upgrade for installs that picked a geometry-preferring theme
-    /// before selection-time rewriting existed: stock values are treated as
-    /// untouched (`from: .standard`), which reproduces exactly what those
-    /// versions rendered — their render-time resolver mapped stored stock
-    /// 15/736 to the active theme's preferred numbers, so an honored
-    /// deliberate 15/736 under typora did not exist yet. Gated by
-    /// `previewGeometryBaseline`, so post-upgrade stock choices are never
-    /// rewritten on later launches.
+    /// Stock values treated as untouched (`from: .standard`) — reproduces
+    /// what pre-selection-time versions rendered; an honored deliberate
+    /// stock choice did not exist yet. Gated by `previewGeometryBaseline`.
     static func legacyPreviewGeometryUpgrade(_ stored: ModeSettings,
                                              activeThemeID: String) -> ModeSettings {
         migratedPreviewGeometry(stored, from: .standard,
                                 to: PreviewTheme.preset(named: activeThemeID))
     }
 
-    /// Typography baseline stamp for the plan-11 Visual redesign. Bump when a
-    /// later stage replaces element defaults again so existing installs
-    /// re-migrate (2 = 11.0 column, 3 = 11.2 heading ramp).
+    /// Bump when element defaults are replaced again so existing installs
+    /// re-migrate.
     static let visualTypographyBaseline = 3
 
-    /// Hard baseline migration (redesign decision 2026-07-22): stored element
-    /// styles and the reading column are REPLACED with the current defaults —
-    /// deliberately no merge with old per-element overrides. Personal font
-    /// size/family/weight and margins are kept.
+    /// Hard baseline migration: stored element styles and reading column are
+    /// REPLACED with current defaults — deliberately no merge with old
+    /// per-element overrides. Personal font size/family/weight and margins kept.
     static func migratedVisual(_ stored: ModeSettings) -> ModeSettings {
         var visual = stored
         visual.columnWidth = visualDefaults().columnWidth
@@ -736,15 +719,14 @@ final class EditorSettings: ObservableObject {
         return visual
     }
 
-    /// The active Source/Visual look: the single fixed editor theme plus
-    /// General's base color overrides. Element-level colors are applied at draw
-    /// time, not baked in here. (Preview has its own themes via `PreviewTheme`.)
+    /// Source/Visual look: fixed editor theme + General's color overrides.
+    /// Element-level colors apply at draw time, not baked in here. Preview
+    /// has its own `PreviewTheme`.
     var effectiveTheme: EditorTheme {
         EditorTheme.editorDefault.applyingOverrides(general)
     }
 
-    /// Bumps one mode's font size by `delta`, clamped. Used by ⌘=/⌘−, which
-    /// now act on whichever mode is focused rather than one app-wide size.
+    /// ⌘=/⌘− act on whichever mode is focused, not one app-wide size.
     func adjustFontSize(_ mode: ReferenceWritableKeyPath<EditorSettings, ModeSettings>, by delta: CGFloat) {
         var settings = self[keyPath: mode]
         settings.fontSize = min(ModeSettings.fontSizeRange.upperBound,

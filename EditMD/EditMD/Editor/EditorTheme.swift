@@ -1,8 +1,6 @@
 import AppKit
 
-/// Visual configuration for the Markdown editor.
-/// All colours and layout constants are isolated here so different themes
-/// can be created by constructing an `EditorTheme` with alternate values.
+/// Editor colors/layout constants; a theme is an `EditorTheme` value.
 struct EditorTheme {
 
     var name: String
@@ -15,26 +13,22 @@ struct EditorTheme {
     /// decorations, external-change diff. (Source syntax markers use
     /// `markerColor`, not this.)
     var secondaryColor: NSColor
-    /// Legacy tertiary tone — currently unused. Source markers moved to
-    /// `markerColor`; kept for the planned Source/Visual theme presets.
+    /// Unused legacy tone; kept for the planned Source/Visual theme presets.
     var tertiaryColor: NSColor
-    /// Default color for Markdown syntax markers in Source mode (heading `#`,
-    /// list bullets, emphasis `*`/`_`, quote `>`, fences, table pipes, brackets).
-    /// Graphite on light, a soft gray on dark. Overridable via Source settings.
+    /// Source syntax markers (`#`, bullets, emphasis, `>`, fences, pipes,
+    /// brackets). Overridable via Source settings.
     var markerColor: NSColor
     /// Links and list markers.
     var accentColor: NSColor
-    /// Tint of the fill behind the line holding the caret (Source). Opaque —
-    /// the wash alpha is applied at draw time (`currentLineAlpha`), so a color
-    /// picked in Settings gets the same translucency as the theme default.
+    /// Caret-line fill tint (Source). Opaque — wash alpha applied at draw time
+    /// (`currentLineAlpha`), so a Settings color gets the same translucency.
     var currentLineColor: NSColor
     /// Default wash alpha for `currentLineColor`, per appearance. A fill that
     /// reads the same on both needs more alpha on dark.
     static func currentLineAlpha(isDark: Bool) -> CGFloat { isDark ? 0.14 : 0.07 }
 
-    /// Text insertion point. A thin accent bar, like Xcode's — the system
-    /// default paints it in the body text color, which reads as a heavy black
-    /// slab against monospaced markdown.
+    /// Caret: thin accent bar — the system default (body text color) reads as a
+    /// heavy black slab against monospaced markdown.
     var caretColor: NSColor
     /// Inline code text.
     var inlineCodeColor: NSColor
@@ -55,13 +49,10 @@ struct EditorTheme {
 
     // MARK: - Typography
 
-    /// Font-size delta for H1 (added to base size).
+    /// Font-size deltas, added to base size.
     var h1SizeOffset: CGFloat
-    /// Font-size delta for H2.
     var h2SizeOffset: CGFloat
-    /// Font-size delta for H3.
     var h3SizeOffset: CGFloat
-    /// Font-size delta for H4–H6.
     var h4PlusSizeOffset: CGFloat
     /// Font-size delta for small elements: inline code, HTML, code block body.
     var smallFontOffset: CGFloat
@@ -96,17 +87,13 @@ struct EditorTheme {
 
 extension EditorTheme {
 
-    /// The single fixed look for Source and Visual highlighting. The old
-    /// selectable presets (System/Sepia/Nord/Solarized/High Contrast/Dracula)
-    /// were a second, redundant theme axis and were removed — Preview themes
-    /// (`PreviewTheme`) are the theme system now, and dedicated Source/Visual
-    /// presets will be reintroduced later on top of this baseline. Colors
-    /// adapt to Light / Dark via `gh(...)`.
+    /// Single fixed look for Source and Visual. Preview themes (`PreviewTheme`)
+    /// are the theme system; Source/Visual presets are planned on top of this
+    /// baseline. Colors adapt Light/Dark via `gh(...)`.
     static var editorDefault: EditorTheme { github }
 
     // MARK: - GitHub theme
 
-    /// Creates a dynamic NSColor that uses lightHex in Aqua and darkHex in Dark Aqua.
     private static func ghAlpha(light: CGFloat, dark: CGFloat) -> NSColor {
         NSColor(name: nil) { appearance in
             switch appearance.name {
@@ -141,7 +128,7 @@ extension EditorTheme {
         }
     }
 
-    /// GitHub-flavored theme with concrete hex colors adapted from swift-markdown-ui's GitHub theme.
+    /// Hex colors adapted from swift-markdown-ui's GitHub theme.
     static let github = EditorTheme(
         name:                 "github",
         textColor:            gh(0x060606, 0xfbfbfc),
@@ -151,15 +138,15 @@ extension EditorTheme {
         accentColor:          gh(0x2c65cf, 0x4c8ef8),
         currentLineColor:     gh(0x2c65cf, 0x4c8ef8),
         caretColor:           gh(0x2c65cf, 0x4c8ef8),
-        // Neutral, not GitHub-red (plan 11.3): code reads as code through the
-        // mono font and the wash, not through an alarm color.
+        // Neutral, not GitHub-red: code reads as code through the mono font and
+        // the wash, not an alarm color.
         inlineCodeColor:      gh(0x060606, 0xfbfbfc),
         imageColor:           gh(0x1a7f37, 0x3fb950),
         separatorColor:       gh(0xd0d0d3, 0x333438),
         inlineCodeBackground: ghAlpha(light: 0.055, dark: 0.09),
         codeBlockBackground:  gh(0xf6f8fa, 0x161b22),
         copyButtonBackground: NSColor(white: 0.5, alpha: 0.12),
-        // Plain quotes carry no wash (plan 11.4) — callouts paint their own.
+        // Plain quotes carry no wash — callouts paint their own.
         quoteBackground:      .clear,
         codeBlockCornerRadius: 8,
         h1SizeOffset:          8,
@@ -178,9 +165,8 @@ extension EditorTheme {
         quoteBarXOffset:       12
     )
 
-    /// Applies General's base color overrides on top of this theme.
-    /// A nil hex leaves the preset's own color untouched. Fine-grained
-    /// per-element colors are applied at draw time, not here.
+    /// General's base color overrides; nil hex keeps the preset's color.
+    /// Per-element colors are applied at draw time, not here.
     func applyingOverrides(_ overrides: GeneralSettings) -> EditorTheme {
         var theme = self
         if let color = overrides.textColorHex.flatMap({ NSColor(hex: $0) }) {

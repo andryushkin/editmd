@@ -1,8 +1,8 @@
 import Foundation
 
 // JSON payload builders shared by the app's control router and the offline
-// editmdctl engine — ONE source of truth for the wire shapes (plan 10), so
-// the two transports cannot drift. Pure Foundation; English-only protocol.
+// editmdctl engine — ONE source of truth for the wire shapes, so the two
+// transports cannot drift. Pure Foundation; English-only protocol.
 
 /// Resolution status of one outgoing link.
 func controlLinkStatus(_ link: OutgoingLink) -> String {

@@ -6,11 +6,10 @@ struct BacklinkEdge: Equatable, Sendable {
     let link: OutgoingLink
 }
 
-/// The pure link-graph engine (plan 10): scan, resolution, environment
-/// fingerprint and backlink projection, extracted from `LinkIndex` so the
-/// offline `editmdctl` target compiles the same code without AppKit or the
-/// app's models. `LinkIndex` (the app-side @MainActor owner) and the CLI are
-/// both thin drivers over these functions.
+/// Pure link-graph engine: scan, resolution, environment fingerprint, backlink
+/// projection — extracted from `LinkIndex` so `editmdctl` compiles the same
+/// code without AppKit or app models. `LinkIndex` (@MainActor) and the CLI are
+/// thin drivers over these functions.
 enum LinkGraphEngine {
 
     /// Max file size fully read during a workspace scan (4 MiB).
@@ -41,10 +40,8 @@ enum LinkGraphEngine {
             // Fall through to wiki basename for bare `Note` style destinations.
         }
 
-        // Wiki (and pathless image embeds `![[img.png]]` already handled as
-        // path-like when they have an extension; still try wiki index).
         // `wikiMatches` come standardized from WikiLinkResolver — do not
-        // re-standardize: it stats the disk per URL, and the full scan calls
+        // re-standardize: that stats the disk per URL, and the full scan calls
         // this for every link in the vault.
         let matches = wikiMatches
         if matches.isEmpty {
@@ -102,11 +99,10 @@ enum LinkGraphEngine {
         let size: Int64
         let links: [OutgoingLink]
         let headings: [String]
-        /// Resolve cache: links with `resolved`/`candidates` filled, valid
-        /// only while `resolveFingerprint` matches the vault's current
-        /// file-set fingerprint. Resolution depends on which files exist,
-        /// not on their contents — so an unchanged file in an unchanged
-        /// file set skips the (expensive) resolve pass entirely.
+        /// Resolve cache, valid only while `resolveFingerprint` matches the
+        /// vault's file-set fingerprint. Resolution depends on which files
+        /// exist, not contents — an unchanged file in an unchanged file set
+        /// skips the resolve pass entirely.
         var resolvedLinks: [OutgoingLink]? = nil
         var resolveFingerprint: UInt64? = nil
     }
@@ -123,9 +119,8 @@ enum LinkGraphEngine {
         static let empty = ResolveEnvironment(paths: [], walkedDirs: [], symlinks: [])
     }
 
-    /// Stable FNV-1a over a string. The resolve fingerprint persists to disk
-    /// with the workspace index (plan 10), so it must NOT use `Hasher` (its
-    /// seed is random per process).
+    /// Stable FNV-1a. The resolve fingerprint persists to disk with the
+    /// workspace index, so it must NOT use `Hasher` (random per-process seed).
     static func stableHash(_ string: String) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         for byte in string.utf8 {
@@ -217,15 +212,12 @@ enum LinkGraphEngine {
         let mdExt: Set<String> = ["md", "markdown"]
         let fm = FileManager.default
 
-        // Phase 1: enumerate candidates (cheap — attributes only) so the
-        // parse phase below has a denominator for progress reporting, and
-        // capture the resolve environment (which paths exist) along the way.
-        // Environment paths are STANDARDIZED: `contentsOfDirectory(at:)` can
-        // return children with a resolved symlink prefix (`/private/var/…`
-        // under a `/var/…` root) while link candidates and outgoing keys go
-        // through `standardizedFileURL` — a raw-path environment silently
-        // marked every sub-directory link uncovered and defeated the resolve
-        // cache for them.
+        // Phase 1: enumerate candidates (attributes only) for a progress
+        // denominator, capturing the resolve environment. Environment paths are
+        // STANDARDIZED: `contentsOfDirectory` can return a resolved-symlink
+        // prefix (`/private/var/…` under `/var/…`) while candidates go through
+        // `standardizedFileURL` — a raw-path environment marked sub-directory
+        // links uncovered and defeated the resolve cache.
         var candidates: [(url: URL, size: Int64, mtime: Date?)] = []
         var envPaths: Set<String> = []
         var envWalkedDirs: Set<String> = []

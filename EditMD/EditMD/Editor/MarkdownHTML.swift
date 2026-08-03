@@ -1,14 +1,10 @@
 import Foundation
 import Markdown
 
-// Markdown → HTML for the Preview mode.
-//
-// swift-markdown's own HTMLFormatter is not used: it does not escape text /
-// code content (a code block containing "<div>" would break the page) and it
-// drops inline formatting inside headings (plainText). This visitor escapes
-// everything except author-written raw HTML blocks/inlines, which are passed
-// through except executable script tags. Preview is a document viewer, not a
-// script host; this also keeps first load and later innerHTML updates consistent.
+// Markdown → HTML for Preview. swift-markdown's HTMLFormatter is unused: it
+// does not escape text/code content and drops inline formatting in headings.
+// This visitor escapes everything except author raw HTML, passed through minus
+// executable script tags — one rule for first load and innerHTML updates.
 
 func htmlEscape(_ s: String) -> String {
     s.replacingOccurrences(of: "&", with: "&amp;")
@@ -20,9 +16,9 @@ func htmlAttributeEscape(_ s: String) -> String {
     htmlEscape(s).replacingOccurrences(of: "\"", with: "&quot;")
 }
 
-/// Preserve ordinary Markdown raw HTML while making `<script>` text inert.
-/// `innerHTML` does not execute newly inserted scripts, but the initial full
-/// page would; neutralizing at the shared renderer gives both paths one rule.
+/// Keeps ordinary raw HTML while making `<script>` text inert. `innerHTML`
+/// doesn't execute inserted scripts, but the initial full page would —
+/// neutralizing in the shared renderer gives both paths one rule.
 func previewSafeRawHTML(_ raw: String) -> String {
     raw.replacingOccurrences(of: "(?i)<\\s*script\\b", with: "&lt;script",
                              options: .regularExpression)
@@ -30,11 +26,8 @@ func previewSafeRawHTML(_ raw: String) -> String {
                               options: .regularExpression)
 }
 
-/// HTML-escapes body text and adds a `<wbr>` soft break after each underscore.
-/// Browsers treat `-` as a line-break opportunity but not `_`, so a long
-/// `snake_case` identifier is one unbreakable word that widens the line (and,
-/// in a table cell, the whole column). `<wbr>` breaks only when needed and is
-/// not copied to the clipboard.
+/// Escapes + `<wbr>` after each underscore: browsers break on `-` but not `_`,
+/// so `snake_case` widens the line (and table column). `<wbr>` is not copied.
 func htmlEscapeBreakingUnderscores(_ s: String) -> String {
     htmlEscape(s).replacingOccurrences(of: "_", with: "_<wbr>")
 }
@@ -62,9 +55,9 @@ struct PreviewGutterOptions: Equatable, Sendable {
     static let off = PreviewGutterOptions()
 }
 
-/// Geometry of the Preview line-number rail. It lives in the body's left
-/// padding (not in a ruler view like Source/Visual), so the action strip has
-/// to add it to reach the text — same numbers as the CSS below.
+/// Preview line-number rail geometry — lives in the body's left padding (not a
+/// ruler view), so the action strip must add it to reach the text; numbers
+/// match the page CSS.
 enum PreviewGutterMetrics {
     /// Gap between the numbers column and the text.
     static let gapPx: CGFloat = 18
@@ -93,10 +86,9 @@ func markdownHTMLBody(_ text: String,
                        syntaxHighlighting: syntaxHighlighting).body
 }
 
-/// A math span prepared for the HTML visitor: full-document range, verbatim
-/// TeX, and the number of sentinel units its mask produced (the visitor
-/// consumes sentinel runs against this count — a multiline `$$` block is
-/// split across several Text nodes by softbreaks).
+/// Math span for the HTML visitor: full-document range, verbatim TeX, and how
+/// many sentinel units its mask produced (a multiline `$$` block splits across
+/// Text nodes; runs are consumed against `units`).
 struct HTMLMathSpan {
     let range: NSRange
     let tex: String
@@ -115,19 +107,17 @@ func markdownHTMLRender(_ text: String,
     var source = text
     var baseOffset = 0
     var lineBase = 0
-    // YAML frontmatter isn't part of the markdown grammar — strip it before
-    // parsing, so it doesn't mangle into a thematic break + setext heading.
-    // It is not rendered in the page at all: the Properties inspector owns
-    // frontmatter display and editing (plan 04 follow-up).
+    // Frontmatter is not markdown grammar — strip before parsing (else it
+    // parses as thematic break + setext heading). Never rendered: the
+    // Properties inspector owns it.
     if let fm = frontmatterRange(in: text) {
         let ns = text as NSString
         baseOffset = NSMaxRange(fm.full)
         source = ns.substring(from: baseOffset)
         lineBase = ns.substring(to: baseOffset).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
     }
-    // Math is extracted BEFORE parsing: cmark would mangle TeX (`\{`/`\\`
-    // escapes, `_`/`*` emphasis). The mask is UTF-16-length-preserving, so
-    // every offset from the masked parse is valid in the original document.
+    // Math extracted BEFORE parsing: cmark would mangle TeX. The mask preserves
+    // UTF-16 length, so masked-parse offsets are valid in the original.
     let mathSpans = scanMathSpans(in: source)
     let (mathMaskedSource, sentinelUnits) = maskMathSpansForParsing(source, spans: mathSpans)
     let parseSource = maskBuiltInPluginTokensForParsing(
@@ -142,11 +132,10 @@ func markdownHTMLRender(_ text: String,
             units: sentinelUnits[idx])
     }
     let document = Document(parsing: parseSource)
-    // LineIndex maps AST SourceRanges → UTF-16 offsets in the parsed string;
-    // it MUST be built from `parseSource` (cmark columns are UTF-8 bytes of
-    // what it parsed; the sentinel is 3 bytes vs the original chars). The
-    // resulting UTF-16 offsets are valid in the original document. baseOffset
-    // rebases them past stripped frontmatter (for Preview toolbar wrap).
+    // LineIndex MUST be built from `parseSource`: cmark columns are UTF-8 bytes
+    // of what it parsed (sentinel = 3 bytes vs the original chars). Resulting
+    // UTF-16 offsets are valid in the original; baseOffset rebases past
+    // stripped frontmatter.
     var visitor = HTMLBodyVisitor(imageResolver: imageResolver,
                                   lineIdx: LineIndex(parseSource),
                                   parsedSource: parseSource as NSString,
@@ -171,8 +160,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
     /// Full, unmasked document for fail-safe restoration if a sentinel cannot
     /// be matched to the token at the exact expected source offset.
     let originalSource: NSString
-    /// Added to every AST-derived offset so ranges land in the original
-    /// document when frontmatter was stripped before parsing.
+    /// Rebases AST offsets into the original document past stripped frontmatter.
     let baseOffset: Int
     /// Newlines before the parsed `source` in the original document.
     let lineBase: Int
@@ -230,14 +218,11 @@ private struct HTMLBodyVisitor: MarkupWalker {
         return lineBase + src.lowerBound.line
     }
 
-    /// SOURCE range of each RENDERED code line, in document order.
-    ///
-    /// Taken from the source text, not from `codeBlock.code`: an indented
-    /// block's code has had its indent stripped, so the two disagree on where a
-    /// line ends. A fenced block's first source line is the opening fence, which
-    /// the DOM never shows; an indented block starts with code straight away.
-    /// Counting lines cannot tell them apart (a source range may include a
-    /// trailing blank line), so read the opening line and look for a fence.
+    /// SOURCE range of each RENDERED code line, in document order. Read from
+    /// source text, not `codeBlock.code` (indented blocks strip the indent). A
+    /// fenced block's first source line is the fence, never shown; line counts
+    /// cannot tell fenced from indented (trailing blank lines), so the opening
+    /// line is inspected for a fence.
     private func codeLineRanges(_ codeBlock: CodeBlock) -> [NSRange]? {
         guard let src = codeBlock.range else { return nil }
         var lines = codeBlock.code.components(separatedBy: "\n")
@@ -302,8 +287,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
-        // No data-ln on the wrapper — children (p / nested quote) carry source lines.
-        // Otherwise the same line number appears twice (wrapper + first child).
+        // No data-ln on the wrapper — children carry source lines; otherwise the
+        // same number appears twice.
         let callout = mdNSRange(for: blockQuote).flatMap {
             markdownCallout(in: originalSource as String, quoteRange: $0)
         }
@@ -320,9 +305,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        // Every rendered code LINE gets its own `data-md-lo/hi` span: without
-        // anchors inside the block, split-scroll sync has nothing to interpolate
-        // between and the follow stalls until the block ends.
+        // Each rendered code LINE gets data-md-lo/hi: without in-block anchors
+        // split-scroll sync stalls until the block ends.
         let lineRanges = codeLineRanges(codeBlock)
         let sourceAttrs: String
         if let range = mdNSRange(for: codeBlock) {
@@ -334,8 +318,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
         openBlock("pre", codeBlock, extraAttrs: sourceAttrs)
         let language = codeBlock.language ?? ""
         if !language.isEmpty {
-            // Keep language-* first for existing integrations that match the
-            // literal class prefix, then add the highlighter marker.
+            // language-* first for integrations matching the literal prefix.
             result += "<code class=\"language-\(htmlAttributeEscape(language)) hljs\">"
         } else {
             result += "<code>"
@@ -411,8 +394,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
         } else {
             openBlock("li", listItem)
         }
-        // Unwrap the item's first paragraph (GitHub-style tight rendering) —
-        // a block-level <p> would push content below the checkbox/bullet.
+        // Unwrap the first paragraph (tight rendering) — a block <p> would push
+        // content below the checkbox/bullet.
         var children = Array(listItem.children)
         if let paragraph = children.first as? Paragraph {
             descendInto(paragraph)
@@ -487,8 +470,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
 
     mutating func visitText(_ text: Text) {
         let s = text.string
-        // Tag runs with source offsets so the Preview toolbar can wrap the
-        // real selection (not the first plain-text match in the file).
+        // Tag runs with source offsets so the Preview toolbar wraps the real
+        // selection, not the first plain-text match.
         let base = mdNSRange(for: text)?.location
         let hasMath = s.utf16.contains(mathSentinelUnit)
         let hasPlugin = s.utf16.contains(builtInPluginSentinelUnit)
@@ -535,8 +518,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
                         with: NSRange(location: offset, length: remaining))
                     result += Self.inlineDecoratedHTML(original, sourceBase: offset)
                 } else {
-                    // No AST source range and no remaining semantic token: keep
-                    // the failure visible without leaking the private-use mask.
+                    // No AST range, no token left: keep the failure visible
+                    // without leaking the private-use mask.
                     result += String(repeating: "□", count: max(1, (remaining + 2) / 3))
                 }
                 return
@@ -548,9 +531,8 @@ private struct HTMLBodyVisitor: MarkupWalker {
         }
     }
 
-    /// Sentinel-run accounting: the FIRST run of a span emits its HTML; the
-    /// remaining runs (continuation lines of a `$$` block, split by
-    /// softbreaks/paragraphs) are consumed silently against `units`.
+    /// FIRST run of a span emits its HTML; remaining runs (continuation lines
+    /// of `$$`, split by softbreaks) are consumed silently against `units`.
     private mutating func consumeSentinelRun(_ count: Int) {
         var remaining = count
         while remaining > 0 {
@@ -560,8 +542,7 @@ private struct HTMLBodyVisitor: MarkupWalker {
                 remaining -= take
                 continue
             }
-            // Orphan sentinels (a document that itself contains U+E000) —
-            // nothing sane to emit.
+            // Orphan sentinels (document itself contains U+E000): emit nothing.
             guard mathCursor < mathSpans.count else { return }
             let span = mathSpans[mathCursor]
             mathCursor += 1
@@ -570,10 +551,9 @@ private struct HTMLBodyVisitor: MarkupWalker {
         }
     }
 
-    /// `data-md-lo/hi` keep scroll/review-wash working; `data-md-code` marks
-    /// the KaTeX DOM as a selection island (rendered text ≠ source offsets),
-    /// same as rendered code. The page script replaces the escaped TeX content
-    /// with KaTeX output (`katex.render` on textContent).
+    /// data-md-lo/hi keep scroll/review-wash working; data-md-code marks the
+    /// KaTeX DOM a selection island (rendered text ≠ source offsets), same as
+    /// rendered code. Page script replaces the escaped TeX with KaTeX output.
     private mutating func emitMath(_ span: HTMLMathSpan) {
         let cls = span.display ? "math math-display" : "math math-inline"
         result += "<span class=\"\(cls)\" data-md-lo=\"\(span.range.location)\""

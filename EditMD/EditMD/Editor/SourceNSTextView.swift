@@ -1,15 +1,14 @@
 import AppKit
 
-// The Source-mode NSTextView subclass: gutter drawing, special paste
+// Source-mode NSTextView subclass: gutter drawing, special paste
 // (table/image doors), lint quick-fixes and table structure ops in the
-// context menu. Extracted from SourceTextView.swift.
+// context menu.
 
-/// Ordered special-paste doors for Source. Closures are lazy on purpose: a
-/// Word/Excel table must be consumed before image detection even inspects its
-/// TIFF preview, and a fenced code block must inspect neither door. The URL
-/// door comes last (before plain text): it fires for a pure-URL clipboard,
-/// wrapping a selection as `[text](url)` or inserting a `<url>` autolink when
-/// there is none — neither of which can be a table or image payload.
+/// Ordered special-paste doors for Source. Closures lazy on purpose: a
+/// Word/Excel table must be consumed before image detection inspects its TIFF
+/// preview; a fence inspects neither door. URL door last (before plain text):
+/// fires only for a pure-URL clipboard — `[text](url)` over a selection,
+/// `<url>` autolink without one.
 func handleSourceSpecialPaste(insideFence: Bool,
                               tableMarkdown: () -> String?,
                               insertTable: (String) -> Void,
@@ -30,30 +29,27 @@ final class SourceNSTextView: NSTextView {
     /// AppKit would pin it to the pane edge, far from a centred column).
     var gutterState = GutterState()
     weak var wikiCompletion: WikiCompletionController?
-    /// Tint for the caret's line; `nil` = highlight off (Settings ▸ Source).
-    /// The wash alpha is applied when drawing, so a light/dark flip needs no
-    /// settings round trip.
+    /// Tint for the caret's line; `nil` = off (Settings ▸ Source). Wash alpha
+    /// applied at draw time, so a light/dark flip needs no settings round trip.
     var currentLineTint: NSColor?
     /// Wash alpha; 0 = the theme's per-appearance default.
     var currentLineOpacity: CGFloat = 0
-    /// Left margin reserved for the numbers (`GutterMetrics.reserve`), kept so
-    /// the current-line band can start just left of them. 0 = unknown.
+    /// Margin reserved for numbers (`GutterMetrics.reserve`) so the
+    /// current-line band can start just left of them. 0 = unknown.
     var gutterReserveWidth: CGFloat = 0
 
     override func layout() {
         super.layout()
-        // Geometry must settle BEFORE the first frame is drawn. `makeNSView`
-        // computes the reading insets while the scroll view is still 0pt wide,
-        // so a centered reading column got no centering there and the file
-        // flashed once — narrow field, then wide.
+        // Insets must settle BEFORE the first frame: `makeNSView` computes them
+        // while the scroll view is still 0pt wide, so a centered reading column
+        // flashed narrow-then-wide.
         (delegate as? SourceTextView.Coordinator)?.applyReadingInsetsAfterLayout()
     }
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        // Under the numbers. `caretOffset` is the single gate shared with the
-        // number emphasis — it is already nil for a ranged selection, where the
-        // selection fill marks the spot instead.
+        // Under the numbers. `caretOffset` is the single gate shared with number
+        // emphasis — already nil for a ranged selection (selection fill marks it).
         if let tint = currentLineTint, let caret = gutterState.caretOffset {
             drawCurrentLineHighlight(in: rect, caret: caret, tint: tint,
                                      opacity: currentLineOpacity,
@@ -69,11 +65,9 @@ final class SourceNSTextView: NSTextView {
 
     // MARK: - List / checkbox / table auto-continuation
 
-    /// Return continues Markdown structure: a fresh bullet / checkbox / ordered
-    /// marker on a list item, a new empty row inside a pipe table. An empty item
-    /// (or empty table row) ends the structure instead. Everything else — a
-    /// caret inside a fenced code block, a ranged selection, a non-list line —
-    /// falls through to the default newline.
+    /// Return continues Markdown structure (bullet/checkbox/ordered marker, new
+    /// empty table row); an empty item or row ends it. Fence, ranged selection,
+    /// non-list line → default newline.
     override func insertNewline(_ sender: Any?) {
         let selection = selectedRange()
         guard selection.length == 0, !caretInsideFence() else {
@@ -115,10 +109,9 @@ final class SourceNSTextView: NSTextView {
         }
     }
 
-    /// Adds an empty row below a pipe-table row, or ends the table when the
-    /// current body row is already empty. Fires on the delimiter row (line 1 —
-    /// creates the first body row) and any body row (≥ 2); returns false
-    /// (default newline) on the header row, where inserting between it and the
+    /// Empty row below a pipe-table row, or ends the table when the body row is
+    /// already empty. Fires on the delimiter row (creates first body row) and
+    /// body rows; false on the header row — inserting between it and the
     /// delimiter would split the table.
     private func continueTableRow(lineStart: Int, contentEnd: Int, line: String) -> Bool {
         guard let context = sourceTableContext(in: string, at: lineStart),
@@ -147,11 +140,10 @@ final class SourceNSTextView: NSTextView {
     private var menuTableOps: [SourceTableOp] = []
     private var menuTableContext: SourceTableContext?
 
-    // Paste as plain text — rich content from the clipboard would introduce
-    // attributes the highlighter doesn't own (isRichText is on only so our
-    // own per-element attributes render). Exceptions: clipboard images become
-    // assets + Markdown, and tables (HTML from web/Word/Excel, or TSV) become
-    // pipe-table Markdown.
+    // Paste as plain text — rich clipboard content would introduce attributes
+    // the highlighter doesn't own (isRichText is on only so our per-element
+    // attributes render). Exceptions: images → assets + Markdown, tables
+    // (HTML or TSV) → pipe Markdown.
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
         let inFence = caretInsideFence()
@@ -176,11 +168,9 @@ final class SourceNSTextView: NSTextView {
         pasteAsPlainText(sender)
     }
 
-    /// Formats a bare-URL clipboard as a Markdown link: over a non-empty
-    /// selection the selection becomes the label (`[selection](url)`); with no
-    /// selection it inserts an autolink (`<url>`), which — unlike a plain bare
-    /// URL — actually renders as a clickable link. Returns false (so plain paste
-    /// runs) only when the clipboard isn't a single URL.
+    /// Bare-URL clipboard → Markdown link: selection becomes the label; no
+    /// selection inserts `<url>` (a plain bare URL doesn't render as a link).
+    /// False (plain paste runs) only when the clipboard isn't a single URL.
     private func linkifyPastedURL(_ pasteboardString: String?) -> Bool {
         guard let url = bareWebURLForPaste(pasteboardString) else { return false }
         let selection = selectedRange()
@@ -261,8 +251,8 @@ final class SourceNSTextView: NSTextView {
         let point = convert(sender.draggingLocation, from: nil)
         setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
         if imageDropCoordinator?.insertDraggedImage(candidate) == true { return true }
-        // Refused context (fence) / failed store: hand the drop to the default
-        // text handling so it degrades like paste does.
+        // Refused context (fence) / failed store: degrade to default text
+        // handling, like paste.
         return super.performDragOperation(sender)
     }
 
@@ -366,8 +356,8 @@ final class SourceNSTextView: NSTextView {
         return menu
     }
 
-    /// Applies a table structure op by replacing the whole table with the
-    /// canonical serialization of the mutated grid (reformatting intended).
+    /// Replaces the whole table with the canonical serialization of the mutated
+    /// grid (reformatting intended).
     @objc private func applySourceTableOp(_ sender: NSMenuItem) {
         guard let context = menuTableContext,
               sender.tag >= 0, sender.tag < menuTableOps.count,
@@ -397,8 +387,8 @@ final class SourceNSTextView: NSTextView {
         didChangeText()
     }
 
-    /// Character index of the glyph nearest to a view point — table ops accept
-    /// clicks anywhere on the row, incl. right of the line end.
+    /// Nearest-glyph character index — table ops accept clicks anywhere on the
+    /// row, incl. right of the line end.
     private func nearestCharacterIndex(at point: NSPoint) -> Int? {
         guard let layoutManager, let textContainer else { return nil }
         let ns = string as NSString
@@ -425,8 +415,7 @@ final class SourceNSTextView: NSTextView {
         didChangeText()
     }
 
-    /// Character index under the view-coordinate point, or nil when the point
-    /// falls outside any glyph.
+    /// Character index under the point, or nil outside any glyph.
     private func characterIndex(at point: NSPoint) -> Int? {
         guard let layoutManager, let textContainer else { return nil }
         let containerPoint = NSPoint(x: point.x - textContainerInset.width,

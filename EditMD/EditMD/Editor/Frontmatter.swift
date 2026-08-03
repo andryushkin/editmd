@@ -1,16 +1,11 @@
 import Foundation
 
-// YAML frontmatter (the `---\n…\n---` metadata block at the top of a markdown
-// file): range detection plus a pragmatic line-based property reader, used by
-// the Properties inspector, Tags sidebar and wiki completion. Source mode is
-// intentionally left untouched.
-//
-// swift-markdown does not model frontmatter: the opening `---` parses as a
-// thematic break and the closing `---` after the body as a *setext heading*,
-// which blows the whole block up into a big heading. Callers detect the block
-// here and treat it as properties instead.
-//
-// Everything in this file is a pure function — no view / controller state.
+// YAML frontmatter (`---\n…\n---` at top of file): range detection + pragmatic
+// line-based property reader for the Properties inspector, Tags sidebar and
+// wiki completion. Source mode never touches it. swift-markdown does not model
+// frontmatter — the opening `---` parses as a thematic break and the closing
+// one as a *setext heading*, blowing the block up into a big heading — so
+// callers detect the block here. Pure functions only.
 
 // MARK: - Frontmatter range
 
@@ -21,17 +16,14 @@ struct FrontmatterRange {
     let body: NSRange
 }
 
-/// Detects a YAML frontmatter block: the FIRST line is exactly `---` and a
-/// later line is exactly `---` or `...` (the closing fence). Returns nil when
-/// there is no well-formed block — the legacy (mangled) behavior then applies.
-/// This matches the universal convention (Jekyll/Hugo/Obsidian/pandoc): a `---`
-/// on line 1 opens frontmatter.
+/// FIRST line exactly `---`, a later line exactly `---` or `...`. Nil when no
+/// well-formed block (the legacy mangled behavior then applies). Matches the
+/// Jekyll/Hugo/Obsidian/pandoc convention.
 func frontmatterRange(in text: String) -> FrontmatterRange? {
     let ns = text as NSString
     let length = ns.length
     guard length >= 3 else { return nil }
 
-    // First line must be exactly "---" (allowing trailing whitespace).
     var lineStart = 0, lineEnd = 0, contentsEnd = 0
     ns.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd,
                     for: NSRange(location: 0, length: 0))
@@ -64,11 +56,10 @@ func frontmatterRange(in text: String) -> FrontmatterRange? {
     return nil
 }
 
-/// Visual's serialization normal form for documents with frontmatter. The
-/// block is not rendered in Visual (the Properties inspector owns it), so the
-/// serializer output has no island carrying it — this re-attaches the verbatim
-/// block exactly the way the serializer used to join the old `.raw` island
-/// with the first body block (a blank line).
+/// Visual's serialization normal form: the block is invisible in Visual (the
+/// Properties inspector owns it), so this re-attaches the verbatim block +
+/// blank line — the same join the old `.raw` island produced. Frontmatter must
+/// survive byte-exact.
 func composeDocumentWithFrontmatter(_ frontmatter: String?, body: String) -> String {
     guard let frontmatter, !frontmatter.isEmpty else { return body }
     guard !body.isEmpty else { return frontmatter }
@@ -106,8 +97,7 @@ func parseFrontmatterProperties(_ body: String) -> [FMProperty] {
         let key = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
         var after = String(trimmed[trimmed.index(after: colon)...])
             .trimmingCharacters(in: .whitespaces)
-        // Drop a trailing `# comment` (outside quotes) so it doesn't leak into
-        // the displayed value.
+        // Drop a trailing `# comment` (outside quotes) from the shown value.
         if let commentIdx = trailingCommentIndex(after) {
             after = String(after[..<commentIdx]).trimmingCharacters(in: .whitespaces)
         }

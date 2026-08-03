@@ -1,13 +1,12 @@
 import Foundation
 import Combine
 
-/// Link graph scoped to the ACTIVE workspace (plan 02; one workspace at a
-/// time — see `WorkspaceModel.linkIndexRoots`). Full scans run off-main;
-/// results publish on the main actor. Own-document flush updates a single
-/// file incrementally; filesystem / workspace mutations force a full rebuild
-/// that re-parses only files whose (mtime, size) changed since the last scan.
-/// `scanCache` outlives workspace switches, so returning to a workspace is a
-/// stat-only walk.
+/// Link graph scoped to the ACTIVE workspace (one at a time — see
+/// `WorkspaceModel.linkIndexRoots`). Full scans run off-main; results publish
+/// on the main actor. Own-document flush updates one file incrementally;
+/// filesystem/workspace mutations force a full rebuild that re-parses only
+/// files whose (mtime, size) changed. `scanCache` outlives workspace
+/// switches, so returning to a workspace is a stat-only walk. docs/vault.md.
 @MainActor
 final class LinkIndex: ObservableObject {
     static let shared = LinkIndex()
@@ -19,7 +18,7 @@ final class LinkIndex: ObservableObject {
 
     @Published private(set) var outgoing: [URL: [OutgoingLink]] = [:]
     @Published private(set) var backlinks: [URL: [BacklinkEdge]] = [:]
-    /// Heading titles per file (plan 06 deadHeadingAnchor).
+    /// Heading titles per file (dead-heading-anchor lint).
     @Published private(set) var headings: [URL: [String]] = [:]
     @Published private(set) var isScanning = false
     /// 0…1 while a full scan runs (parse ≙ first half, resolve ≙ second);
@@ -309,13 +308,11 @@ final class LinkIndex: ObservableObject {
                         }
                     }.merging(resolvedCache) { _, new in new }
                     self.freshResolveCount += freshResolveTotal
-                    // Persist the freshly scanned workspace (plan 10):
-                    // atomic write off-main; loose/lite (no roots) never
-                    // writes, so `.editmd/` appears only in adopted
-                    // workspaces. Full scans are rare post-CPU-saga — no
-                    // debounce needed; autosaves go through the single-file
-                    // path and do not rewrite the file (their entries catch
-                    // up on the next full scan via mtime mismatch).
+                    // Persist off-main; loose/lite (no roots) never writes,
+                    // so `.editmd/` appears only in adopted workspaces. Full
+                    // scans are rare — no debounce; autosaves go through the
+                    // single-file path and catch up on the next full scan
+                    // via mtime mismatch.
                     if let root = capturedRoots.first {
                         let snapshot = resolvedCache
                         Task.detached(priority: .utility) {

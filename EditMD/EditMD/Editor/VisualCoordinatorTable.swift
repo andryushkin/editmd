@@ -3,8 +3,7 @@ import AppKit
 // Cursor-relative table structure ops for Visual mode: insert/delete rows and
 // columns, drag row reorder — for both native NSTextTable tables and large
 // read-only islands. Native tables rebuild through TableGrid: serialize the
-// table's attributed range → parse → mutate → re-render → replace. Split out
-// of VisualTextView.swift (editing core stays there).
+// table's attributed range → parse → mutate → re-render → replace.
 
 /// A table under the context menu / drag, resolved from a point or the caret.
 /// `row` counts display rows: 0 = header, ≥1 = body row + 1 (both native

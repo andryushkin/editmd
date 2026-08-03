@@ -1,16 +1,13 @@
 import AppKit
 
-// Source highlighting pass of SourceTextView.Coordinator, extracted from
-// SourceTextView.swift.
+// Source highlighting pass of SourceTextView.Coordinator.
 
 extension SourceTextView.Coordinator {
 
-    /// Re-styles the raw markdown from `collectSpans` + the Source mode's
-    /// per-element settings. Real text-storage attributes (not temporary
-    /// ones) so heading size changes take effect; the plain `.string` — the
-    /// document's source of truth — is untouched, and attribute-only edits
-    /// don't register undo. Two passes: block-level (heading lines, quotes)
-    /// then inline (bold/code/link/italic/strike) so inline overrides win.
+    /// Re-styles raw markdown from `collectSpans` + Source per-element settings.
+    /// Real storage attributes (not temporary) so heading sizes take effect;
+    /// `.string` — the source of truth — is untouched, and attribute-only edits
+    /// don't register undo. Block pass then inline pass, so inline overrides win.
     func highlightSource() {
         guard let textView, let storage = textView.textStorage else { return }
         let settings = EditorSettings.shared.source
@@ -20,9 +17,9 @@ extension SourceTextView.Coordinator {
         let nsText = textView.string as NSString
         let full = NSRange(location: 0, length: nsText.length)
 
-        // Heavy documents (a 300K single-table file) stay plain: collectSpans
-        // and the per-keystroke re-attribution would freeze on every edit.
-        // Base font/color only — same choice FSNotes makes for large notes.
+        // Heavy documents (300K single-table file) stay plain: collectSpans +
+        // per-keystroke re-attribution would freeze every edit. Base font/color
+        // only — same choice FSNotes makes.
         if parent.document.isHeavy {
             cachedSpans = []
             cachedHighlightMarks = []
@@ -45,8 +42,8 @@ extension SourceTextView.Coordinator {
         storage.beginEditing()
         storage.setAttributes([.font: baseFont, .foregroundColor: theme.textColor], range: full)
 
-        // Identity of a code block across keystrokes, so a block that is
-        // still warming keeps its previous colors instead of flashing plain.
+        // Block identity across keystrokes: a still-warming block keeps its
+        // previous colors instead of flashing plain.
         var codeBlockIndex = 0
         let blockKeyPrefix = "source:\(parent.fileURL?.path ?? "untitled")#"
 
@@ -138,10 +135,9 @@ extension SourceTextView.Coordinator {
             }
         }
 
-        // Pass B.25 — syntax markers. Repaint every delimiter / punctuation
-        // span with the configurable marker color (graphite by default),
-        // overriding the element body colors on just the marker characters.
-        // Runs before the frontmatter pass so that block keeps its own dimming.
+        // Pass B.25 — syntax markers: repaint delimiter/punctuation spans with
+        // the marker color, overriding body colors on just those characters.
+        // Before the frontmatter pass so that block keeps its own dimming.
         let markerColor = settings.markerColor ?? theme.markerColor
         for span in spans where NSMaxRange(span.range) <= full.length {
             if span.kind.isSyntaxMarker {
@@ -149,10 +145,9 @@ extension SourceTextView.Coordinator {
             }
         }
 
-        // Pass B.5 — YAML frontmatter (top-of-file ---…---). swift-markdown
-        // mis-parses it as a thematic break + setext heading, so Pass A gave
-        // the body a big heading font; override the whole block back to the
-        // base font and color it like a ```yaml block (fences dimmed).
+        // Pass B.5 — YAML frontmatter. swift-markdown mis-parses it as thematic
+        // break + setext heading (Pass A gave the body a heading font); override
+        // back to base font, color like a ```yaml block (fences dimmed).
         if let frontmatter = frontmatterRange(in: textView.string),
            NSMaxRange(frontmatter.full) <= nsText.length {
             storage.addAttribute(.font, value: baseFont, range: frontmatter.full)
@@ -177,19 +172,17 @@ extension SourceTextView.Coordinator {
             }
         }
 
-        // Pass C — virtual table column alignment (display-only .kern; the
-        // raw text stays compact, columns just line up visually).
+        // Pass C — display-only .kern table column alignment (raw text stays
+        // compact).
         applyTableAlignment(storage, baseFont: baseFont)
 
         storage.endEditing()
     }
 
-    /// Pads each table column to a common width using the `.kern` attribute
-    /// so pipes line up in the monospaced Source view — WITHOUT inserting
-    /// spaces (the file bytes are untouched, so no git churn). Width is
-    /// measured from the already-styled substring, so bold/heading cells
-    /// count correctly; a per-column cap keeps one long cell from blowing
-    /// the table wide (that cell's row just runs ragged past the cap).
+    /// Pads table columns via `.kern` so pipes line up WITHOUT inserting spaces
+    /// (file bytes untouched — no git churn). Width measured from the styled
+    /// substring, so bold/heading cells count; a per-column cap keeps one long
+    /// cell from blowing the table wide (its row runs ragged past the cap).
     private func applyTableAlignment(_ storage: NSTextStorage, baseFont: NSFont) {
         let tables = scanSourceTables(storage.string)
         guard !tables.isEmpty else { return }
@@ -215,8 +208,7 @@ extension SourceTextView.Coordinator {
         }
     }
 
-    /// A Source font honoring the mode's family (else system mono) at an
-    /// explicit size/weight.
+    /// Source font honoring the mode's family (else system mono).
     private func sourceFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
         let family = EditorSettings.shared.source.fontFamily
         if !family.isEmpty {

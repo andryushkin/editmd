@@ -1,22 +1,20 @@
 import AppKit
 import Foundation
 
-/// Plan 10 «wikillm ready»: control-socket commands that hand the vault
-/// graph to an agent — outgoing/backlinks/resolve, outline, vault-lint,
-/// tags, frontmatter, index status. The agent asks EditMD instead of
-/// walking and re-parsing the vault itself.
+/// Vault-graph control-socket commands: outgoing/backlinks/resolve, outline,
+/// vault-lint, tags, frontmatter, index status — the agent asks EditMD instead
+/// of re-parsing the vault itself.
 ///
 /// Scope contract: answers reflect the ACTIVE workspace only
-/// (`WorkspaceModel.linkIndexRoots`); a path under another adopted workspace
-/// fails with `outside-active-workspace`. Main phase reads published
-/// dictionaries (no stats); everything disk-bound runs in the deferred
-/// phase on the socket thread. Protocol output is English-only.
+/// (`WorkspaceModel.linkIndexRoots`); any path outside it fails with
+/// `outside-active-workspace`. Main phase reads published dictionaries (no
+/// stats); everything disk-bound runs in the deferred phase on the socket
+/// thread. Protocol output is English-only.
 extension ControlRouter {
 
     // MARK: - Readiness
 
-    /// The link graph, if usable. A command is a consumer: when nobody has
-    /// built the index yet this kicks the lazy build and reports honest
+    /// When nobody built the index yet, kicks the lazy build and reports
     /// progress instead of blocking the socket. Never restarts a completed
     /// index (tests seed `LinkIndex.shared` and must not trigger a real scan).
     private static func readyLinkIndex() throws -> LinkIndex {
@@ -27,10 +25,9 @@ extension ControlRouter {
         throw ControlError("link index not ready (indexing \(pct)%) — retry shortly")
     }
 
-    /// Roots that define the active-workspace scope: what the index actually
-    /// covers, falling back to the adopted active workspace when the index has
-    /// not published roots yet (cold app — a workspace is adopted but the scan
-    /// never ran). Empty only in true loose / no-workspace mode.
+    /// What the index covers; falls back to the adopted active workspace when
+    /// the index has not published roots yet (cold app). Empty only in loose
+    /// no-workspace mode.
     static func activeScopeRoots() -> [URL] {
         let indexRoots = LinkIndex.shared.snapshot().roots
         if !indexRoots.isEmpty { return indexRoots }
@@ -44,11 +41,9 @@ extension ControlRouter {
         return !roots.contains { pathIsContained(path, in: $0.path) }
     }
 
-    /// Enforces the active-workspace scope on a file path — any path outside
-    /// the active workspace is rejected (not only paths in another adopted
-    /// workspace), so every path-based vault-graph command keeps the
-    /// documented `outside-active-workspace` contract even before the index
-    /// has warmed. Main-safe: pure path math over live state, no disk I/O.
+    /// Any path outside the active workspace is rejected (not only paths in
+    /// another adopted workspace) — keeps the `outside-active-workspace`
+    /// contract even before the index warms. Main-safe: pure path math, no I/O.
     private static func checkScope(_ url: URL) throws {
         if isOutsideScope(url.standardizedFileURL.path, roots: activeScopeRoots()) {
             throw ControlError(
@@ -57,11 +52,10 @@ extension ControlRouter {
         }
     }
 
-    /// Main-phase snapshot of "this file is known to exist without a disk
-    /// stat": open in a buffer, or mid path-mutation. The deferred phase stats
-    /// the disk only when this is false — so `fileExists` never runs on main
-    /// (two-phase contract) yet a genuinely missing in-scope file still gets a
-    /// `file not found` reply instead of a misleading empty payload.
+    /// Main-phase "known to exist without a disk stat": open buffer or mid
+    /// path-mutation. Deferred phase stats only when false — `fileExists`
+    /// never runs on main, yet a missing in-scope file still gets `file not
+    /// found` instead of a misleading empty payload.
     static func knownPresentOnMain(_ url: URL) -> Bool {
         DocumentRegistry.shared.contentIfOpen(url) != nil
             || AppState.shared.isPathMutationInProgress(at: url)
@@ -236,7 +230,6 @@ extension ControlRouter {
         }
     }
 
-
     // MARK: - index.status
 
     static func indexStatus(_ request: ControlRequest) -> Dispatched {
@@ -276,13 +269,10 @@ extension ControlRouter {
 
     // MARK: - tags
 
-    /// Tags are scanned fresh in the deferred phase over the ACTIVE root, not
-    /// read from `WorkspaceModel.tagIndex`: that index is populated async (a
-    /// cold `tags list` would honestly answer count:0 while the scan runs) and
-    /// covers all adopted workspaces, not the active one. `scanWorkspaceTags`
-    /// is the same pure walk the app uses — synchronous and correctly scoped.
-    /// Cost note: this is a full vault walk PER CALL (no cache); acceptable for
-    /// an occasional agent query, unlike the UI path which caches by epoch.
+    /// Scanned fresh over the ACTIVE root, not from `WorkspaceModel.tagIndex`:
+    /// that index is async (cold call would answer count:0) and spans all
+    /// adopted workspaces. Full vault walk PER CALL, no cache — fine for an
+    /// occasional agent query, unlike the UI path which caches by epoch.
     static func tagsList(_ request: ControlRequest) -> Dispatched {
         let roots = WorkspaceModel.shared.linkIndexRoots
         let requestID = request.id

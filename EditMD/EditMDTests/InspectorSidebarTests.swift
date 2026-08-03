@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Unit tests for the right inspector and left-sidebar tab migration (plan 01).
+/// Right inspector and left-sidebar tab migration.
 final class InspectorSidebarTests: XCTestCase {
 
     // MARK: - sidebarTab migration after Outline moved right

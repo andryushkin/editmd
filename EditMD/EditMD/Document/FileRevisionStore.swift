@@ -47,9 +47,8 @@ func fileRevisionContentSHA(_ content: String) -> String {
 ///   objects/<contentSHA>
 /// ```
 ///
-/// Thread-safe. Disk I/O is intentional and must be called off the main actor
-/// from production paths (flush / close). Tests may call synchronously with a
-/// temporary root.
+/// Thread-safe. Disk I/O must run off the main actor in production paths
+/// (flush / close); tests may call synchronously with a temporary root.
 final class FileRevisionStore: @unchecked Sendable {
     static let shared = FileRevisionStore()
 
@@ -93,7 +92,7 @@ final class FileRevisionStore: @unchecked Sendable {
     @discardableResult
     func record(url: URL, content: String, force: Bool = false,
                 now: Date = Date()) -> FileRevisionEntry? {
-        // Untitled / no real path — never store (privacy + plan acceptance).
+        // Untitled / no real path — never store (privacy).
         guard url.isFileURL, !url.path.isEmpty else { return nil }
         let data = Data(content.utf8)
         guard data.count <= Self.maxContentBytes else { return nil }
@@ -203,7 +202,7 @@ final class FileRevisionStore: @unchecked Sendable {
             return try JSONDecoder().decode(FileRevisionManifest.self, from: data)
         } catch {
             log.error("corrupt revision manifest, recreating: \(error.localizedDescription, privacy: .public)")
-            // Do not delete objects aggressively — only reset the index.
+            // Reset only the index; never delete objects on corruption.
             return FileRevisionManifest(entries: [])
         }
     }

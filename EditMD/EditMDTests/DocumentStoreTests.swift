@@ -1,10 +1,8 @@
 import XCTest
 @testable import EditMD
 
-/// Phase 1 gate: proves the extracted markdown/textbundle IO (DocumentStore.swift)
-/// round-trips losslessly and that DocumentRegistry shares one model per URL and
-/// saves without losing writes — validated BEFORE the scene moves off
-/// DocumentGroup.
+/// Markdown/textbundle IO (DocumentStore.swift) round-trips losslessly;
+/// DocumentRegistry shares one model per URL and saves without losing writes.
 final class DocumentStoreTests: XCTestCase {
 
     private var tmp: URL!

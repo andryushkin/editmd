@@ -1,15 +1,12 @@
 import AppKit
 import SwiftUI
 
-// Visual (WYSIWYG) mode — v21. NSTextView with isRichText=true showing the
-// marker-free attributed model from MarkdownToAttributed.swift. Every edit
-// serializes synchronously back to document.content (AttributedToMarkdown),
-// so saves and mode switches always see current markdown.
-//
-// Semantics (block kinds, inline styles) live in the custom md.* attributes;
-// fonts/colors/indents are DERIVED by applyPresentation(). Markers (bullets,
-// numbers, checkboxes, quote bars, code panels) are drawn in drawBackground —
-// they are not text.
+// Visual (WYSIWYG) mode: NSTextView showing the marker-free attributed model
+// from MarkdownToAttributed.swift. Every edit serializes synchronously back to
+// document.content (AttributedToMarkdown), so saves and mode switches always
+// see current markdown. Semantics live in the md.* attributes; fonts/colors/
+// indents are DERIVED by applyPresentation(); markers (bullets, numbers,
+// checkboxes, quote bars, code panels) are drawn in drawBackground — not text.
 
 // MARK: - SwiftUI wrapper
 
@@ -21,14 +18,14 @@ struct VisualMarkdownView: NSViewRepresentable {
     var positionStore: EditorPositionStore? = nil
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
-    /// B6: active md.inline styles at caret.
+    /// Active md.inline styles at caret.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
     /// Left edge of the text (incl. the reserved gutter margin) — the action
     /// strip and the gutter toggle line up with it.
     var onTextLeading: ((CGFloat) -> Void)? = nil
 
-    /// Room the numbers need beside the text — reserved whether or not they're
-    /// shown, so toggling them doesn't move the column.
+    /// Gutter room, reserved whether or not numbers are shown — toggling them
+    /// must not move the column.
     private var gutterReserve: CGFloat {
         GutterMetrics.reserve(lineCountHint: max(1, countDiffLines(document.content)))
     }
@@ -57,8 +54,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.backgroundColor = NSColor.textBackgroundColor
-        // Accept image drops on top of the view's own drag types; non-image
-        // drops still fall through to the default handling.
+        // Image drops on top of the view's own drag types; non-image drops
+        // fall through to default handling.
         textView.registerForDraggedTypes(
             Array(Set(textView.registeredDraggedTypes + imageDragPasteboardTypes)))
         textView.isVerticallyResizable = true
@@ -67,12 +64,11 @@ struct VisualMarkdownView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = readingInset(forWidth: scrollView.contentView.bounds.width)
-        // Large documents: lay out only the ranges TextKit needs, not the whole
-        // storage up front (Apple's recommended big-document win).
+        // Big documents: lay out only the ranges TextKit needs.
         textView.layoutManager?.allowsNonContiguousLayout = true
         textView.theme = theme
-        // Edit ▸ Find menu (⌘F & co.) drives the standard find bar; replaces
-        // go through shouldChangeTextIn, so island/table guards still apply.
+        // Find-bar replaces go through shouldChangeTextIn, so island/table
+        // guards still apply.
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
 
@@ -109,8 +105,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             selector: #selector(Coordinator.codeHighlightingDidWarm),
             name: .codeHighlightingDidWarm,
             object: nil)
-        // Outline-sidebar jumps, object-scoped to this window's store (a nil
-        // object would subscribe to every window's jumps).
+        // Outline jumps, object-scoped to this window's store (nil would
+        // subscribe to every window).
         if let store = positionStore {
             NotificationCenter.default.addObserver(
                 coordinator,
@@ -130,7 +126,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             name: .claudeIDERevealRequested,
             object: nil)
         coordinator.applyClaudeReveal()
-        // Review-mark anchor wash (v37) — plainText quote search in display.
+        // Review-mark anchor wash — plainText quote search in display.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.reviewMarksDidChange),
@@ -152,9 +148,9 @@ struct VisualMarkdownView: NSViewRepresentable {
             coordinator.applyPresentation()
             return
         }
-        // External change (Revert, or another window editing the shared
-        // document). A background window defers the re-render until it becomes
-        // key so its cursor/scroll survive edits made elsewhere.
+        // External change (Revert, or another window on the shared document).
+        // A background window defers the re-render until it becomes key so its
+        // cursor/scroll survive edits made elsewhere.
         if !coordinator.isInternalUpdate, document.content != coordinator.lastSerialized {
             if textView.window?.isKeyWindow ?? true {
                 coordinator.loadDocument()
@@ -200,11 +196,11 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// serialized frontmatter source itself changes.
         var builtInPluginSnapshot: BuiltInPluginSnapshot = .empty
         private var builtInPluginFrontmatter: String?
-        /// The document's verbatim frontmatter block (both fences, no trailing
-        /// newline) from the last load. Visual does not render frontmatter —
-        /// the Properties inspector owns it — so serialization re-attaches
-        /// this block (`composeDocumentWithFrontmatter`). Refreshed on every
-        /// loadDocument, which runs for any edit Visual did not originate.
+        /// Verbatim frontmatter block (both fences, no trailing newline) from
+        /// the last load. Visual doesn't render frontmatter (Properties
+        /// inspector owns it); serialization re-attaches this block byte-exact
+        /// via `composeDocumentWithFrontmatter`. Refreshed on every
+        /// loadDocument.
         private var frontmatterBlock: String?
 
         var visualStyle: VisualStyle {
@@ -215,7 +211,7 @@ struct VisualMarkdownView: NSViewRepresentable {
                                elements: settings.elements)
         }
 
-        /// Wiki `[[` autocomplete (plan 03). Disabled inside code/table/raw.
+        /// Wiki `[[` autocomplete; disabled inside code/table/raw.
         lazy var wikiCompletion = WikiCompletionController(
             apply: { [weak self] tv, range, replacement in
                 self?.applyWikiCompletion(tv, range: range, replacement: replacement)
@@ -311,7 +307,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             )
         }
 
-        // MARK: Review-mark anchors (v37)
+        // MARK: Review-mark anchors
 
         @objc func reviewMarksDidChange() {
             applyReviewHighlights()
@@ -322,7 +318,7 @@ struct VisualMarkdownView: NSViewRepresentable {
         /// model's debounced recompute notification, not per keystroke.
         func applyReviewHighlights() {
             guard let textView else { return }
-            // Heavy docs skip the O(n × marks) quote search — same gate as Source.
+            // Heavy docs skip the O(n × marks) search — same gate as Source.
             guard !parent.document.isHeavy else {
                 ReviewHighlight.apply(to: textView, highlights: [])
                 return
@@ -333,9 +329,9 @@ struct VisualMarkdownView: NSViewRepresentable {
                 return
             }
             let marks = ReviewModel.shared.openMarksForDisplaySearch()
-            // Hints translate raw-markdown starts into display coordinates —
-            // a raw hint overshoots (display text is shorter) and could wash
-            // a later duplicate of the quote.
+            // Hints translate raw-markdown starts into display coordinates — a
+            // raw hint overshoots (display text is shorter) and could wash a
+            // later duplicate of the quote.
             let highlights = ReviewHighlight.displayHighlights(
                 marks: marks, displayText: textView.string,
                 hintForRawOffset: { [weak self] raw in
@@ -344,16 +340,13 @@ struct VisualMarkdownView: NSViewRepresentable {
             ReviewHighlight.apply(to: textView, highlights: highlights)
         }
 
-        /// Applies a deferred external change once the window regains focus (see
-        /// updateNSView's background-window gate).
+        /// Applies a deferred external change once the window regains focus.
         @objc func windowBecameKey(_ note: Notification) {
             guard pendingExternalReload, let tv = textView,
                   (note.object as? NSWindow) === tv.window else { return }
             pendingExternalReload = false
             loadDocument()
         }
-
-        // MARK: Split scroll sync (paragraph-indexed, like Preview's anchors)
 
         // MARK: Cursor continuity across modes
 
@@ -373,8 +366,8 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         /// Display offset → markdown offset, through the serializer's paragraph
-        /// map (v22). Visual's text has no markers, so the block's markdown
-        /// prefix ("# ", "- [x] ", "> " …) is added back here.
+        /// map. Visual's text has no markers, so the block's markdown prefix
+        /// ("# ", "- [x] ", "> " …) is added back here.
         func markdownOffset(atDisplayLocation location: Int) -> Int? {
             guard let textView, let storage = textView.textStorage,
                   !lastParagraphRanges.isEmpty else { return nil }
@@ -397,15 +390,11 @@ struct VisualMarkdownView: NSViewRepresentable {
             noteSelectionForClaude(selection: selection, mappedStart: start)
         }
 
-        /// Selection for Claude IDE *and* review-mark anchors (v37). Both ends
-        /// go through the paragraph map — never the display text. Always stored
-        /// on the bridge (review needs it even when no `/ide` client is
-        /// attached); MCP `selection_changed` no-ops when nobody is connected.
-        ///
-        /// Mapping the selection END costs an O(offset) paragraph-map scan, so
-        /// non-empty selections settle behind a short debounce — a drag no
-        /// longer pays the scan on every tick (Review ▸ + and Claude both read
-        /// the bridge much later than 150 ms).
+        /// Selection for Claude IDE *and* review-mark anchors. Both ends go
+        /// through the paragraph map — never the display text. Always stored on
+        /// the bridge (review needs it without an `/ide` client). Mapping the
+        /// END costs an O(offset) scan, so non-empty selections settle behind a
+        /// 150 ms debounce — both consumers read the bridge much later.
         private var selectionNoteTask: Task<Void, Never>?
 
         private func noteSelectionForClaude(selection: NSRange, mappedStart: Int) {
@@ -430,9 +419,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                 markdown: parent.document.content)
         }
 
-        /// Claude's `openFile` reveal. Visual places the caret at the mapped
-        /// source offset; it does not extend the selection — display ranges and
-        /// source ranges are not the same span.
+        /// Claude `openFile` reveal: caret at the mapped source offset, no
+        /// selection — display ranges and source ranges are not the same span.
         @objc func applyClaudeReveal() {
             guard let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL),
                   let store = parent.positionStore else { return }
@@ -440,9 +428,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             restoreCursor()
         }
 
-        /// Outline-sidebar jump: `restoreCursor` maps the store's markdown
-        /// offset through the paragraph map, so the cursor lands correctly
-        /// even though Visual's display text differs from the source.
+        /// Outline jump: `restoreCursor` maps the store's markdown offset
+        /// through the paragraph map.
         @objc func jumpToStoredOffset() {
             restoreCursor()
         }
@@ -500,32 +487,31 @@ struct VisualMarkdownView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             // Load path: setAttributedString can notify; must not rewrite the
-            // markdown (would inject trailing newlines / normalize without edit — C4).
+            // markdown (would inject trailing newlines / normalize without an
+            // edit).
             guard !isMutating, !isLoadingDocument else { return }
-            // Phase-timed: the Visual path serializes synchronously, so a heavy
-            // keystroke usually shows up in the "serialize" phase (see
-            // TypingProfiler).
+            // Phase-timed: Visual serializes synchronously, so a heavy
+            // keystroke usually shows in "serialize" (TypingProfiler).
             var profiler = KeystrokeProfiler(.visual)
-            // NB: runAutoformat can re-enter textDidChange; that nested cycle is
-            // timed under this outer "autoformat" phase, so a fat autoformat
-            // number may be the re-entrant edit, not formatting itself.
+            // runAutoformat can re-enter textDidChange; the nested cycle is
+            // timed under "autoformat", so a fat number there may be the
+            // re-entrant edit, not formatting itself.
             profiler.phase("autoformat") { runAutoformat() }
             let reloaded = profiler.phase("serialize") { syncToDocument() }
             profiler.phase("presentation") { if !reloaded { applyPresentation() } }
             profiler.phase("notify") {
                 parent.document.noteContentEdited()
                 DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-                // The caret's markdown offset disambiguates a duplicate-line
-                // insertion (same as Source) — without it the dirty mark can
-                // land on an identical untouched neighbour. Paragraph-start
-                // precision is enough: the tracker only needs the caret's LINE.
+                // Caret's markdown offset disambiguates duplicate-line
+                // insertions (as in Source); paragraph-start precision is
+                // enough — the tracker only needs the caret's LINE.
                 LineChangeTracker.shared.noteContent(
                     url: parent.fileURL, content: parent.document.content,
                     caretUTF16Offset: caretMarkdownOffset())
             }
             profiler.phase("stats") { updateStats() }
-            // Review wash re-aligns via the model's debounced recompute
-            // notification — no per-keystroke quote search here.
+            // Review wash re-aligns via the model's debounced recompute — no
+            // per-keystroke quote search.
             profiler.phase("gutter") { refreshGutter() }
             profiler.phase("wiki") { wikiCompletion.update(fileURL: parent.fileURL) }
             profiler.finish()
@@ -546,21 +532,21 @@ struct VisualMarkdownView: NSViewRepresentable {
             var proposed = clip.bounds
             proposed.origin.y = original.y
             let constrained = clip.constrainBoundsRect(proposed)
-            // Near the bottom, deletion can make the old origin invalid. That
-            // clamp is real geometry, not jitter, so do not fight AppKit.
+            // Deleting near the bottom can invalidate the old origin; the clamp
+            // is real geometry, not jitter — do not fight AppKit.
             guard abs(constrained.origin.y - original.y) <= 0.5 else { return }
             clip.scroll(to: constrained.origin)
             scroll.reflectScrolledClipView(clip)
         }
 
-        /// Visual gutter shows **source** line numbers (via paragraph→md map), not 1…N of the WYSIWYG buffer.
+        /// Visual gutter shows **source** line numbers (via paragraph→md map),
+        /// not 1…N of the WYSIWYG buffer.
         func refreshGutter() {
             guard let textView else { return }
             let md = parent.document.content
             textView.gutterState = GutterState(
                 settings: EditorSettings.shared.gutter,
                 dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
-                // Visual shows SOURCE line numbers: paragraphs → markdown lines.
                 displayToSourceLine: gutterSourceLinesFromRender
                     ?? displayToSourceLineMap(paragraphRanges: lastParagraphRanges,
                                               markdown: md))
@@ -568,8 +554,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             reportTextLeading(textView.textContainerInset.width)
         }
 
-        /// The strip lines its tools up with the text. Reported async: this runs
-        /// from `updateNSView`, and writing SwiftUI state there warns.
+        /// Strip alignment; async because writing SwiftUI state from
+        /// `updateNSView` warns.
         private func reportTextLeading(_ leading: CGFloat) {
             guard abs(lastTextLeading - leading) > 0.5 else { return }
             lastTextLeading = leading
@@ -587,9 +573,9 @@ struct VisualMarkdownView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            // Keep custom attrs out of typing attributes only where harmful:
+            // Strip custom attrs from typing attributes only where harmful:
             // links must not extend as the user types after them.
-            // Guard: setAttributedString fires selection sync (v22).
+            // setAttributedString fires selection sync — guard isMutating.
             guard !isMutating, let textView else { return }
             var attrs = textView.typingAttributes
             if attrs[.mdLink] != nil || attrs[.mdImage] != nil || attrs[.mdWikiLink] != nil
@@ -598,8 +584,8 @@ struct VisualMarkdownView: NSViewRepresentable {
                 attrs[.mdImage] = nil
                 attrs[.mdWikiLink] = nil
                 // Token/formula runs serialize their PAYLOAD, not their text —
-                // typed characters merging into such a run would be dropped or
-                // reattached to the wrong occurrence.
+                // typed characters merging in would be dropped or reattached to
+                // the wrong occurrence.
                 attrs[.mdBuiltInPluginToken] = nil
                 attrs[.mdMathTex] = nil
                 textView.typingAttributes = attrs
@@ -610,9 +596,8 @@ struct VisualMarkdownView: NSViewRepresentable {
             wikiCompletion.update(fileURL: parent.fileURL)
         }
 
-        /// nil until the first publish — the first computed value must always
-        /// emit, even when it equals the default (it overrides whatever a
-        /// previous mode left in the shared state).
+        /// nil until the first publish — the first value must emit even when it
+        /// equals the default (it overrides a previous mode's shared state).
         private var lastPublishedFormats: ActiveInlineFormats?
 
         private func publishActiveFormats() {
@@ -686,7 +671,7 @@ struct VisualMarkdownView: NSViewRepresentable {
             let callback = parent.onActiveFormats
             DispatchQueue.main.async { [weak self] in
                 // A publish queued by an outgoing editor must not land after
-                // the mode switch reset the shared state (review fix).
+                // the mode switch reset the shared state.
                 guard self?.textView?.window != nil else { return }
                 callback?(fmt)
             }

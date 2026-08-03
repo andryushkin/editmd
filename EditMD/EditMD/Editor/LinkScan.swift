@@ -1,9 +1,7 @@
-// Outgoing-link scan for the workspace link index (plan 02).
-//
-// Pure over the markdown string: no disk I/O, no resolution. Wiki-links reuse
-// `scanWikiLinks`; markdown links/images come from the swift-markdown AST so
-// code fences / inline code are excluded for free (same contract as Source
-// highlighting). Math is masked before parsing (same trick as collectSpans).
+// Outgoing-link scan for the workspace link index. Pure over the markdown
+// string: no disk I/O, no resolution. Wiki-links reuse `scanWikiLinks`;
+// markdown links/images come from the swift-markdown AST so code contexts are
+// excluded for free. Math is masked before parsing (same trick as collectSpans).
 
 import Foundation
 import Markdown

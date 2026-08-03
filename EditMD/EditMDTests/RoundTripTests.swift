@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// v20 quality gate: `serialize(render(x))` must be idempotent and preserve
+/// Round-trip quality gate: `serialize(render(x))` must be idempotent and preserve
 /// semantics (same HTML fingerprint via markdownHTMLBody).
 final class RoundTripTests: XCTestCase {
 
@@ -253,8 +253,8 @@ final class RoundTripTests: XCTestCase {
         XCTAssertEqual(roundTrip("[a][b]\n\n[b]: https://e.com"), "[a](https://e.com)")
     }
 
-    // Loose lists are now PRESERVED (was: normalized to tight). A real file
-    // (CLAUDE.md) lost its blank lines under the old normalization.
+    // Loose lists are preserved, not normalized to tight — a real file
+    // (CLAUDE.md) lost its blank lines under normalization.
     func testLooseListPreserved() {
         XCTAssertEqual(roundTrip("- a\n\n- b"), "- a\n\n- b")
     }

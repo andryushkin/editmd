@@ -2,8 +2,8 @@ import Foundation
 
 // MARK: - Rules / findings
 
-/// Workspace-level link health rules (plan 06). Separate from per-file
-/// `LintRule` so Source lint stays workspace-free.
+/// Workspace-level link health rules. Separate from per-file `LintRule` so
+/// Source lint stays workspace-free.
 enum VaultLintRule: String, Equatable, Sendable, CaseIterable {
     case deadWikiLink
     case ambiguousWikiLink

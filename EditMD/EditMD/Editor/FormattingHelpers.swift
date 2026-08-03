@@ -2,15 +2,13 @@ import Foundation
 
 // Pure helpers — no AppKit dependency, easy to unit-test.
 
-/// Returns (words, chars) for the given string.
 func wordAndCharCount(in text: String) -> (words: Int, chars: Int) {
     let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
     return (words, text.count)
 }
 
-/// Wraps `selection` in `marker…marker`, returning the new full string and
-/// the new selection range (covers the wrapped text; if original was empty,
-/// positions cursor between the markers).
+/// Wraps `selection` in `marker…marker`; new selection covers the wrapped
+/// text, or sits between the markers when the original was empty.
 func applyWrap(marker: String, to text: String, selection: NSRange) -> (newText: String, newSelection: NSRange) {
     let nsText = text as NSString
     let selected = nsText.substring(with: selection)
@@ -25,31 +23,27 @@ func applyWrap(marker: String, to text: String, selection: NSRange) -> (newText:
 // MARK: - Clear inline markers (Source)
 
 /// Removes markdown inline markers from a selection, leaving block structure
-/// alone. Code-span *interiors* keep their characters (so `a**b**` stays
-/// `a**b**` after unwrap); outer `` ` `` / `**` / `*` / `~~` / `==` wrappers
-/// are stripped. (B4)
+/// alone. Code-span *interiors* keep their characters (`a**b**` in a span
+/// stays); outer `` ` `` / `**` / `*` / `~~` / `==` wrappers are stripped.
 func stripInlineMarkers(_ text: String) -> String {
-    // Split into code spans and everything else. Single-backtick spans only
-    // (`` multi-tick is rare in casual selection; leave multi-tick alone).
+    // Single-backtick spans only; multi-tick is rare in casual selection.
     var result = ""
     var i = text.startIndex
     while i < text.endIndex {
         if text[i] == "`" {
-            // Find matching closing backtick on the same line.
             let afterOpen = text.index(after: i)
             if let close = text[afterOpen...].firstIndex(of: "`"),
                !text[afterOpen..<close].contains(where: { $0 == "\n" || $0 == "\r" }) {
-                // Unwrap: emit interior only (do not strip markers inside).
+                // Emit interior only — never strip inside code.
                 result += text[afterOpen..<close]
                 i = text.index(after: close)
                 continue
             }
-            // Unmatched ` — keep as-is and continue.
+            // Unmatched ` — keep as-is.
             result.append(text[i])
             i = text.index(after: i)
             continue
         }
-        // Non-code run until next ` or end.
         let runEnd = text[i...].firstIndex(of: "`") ?? text.endIndex
         result += stripNonCodeInlineMarkers(String(text[i..<runEnd]))
         i = runEnd
@@ -90,7 +84,6 @@ private func stripDelimiterPairs(_ delim: String, in text: String,
     var out = ""
     var i = text.startIndex
     while i < text.endIndex {
-        // Find next opening delimiter.
         guard let open = text[i...].range(of: d)?.lowerBound else {
             out += text[i...]
             break
@@ -130,24 +123,21 @@ private func stripDelimiterPairs(_ delim: String, in text: String,
         }
         out += inner
         i = afterClose
-        // Continue scanning after this pair (changed for outer while).
     }
     return out
 }
 
-// MARK: - Block insertion (B3, tables, block formulas)
+// MARK: - Block insertion (tables, block formulas)
 
-/// `---` snippet with just enough newlines for a thematic break: its own line,
-/// one blank line each side. See `blockSnippet`.
+/// `---` with block spacing; see `blockSnippet`.
 func dividerSnippet(in text: NSString, replacing range: NSRange) -> String {
     blockSnippet("---", in: text, replacing: range)
 }
 
-/// `body` on its own line(s) with just enough newlines for a block element:
-/// one blank line each side. Peeks at the actual neighbours instead of always
-/// injecting `\n\n…\n\n` (which grew extra blank lines the linter then
-/// flagged). O(1) in the document — no substring copies of the whole text.
-/// Shared by the divider / table-template / block-formula insertions in Source.
+/// `body` with just enough newlines for a block element: one blank line each
+/// side. Peeks at actual neighbours instead of always injecting `\n\n…\n\n`
+/// (which grew blank lines the linter flagged). O(1) — no whole-text copies.
+/// Shared by divider / table-template / block-formula insertions in Source.
 func blockSnippet(_ body: String, in text: NSString, replacing range: NSRange) -> String {
     let nl: unichar = 0x0A
     func char(at i: Int) -> unichar? {
@@ -189,20 +179,18 @@ struct SourceLineBlock: Equatable {
     var checklist = false
 }
 
-/// Classifies one raw markdown line for the strip's block toggles, using THE
-/// SAME prefix patterns `transformLines` toggles by — the checkmark must
-/// mirror exactly what a press would recognize (review P1: a lenient scan
-/// lit H1 for `> # H` while the action prepended another `# `, and called
-/// `* [x]` a checklist while the checklist toggle only knows `- [ ]`).
-/// A heading nested in a quote therefore reads as quote only, and task lines
-/// are checklists, not bullets — as in `transformLines`. Setext headings have
-/// no line prefix; the caller resolves them from the highlighter spans.
+/// Classifies one raw line for the strip's block toggles, using THE SAME
+/// prefix patterns `transformLines` toggles by — the checkmark must mirror
+/// exactly what a press would do (a lenient scan lit H1 for `> # H` while the
+/// action prepended another `# `, and called `* [x]` a checklist while the
+/// toggle only knows `- [ ]`). A heading nested in a quote reads as quote
+/// only; task lines are checklists, not bullets. Setext headings have no line
+/// prefix; the caller resolves them from highlighter spans.
 func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
-    // Normalize to the logical line `transformLines` operates on: it splits
-    // by "\n" first, so its lines never carry a terminator. A paragraph range
-    // does — ">\n" failed the literal ">" check while "#\n" passed the
-    // heading `\s+` via the newline, flipping both states against the action
-    // (review P1). For terminator-free input this trim is a no-op.
+    // Normalize to the terminator-free logical line `transformLines` splits by
+    // "\n": a paragraph range carries one — ">\n" failed the literal ">" check
+    // while "#\n" passed the heading `\s+` via the newline, flipping both
+    // states against the action. No-op for terminator-free input.
     var line = String(line)
     while let last = line.unicodeScalars.last, CharacterSet.newlines.contains(last) {
         line.unicodeScalars.removeLast()
@@ -222,11 +210,10 @@ func classifyMarkdownLine(_ line: some StringProtocol) -> SourceLineBlock {
     return out
 }
 
-/// CommonMark setext underline: up to 3 leading spaces, then a run of all
-/// `=` or all `-`, optional trailing whitespace. Confirms that a heading the
-/// highlighter reported is genuinely the two-line Setext form — an ATX
-/// heading the strict toggle grammar rejected (0–3 space indent, bare `#`)
-/// must not light through the span fallback (review P1).
+/// CommonMark setext underline: ≤3 leading spaces, run of all `=` or all `-`,
+/// optional trailing whitespace. Confirms a highlighter-reported heading is
+/// the genuine two-line Setext form — an ATX heading the strict toggle
+/// grammar rejected must not light through the span fallback.
 func isSetextUnderline(_ line: some StringProtocol) -> Bool {
     var s = Substring(line)
     while let last = s.unicodeScalars.last,
@@ -240,17 +227,14 @@ func isSetextUnderline(_ line: some StringProtocol) -> Bool {
     return s.allSatisfy { $0 == marker }
 }
 
-/// Setext heading level for the paragraph, or nil. Demands BOTH the
-/// highlighter's heading span (cmark's verdict) and the underline INSIDE that
-/// same span: a bare `#` followed by `---` is an empty ATX heading plus a
-/// thematic break — two constructs a next-line peek glued back together
-/// (review P1). Every line of a multi-line Setext title lights (review P2).
-///
-/// The anchor walks the span's lines for the FIRST underline-shaped one and
-/// lights only paragraphs at or before it: swift-markdown's heading range can
-/// bleed into the NEXT block when no blank line follows the underline
-/// (`Title\n===\nbody` reports one heading span over all three lines), so
-/// "last line of the span" is not trustworthy.
+/// Setext level for the paragraph, or nil. Demands BOTH the highlighter's
+/// heading span (cmark's verdict) and the underline INSIDE that span: a bare
+/// `#` + `---` is an empty ATX heading plus a thematic break, not a Setext.
+/// Every line of a multi-line Setext title lights. Walks the span's lines for
+/// the FIRST underline and lights only paragraphs at or before it —
+/// swift-markdown's heading range bleeds into the NEXT block when no blank
+/// line follows the underline (`Title\n===\nbody` is one span over all three
+/// lines), so "last line of the span" is not trustworthy.
 func setextHeadingLevel(spans: [Span], paragraph: NSRange, text: NSString) -> Int? {
     guard let span = spans.first(where: { span in
         if case .headingBody = span.kind {
@@ -284,10 +268,8 @@ func mergeUniformBlocks(_ a: SourceLineBlock, _ b: SourceLineBlock) -> SourceLin
     return out
 }
 
-/// Uniform block states across the selected lines: a state is on only when
-/// EVERY line carries it — the same all-paragraphs rule Visual applies, so
-/// the strip's toggle checkmarks describe the whole selection, not just the
-/// caret line.
+/// A state is on only when EVERY selected line carries it — same
+/// all-paragraphs rule as Visual, so checkmarks describe the whole selection.
 func uniformBlockStates(_ lines: [some StringProtocol]) -> SourceLineBlock {
     guard let first = lines.first else { return SourceLineBlock() }
     return lines.dropFirst().reduce(classifyMarkdownLine(first)) {
@@ -295,7 +277,7 @@ func uniformBlockStates(_ lines: [some StringProtocol]) -> SourceLineBlock {
     }
 }
 
-// MARK: - Case cycle (B5)
+// MARK: - Case cycle
 
 /// The transform `cycleCase` picked for the current selection state.
 enum CaseCycleOp {
@@ -313,8 +295,7 @@ func nextCaseCycleOp(for text: String) -> CaseCycleOp? {
     return .upper
 }
 
-/// Cycles selection case: UPPER → lower → Capitalized → UPPER.
-/// Detection uses letter-bearing content; non-letters pass through.
+/// UPPER → lower → Capitalized → UPPER; non-letters pass through.
 func cycleCase(_ text: String) -> String {
     guard let op = nextCaseCycleOp(for: text) else { return text }
     switch op {
@@ -324,11 +305,10 @@ func cycleCase(_ text: String) -> String {
     }
 }
 
-/// Attributed variant for Visual (B5): the op is detected on the WHOLE
-/// selection, then applied run-by-run so mixed inline formatting survives —
-/// `replaceCharacters(in:with: String)` would smear the first run's
-/// attributes over the entire selection. Capitalization carries its
-/// word-boundary state across runs (`**H**ello` stays one word).
+/// Attributed variant for Visual: op detected on the WHOLE selection, applied
+/// run-by-run so mixed inline formatting survives — `replaceCharacters` would
+/// smear the first run's attributes over the selection. Capitalization
+/// carries word-boundary state across runs (`**H**ello` stays one word).
 func cycleCaseAttributed(_ source: NSAttributedString) -> NSAttributedString {
     guard let op = nextCaseCycleOp(for: source.string) else { return source }
     let result = NSMutableAttributedString()
@@ -363,10 +343,9 @@ func cycleCaseAttributed(_ source: NSAttributedString) -> NSAttributedString {
 
 // MARK: - Task checkbox toggle (Preview click-through)
 
-/// Toggles the `index`-th task-list checkbox (`[ ]` ↔ `[x]`, document order)
-/// in the markdown source, or nil when no such checkbox exists. The index
-/// matches the DOM order of `li.task` inputs in the rendered preview — both
-/// sides enumerate the document tree in order.
+/// Toggles the `index`-th task checkbox (`[ ]` ↔ `[x]`, document order), nil
+/// when absent. Index matches DOM order of `li.task` inputs in Preview — both
+/// sides enumerate the tree in order.
 func toggleTaskListItem(in markdown: String, index: Int) -> String? {
     guard index >= 0 else { return nil }
     let markers = collectSpans(markdown)
@@ -517,10 +496,8 @@ func fenceLines(_ lines: String) -> String {
 
 // MARK: - Preview selection wrap (highlight / strikethrough)
 
-/// Toggles `open…close` around an exact UTF-16 `range` in `markdown`.
-/// If the range is already wrapped with those markers, removes them; otherwise
-/// inserts the markers. Used by the Preview toolbar once the page reports
-/// `data-md-lo`/`data-md-hi` offsets for the selection.
+/// Toggles `open…close` around an exact UTF-16 `range`. Used by the Preview
+/// toolbar once the page reports `data-md-lo`/`data-md-hi` selection offsets.
 func toggleWrapAtRange(in markdown: String,
                        range: NSRange,
                        open: String,
@@ -532,9 +509,8 @@ func toggleWrapAtRange(in markdown: String,
     let closeLen = (close as NSString).length
     let selected = ns.substring(with: range)
 
-    // Source mode often selects the visible syntax as well as its body
-    // (`~~text~~`). Treat that as the same toggle-off gesture as Preview's
-    // body-only selection; otherwise it becomes `~~~~text~~~~`.
+    // A selection including the markers (`~~text~~`) is the same toggle-off
+    // gesture as Preview's body-only selection; otherwise → `~~~~text~~~~`.
     let selectedLength = (selected as NSString).length
     if selectedLength >= openLen + closeLen,
        selected.hasPrefix(open), selected.hasSuffix(close) {
@@ -556,9 +532,8 @@ func toggleWrapAtRange(in markdown: String,
                            length: openLen + range.length + closeLen)
         return ns.replacingCharacters(in: full, with: selected)
     }
-    // Partial selection inside one uniformly formatted run: remove formatting
-    // only from the selected fragment and preserve it on both sides.
-    // Example: `~~paragraph~~`, selecting `para` → `para~~graph~~`.
+    // Partial selection inside one formatted run: unformat only the fragment,
+    // keep both sides (`~~paragraph~~`, select `para` → `para~~graph~~`).
     if open == close {
         var tokens: [NSRange] = []
         var search = NSRange(location: 0, length: ns.length)

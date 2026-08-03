@@ -32,7 +32,7 @@ struct InspectorSidebar: View {
     let onOpen: (URL) -> Void
     /// Switch to Source and place the caret (Properties "Open in Source").
     var onOpenInSource: ((Int) -> Void)? = nil
-    /// History restore (stage 5); optional until wired.
+    /// History-tab restore (undoable whole-document replace in the host).
     var onHistoryRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @ObservedObject private var linkIndex = LinkIndex.shared

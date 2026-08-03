@@ -2,7 +2,6 @@ import Foundation
 
 // Disk cores of the file/folder move machinery: pure nonisolated statics
 // with injectable move primitives, plus the transaction error types.
-// Extracted from WorkspaceModel.swift.
 
 struct FileMoveResult: Equatable, Sendable {
     let source: URL

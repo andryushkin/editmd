@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Sidebar tab: frontmatter tags across workspace files (D11).
+/// Sidebar tab: frontmatter tags across workspace files.
 /// Only YAML `tags:` (flow/block list) — inline `#tags` deferred.
 struct TagsSidebar: View {
     @ObservedObject var workspace: WorkspaceModel

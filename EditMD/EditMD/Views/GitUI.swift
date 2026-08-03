@@ -3,7 +3,7 @@ import AppKit
 
 // MARK: - Snapshot for status bar / menus
 
-/// Lightweight git affordances for the focused file (stage 4 / 5).
+/// Lightweight git affordances for the focused file.
 struct GitFileSnapshot: Equatable {
     var inRepo: Bool
     var pathStatus: GitCLI.PathStatus
@@ -296,7 +296,7 @@ enum GitCommitMessage {
     }
 }
 
-// MARK: - Commit sheet (stage 4)
+// MARK: - Commit sheet
 
 struct GitCommitSheet: View {
     /// One or more paths in the same repository. Single-file rows pass `[url]`;
@@ -566,7 +566,6 @@ struct GitCommitSheet: View {
         pushError = nil
         pushNote = nil
         let url = primaryURL
-        // Confirm first (stage 5).
         let alert = NSAlert()
         alert.messageText = String(localized: "Push to remote?")
         let branchName = branch ?? String(localized: "current branch")

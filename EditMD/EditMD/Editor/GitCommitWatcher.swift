@@ -228,7 +228,7 @@ enum GitCLI {
         return (ahead, behind)
     }
 
-    // MARK: Write (stage 4 / 5)
+    // MARK: Write
 
     /// `git add -- <path>` for this file only.
     static func stage(file: URL) -> Result<Void, GitError> {

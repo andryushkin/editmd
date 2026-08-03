@@ -2,22 +2,20 @@ import AppKit
 
 // Presentation pass for Visual mode: derives fonts/colors/paragraph styles from
 // the md.* attributes and registers drawn-decoration entries on the text view
-// (bullets, quotes, code panels, table islands, YAML card, images). Split out of
-// VisualTextView.swift when it passed 2600 lines; the editing core stays there.
+// (bullets, quotes, code panels, table islands, images). The editing core stays
+// in VisualTextView.swift.
 
 extension VisualMarkdownView.Coordinator {
-    /// Absolute x edges (left→right, including the right edge) for a large
-    /// table's columns. Widths come from the header plus a sample of body
-    /// rows (measuring every row of a 9000-row table would be wasteful),
-    /// clamped to a sane min/max so one long cell can't blow out the grid.
-    /// Long cells cap at `maxWidth` and wrap vertically instead of stretching
-    /// the column.
+    /// Absolute x edges (left→right incl. right edge) for a large table's
+    /// columns. Widths from the header plus a sample of body rows (measuring
+    /// 9000 rows would be wasteful), clamped min/max; long cells cap at
+    /// `maxWidth` and wrap vertically instead of stretching the column.
     private func tableColumnEdges(_ grid: TableGrid, font: NSFont, headerFont: NSFont,
                                   originX: CGFloat,
                                   pluginSnapshot: BuiltInPluginSnapshot) -> [CGFloat] {
         let columns = grid.columnCount
         guard columns > 0 else { return [originX] }
-        let cellPadding: CGFloat = 16   // 8pt on each side (plan 11.5)
+        let cellPadding: CGFloat = 16   // 8pt each side
         let minWidth: CGFloat = 44
         let maxWidth: CGFloat = 260
         // Measure *rendered* inline markdown (not raw `**bold**` markers) so
@@ -43,11 +41,10 @@ extension VisualMarkdownView.Coordinator {
         return edges
     }
 
-    /// Per-row heights for an island table. Base height fits one line of body
-    /// text; a cell that exceeds its column width grows the whole row so the
-    /// text can wrap. Cheap path: if the raw string already fits the cell
-    /// width under the body font, skip the full markdown measure (markers only
-    /// make rendered text shorter).
+    /// Per-row heights for an island table: base fits one line; a cell wider
+    /// than its column grows the whole row to wrap. Cheap path: a raw string
+    /// that already fits skips the full markdown measure (markers only make
+    /// rendered text shorter).
     private func tableIslandRowHeights(_ grid: TableGrid, columnEdges: [CGFloat],
                                        bodyFont: NSFont, headerFont: NSFont,
                                        baseRowHeight: CGFloat,
@@ -62,8 +59,8 @@ extension VisualMarkdownView.Coordinator {
         func cellHeight(text: String, font: NSFont, column: Int) -> CGFloat {
             guard !text.isEmpty, column < columns else { return baseRowHeight }
             let textW = max(8, columnEdges[column + 1] - columnEdges[column] - padH)
-            // Fast reject: raw string narrower than the cell almost always fits
-            // after markdown markers are stripped (markers only shorten text).
+            // Fast reject: a raw string narrower than the cell still fits
+            // after markers are stripped (markers only shorten text).
             let rawW = (text as NSString).size(withAttributes: [.font: font]).width
             if rawW <= textW + 0.5 { return baseRowHeight }
 
@@ -131,17 +128,14 @@ extension VisualMarkdownView.Coordinator {
         let pluginSnapshot = builtInPluginSnapshot
 
         let spacingScale = EditorSettings.shared.visualSpacing.scale
-        // Pre-scan: which paragraphs are first/last line of each code group,
-        // so margin can be applied in the same pass as other styles (a
-        // follow-up attribute write was easy to lose / override).
+        // Pre-scan first/last line of each code group so margin applies in the
+        // same pass (a follow-up attribute write was easy to lose/override).
         var codeGroupFirst = Set<Int>()  // paragraph.location
         var codeGroupLast = Set<Int>()
         var codeGroupsTmp: [Int: (first: Int, last: Int)] = [:]  // group → (firstLoc, lastLoc)
-        // Blank source lines are collapsed in Visual, so the gap between
-        // neighboring blocks of different kinds comes only from paragraph
-        // spacing. The scan records what each paragraph is, and the main pass
-        // opens up run boundaries (list end, quote edges, table edges) by
-        // looking at the neighbors.
+        // Blank source lines collapse in Visual, so inter-block gaps come only
+        // from paragraph spacing; the scan records what each paragraph is and
+        // the main pass opens run boundaries by looking at neighbors.
         struct ParaScan {
             var isList = false; var isTable = false; var isHeading = false
             var quoteGroup: Int?
@@ -175,12 +169,10 @@ extension VisualMarkdownView.Coordinator {
             codeGroupLast.insert(ends.last)
         }
 
-        // Margin = white between cards. Independent of panel padding.
-        // Must be large enough that even if pad steals ~6pt each side, a
-        // clear gap remains (and neighboring lines stay unpainted). Works in
-        // tandem with drawBackground's clamp margin (18): glyph-to-glyph gap
-        // is THIS value, the panel edge sits 18pt from the neighboring text,
-        // and the difference (~14pt) becomes the panel's inner top/bottom pad.
+        // Margin = white between cards, independent of panel padding. Works
+        // with drawBackground's clamp margin (18): glyph-to-glyph gap is THIS
+        // value, the panel edge sits 18pt from neighboring text, and the
+        // ~14pt difference becomes the panel's inner top/bottom pad.
         let codeBlockMargin: CGFloat = max(32, 32 * spacingScale)
 
         isMutating = true
@@ -201,16 +193,16 @@ extension VisualMarkdownView.Coordinator {
             style.paragraphSpacing = 8 * spacingScale
             var markerIndent: CGFloat = 0
             var isTableIsland = false
-            // Document-leading block: top gap is `textContainerInset.height`
-            // (Settings ▸ Vertical). Extra paragraphSpacingBefore here would
-            // stack on insetV and make Vertical look broken at 0.
+            // Document-leading block: top gap is `textContainerInset.height`;
+            // extra paragraphSpacingBefore would stack on insetV and make
+            // Settings ▸ Vertical look broken at 0.
             let isDocumentStart = paragraph.location == 0
 
             switch blockValue.kind {
             case .heading(let level):
-                // Plan 11.2: a heading clings to ITS section — before:after
-                // ≈ 3:1. A heading directly after another heading halves the
-                // top gap so consecutive headings read as one cluster.
+                // A heading clings to ITS section — before:after ≈ 3:1; one
+                // directly after another halves the top gap so consecutive
+                // headings read as one cluster.
                 let before: CGFloat
                 let after: CGFloat
                 switch level {
@@ -286,7 +278,7 @@ extension VisualMarkdownView.Coordinator {
                 codeGroupIndents[blockValue.group] = listIndentPoints(blockValue.listIndent)
             case .thematicBreak:
                 ruleRanges.append(paragraph)
-                // A rule is a section boundary — give it real air (plan 11.4).
+                // A rule is a section boundary — give it real air.
                 if !isDocumentStart {
                     style.paragraphSpacingBefore = 16 * spacingScale
                 }
@@ -298,9 +290,8 @@ extension VisualMarkdownView.Coordinator {
                 } else {
                     table = NSTextTable()
                     table.numberOfColumns = columns
-                    // Merge adjacent cell borders — without this every cell
-                    // paints its own 0.5pt frame and neighbors show doubled
-                    // hairlines.
+                    // Merge adjacent cell borders — otherwise every cell paints
+                    // its own 0.5pt frame and neighbors show doubled hairlines.
                     table.collapsesBorders = true
                     table.setContentWidth(100, type: .percentageValueType)
                     textTables[blockValue.group] = table
@@ -308,9 +299,8 @@ extension VisualMarkdownView.Coordinator {
                 let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1,
                                             startingColumn: column, columnSpan: 1)
                 cell.setBorderColor(theme.separatorColor)
-                // Full thin grid (user decision after the 11.5 eye review):
-                // 0.5pt hairlines all around, a full point under the header.
-                // No header fill — the header reads through weight.
+                // Full thin grid: 0.5pt hairlines all around, a full point
+                // under the header; no header fill — it reads through weight.
                 cell.setWidth(0.5, type: .absoluteValueType, for: .border)
                 if row == 0 {
                     cell.setWidth(1, type: .absoluteValueType,
@@ -325,14 +315,14 @@ extension VisualMarkdownView.Coordinator {
                 default: break
                 }
             case .raw(let rawText):
-                // A large table stored as a raw island (renderTable falls
-                // back to `.raw` above maxNativeTableCells). Draw it as a
-                // virtualized grid instead of monospace pipe text: hide the
-                // text, pin a fixed row height, register a draw entry. Other
-                // raw islands (HTML) keep the monospace fallback.
+                // Large table stored as a raw island (above
+                // maxNativeTableCells): draw a virtualized grid instead of
+                // monospace pipe text — hide the text, pin row heights,
+                // register a draw entry. Other raw islands (HTML) keep the
+                // monospace fallback.
                 if let grid = parseGFMTable(rawText) {
-                    // Tabular-figure cell fonts, 8pt padding (plan 11.5) —
-                    // same tokens as native table cells.
+                    // Tabular-figure cell fonts, 8pt padding — same tokens as
+                    // native table cells.
                     let cellKind = MDBlock.Kind.tableCell(row: 0, column: 0,
                                                           columns: 1, alignment: 0)
                     let bodyFont = visualStyle.font(for: [], blockKind: cellKind)
@@ -437,15 +427,12 @@ extension VisualMarkdownView.Coordinator {
                 style.paragraphSpacing = max(style.paragraphSpacing, 8 * spacingScale)
             }
 
-            // Reading leading (plan 11.1): CSS-style ratio over the element's
-            // FONT SIZE (body 15 → 20pt line), enforced as a per-line floor —
-            // `lineHeightMultiple` would scale the natural line height (already
-            // ~1.2× the size) and overshoot. A floor also keeps mixed runs
-            // (smaller inline code, links) from breathing between lines.
-            // Paragraphs carrying attachment glyphs (images, rendered math,
-            // thematic breaks — U+FFFC) keep the font default: the glyph
-            // defines its own height. Headings get their own leading in 11.2,
-            // table cells in 11.5.
+            // Reading leading: CSS-style ratio over the element's FONT SIZE
+            // (body 15 → 20pt line), enforced as a per-line floor —
+            // `lineHeightMultiple` would scale the natural height (already
+            // ~1.2×) and overshoot; a floor also keeps mixed runs (smaller
+            // inline code, links) from breathing. Attachment-glyph paragraphs
+            // (U+FFFC) keep the font default: the glyph defines its own height.
             let lineRatio: CGFloat
             let lineBase: CGFloat
             var clampLineHeight = false
@@ -458,13 +445,13 @@ extension VisualMarkdownView.Coordinator {
                 lineBase = visualStyle.codeSize
             case .heading(let level):
                 // Headings are TIGHTER than natural (a multi-line H1 must not
-                // look loose) — clamp from both sides (plan 11.2).
+                // look loose) — clamp from both sides.
                 lineRatio = level <= 3 ? 1.12 : 1.18
                 lineBase = visualStyle.headingSize(level)
                 clampLineHeight = true
             case .tableCell:
-                // Cells share the body floor — with the 8pt padding this
-                // lands the ~36pt row minimum (plan 11.5).
+                // Cells share the body floor — with the 8pt padding this lands
+                // the ~36pt row minimum.
                 lineRatio = 1.3
                 lineBase = visualStyle.baseSize
             case .thematicBreak:
@@ -515,11 +502,9 @@ extension VisualMarkdownView.Coordinator {
         storage.endEditing()
         isMutating = false
 
-        // Do NOT ensureLayout(for: whole container) here — on large docs
-        // (Claude.md ~100k) that forces full-document layout on every
-        // keystroke/presentation pass and freezes the UI. TextKit lays out
-        // as needed for display; code-panel clamp uses whatever fragments
-        // exist for the dirty rect.
+        // Do NOT ensureLayout(for: whole container): on ~100k docs that forces
+        // full-document layout on every keystroke and freezes the UI. TextKit
+        // lays out as needed; the code-panel clamp uses existing fragments.
 
         textView.bulletEntries = bullets
         textView.numberEntries = numbers
@@ -566,11 +551,11 @@ extension VisualMarkdownView.Coordinator {
         }
     }
 
-    /// Strikethrough and colors are derived: .mdInline strike (and plugin
-    /// tokens that opt in) get strikethrough; done tasks fade to the
-    /// secondary tone WITHOUT strikethrough (plan 11.3); links get the link
-    /// color — underlined only under Increase Contrast, the interactive
-    /// affordance states live in `VisualNSTextView` as temporary attributes.
+    /// Derived decorations: .mdInline strike (and opting plugin tokens) get
+    /// strikethrough; done tasks fade to secondary WITHOUT strikethrough;
+    /// links get the link color — underlined only under Increase Contrast,
+    /// interactive affordances live in `VisualNSTextView` as temporary
+    /// attributes.
     private func applyDerivedInlineDecorations(_ storage: NSTextStorage,
                                                paragraph: NSRange, block: MDBlock) {
         var isDone = false
@@ -593,9 +578,8 @@ extension VisualMarkdownView.Coordinator {
 
         storage.enumerateAttributes(in: paragraph) { attrs, range, _ in
             let styles = MDInlineStyle(rawValue: attrs[.mdInline] as? Int ?? 0)
-            // Always re-derive font from block kind so demoting a heading
-            // to body (or promoting body → H1) updates size/weight even on
-            // runs that never carried .mdInline.
+            // Always re-derive font from block kind so demoting/promoting a
+            // heading updates size/weight even on runs without .mdInline.
             var fontStyles: MDInlineStyle = isHeaderCell ? styles.union(.bold) : styles
             // Math runs read as raw TeX — monospace makes the syntax legible.
             if attrs[.mdMath] != nil { fontStyles.insert(.code) }
@@ -647,16 +631,16 @@ extension VisualMarkdownView.Coordinator {
             } else {
                 let color: NSColor
                 if headingLevel > 0 {
-                    // H6 defaults to the secondary tone (plan 11.2) — same
-                    // size as body, so the hierarchy reads through color.
+                    // H6 defaults to the secondary tone — same size as body,
+                    // so the hierarchy reads through color.
                     let headingDefault = headingLevel == 6
                         ? theme.secondaryColor : theme.textColor
                     color = elements.heading(headingLevel).color ?? headingDefault
                 } else if isBodyCode {
                     color = theme.secondaryColor
                 } else if isQuote {
-                    // Quotes read as an aside (plan 11.4): secondary tone by
-                    // default, overridable per element in Settings.
+                    // Quotes read as an aside: secondary tone by default,
+                    // overridable per element in Settings.
                     color = elements.quote.color ?? theme.secondaryColor
                 } else if styles.contains(.bold), let bold = elements.bold.color {
                     color = bold
@@ -718,8 +702,8 @@ extension VisualMarkdownView.Coordinator {
     }
 
     /// Sizes the attachment to the image, capped at a comfortable reading
-    /// width, with softly rounded corners (plan 11.6). The wrapper draws
-    /// lazily, so the clip costs nothing until the image is on screen.
+    /// width, softly rounded corners. The wrapper draws lazily, so the clip
+    /// costs nothing until the image is on screen.
     private func setAttachmentImage(_ image: NSImage, on attachment: NSTextAttachment) {
         let maxWidth: CGFloat = 420
         let scale = image.size.width > maxWidth ? maxWidth / image.size.width : 1
@@ -733,9 +717,9 @@ extension VisualMarkdownView.Coordinator {
         attachment.bounds = CGRect(origin: .zero, size: size)
     }
 
-    /// Missing/broken image: a panel with the photo glyph and the file name
-    /// (plan 11.6) instead of a bare U+FFFC-sized speck. Dynamic colors
-    /// resolve at draw time — the drawing handler runs per appearance.
+    /// Missing/broken image: a panel with the photo glyph and file name
+    /// instead of a bare U+FFFC-sized speck. Dynamic colors resolve at draw
+    /// time — the drawing handler runs per appearance.
     private func setPlaceholder(on attachment: NSTextAttachment, src: String) {
         let theme = textView?.theme ?? .editorDefault
         let name = (src.removingPercentEncoding ?? src)

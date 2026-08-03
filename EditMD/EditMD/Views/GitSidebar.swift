@@ -12,10 +12,9 @@ struct GitSidebar: View {
     @State private var snapshot = GitWorkspaceSnapshot.empty
     @State private var refreshTask: Task<Void, Never>?
     @State private var isRefreshing = false
-    /// Item-based sheet target (NOT `isPresented` + optional). Dual-state
-    /// `showCommit`/`commitURL` raced: sheet content could evaluate with a nil
-    /// URL, hit the "No file" fallback, and `onAppear` immediately dismissed —
-    /// first Commit click looked like a no-op (needed a second click).
+    /// Item-based sheet target (NOT `isPresented` + optional): the dual-state
+    /// form raced — sheet content evaluated with nil URL, hit the fallback,
+    /// and dismissed itself, so the first Commit click looked like a no-op.
     @State private var commitTarget: GitSidebarCommitTarget?
     @State private var diffTarget: GitSidebarDiffTarget?
     @State private var hoverCommitURL: URL?
@@ -141,12 +140,9 @@ struct GitSidebar: View {
 
     // MARK: - Adaptive layout
 
-    /// Below this the header only has room for the folder name, ↑N/↓M and the
-    /// count; branch name and the hover action slots are dropped. The budget:
-    /// ~120pt of readable folder name + 18pt chevron + two 18pt action slots +
-    /// a ~50pt branch label + the count capsule. Before the first measurement
-    /// assume NARROW — dropping chrome on a wide panel for one frame is
-    /// invisible, while the reverse flashes wide chrome and reflows.
+    /// Below this the header keeps only name, ↑N/↓M and count (branch + hover
+    /// slots dropped). Before the first measurement assume NARROW — dropping
+    /// chrome for one frame is invisible, the reverse flashes and reflows.
     private var isNarrowPanel: Bool { panelWidth < 240 }
 
     // MARK: - Disclosure state
@@ -201,10 +197,9 @@ struct GitSidebar: View {
 
     // MARK: - Header / rows
 
-    /// Thin overview line: how much is dirty across all adopted folders.
-    /// Must agree with the list below — open buffers with unsaved / session
-    /// changes are listed under "Open in editor" even when git is clean, so
-    /// they count as not-clean here too.
+    /// Must agree with the list below: open buffers with unsaved/session
+    /// changes list under "Open in editor" even when git is clean, so they
+    /// count as not-clean here too.
     private var summaryBar: some View {
         HStack(spacing: 6) {
             let changed = snapshot.changedCount
@@ -239,8 +234,8 @@ struct GitSidebar: View {
         .padding(.vertical, 6)
     }
 
-    /// Group header = one adopted workspace folder. Branch and ahead/behind are
-    /// secondary metadata here; the folder name is what identifies the group.
+    /// One adopted workspace folder; the folder name identifies the group,
+    /// branch and ahead/behind are secondary.
     @ViewBuilder
     private func workspaceHeader(_ group: GitSidebarGroup) -> some View {
         let section = group.section
@@ -277,16 +272,13 @@ struct GitSidebar: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityValue(Text(expanded ? "Expanded" : "Collapsed"))
-                // The folder name is what identifies the group, so it is the
-                // last thing allowed to shrink. NO Spacer inside this zone: a
-                // Spacer asks for unbounded width, and at priority 1 it took
-                // every point, leaving the branch/count zone 0pt wide — its
-                // text then wrapped per character and inflated the row.
+                // Name shrinks last. NO Spacer in this zone: at priority 1 it
+                // took every point, the branch/count zone hit 0pt and its text
+                // wrapped per character, inflating the row.
                 .layoutPriority(1)
 
-                // Flexible gap, and a disclosure hit target of its own so the
-                // empty middle of the header still toggles the group.
-                // Duplicate of the name zone's toggle — hidden from VoiceOver.
+                // Flexible gap doubling as a disclosure hit target; duplicate
+                // of the name zone's toggle — hidden from VoiceOver.
                 Color.clear
                     .frame(maxWidth: .infinity, minHeight: 18)
                     .contentShape(Rectangle())

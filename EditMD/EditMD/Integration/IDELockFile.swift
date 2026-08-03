@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// Discovery for the Claude Code IDE channel (v36).
+// Discovery for the Claude Code IDE channel.
 //
 // The CLI has no idea we exist until it finds `~/.claude/ide/<port>.lock`.
 // On `/ide` it scans that directory, picks the lock whose `workspaceFolders`

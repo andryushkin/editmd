@@ -1,20 +1,17 @@
 import AppKit
 import SwiftUI
 
-// Source mode (v23): raw markdown in a plain monospaced NSTextView.
-// No syntax highlighting or drawn decorations — the only intelligence here is
-// the lint engine (MarkdownLint.swift): dotted underlines via layout-manager
-// temporary attributes, quick-fixes in the context menu, a status-bar badge.
-//
-// Until v23 this lived in MarkdownTextView.swift together with the v17 hybrid
-// live-preview engine; the hybrid died when Visual became true WYSIWYG (v21).
+// Source mode: raw markdown in a monospaced NSTextView. Span-based highlighting
+// lives in SourceTextView+Highlighting; lint (MarkdownLint.swift) draws dotted
+// underlines via layout-manager temporary attributes, offers quick-fixes in the
+// context menu, and feeds the status-bar badge.
 
 /// Lint state published to the status bar (Source mode).
 struct LintSummary {
     var errorCount: Int
     var warningCount: Int
     var jumpToNext: () -> Void
-    /// Snapshot for the status-bar popover (D2). Ranges are UTF-16.
+    /// Snapshot for the status-bar popover; ranges are UTF-16.
     var diagnostics: [LintDiagnostic] = []
     /// Jump caret to a diagnostic's range (popover row click).
     var jumpTo: ((LintDiagnostic) -> Void)? = nil
@@ -29,16 +26,15 @@ struct SourceTextView: NSViewRepresentable {
     var fileURL: URL? = nil
     /// Cursor continuity across modes (markdown offsets are native here).
     var positionStore: EditorPositionStore? = nil
-    /// Reading-field insets from Settings ▸ Source. Passed explicitly so
-    /// SwiftUI calls `updateNSView` when the user drags Vertical/Horizontal
-    /// (otherwise only a debounced notification refreshed them).
+    /// Settings ▸ Source insets, passed explicitly so SwiftUI calls
+    /// `updateNSView` during a drag (a debounced notification alone lagged).
     var insetH: CGFloat = EditorSettings.shared.source.insetH
     var insetV: CGFloat = EditorSettings.shared.source.insetV
     var columnWidth: CGFloat = EditorSettings.shared.source.columnWidth
     var onStatsUpdate: (Int, Int) -> Void
     var onFormatActions: (FormatActions) -> Void
     var onLintUpdate: ((LintSummary) -> Void)? = nil
-    /// B6: active inline styles at caret (from cached spans — no re-parse).
+    /// Active inline styles at caret, from cached spans — no re-parse.
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
     /// Fractional markdown offset at the bottom of the viewport, for
     /// split-preview scroll sync.
@@ -51,8 +47,8 @@ struct SourceTextView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    /// Room the numbers need beside the text — reserved whether or not they're
-    /// shown, so toggling them doesn't move the column.
+    /// Gutter room, reserved whether or not numbers are shown — toggling them
+    /// must not move the column.
     fileprivate var gutterReserve: CGFloat {
         GutterMetrics.reserve(lineCountHint: max(1, countDiffLines(document.content)))
     }
@@ -63,19 +59,19 @@ struct SourceTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        // Match the text view so the vertical contentInsets band (Settings ▸
-        // Vertical) is the same white/dark page color, not window chrome.
+        // Match the text view so the vertical contentInsets band is page color,
+        // not window chrome.
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.automaticallyAdjustsContentInsets = false
 
         let textView = SourceNSTextView()
-        // Rich text so per-element highlighting (heading size/weight, colors)
-        // renders. The document's source of truth is still the plain `.string`;
-        // paste is forced to plain text so external rich content can't leak in.
+        // Rich text so per-element highlighting renders; source of truth stays
+        // the plain `.string`, and paste is forced plain so rich content can't
+        // leak in.
         textView.isRichText = true
-        // Document-scoped undo (MarkdownDocument.contentUndoManager) — not the
-        // view-local stack, so ⌘Z survives mode switches.
+        // Document-scoped undo (MarkdownDocument.contentUndoManager), not the
+        // view-local stack — ⌘Z survives mode switches.
         textView.allowsUndo = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -87,16 +83,15 @@ struct SourceTextView: NSViewRepresentable {
         textView.insertionPointColor = EditorSettings.shared.source
             .caretColor(theme: EditorSettings.shared.effectiveTheme)
         textView.backgroundColor = NSColor.textBackgroundColor
-        // Accept image drops (file URLs + bitmap flavors) on top of the text
-        // view's own drag types, so a non-image drop still falls through to
-        // the default handling.
+        // Image drops on top of the view's own drag types; non-image drops
+        // fall through to default handling.
         textView.registerForDraggedTypes(
             Array(Set(textView.registeredDraggedTypes + imageDragPasteboardTypes)))
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        // Unbounded growth — without this, vertical inset/contentInsets can
-        // clip or refuse to reflow when Settings ▸ Vertical changes.
+        // Unbounded growth — otherwise contentInsets changes can clip or refuse
+        // to reflow.
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                   height: CGFloat.greatestFiniteMagnitude)
@@ -105,10 +100,8 @@ struct SourceTextView: NSViewRepresentable {
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.containerSize = NSSize(
             width: 0, height: CGFloat.greatestFiniteMagnitude)
-        // Large documents: lay out only the ranges TextKit needs, not the whole
-        // storage up front (Apple's recommended big-document win).
+        // Big documents: lay out only the ranges TextKit needs.
         textView.layoutManager?.allowsNonContiguousLayout = true
-        // Edit ▸ Find menu (⌘F & co.) drives the standard find bar.
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
 
@@ -122,9 +115,8 @@ struct SourceTextView: NSViewRepresentable {
         coordinator.textView = textView
         textView.wikiCompletion = coordinator.wikiCompletion
         coordinator.wikiCompletion.attach(to: textView)
-        // Capture the cross-mode offset BEFORE any text/delegate wiring:
-        // setting the string resets the selection, and the selection-change
-        // callback would clobber the stored value with 0.
+        // Capture the cross-mode offset BEFORE text/delegate wiring: setting
+        // the string resets the selection and the callback would clobber it.
         let restoreOffset = positionStore?.markdownOffset
         textView.string = document.content
         textView.delegate = coordinator
@@ -169,8 +161,7 @@ struct SourceTextView: NSViewRepresentable {
             name: .lineChangeMarksDidChange,
             object: nil
         )
-        // A big code block highlighted off main — repaint now that its runs are
-        // cached (the pass itself is a cache hit, no JS).
+        // A code block finished highlighting off-main — repaint from cache.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.codeHighlightingDidWarm),
@@ -183,8 +174,8 @@ struct SourceTextView: NSViewRepresentable {
             name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
-        // Outline-sidebar jumps, object-scoped to this window's store (a nil
-        // object would subscribe to every window's jumps).
+        // Outline jumps, object-scoped to this window's store (nil would
+        // subscribe to every window).
         if let store = positionStore {
             NotificationCenter.default.addObserver(
                 coordinator,
@@ -199,8 +190,8 @@ struct SourceTextView: NSViewRepresentable {
                 object: store
             )
         }
-        // Claude `openFile` reveal. The bridge hands the range to whichever
-        // editor claims the URL, so a nil object scope is correct here.
+        // Claude `openFile` reveal: the bridge hands the range to whichever
+        // editor claims the URL — nil object scope is correct.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.applyClaudeReveal),
@@ -209,14 +200,14 @@ struct SourceTextView: NSViewRepresentable {
         )
         // The file may have been opened BY that reveal: claim it on mount too.
         coordinator.applyClaudeReveal()
-        // Review-mark anchor wash (v37).
+        // Review-mark anchor wash.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.reviewMarksDidChange),
             name: .reviewMarksDidChange,
             object: nil
         )
-        // Vault-lint findings refresh after index save (plan 06).
+        // Vault-lint findings refresh after index save.
         NotificationCenter.default.addObserver(
             coordinator,
             selector: #selector(Coordinator.vaultLintDidUpdate),
@@ -239,9 +230,9 @@ struct SourceTextView: NSViewRepresentable {
             insetH: insetH, insetV: insetV, columnWidth: columnWidth,
             gutterReserve: gutterReserve)
 
-        // External change (Revert, or another window editing the shared
-        // document). A background window defers the reload until it becomes key
-        // so its cursor/scroll survive edits made elsewhere.
+        // External change (Revert, or another window on the shared document).
+        // A background window defers the reload until it becomes key so its
+        // cursor/scroll survive edits made elsewhere.
         if !coordinator.isInternalUpdate, textView.string != document.content {
             if textView.window?.isKeyWindow ?? true {
                 coordinator.reloadFromDocument()
@@ -253,10 +244,9 @@ struct SourceTextView: NSViewRepresentable {
         if geometryChanged { coordinator.scheduleVisibleOffsetPublish() }
     }
 
-    /// Horizontal via `textContainerInset` (column wrap). Vertical via the
-    /// scroll view's `contentInsets` so the strip→text gap tracks Settings ▸
-    /// Vertical immediately — `textContainerInset.height` alone often kept
-    /// stale line-fragment origins until a window resize.
+    /// Horizontal via `textContainerInset` (column wrap); vertical via the
+    /// scroll view's `contentInsets` — `textContainerInset.height` alone often
+    /// kept stale line-fragment origins until a window resize.
     @discardableResult
     fileprivate static func applyReadingInsets(textView: NSTextView,
                                                scrollView: NSScrollView,
@@ -270,17 +260,15 @@ struct SourceTextView: NSViewRepresentable {
         mode.insetV = insetV
         mode.columnWidth = columnWidth
         let inset = mode.textContainerInset(forWidth: width)
-        // Numbers live in this margin; reserving it unconditionally keeps the
-        // text still when they're toggled.
+        // Reserve unconditionally so toggling numbers keeps the text still.
         let leading = max(inset.width, gutterReserve)
 
         let nextTextInset = NSSize(width: leading, height: 0)
         let textInsetChanged = textView.textContainerInset != nextTextInset
         if textInsetChanged { textView.textContainerInset = nextTextInset }
-        // Remember the reserve: it is the only way back to where the numbers
-        // start (inset − reserve + edgePad), which the current-line band needs.
-        // Callers that do not compute one pass 0 — keep the last known value
-        // rather than resetting the band to the view edge.
+        // Remember the reserve — the only way back to where the numbers start
+        // (inset − reserve + edgePad), which the current-line band needs.
+        // Callers passing 0 keep the last known value.
         if gutterReserve > 0 {
             (textView as? SourceNSTextView)?.gutterReserveWidth = gutterReserve
         }
@@ -294,14 +282,13 @@ struct SourceTextView: NSViewRepresentable {
         }
         scrollView.backgroundColor = textView.backgroundColor
 
-        // Re-invalidating unchanged TextKit geometry on every document publish
-        // relays out the editor and moves its viewport while the user types.
+        // Re-invalidating unchanged geometry on every publish relays out the
+        // editor and moves its viewport mid-typing.
         if textInsetChanged, let tc = textView.textContainer {
             textView.layoutManager?.textContainerChangedGeometry(tc)
         }
-        // Only when something actually moved: this now runs from every layout
-        // pass (live resize included), and an unconditional invalidation would
-        // repaint a large buffer for nothing.
+        // Runs from every layout pass (live resize included) — unconditional
+        // invalidation would repaint a large buffer for nothing.
         let geometryChanged = textInsetChanged || scrollInsetChanged
         if geometryChanged { textView.needsDisplay = true }
         return geometryChanged
@@ -318,16 +305,15 @@ struct SourceTextView: NSViewRepresentable {
         /// A background window sets this when the shared document changes under
         /// it; the reload is applied when the window next becomes key.
         var pendingExternalReload = false
-        /// Last `collectSpans` result — selection only reads this (B6).
+        /// Last `collectSpans` result — selection only reads this.
         var cachedSpans: [Span] = []
         /// `==…==` runs of the last highlighted text — recomputed with the
         /// spans cache, NEVER on selection change (no O(text) per caret move).
         var cachedHighlightMarks: [HighlightMarkMatch] = []
-        /// nil until the first publish — the first computed value must always
-        /// emit, even when it equals the default (it overrides whatever a
-        /// previous mode left in the shared state).
+        /// nil until the first publish — the first value must emit even when it
+        /// equals the default (it overrides a previous mode's shared state).
         var lastPublishedFormats: ActiveInlineFormats?
-        /// Wiki `[[` autocomplete (plan 03).
+        /// Wiki `[[` autocomplete.
         lazy var wikiCompletion = WikiCompletionController(
             apply: { [weak self] tv, range, replacement in
                 self?.applyWikiCompletion(tv, range: range, replacement: replacement)
@@ -348,9 +334,9 @@ struct SourceTextView: NSViewRepresentable {
         func textView(_ textView: NSTextView,
                       shouldChangeTextIn affectedCharRange: NSRange,
                       replacementString: String?) -> Bool {
-            // Capture the viewport before TextKit mutates/layouts the line. A
-            // tiny metrics correction is visual jitter; a larger move is
-            // AppKit following the caret and must be forwarded to Preview.
+            // Capture the viewport before TextKit mutates the line: a tiny
+            // metrics correction is jitter to undo, a larger move is AppKit
+            // following the caret and must reach Preview.
             viewportOriginBeforeEdit = textView.enclosingScrollView?.contentView.bounds.origin
             parent.document.beginContentEdit()
             return true
@@ -359,8 +345,8 @@ struct SourceTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             guard !isInternalUpdate else { return }
-            // Phase-timed so a keystroke that pins the CPU names its culprit in
-            // the unified log / Instruments (see TypingProfiler).
+            // Phase-timed so a CPU-pinning keystroke names its culprit
+            // (TypingProfiler).
             var profiler = KeystrokeProfiler(.source)
             profiler.phase("content") {
                 isInternalUpdate = true
@@ -368,11 +354,9 @@ struct SourceTextView: NSViewRepresentable {
                 isInternalUpdate = false
                 parent.document.noteContentEdited()
                 DocumentRegistry.shared.noteUserEdit(parent.fileURL)
-                // The caret sits where the user just typed — it disambiguates a
-                // duplicate-line insertion so the mark lands on the edited line,
-                // not an identical untouched neighbour. Pass the raw offset
-                // (O(1)); the tracker resolves it to a line off-main for large
-                // buffers.
+                // Caret disambiguates a duplicate-line insertion so the mark
+                // lands on the edited line, not an identical neighbour. Raw
+                // offset is O(1); the tracker resolves lines off-main.
                 LineChangeTracker.shared.noteContent(
                     url: parent.fileURL, content: tv.string,
                     caretUTF16Offset: tv.selectedRange().location)
@@ -384,16 +368,16 @@ struct SourceTextView: NSViewRepresentable {
                 scheduleUnresolvedWiki()
                 wikiCompletion.update(fileURL: parent.fileURL)
             }
-            // Review wash re-aligns via the model's debounced recompute
-            // notification — no per-keystroke repaint here.
+            // Review wash re-aligns via the model's debounced recompute — no
+            // per-keystroke repaint.
             profiler.phase("gutter") { refreshGutter() }
             profiler.finish()
             finishViewportEditOnNextRunLoop()
         }
 
-        /// Re-derives the reading geometry once the view has a real width.
-        /// `makeNSView` runs before layout, where the scroll view is still 0pt
-        /// wide, so a centered reading column cannot be computed there yet.
+        /// Re-derives reading geometry once the view has real width —
+        /// `makeNSView` runs before layout, at 0pt, where a centered column
+        /// cannot be computed.
         func applyReadingInsetsAfterLayout() {
             guard !isApplyingReadingInsets,
                   let textView,
@@ -402,15 +386,15 @@ struct SourceTextView: NSViewRepresentable {
             else { return }
             isApplyingReadingInsets = true
             defer { isApplyingReadingInsets = false }
-            // Reuse the cached reserve: recomputing it counts the document's
-            // lines, and layout runs on every resize.
+            // Cached reserve: recomputing counts the document's lines, and
+            // layout runs on every resize.
             let changed = SourceTextView.applyReadingInsets(
                 textView: textView, scrollView: scrollView,
                 insetH: parent.insetH, insetV: parent.insetV,
                 columnWidth: parent.columnWidth,
                 gutterReserve: textView.gutterReserveWidth)
-            // The action strip lines up with the text; without this it would
-            // keep the pre-centering leading until some later refresh.
+            // Without this the strip keeps the pre-centering leading until a
+            // later refresh.
             if changed { reportTextLeading(textView.textContainerInset.width) }
         }
 
@@ -425,12 +409,11 @@ struct SourceTextView: NSViewRepresentable {
                 settings: EditorSettings.shared.gutter,
                 dirtySourceLines: LineChangeTracker.shared.dirtyLines(for: parent.fileURL),
                 displayToSourceLine: [],
-                // Emphasis on the caret's number rides with the line highlight:
-                // one setting, one visual idea — and it drops out under a
-                // ranged selection exactly like the band does.
+                // Number emphasis rides with the line highlight: one setting,
+                // and it drops out under a ranged selection like the band.
                 caretOffset: gutterEmphasisOffset(selection: textView.selectedRange(),
                                                   enabled: source.highlightCurrentLine))
-            // Tint and opacity, NOT a finished color: the wash alpha depends on
+            // Tint + opacity, not a finished color: wash alpha depends on
             // light/dark, which can flip without a settings change.
             textView.currentLineTint = source.currentLineTint(
                 theme: EditorSettings.shared.effectiveTheme)
@@ -439,8 +422,8 @@ struct SourceTextView: NSViewRepresentable {
             reportTextLeading(textView.textContainerInset.width)
         }
 
-        /// The strip lines its tools up with the text. Reported async: this runs
-        /// from `updateNSView`, and writing SwiftUI state there warns.
+        /// Strip alignment; async because writing SwiftUI state from
+        /// `updateNSView` warns.
         private func reportTextLeading(_ leading: CGFloat) {
             guard abs(lastTextLeading - leading) > 0.5 else { return }
             lastTextLeading = leading
@@ -450,19 +433,18 @@ struct SourceTextView: NSViewRepresentable {
 
         private var lastTextLeading: CGFloat = -1
         private var scrollSyncPublishScheduled = false
-        /// Viewport before TextKit mutates a Source line. Bounds notifications
-        /// posted during that mutation are classified after layout settles.
+        /// Viewport before TextKit mutates a line; bounds notifications posted
+        /// during the mutation are classified after layout settles.
         private var viewportOriginBeforeEdit: NSPoint?
-        /// Raised while Preview's scroll is being applied here. Our own
-        /// `clip.scroll` posts a bounds notification, and publishing from it
-        /// would send the position straight back to Preview — a feedback ring
-        /// that nudged Preview a line further on every wheel event.
+        /// Raised while applying Preview's scroll: our own `clip.scroll` posts
+        /// a bounds notification, and publishing from it fed a feedback ring
+        /// that nudged Preview a line per wheel event.
         private var isFollowingPreviewScroll = false
 
         @objc func scrollOrBoundsChanged(_ note: Notification) {
             textView?.needsDisplay = true
-            // The edit completion classifies this movement as tiny layout drift
-            // or real caret-follow. Publishing it here would race that decision.
+            // The edit completion classifies this move (drift vs caret-follow);
+            // publishing here would race that decision.
             guard viewportOriginBeforeEdit == nil else { return }
             scheduleVisibleOffsetPublish()
         }
@@ -482,8 +464,8 @@ struct SourceTextView: NSViewRepresentable {
                     var proposed = clip.bounds
                     proposed.origin.y = original.y
                     let constrained = clip.constrainBoundsRect(proposed)
-                    // Deleting near the bottom can invalidate the old origin.
-                    // That clamp is real geometry, so publish it instead of
+                    // Deleting near the bottom can invalidate the old origin;
+                    // the clamp is real geometry — publish it instead of
                     // forcing an impossible viewport.
                     if abs(constrained.origin.y - original.y) <= 0.5 {
                         clip.scroll(to: constrained.origin)
@@ -493,14 +475,14 @@ struct SourceTextView: NSViewRepresentable {
                 }
 
                 // A line-sized move is AppKit keeping the caret visible (or a
-                // real geometry clamp). Keep Preview alongside Source.
+                // real clamp) — keep Preview alongside.
                 self.scheduleVisibleOffsetPublish()
             }
         }
 
-        /// Coalesce AppKit's burst of bounds notifications once per run-loop
-        /// turn. Unlike the old 120 ms debounce this keeps publishing during a
-        /// continuous trackpad gesture instead of waiting for it to stop.
+        /// Coalesce the bounds-notification burst once per run-loop turn —
+        /// unlike a debounce, keeps publishing during a continuous trackpad
+        /// gesture.
         func scheduleVisibleOffsetPublish() {
             guard parent.onVisibleOffset != nil, !isFollowingPreviewScroll,
                   !scrollSyncPublishScheduled else { return }
@@ -515,9 +497,8 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
 
-        /// Fractional markdown offset at the bottom of the viewport; nil when
-        /// the content fits on one screen and there is no scroll position to
-        /// share. Source's display text IS the markdown, so no mapping needed.
+        /// Fractional markdown offset at the viewport bottom; nil when content
+        /// fits one screen. Source's display text IS the markdown — no mapping.
         private func visibleMarkdownPosition(in textView: NSTextView) -> Double? {
             switch SplitScrollSync.position(of: textView) {
             case .unscrollable:
@@ -529,21 +510,20 @@ struct SourceTextView: NSViewRepresentable {
             case .middle:
                 guard let anchor = SplitScrollSync.visibleParagraphAnchor(in: textView)
                 else { return nil }
-                // Spend the paragraph's characters at the rate the edge crosses
-                // its height.
+                // Spend the paragraph's characters at the rate the edge
+                // crosses its height.
                 return Double(anchor.range.location)
                     + anchor.fraction * Double(max(1, anchor.range.length))
             }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            // textView.string = … fires this synchronously (v22) — skip during
-            // internal reloads so we don't thrash the strip.
+            // `textView.string = …` fires this synchronously — skip during
+            // internal reloads.
             guard !isInternalUpdate, let textView else { return }
             parent.positionStore?.markdownOffset = textView.selectedRange().location
-            // Don't let the virtual-alignment .kern bleed into typed text —
-            // the char before the caret may carry a pad; re-highlight will
-            // recompute it, but typing attributes must start clean.
+            // Table-alignment .kern must not bleed into typed text — the char
+            // before the caret may carry a pad; typing attributes start clean.
             if textView.typingAttributes[.kern] != nil {
                 textView.typingAttributes[.kern] = nil
             }
@@ -556,15 +536,13 @@ struct SourceTextView: NSViewRepresentable {
             wikiCompletion.update(fileURL: parent.fileURL)
         }
 
-        /// Repaint the current-line band when the caret actually changes line
-        /// (or leaves/enters a ranged selection). Moving the caret within one
-        /// line must not schedule a redraw of its own — an edit still repaints
-        /// through `refreshGutter`.
+        /// Repaint the band only when the caret changes line or enters/leaves
+        /// a ranged selection — within-line moves must not schedule redraws
+        /// (edits still repaint via `refreshGutter`).
         private func refreshCurrentLineBand(_ textView: SourceNSTextView) {
             let selection = textView.selectedRange()
             let enabled = EditorSettings.shared.source.highlightCurrentLine
-            // One source of truth for band and number emphasis: both are off
-            // while a range is selected, both follow the same setting.
+            // Band and number emphasis share the off-while-ranged rule.
             textView.gutterState.caretOffset =
                 gutterEmphasisOffset(selection: selection, enabled: enabled)
             let ns = textView.string as NSString
@@ -628,17 +606,14 @@ struct SourceTextView: NSViewRepresentable {
             applyLintUnderlines(lintDiagnostics)
         }
 
-        /// Lines whose block states describe the WHOLE selection stop being
-        /// computed past this many lines: ⌘A on a huge file must not classify
-        /// every line on each selection change. Beyond the cap the block
-        /// toggles read "off" — honest degradation.
+        /// Whole-selection block-state cap: ⌘A on a huge file must not classify
+        /// every line per selection change. Past the cap block toggles read
+        /// "off" — honest degradation.
         private static let blockStateLineCap = 512
 
-        /// Active formats: inline styles from `cachedSpans` at the caret;
-        /// block states (heading/quote/lists/code) computed structurally over
-        /// every selected line, mirroring Visual's all-paragraphs rule — a
-        /// caret-point probe lit H1 for a selection that also covered plain
-        /// paragraphs (review fix).
+        /// Inline styles from `cachedSpans` at the caret; block states computed
+        /// over every selected line, mirroring Visual's all-paragraphs rule (a
+        /// caret-point probe lit H1 for mixed selections).
         private func publishActiveFormats() {
             guard let textView else { return }
             let pos = textView.selectedRange().location
@@ -677,7 +652,7 @@ struct SourceTextView: NSViewRepresentable {
             let callback = parent.onActiveFormats
             DispatchQueue.main.async { [weak self] in
                 // A publish queued by an outgoing editor must not land after
-                // the mode switch reset the shared state (review fix).
+                // the mode switch reset the shared state.
                 guard self?.textView?.window != nil else { return }
                 callback?(fmt)
             }
@@ -709,10 +684,8 @@ struct SourceTextView: NSViewRepresentable {
                                                    text: nsText) {
                     // Setext (`Title` + `===`) has no line prefix — only the
                     // highlighter's heading spans know the underline context.
-                    // The pure helper demands the underline to close the SAME
-                    // span, so ATX variants the toggle grammar rejects
-                    // (`  # indented`, bare `#` before a thematic break)
-                    // stay unlit (review P1).
+                    // The helper demands the underline close the SAME span, so
+                    // ATX variants the toggle grammar rejects stay unlit.
                     line.headingLevel = setext
                 }
                 uniform = uniform.map { mergeUniformBlocks($0, line) } ?? line
@@ -736,8 +709,8 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
 
-        /// The shared caret dance: clamp to the current text, select, reveal
-        /// centered, focus. Claude reveals and outline jumps must not drift.
+        /// Shared caret dance: clamp to current text, select, reveal centered,
+        /// focus — Claude reveals and outline jumps must not drift.
         @discardableResult
         private func selectAndReveal(_ range: NSRange) -> NSRange {
             guard let textView else { return range }
@@ -752,9 +725,8 @@ struct SourceTextView: NSViewRepresentable {
             return clamped
         }
 
-        /// Claude's `openFile` with `startText` / `endText`: select the resolved
-        /// range. Fired both on mount (file just opened) and on notification
-        /// (file already on screen).
+        /// Claude `openFile` startText/endText reveal — fired on mount (file
+        /// just opened) and on notification (already on screen).
         @objc func applyClaudeReveal() {
             guard textView != nil,
                   let range = ClaudeIDEBridge.shared.takeReveal(for: parent.fileURL)
@@ -763,17 +735,14 @@ struct SourceTextView: NSViewRepresentable {
             parent.positionStore?.markdownOffset = clamped.location
         }
 
-        /// Outline-sidebar jump: markdown offsets are native here — place the
-        /// cursor at the store's offset and reveal it (the same dance as the
-        /// mode-switch restore in makeNSView).
+        /// Outline-sidebar jump: markdown offsets are native here.
         @objc func jumpToStoredOffset() {
             guard let store = parent.positionStore else { return }
             selectAndReveal(NSRange(location: store.markdownOffset, length: 0))
         }
 
-        /// Reverse split sync: align the requested source character with the
-        /// bottom of the viewport without touching selection or focus. Source's
-        /// display text is the markdown itself, so the offset needs no mapping.
+        /// Reverse split sync: align the source character with the viewport
+        /// bottom without touching selection or focus.
         @objc func followPreviewScroll() {
             guard let store = parent.positionStore, let textView else { return }
             let text = textView.string as NSString
@@ -793,9 +762,9 @@ struct SourceTextView: NSViewRepresentable {
                     / Double(max(1, paragraph.length))
             }
 
-            // The scroll below posts boundsDidChange synchronously; hold the
-            // flag until the next run-loop turn so neither that notification
-            // nor an already-queued publish bounces this position back.
+            // The scroll posts boundsDidChange synchronously; hold the flag
+            // through the next run-loop turn so neither it nor a queued publish
+            // bounces the position back.
             isFollowingPreviewScroll = true
             SplitScrollSync.scrollViewport(textView, toParagraph: paragraph,
                                            fraction: fraction, edge: edge)
@@ -804,8 +773,8 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
 
-        /// Reloads from the shared document (external change), preserving the
-        /// cursor offset (clamped) across the swap.
+        /// Reload from the shared document (external change), preserving the
+        /// clamped cursor offset.
         func reloadFromDocument() {
             guard let textView else { return }
             pendingExternalReload = false
@@ -824,25 +793,23 @@ struct SourceTextView: NSViewRepresentable {
         }
 
 
-        /// When a deferred external change is pending, apply it once the window
-        /// regains focus (see updateNSView's background-window gate).
+        /// Applies a deferred external change once the window regains focus.
         @objc func windowBecameKey(_ note: Notification) {
             guard pendingExternalReload, let tv = textView,
                   (note.object as? NSWindow) === tv.window else { return }
             reloadFromDocument()
         }
 
-        // MARK: Review-mark anchors (v37)
+        // MARK: Review-mark anchors
 
         @objc func reviewMarksDidChange() {
             applyReviewHighlights()
         }
 
-        /// Temporary background wash on open-mark anchors. Ranges come from
-        /// ReviewModel's shared anchor cache (one off-main pass, debounced
-        /// behind typing) — Source runs no text search of its own. During a
-        /// typing burst the wash may trail the buffer briefly; apply() clamps
-        /// ranges and the post-recompute notification re-aligns it.
+        /// Temporary wash on open-mark anchors, from ReviewModel's shared cache
+        /// (one off-main pass, debounced) — Source runs no text search. During
+        /// a typing burst the wash may trail; apply() clamps ranges and the
+        /// post-recompute notification re-aligns.
         func applyReviewHighlights() {
             guard let textView else { return }
             // Heavy docs stay plain (same gate as lint/highlight).
@@ -866,7 +833,7 @@ struct SourceTextView: NSViewRepresentable {
         private var lintDiagnostics: [LintDiagnostic] = []
 
         @objc func vaultLintDidUpdate() {
-            // Fast re-merge: vault findings already computed; no need for full debounce.
+            // Findings already computed — no full debounce.
             scheduleLint(delaySeconds: 0)
         }
 
@@ -883,8 +850,8 @@ struct SourceTextView: NSViewRepresentable {
 
         private func runLint() {
             guard let textView else { return }
-            // Skip linting heavy documents — lint() is O(n) over the whole text
-            // (~1.2s on a 300K table) and would freeze the editor.
+            // lint() is O(n) over the whole text (~1.2s on a 300K table) —
+            // heavy documents skip it.
             guard !parent.document.isHeavy else {
                 lintDiagnostics = []
                 textView.lintDiagnostics = []
@@ -895,7 +862,7 @@ struct SourceTextView: NSViewRepresentable {
                 return
             }
             // Per-file vault findings lag until LinkIndex + VaultLintModel
-            // refresh after save — intentional (plan 06).
+            // refresh after save — intentional.
             var diags = lint(textView.string)
             if let url = parent.fileURL {
                 let vault = VaultLintModel.shared.findings(for: url)
@@ -933,8 +900,8 @@ struct SourceTextView: NSViewRepresentable {
                                               length: (fix.replacement as NSString).length))
         }
 
-        /// Temporary attributes live in the layout manager only — they never
-        /// touch NSTextStorage, so the document and undo stack stay clean.
+        /// Layout-manager temporary attributes only — NSTextStorage, document
+        /// and undo stack stay clean.
         private func applyLintUnderlines(_ diags: [LintDiagnostic]) {
             guard let textView, let lm = textView.layoutManager else { return }
             let len = (textView.string as NSString).length
@@ -955,7 +922,7 @@ struct SourceTextView: NSViewRepresentable {
                 lm.addTemporaryAttribute(.underlineColor, value: color, forCharacterRange: r)
                 lm.addTemporaryAttribute(.toolTip, value: d.message, forCharacterRange: r)
             }
-            // Unresolved wiki-links (plan 03): muted dotted underline, no layout change.
+            // Unresolved wiki-links: muted dotted underline, no layout change.
             let wikiColor = NSColor.tertiaryLabelColor
             for range in unresolvedWikiRanges {
                 guard range.location < len else { continue }
@@ -1054,9 +1021,8 @@ struct SourceTextView: NSViewRepresentable {
             """)
         }
 
-        /// Wraps the selection (or a placeholder) in `$…$` / `$$…$$` and leaves
-        /// the TeX body selected so typing replaces it. Raw-text counterpart of
-        /// Visual's rendered-attachment template.
+        /// Wraps the selection (or placeholder) in `$…$` / `$$…$$`, TeX body
+        /// left selected. Raw-text counterpart of Visual's attachment template.
         private func insertFormulaTemplate(display: Bool) {
             guard let textView, !textView.caretInsideFence() else {
                 NSSound.beep()
@@ -1071,9 +1037,9 @@ struct SourceTextView: NSViewRepresentable {
             if display {
                 inner = selected ?? "E = mc^2"
                 insert = blockSnippet("$$\n\(inner)\n$$", in: ns, replacing: selection)
-                // blockSnippet's prefix is 0–2 newlines before the literal
-                // "$$\n"; count them instead of searching for `inner` (which
-                // could match inside the fence for degenerate selections).
+                // blockSnippet's prefix is 0–2 newlines before "$$\n"; count
+                // them instead of searching for `inner` (could match inside the
+                // fence for degenerate selections).
                 let inserted = insert as NSString
                 var prefix = 0
                 while prefix < inserted.length, inserted.character(at: prefix) == 0x0A {
@@ -1092,10 +1058,9 @@ struct SourceTextView: NSViewRepresentable {
                                               length: (inner as NSString).length))
         }
 
-        /// Block-element insertion shared by divider / table template: the
-        /// snippet replaces the selection with one blank line each side. The
-        /// fence guard is the same contextual rule as paste — Source never
-        /// inserts structure inside a code fence.
+        /// Shared by divider / table template: snippet replaces the selection
+        /// with one blank line each side. Fence guard = same contextual rule as
+        /// paste — Source never inserts structure inside a fence.
         private func insertBlockMarkdown(_ body: String) {
             guard let textView, !textView.caretInsideFence() else {
                 NSSound.beep()
@@ -1120,9 +1085,8 @@ struct SourceTextView: NSViewRepresentable {
             insertImage(asset)
         }
 
-        /// Returns true whenever the clipboard carried an image, including an
-        /// image that could not be stored (do not fall through and paste its
-        /// filename/binary representation as text).
+        /// True whenever the clipboard carried an image — even one that failed
+        /// to store (don't fall through and paste its filename as text).
         func pasteImageFromPasteboard() -> Bool {
             guard let candidate = imageCandidate(from: .general) else { return false }
             do {
@@ -1136,10 +1100,9 @@ struct SourceTextView: NSViewRepresentable {
             return true
         }
 
-        /// Drop of an image file / bitmap onto the Source view: same store +
-        /// insert path as paste, at the already-positioned caret. False when the
-        /// caret is inside a fence or the image can't be stored (the view then
-        /// leaves the drop to the default text handling).
+        /// Image drop: same store+insert path as paste, at the positioned
+        /// caret. False when inside a fence or the store fails — the view then
+        /// leaves the drop to default text handling.
         func insertDraggedImage(_ candidate: ImageAssetCandidate) -> Bool {
             guard let textView, !textView.caretInsideFence() else { return false }
             do {
@@ -1187,8 +1150,8 @@ struct SourceTextView: NSViewRepresentable {
             let range = textView.selectedRange()
             let ns = textView.string as NSString
             let openLen = (marker as NSString).length
-            // Selection includes its own syntax (`~~text~~`): unwrap it
-            // directly. The old path wrapped again into `~~~~text~~~~`.
+            // Selection includes its own markers (`~~text~~`): unwrap directly
+            // instead of double-wrapping.
             if range.length >= openLen * 2 {
                 let selected = ns.substring(with: range)
                 if selected.hasPrefix(marker), selected.hasSuffix(marker) {
@@ -1224,8 +1187,8 @@ struct SourceTextView: NSViewRepresentable {
             }
             let selected = ns.substring(with: range)
             let wrapped = marker + selected + marker
-            // Caret inside the markers for an empty selection; the wrapped run
-            // (markers included) for a real one. UTF-16 lengths — emoji-safe.
+            // Caret inside markers for an empty selection; the whole wrapped
+            // run for a real one. UTF-16 lengths — emoji-safe.
             let newSelection = range.length == 0
                 ? NSRange(location: range.location + openLen, length: 0)
                 : NSRange(location: range.location, length: (wrapped as NSString).length)
@@ -1235,10 +1198,8 @@ struct SourceTextView: NSViewRepresentable {
             textView.setSelectedRange(newSelection)
         }
 
-        /// ⌘K: add a link on the selection, or edit / remove the `[text](url)`
-        /// link under the caret. Operates on the raw markdown (Source's source of
-        /// truth); the existing link is located via the swift-markdown AST so
-        /// escapes and angle-bracket destinations are handled correctly.
+        /// ⌘K on raw markdown; the existing link is located via the
+        /// swift-markdown AST so escapes and angle destinations are correct.
         private func editLink() {
             guard let textView else { return }
             let ns = textView.string as NSString
@@ -1258,15 +1219,13 @@ struct SourceTextView: NSViewRepresentable {
                                      fileURL: parent.fileURL) {
             case .apply(let text, let url):
                 let replacement: String
-                // Compared through the same filter the dialog applied on its way
-                // out, so a label it merely trimmed (`[ **bold** ]`) still counts
-                // as untouched. `rawLabel` is nil when the source could not be
-                // established — then there is nothing exact to put back.
+                // Compared through the dialog's own output filter, so a merely
+                // trimmed label still counts untouched; nil rawLabel = nothing
+                // exact to put back.
                 if let existing, let rawLabel = existing.rawLabel, !rawLabel.isEmpty,
                    text == singleLineFieldText(existing.text) {
-                    // The label was not edited, so it goes back as written:
-                    // rebuilding it from the rendered text would flatten
-                    // `[**bold**](x)` into `[bold](x)` on a confirm alone.
+                    // Unedited label goes back as written — rebuilding from
+                    // rendered text would flatten `[**bold**](x)` on confirm.
                     replacement = markdownLinkSyntax(rawLabel: rawLabel, url: url)
                 } else {
                     replacement = markdownLinkSyntax(text: text.isEmpty ? url : text, url: url)
@@ -1278,13 +1237,10 @@ struct SourceTextView: NSViewRepresentable {
                 textView.setSelectedRange(NSRange(
                     location: selection.location + (replacement as NSString).length, length: 0))
             case .remove:
-                // Only reachable while editing an existing link, so `selection`
-                // is its full span. What stays behind is the label *as written* —
-                // the rendered text would drop its emphasis markers and unescape
-                // what the source escaped.
-                // Without an exact source label the rendered text has to be
-                // escaped on its way back, or `[a\[b](x)` would leave `a[b`
-                // behind and change what the parser sees.
+                // Only reachable while editing, so `selection` is the full
+                // span. The label stays *as written*; without an exact source
+                // label the rendered text must be re-escaped, or `[a\[b](x)`
+                // would leave `a[b` and change what the parser sees.
                 let remaining = existing?.rawLabel ?? markdownEscapedLabel(existingText)
                 guard textView.shouldChangeText(in: selection, replacementString: remaining)
                 else { return }
@@ -1297,8 +1253,8 @@ struct SourceTextView: NSViewRepresentable {
             }
         }
 
-        /// Replaces the lines the selection touches with `replacement`,
-        /// keeping undo intact, and selects the replaced text.
+        /// Replaces the lines the selection touches, undo intact; selects the
+        /// replaced text.
         private func replaceSelectedLines(with replacement: (String) -> String) {
             guard let textView else { return }
             let nsText = textView.string as NSString

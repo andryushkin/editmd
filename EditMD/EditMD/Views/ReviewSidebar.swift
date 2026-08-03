@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Review navigator tab (phase 2, v37): the active file's smotr marks as
+/// Review navigator tab: the active file's smotr marks as
 /// threads. **Preview is the primary surface** for selecting text and reading
 /// washes; Source/Visual also feed the bridge but are secondary for review.
 /// Create a mark from the current (or last non-empty) selection, reply,
@@ -349,7 +349,7 @@ struct ReviewSidebar: View {
             .padding(.horizontal, 12)
     }
 
-    /// Empty Review tab: three-step cycle (plan 09 discoverability).
+    /// Empty Review tab: three-step onboarding cycle.
     private var reviewOnboarding: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "Review cycle"))

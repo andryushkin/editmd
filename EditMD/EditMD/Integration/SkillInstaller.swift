@@ -3,7 +3,7 @@ import Foundation
 import os
 
 /// Installs the bundled EditMD agent skill package into
-/// `~/.claude/skills/editmd/` and `~/.codex/skills/editmd/` (plan 09 stage 3).
+/// `~/.claude/skills/editmd/` and `~/.codex/skills/editmd/`.
 enum SkillInstaller {
 
     static let skillFolderName = "editmd"

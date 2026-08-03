@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Lifecycle owner of the control socket (v38). Always on while the app runs
+/// Lifecycle owner of the control socket. Always on while the app runs
 /// (not gated by a setting — scripts and `editmdctl` should just work).
 /// Skipped under XCTest so the test host doesn't bind the user's real socket.
 @MainActor
@@ -32,7 +32,7 @@ final class ControlService: ObservableObject {
     func start() {
         let path = socketPath
         // Bind off the main actor — `bind`/`listen` are fast but don't belong
-        // on the UI thread (v35.3 spirit).
+        // on the UI thread.
         DispatchQueue.global(qos: .userInitiated).async { [server] in
             do {
                 try server.start(socketPath: path)

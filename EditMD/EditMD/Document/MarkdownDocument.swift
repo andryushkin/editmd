@@ -6,22 +6,19 @@ extension UTType {
     static let textBundle = UTType("org.textbundle.package")!
 }
 
-/// True when a document is large or table-heavy enough that the Visual mode's
-/// NSTextTable layout would peg the CPU (a 9000-cell table hangs indefinitely),
-/// or the per-keystroke work would lag. Such documents open in plain Source
-/// (no syntax highlighting, no lint) instead. Cheap single pass with early-out.
-///
-/// The trigger is deliberately table-aware, not size-only: a large prose note
-/// lays out fine in Visual, whereas even a modest document that is mostly one
-/// GFM table does not (the layout cost is super-linear in cell count).
+/// Heavy documents open in plain Source (no highlight, no lint): Visual's
+/// NSTextTable layout pegs the CPU (a 9000-cell table hangs indefinitely) and
+/// per-keystroke work lags. Deliberately table-aware, not size-only — large
+/// prose lays out fine in Visual, a modest one-GFM-table document does not
+/// (layout cost is super-linear in cell count). Cheap single pass, early-out.
 func markdownIsHeavy(_ content: String) -> Bool {
     let length = content.utf16.count
-    // Large prose (Claude.md ~108K) still pegs Source lint (~0.8s) and
-    // per-keystroke highlight; treat as heavy so Source stays plain+fast.
+    // Large prose (~108K) still pegs Source lint (~0.8s) and per-keystroke
+    // highlight; heavy keeps Source plain+fast.
     if length > 100_000 { return true }
     if length < 40_000 { return false }   // comfortably small
     // In between: heavy when table-dominated (the NSTextTable trap) or when
-    // line count is high enough that lint/gutter work hitches open.
+    // line count would make lint/gutter work hitch on open.
     var rows = 0
     var lines = 1
     var atLineStart = true
@@ -43,10 +40,10 @@ func markdownIsHeavy(_ content: String) -> Bool {
     return false
 }
 
-/// Main-actor undo stack + typing-coalesce state for one document.
-/// Held behind `@unchecked Sendable` so `MarkdownDocument` (nonisolated
-/// `ReferenceFileDocument` inits) can own it without storing a MainActor
-/// `UndoManager` as a stored property of a nonisolated class.
+/// Main-actor undo stack + typing-coalesce state for one document. Held via
+/// `@unchecked Sendable` box so `MarkdownDocument` (nonisolated
+/// `ReferenceFileDocument` inits) need not store a MainActor `UndoManager`
+/// directly.
 @MainActor
 final class DocumentUndoController {
     let manager: UndoManager
@@ -93,10 +90,11 @@ private final class DocumentUndoBox: @unchecked Sendable {
 
 final class MarkdownDocument: ReferenceFileDocument {
 
-    // nonisolated(unsafe) because ReferenceFileDocument protocol methods are nonisolated.
-    // didSet publishes every distinct assignment immediately. AppKit editor
-    // delegates must assign only after their NSTextView mutation has landed; an
-    // earlier publish can look like an external edit and reload the text view.
+    // nonisolated(unsafe): ReferenceFileDocument protocol methods are
+    // nonisolated. didSet publishes every distinct assignment immediately —
+    // AppKit editor delegates must assign only AFTER their NSTextView mutation
+    // landed; an earlier publish looks like an external edit and reloads the
+    // text view.
     nonisolated(unsafe) var content: String {
         didSet {
             guard content != oldValue else { return }
@@ -106,9 +104,7 @@ final class MarkdownDocument: ReferenceFileDocument {
     }
     nonisolated(unsafe) var assetsFileWrapper: FileWrapper?
 
-    /// Large/table-heavy documents skip the per-keystroke syntax highlighting
-    /// and lint in Source (they would freeze on a 300K single-table file). See
-    /// `markdownIsHeavy`. Recomputed cheaply whenever `content` changes.
+    /// See `markdownIsHeavy`. Recomputed cheaply on every `content` change.
     nonisolated(unsafe) private(set) var isHeavy = false
 
     private let undoBox = DocumentUndoBox()
@@ -151,8 +147,8 @@ final class MarkdownDocument: ReferenceFileDocument {
 
     // MARK: - Document undo (cross-mode, MainActor)
 
-    /// Document-scoped undo stack. Targets `content` string swaps, not an
-    /// NSTextView — so ⌘Z survives Source ↔ Visual ↔ Preview and file switches.
+    /// Document-scoped undo: targets `content` string swaps, not an NSTextView
+    /// — ⌘Z survives Source ↔ Visual ↔ Preview and file switches.
     @MainActor
     var contentUndoManager: UndoManager {
         undoController.manager
@@ -171,8 +167,8 @@ final class MarkdownDocument: ReferenceFileDocument {
         undoController.isPerformingUndoRedo
     }
 
-    /// Call from `shouldChangeTextIn` before the buffer mutates. Captures a
-    /// baseline once per typing burst; commits after idle (see `noteContentEdited`).
+    /// Call from `shouldChangeTextIn` BEFORE the buffer mutates. Captures a
+    /// baseline once per typing burst; commits after idle (`noteContentEdited`).
     @MainActor
     func beginContentEdit() {
         let undo = undoController
@@ -183,9 +179,9 @@ final class MarkdownDocument: ReferenceFileDocument {
         undo.scheduleCommit(on: self)
     }
 
-    /// Call after `content` was updated by typing. Resets the idle commit timer.
-    /// Does not capture a baseline (that must happen in `beginContentEdit` before
-    /// the mutation — otherwise the "old" value is already lost).
+    /// Call after typing updated `content`; resets the idle commit timer. No
+    /// baseline capture here — that must happen in `beginContentEdit` before
+    /// the mutation, or the "old" value is already lost.
     @MainActor
     func noteContentEdited() {
         let undo = undoController
@@ -203,10 +199,10 @@ final class MarkdownDocument: ReferenceFileDocument {
         guard let baseline = undo.editBaseline else { return }
         undo.editBaseline = nil
         guard baseline != content else { return }
-        // Content is already at the new value — register restore only.
+        // Content already holds the new value — register restore only.
         let um = undo.manager
-        // When `groupsByEvent` is false (tests / programmatic stacks), registerUndo
-        // requires an open group — otherwise NSUndoManager traps (same guard as
+        // groupsByEvent == false (tests/programmatic stacks): registerUndo
+        // needs an open group or NSUndoManager traps (same guard as
         // `applyUndoableContent`).
         let needsGroup = !um.groupsByEvent && !um.isUndoing && !um.isRedoing
         if needsGroup { um.beginUndoGrouping() }
@@ -219,7 +215,7 @@ final class MarkdownDocument: ReferenceFileDocument {
         if needsGroup { um.endUndoGrouping() }
     }
 
-    /// Edit ▸ Undo — flush coalesced typing first so the last keystrokes aren't lost.
+    /// Edit ▸ Undo — flush coalesced typing first or the last keystrokes are lost.
     @MainActor
     func performUndo() {
         commitContentEdit()
@@ -236,9 +232,9 @@ final class MarkdownDocument: ReferenceFileDocument {
         um.redo()
     }
 
-    /// Sets `content` and registers the inverse so ⌘Z / ⌘⇧Z restore the previous
-    /// string. Used by Preview toolbar / checkboxes and by undo handlers themselves
-    /// (re-entry registers Redo).
+    /// Sets `content` and registers the inverse (⌘Z/⌘⇧Z restore the previous
+    /// string). Used by Preview toolbar/checkboxes and by undo handlers
+    /// themselves — re-entry registers Redo.
     @MainActor
     func applyUndoableContent(_ newContent: String, actionName: String = "") {
         let undo = undoController
@@ -248,8 +244,8 @@ final class MarkdownDocument: ReferenceFileDocument {
         guard previous != newContent else { return }
         content = newContent
         let um = undo.manager
-        // When `groupsByEvent` is false (tests / programmatic stacks), registerUndo
-        // requires an open group — otherwise NSUndoManager traps.
+        // groupsByEvent == false: registerUndo needs an open group or
+        // NSUndoManager traps.
         let needsGroup = !um.groupsByEvent && !um.isUndoing && !um.isRedoing
         if needsGroup { um.beginUndoGrouping() }
         um.registerUndo(withTarget: self) { document in
@@ -263,11 +259,10 @@ final class MarkdownDocument: ReferenceFileDocument {
         if needsGroup { um.endUndoGrouping() }
     }
 
-    /// Flush any coalesced typing, then apply a whole-document replacement on
-    /// the document undo stack. Shared by Preview plugin-card, Properties
-    /// panel, built-in plugin install, and other non-keystroke edits so they
-    /// never race a pending typing commit and are not treated as external
-    /// file-watcher changes.
+    /// Flush coalesced typing, then apply a whole-document replacement on the
+    /// undo stack. Shared by all non-keystroke edits (Preview plugin-card,
+    /// Properties panel, plugin install) — never races a pending typing commit,
+    /// never reads as an external file-watcher change.
     @MainActor
     func applyDocumentEdit(_ newContent: String, actionName: String) {
         commitContentEdit()

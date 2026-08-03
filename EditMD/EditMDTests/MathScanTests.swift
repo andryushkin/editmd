@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Formulas sprint: scanner ($…$ / $$…$$) + the length-preserving mask.
+/// Math scanner ($…$ / $$…$$) + the length-preserving mask.
 final class MathScanTests: XCTestCase {
 
     private func spans(_ s: String) -> [MDMathSpan] { scanMathSpans(in: s) }

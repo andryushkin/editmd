@@ -231,7 +231,6 @@ struct PropertiesPanel: View {
 
     /// Cards of the active built-in plugins (multi-checkbox), the registry
     /// diagnostics for declared-but-invalid blocks, and the install menu.
-    /// This is the native replacement for the old Preview plugin card.
     @ViewBuilder private var pluginSection: some View {
         Divider()
             .padding(.top, 6)

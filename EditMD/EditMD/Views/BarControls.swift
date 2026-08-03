@@ -39,8 +39,7 @@ struct AccessoryBarButton: View {
 
     /// Uniform label height: a squat glyph (the divider's bare "—") otherwise
     /// shrinks the accessory backplate to a thin capsule next to full-height
-    /// neighbours (12.3 eye-feedback). Height only — width stays intrinsic
-    /// (a minWidth read as visibly oversized buttons).
+    /// neighbours. Height only — a minWidth read as visibly oversized buttons.
     static let glyphMinHeight: CGFloat = 13
 
     @ViewBuilder private var label: some View {
@@ -59,9 +58,8 @@ struct AccessoryBarButton: View {
 }
 
 /// A menu presented from an accessory bar, styled like its buttons.
-/// `showsIndicator` — plan 12 grammar: a visible system chevron marks a
-/// COMPACT group (a whole tool group folded into one menu); the full-strip
-/// menus (Table / Formula / Cleanup) stay chevron-free as before.
+/// `showsIndicator`: a visible chevron marks a COMPACT group (a whole tool
+/// group folded into one menu); full-strip menus stay chevron-free.
 struct AccessoryBarMenu<Content: View>: View {
     let glyph: AccessoryBarButton.Glyph
     let help: String
@@ -106,9 +104,9 @@ struct AccessoryBarMenu<Content: View>: View {
         .fixedSize()
         // Disclosure badge OUTSIDE the Menu: `.menuIndicator(.visible)` is
         // silently dropped under this style combo, and anything composed into
-        // the label beyond the first element is flattened away by the AppKit
-        // bridge — both discovered by eye (plan 12.3). The corner chevron in
-        // our own view tree survives, and doesn't widen the measured pill.
+        // the label beyond the first element is flattened by the AppKit
+        // bridge. The corner chevron in our own view tree survives and
+        // doesn't widen the measured pill.
         .overlay(alignment: .bottomTrailing) {
             if showsIndicator {
                 Image(systemName: "chevron.down")

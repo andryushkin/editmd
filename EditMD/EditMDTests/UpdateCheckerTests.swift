@@ -417,7 +417,7 @@ final class UpdateCheckerServiceTests: XCTestCase {
     }
 
     func testAnIncompatibleReleaseIsAnnouncedOnceAndThenLetGo() async {
-        // The P1 this replaced: the silent path used to drop this verdict
+        // Regression guard: the silent path used to drop this verdict
         // entirely, so a user on an older macOS was told nothing at all.
         let body = #"{"version": "99.0.0", "minimumSystemVersion": "999.0"}"#
         let presenter = Presenter()

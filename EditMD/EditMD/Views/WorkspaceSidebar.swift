@@ -52,12 +52,10 @@ func sidebarFileItemProvider(files: [URL]) -> NSItemProvider {
     return provider
 }
 
-/// Drag type for a sidebar workspace root. Roots travel under a type of their
-/// own (declared in `Info.plist`), the way agterm's outline view gives sessions
-/// and workspaces separate pasteboard types: a target that only moves files
-/// never lights up for a root drag, and a collection header never lights up for
-/// a file drag — the drop is refused by the system instead of being accepted
-/// and quietly ignored.
+/// Roots travel under their own drag type (declared in `Info.plist`): a
+/// file-move target never lights up for a root drag and vice versa — the
+/// system refuses the drop instead of accepting and ignoring it.
+/// docs/vault.md § Collections.
 let sidebarRootDragContentType = UTType(exportedAs: "com.editmd.sidebar-root")
 
 struct SidebarRootDragPayload: Codable, Equatable, Sendable {
@@ -102,11 +100,9 @@ func sidebarRootItemProvider(root: URL) -> NSItemProvider {
     return provider
 }
 
-/// Whether a row's Move Up / Move Down can do anything, from its position in
-/// the list it can move within: the top level for a collection block and an
-/// ungrouped root, the member list for a root inside a collection. Same answer
-/// `WorkspaceModel.canMove…` computes from the arrangement, at O(1) per row —
-/// `WorkspaceCollectionsTests` holds the two in agreement.
+/// Move Up/Down availability from position in the movable list. Same answer
+/// as `WorkspaceModel.canMove…` at O(1) per row — `WorkspaceCollectionsTests`
+/// holds the two in agreement.
 struct SidebarMoves: Equatable {
     let up: Bool
     let down: Bool
@@ -133,10 +129,9 @@ func rootDropOutcome(
     onto rawTarget: String,
     workspaces: [WorkspaceModel.Workspace]
 ) -> RootDropOutcome {
-    // The same normalization the adopted roots and the drag payload use.
-    // `NSString.standardizingPath` is NOT it — it also expands `~` and strips
-    // `/private`, so the identity comparison below could never match a root
-    // reached through such a path.
+    // Same normalization the adopted roots use. `NSString.standardizingPath`
+    // is NOT it — it expands `~` and strips `/private`, so identity
+    // comparison could never match such a path.
     let dragged = URL(fileURLWithPath: rawDragged).standardizedFileURL.path
     let target = URL(fileURLWithPath: rawTarget).standardizedFileURL.path
     guard dragged != target,
@@ -149,10 +144,8 @@ func rootDropOutcome(
     return .createCollection(dragged: dragged, target: target)
 }
 
-/// Drop target for a root dragged onto a workspace root row: the two roots
-/// become a collection (the caller is asked for a name), or the dragged root
-/// joins the collection the target already belongs to. File drags are a
-/// different type and keep going to `fileMoveDropTarget`.
+/// Root dropped on a root row: create a collection (asks for a name) or join
+/// the target's. File drags are a different type → `fileMoveDropTarget`.
 private struct RootGroupDropTargetModifier: ViewModifier {
     @ObservedObject var workspace: WorkspaceModel
     let root: URL
@@ -223,8 +216,7 @@ private struct CollectionDropTargetModifier: ViewModifier {
     }
 }
 
-/// Shared plumbing for both root drop targets: pull the payload off the one
-/// provider that carries it and hand the path to the main actor.
+/// Shared plumbing for both root drop targets.
 private func loadDraggedRoot(
     from providers: [NSItemProvider],
     then apply: @escaping @MainActor (String) -> Void
@@ -302,11 +294,8 @@ func updateSidebarFileSelection(
     return true
 }
 
-/// Whether the sidebar's multi-select highlight should be dropped when the
-/// active target changes. Clears when the selection is non-empty and the newly
-/// active URL is not one of the selected files (navigating to a folder, opening
-/// a file from outside the sidebar, or clearing to the welcome screen); keeps it
-/// when the active file is still in the selection. Pure for testing.
+/// Drop the multi-select highlight when the newly active URL is not one of
+/// the selected files; keep it when it is. Pure for testing.
 func shouldClearSidebarSelection(activeURL: URL?, selectedFiles: Set<URL>) -> Bool {
     guard !selectedFiles.isEmpty else { return false }
     guard let active = activeURL?.standardizedFileURL else { return true }
@@ -331,11 +320,9 @@ func sidebarMoveFiles(
     return visible + remainder
 }
 
-/// Title for the per-row "Move…" context item. The count comes from the
-/// selection alone: `sidebarMoveFiles` returns the whole selection when the
-/// anchor is selected and `[anchor]` otherwise, so the visible order is not
-/// needed. SwiftUI builds `.contextMenu` content eagerly for EVERY row —
-/// walking `sidebarVisibleFileOrder` here made sidebar render O(rows²).
+/// Count comes from the selection alone — SwiftUI builds `.contextMenu`
+/// content eagerly for EVERY row, and walking `sidebarVisibleFileOrder` here
+/// made sidebar render O(rows²).
 func sidebarMoveMenuTitle(anchor: URL, selectedFiles: Set<URL>) -> String {
     let count = selectedFiles.contains(anchor.standardizedFileURL)
         ? max(selectedFiles.count, 1)
@@ -382,8 +369,8 @@ func sidebarVisibleFileOrder(
         }
     }
 
-    // Members of a collapsed collection are off screen — they must not enter
-    // the order a Shift-click range walks.
+    // Collapsed-collection members are off screen — they must not enter the
+    // order a Shift-click range walks.
     for root in workspace.visibleWorkspaces where !root.collapsed {
         for subfolder in filteredFolders(workspace.markdownSubfolders(in: root.url)) {
             appendExpandedFolder(subfolder)
@@ -434,12 +421,11 @@ func migrateWorkspaceSidebarTab(_ tab: String) -> String {
     migrateSidebarTabs(workspaceTab: tab, inspectorTab: "outline").workspaceTab
 }
 
-/// The left sidebar: a segmented navigator switches Files / Search / Git /
-/// Tags (workspace-scope). Outline and Review moved to the right inspector.
+/// Left sidebar: segmented navigator over Files / Search / Git / Tags
+/// (workspace-scope); Outline and Review live in the right inspector.
 struct WorkspaceSidebar: View {
-    /// Segments in the navigator strip (Files / Search / Git / Tags) and the
-    /// narrowest pane that still shows them all — same floor rule as the
-    /// inspector, see `InspectorSidebar.minimumPaneWidth`.
+    /// Narrowest pane that still shows all tabs — same floor rule as
+    /// `InspectorSidebar.minimumPaneWidth`.
     nonisolated static let navigatorTabCount = 4
 
     nonisolated static var minimumPaneWidth: CGFloat {
@@ -449,22 +435,18 @@ struct WorkspaceSidebar: View {
 
     @ObservedObject var workspace: WorkspaceModel
     let activeURL: URL?
-    /// `activeURL` is the folder card, not a document — see `sidebarFolderMark`.
-    /// Required, not defaulted: a caller that forgets it would silently accent
-    /// the parent of an open folder.
+    /// Required, not defaulted: a caller that forgets it would silently
+    /// accent the parent of an open folder (`sidebarFolderMark`).
     let activeIsFolder: Bool
-    /// Left-click a file: the host decides (replace in place, or the
-    /// "already open in another window" modal).
+    /// File click: host decides (replace in place, or "already open" modal).
     let onOpen: (URL) -> Void
-    /// Left-click a workspace root or subfolder: open the folder info card
-    /// in the main window (and the click also toggles expand — see handlers).
+    /// Folder click: open the folder info card (click also toggles expand).
     let onOpenFolder: (URL) -> Void
     @ObservedObject private var searchModel = WorkspaceSearchModel.shared
     @AppStorage("sidebarTab") private var tab = "files"
     @AppStorage("inspectorTab") private var inspectorTab = "outline"
     @AppStorage("sidebarShowHidden") private var showHidden = false
-    /// Bottom filter field — filters Files tree / Git paths / Tags.
-    /// Hidden on the Search tab (it has its own query field).
+    /// Filters Files tree / Git paths / Tags; hidden on Search (own field).
     @State private var filterText = ""
     @State private var selectedFiles = Set<URL>()
     @State private var selectionAnchor: URL?
@@ -492,22 +474,20 @@ struct WorkspaceSidebar: View {
                 case "tags":
                     TagsSidebar(workspace: workspace, filter: filterText, onOpen: onOpen)
                 default:
-                    // "files" and retired keys (e.g. pre-inspector "outline") → Files.
+                    // "files" and retired keys → Files.
                     filesTab
                 }
             }
-            // Fill remaining height so bottomBar stays pinned even when the
-            // active tab has little content (empty Review).
+            // Fill remaining height so bottomBar stays pinned on sparse tabs.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Xcode-style bottom strip: + · Filter · eye — not used on Search.
             if tab != "search" {
                 bottomBar
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Match the window chrome (toolbar / titlebar), not the greyer
-        // under-page fill that made the sidebar look like a separate sheet.
+        // Match the window chrome, not the greyer under-page fill that made
+        // the sidebar look like a separate sheet.
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { applySidebarTabMigration() }
         .onChange(of: tab) { _ in
@@ -516,7 +496,7 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// Outline (plan 01) and Review (plan 08) left the workspace navigator.
+    /// Outline and Review left the workspace navigator for the inspector.
     private func applySidebarTabMigration() {
         let migrated = migrateSidebarTabs(workspaceTab: tab, inspectorTab: inspectorTab)
         if migrated.inspectorTab != inspectorTab { inspectorTab = migrated.inspectorTab }
@@ -560,8 +540,7 @@ struct WorkspaceSidebar: View {
 
     private var bottomBar: some View {
         HStack(spacing: 4) {
-            // "+" is Files-only (folder creation/adoption). Filter stays global —
-            // it also filters Git / Tags.
+            // "+" is Files-only; Filter also covers Git / Tags.
             if tab == "files" {
                 AccessoryBarMenu(systemImage: "plus",
                                  help: String(localized: "Add Folder…")) {
@@ -572,7 +551,6 @@ struct WorkspaceSidebar: View {
 
             FilterSearchField(prompt: String(localized: "Filter"), text: $filterText)
 
-            // Review mode: hidden files + empty (no-md) folders (Files tab only).
             if tab == "files" {
                 let hidden = workspace.totalHiddenCount
                 AccessoryBarButton(
@@ -599,14 +577,10 @@ struct WorkspaceSidebar: View {
     }
 
     private var filesTab: some View {
-        // A1: opening a file re-creates the whole editor subtree (MainWindowView
-        // tags FileEditor with `.id(url)` for document acquire/release), which
-        // tears down and rebuilds this sidebar — a plain ScrollView loses its
-        // offset and snaps to the top. We can't cheaply capture the exact prior
-        // offset across the teardown, but the just-opened file is the natural
-        // anchor: scroll it back into view so a mid-list pick no longer jumps to
-        // the top. Worst case (row not realized / not in the tree) is a no-op,
-        // i.e. today's behaviour — it never scrolls to the wrong place.
+        // Opening a file can rebuild this sidebar (editor subtree is
+        // `.id(url)`-swapped) and a plain ScrollView snaps to top. The
+        // just-opened file is the anchor: scroll it back into view; a
+        // missing/unrealized row is a no-op, never a wrong scroll.
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
@@ -624,10 +598,9 @@ struct WorkspaceSidebar: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                     }
-                    // One projection per render, and the Move Up/Down flags
-                    // come from positions inside it: asking the model per row
-                    // would rebuild the whole arrangement twice per row, and
-                    // SwiftUI builds every row's context menu eagerly.
+                    // One projection per render; Move Up/Down flags come from
+                    // positions in it — asking the model per row rebuilds the
+                    // arrangement twice per row (context menus build eagerly).
                     let items = workspace.sidebarTopLevelItems
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         let moves = SidebarMoves(position: index, count: items.count)
@@ -671,13 +644,10 @@ struct WorkspaceSidebar: View {
         }
     }
 
-    /// Reveal the active file's row (A1 safety net). Since the sidebar now lives
-    /// in `MainChrome` and is no longer torn down on file open, its scroll offset
-    /// is preserved on its own; this only nudges a newly-active file that is
-    /// off-screen (opened via wiki-link, search, editmdctl…) into view. `nil`
-    /// anchor = minimal scroll, so a row already visible does not move. Deferred
-    /// one run-loop turn so lazy rows exist as scroll targets; anchored by the
-    /// standardized URL that the tree rows tag with a matching `.id`.
+    /// Nudge a newly-active off-screen file into view (wiki-link, search,
+    /// editmdctl). nil anchor = minimal scroll, so a visible row does not
+    /// move. Deferred one run-loop turn so lazy rows exist as targets;
+    /// anchored by the standardized URL the tree rows tag with `.id`.
     private func scrollActiveFileIntoView(_ proxy: ScrollViewProxy) {
         guard let active = activeURL?.standardizedFileURL else { return }
         DispatchQueue.main.async {
@@ -737,11 +707,9 @@ struct WorkspaceSidebar: View {
 
     // MARK: - Collections
 
-    /// Header row of a named collection: chevron + name. Collapsing it hides
-    /// every member root at once; the roots keep their own expanded state.
-    /// `ownsActive` fills the glyph while the open document lives in one of the
-    /// members — the same "you are here" rule the roots below follow, so the
-    /// mark travels with the active file instead of staying where it was lit.
+    /// Collapsing hides every member root at once; roots keep their own
+    /// expanded state. `ownsActive` fills the glyph while the open document
+    /// lives in a member — the mark travels with the active file.
     private func collectionHeader(
         _ collection: WorkspaceCollection, ownsActive: Bool, moves: SidebarMoves
     ) -> some View {
@@ -836,17 +804,13 @@ struct WorkspaceSidebar: View {
 
     // MARK: - Workspace group
 
-    /// A root inside a collection hangs off the collection's label column, so
-    /// the whole subtree is offset by `baseIndent` and each level below keeps
-    /// its own step — the hierarchy still reads as one ladder. Membership is
-    /// the parameter and the indent follows from it: the rows below carry the
-    /// placement in their identity (`SidebarSubtreeRowID`).
+    /// A root inside a collection offsets its whole subtree by `baseIndent`;
+    /// rows carry that placement in their identity (`SidebarSubtreeRowID`).
     @ViewBuilder private func workspaceGroup(
         _ ws: WorkspaceModel.Workspace, inCollection: Bool = false, moves: SidebarMoves
     ) -> some View {
         let baseIndent: CGFloat = inCollection ? SidebarTree.collectionIndent : 0
         let selected = isActive(ws.url)
-        // Mark the owning root through its icon when the open file lives inside it.
         let ownsActive = rootOwnsActive(ws)
         let expanded = !ws.collapsed
         HStack(spacing: SidebarTree.rowSpacing) {
@@ -863,9 +827,8 @@ struct WorkspaceSidebar: View {
             }
             .buttonStyle(.plain)
 
-            // Name: open card + ensure expanded. Re-click while already the
-            // active selection AND expanded → collapse (second press).
-            // A first click on an already-expanded folder never collapses.
+            // Name: open card + ensure expanded. Re-click while active AND
+            // expanded → collapse; a first click never collapses.
             Button {
                 if selected && expanded {
                     workspace.collapseWorkspace(ws)
@@ -900,17 +863,14 @@ struct WorkspaceSidebar: View {
             clearFileSelection()
         }
         .rootGroupDropTarget(root: ws.url, workspace: workspace)
-        // Dragging a root onto another root (or onto a collection header) is
-        // how collections are made and joined without a trip to the menu.
         .onDrag { sidebarRootItemProvider(root: ws.url) }
 
         if !ws.collapsed {
-            // Folders first (md-bearing; empty only with eye), then files.
-            // contentEpoch: re-scan when New File/Folder mutates disk.
+            // contentEpoch read forces re-scan when disk mutates.
             let _ = workspace.contentEpoch
-            // `.id` carries the root's placement (see `SidebarSubtreeRowID`):
-            // without it a root that joins or leaves a collection keeps its
-            // already rendered subtree on the old column.
+            // `.id` carries the root's placement (`SidebarSubtreeRowID`):
+            // without it a root that joins/leaves a collection keeps its
+            // realized subtree on the old column.
             ForEach(filteredFolders(workspace.markdownSubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
@@ -921,8 +881,6 @@ struct WorkspaceSidebar: View {
                               onOpen: onOpen, onOpenFolder: onOpenFolder)
                     .id(SidebarSubtreeRowID(sub, inCollection: inCollection))
             }
-            // User-created empty folders stay visible; only found-on-disk empties
-            // hide behind the eye.
             ForEach(filteredFolders(workspace.keptEmptySubfolders(in: ws.url)), id: \.self) { sub in
                 SubfolderNode(workspace: workspace, folder: sub, depth: 1, baseIndent: baseIndent,
                               filter: filterQuery, activeURL: activeURL,
@@ -972,7 +930,6 @@ struct WorkspaceSidebar: View {
     private func fileRow(_ url: URL, in ws: WorkspaceModel.Workspace,
                          hidden: Bool, baseIndent: CGFloat = 0) -> some View {
         // depth 1 = same column as root subfolders (chevron slot reserved).
-        // Visible → eye.slash hides. Hidden (only listed in review mode) → eye unhides.
         FileRow(name: url.lastPathComponent,
                 icon: sidebarFileIcon(for: url),
                 subtitle: nil,
@@ -1011,7 +968,7 @@ struct WorkspaceSidebar: View {
         .onDrag {
             sidebarFileItemProvider(files: moveFiles(anchoredAt: url))
         }
-        // Scroll anchor for A1 restore — matches scrollTo(active.standardized).
+        // Scroll anchor — matches scrollTo(active.standardized).
         .id(url.standardizedFileURL)
     }
 
@@ -1092,10 +1049,8 @@ struct WorkspaceSidebar: View {
         selectionAnchor = nil
     }
 
-    /// The multi-select highlight (`selectedFiles`) survives navigation, so a
-    /// file stayed lit after the user opened a folder or a file from outside the
-    /// sidebar. When the active target moves off the selection, drop it — unless
-    /// the newly active file is still in `selectedFiles`, which stays highlighted.
+    /// Drop the multi-select highlight when the active target moves off the
+    /// selection (it survives navigation otherwise and stays wrongly lit).
     private func clearStaleFileSelection() {
         if shouldClearSidebarSelection(activeURL: activeURL, selectedFiles: selectedFiles) {
             clearFileSelection()
@@ -1106,22 +1061,19 @@ struct WorkspaceSidebar: View {
         url.standardizedFileURL == activeURL?.standardizedFileURL
     }
 
-    /// The open document is this root or lives anywhere below it. A root marks
-    /// the whole branch it owns, so unlike a subfolder it is accented as soon
-    /// as it is filled — it is the entry to where the document sits.
+    /// Open document is this root or below it. A root marks its whole branch,
+    /// so unlike a subfolder it is accented as soon as it is filled.
     private func rootOwnsActive(_ ws: WorkspaceModel.Workspace) -> Bool {
         sidebarFolderMark(folder: ws.url, activeURL: activeURL,
                           activeIsFolder: activeIsFolder).filled
     }
 
-    /// A collection is "here" when any of its roots is: the header marks the
-    /// branch the open document is in, including while the collection is
-    /// collapsed and the owning root is not on screen.
+    /// "Here" when any member root is — including while collapsed and the
+    /// owning root is off screen.
     private func collectionOwnsActive(_ members: [WorkspaceModel.Workspace]) -> Bool {
         members.contains { rootOwnsActive($0) }
     }
 
-    /// Shared context-menu item: absolute path → pasteboard.
     @ViewBuilder
     private func copyPathMenuItem(_ url: URL) -> some View {
         Button("Copy Path") { copyPathToPasteboard(url) }

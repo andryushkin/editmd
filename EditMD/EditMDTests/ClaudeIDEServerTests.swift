@@ -2,7 +2,7 @@ import Network
 import XCTest
 @testable import EditMD
 
-/// Step 1.1 gate, transport half: a real WebSocket client against the real
+/// Transport: a real WebSocket client against the real
 /// listener. The auth header is the only thing keeping any local process out of
 /// the user's documents, so "wrong token cannot upgrade" is asserted for real,
 /// not mocked.

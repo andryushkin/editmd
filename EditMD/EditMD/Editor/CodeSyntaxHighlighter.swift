@@ -50,26 +50,21 @@ struct CodeTokenRun {
     let darkHex: String
 }
 
-/// A single Highlight.js-backed syntax highlighter used by Source, Visual and
-/// Preview/PDF. It intentionally does not auto-detect unlabelled blocks.
-/// Keeping the text unchanged is essential: callers only copy presentation
-/// attributes into their existing NSTextStorage.
+/// Single Highlight.js highlighter for Source, Visual and Preview/PDF. No
+/// auto-detect of unlabelled blocks. Never mutates the text — callers only copy
+/// presentation attributes into their existing NSTextStorage.
 final class CodeSyntaxHighlighter: @unchecked Sendable {
     static let shared = CodeSyntaxHighlighter()
-    /// Highlight.js has regex-heavy worst cases that can keep JavaScriptCore and
-    /// its parallel GC workers busy for seconds. Large blocks stay readable as
-    /// plain code instead of turning a presentation-only feature into sustained
-    /// multi-core work.
+    /// Highlight.js regex worst cases can keep JavaScriptCore + its GC workers
+    /// busy for seconds; larger blocks stay plain instead.
     static let maximumCodeLength = 8_192
-    /// Highlight.js is expensive — measured on this project's own test host, one
-    /// pass over both palettes costs ~4 ms at 256 chars, ~18 ms at 1 KB and
-    /// ~58 ms at 4 KB. So only a tiny snippet runs inline (it paints on the very
-    /// first pass, no flash); everything else warms off the main thread and
-    /// repaints via `.codeHighlightingDidWarm`, and typing never waits on JS.
+    /// Measured (test host, both palettes): ~4 ms @ 256 chars, ~18 ms @ 1 KB,
+    /// ~58 ms @ 4 KB. Only tiny snippets run inline (paint on first pass, no
+    /// flash); the rest warms off-main and repaints via
+    /// `.codeHighlightingDidWarm` — typing never waits on JS.
     static let inlineLimit = 256
-    /// The serial worker stays bounded when typing produces obsolete keys, while
-    /// a normal document can warm several blocks before asking the editors for
-    /// one consolidated repaint.
+    /// Bounds the serial worker when typing produces obsolete keys; a normal
+    /// document still warms several blocks per consolidated repaint.
     private static let maxWarmsInFlight = 8
     /// Cap on remembered previous runs (one per code block of the open files).
     private static let maxStaleKeys = 256
@@ -87,26 +82,23 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
     private let warmQueue = DispatchQueue(label: "com.editmd.code-highlight", qos: .userInitiated)
     /// Keys currently being highlighted off main; guarded by `lock`.
     private var warmsInFlight: Set<String> = []
-    /// Last known runs per code block (stale-while-revalidate): while a block
-    /// warms, its previous colors keep showing instead of dropping to plain —
-    /// otherwise every keystroke inside a code block would flash it grey.
+    /// Stale-while-revalidate: while a block warms, its previous colors keep
+    /// showing — otherwise every keystroke in a code block would flash it grey.
     /// Guarded by `lock`.
     private var staleRuns: [String: [CodeTokenRun]] = [:]
 
     private init() {
         light?.setTheme("atom-one-light")
         dark?.setTheme("atom-one-dark")
-        // Cost is the approximate UTF-16 payload, not an unbounded count of
-        // potentially large code samples.
+        // Cost = approximate UTF-16 payload, not an unbounded entry count.
         cache.totalCostLimit = 2_000_000
     }
 
     // MARK: - Token runs
 
-    /// Token runs for `code`, or `nil` when the answer isn't ready yet (a big
-    /// block warming off main). An empty array is a definitive "nothing to
-    /// paint" (plain text, unknown language, highlighter failure) and is cached,
-    /// so a caller never spins on a block that can't be highlighted.
+    /// Runs for `code`, or nil while a big block warms off-main. Empty array is
+    /// a definitive, cached "nothing to paint" (plain/unknown/failed) — callers
+    /// never spin on an unhighlightable block.
     func tokenRuns(for code: String, language infoString: String?,
                    blocking: Bool = false) -> [CodeTokenRun]? {
         guard !code.isEmpty,
@@ -131,8 +123,8 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
         lock.unlock()
 
         var runs: [CodeTokenRun] = []
-        // Highlight.js must not have touched the text: callers paint attributes
-        // over their own storage, so any length drift would smear the colors.
+        // Highlight.js must not have touched the text: length drift would smear
+        // colors over the callers' own storage.
         if let lightRun, let darkRun, lightRun.string == code, darkRun.string == code {
             runs = mergeRuns(light: lightRun, dark: darkRun)
         }
@@ -205,9 +197,8 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
         }
     }
 
-    /// A color that follows the *drawing* appearance instead of a snapshot of
-    /// it, so `general.appearance` (☀/🌙) and system Dark Mode both land without
-    /// re-running the highlighter. The provider captures plain components —
+    /// Follows the *drawing* appearance (app ☀/🌙 override and system Dark Mode
+    /// land without a rehighlight). Provider captures plain components —
     /// NSColor is not Sendable.
     private static func dynamicColor(light: NSColor, dark: NSColor) -> NSColor {
         let l = light.srgbComponents
@@ -221,10 +212,9 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
 
     // MARK: - Editor surfaces
 
-    /// What to paint right now for a block: its fresh runs, or — while a big
-    /// block warms off main — the last runs seen under `stableKey` (a block
-    /// identity, e.g. the file path plus the block's index). Runs that no longer
-    /// fit the edited text are dropped by the callers' bounds check.
+    /// Fresh runs, or — while warming — the last runs seen under `stableKey`
+    /// (block identity, e.g. path + block index). Runs that no longer fit the
+    /// edited text are dropped by the callers' bounds check.
     func runsToPaint(for code: String, language: String?, stableKey: String?,
                      blocking: Bool = false) -> [CodeTokenRun] {
         if let fresh = tokenRuns(for: code, language: language, blocking: blocking) {
@@ -259,15 +249,12 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
         }
     }
 
-    /// HTML for Preview and PDF. Each token carries BOTH palettes as custom
-    /// properties (`--tl` / `--td`); the page's CSS picks one by
-    /// `prefers-color-scheme`, so a theme switch needs no re-render and the page
-    /// is never light-on-dark. Rendering is always synchronous — the HTML string
-    /// has no second chance to repaint.
-    ///
-    /// With `lineRanges` (the SOURCE range of each code line) every line is also
-    /// wrapped in its own `data-md-lo/hi` span, giving split-scroll sync an
-    /// anchor per line. Token runs are cut at the line boundaries they cross.
+    /// HTML for Preview/PDF. Each token carries BOTH palettes (`--tl`/`--td`);
+    /// CSS picks by `prefers-color-scheme`, so a theme switch needs no re-render.
+    /// Always synchronous — the HTML string has no second chance to repaint.
+    /// With `lineRanges` (SOURCE range per code line) each line gets its own
+    /// `data-md-lo/hi` span for split-scroll sync; runs are cut at line
+    /// boundaries.
     func html(_ code: String, language infoString: String?,
               lineRanges: [NSRange]? = nil) -> String {
         let runs = tokenRuns(for: code, language: infoString, blocking: true) ?? []
@@ -323,8 +310,8 @@ final class CodeSyntaxHighlighter: @unchecked Sendable {
         return output
     }
 
-    /// Source spans include Markdown fences. Return only the code body so the
-    /// opening info string and closing fence keep Markdown's muted treatment.
+    /// Code body only — Source spans include the fences, which keep Markdown's
+    /// muted treatment.
     func fencedBodyRange(in text: NSString, blockRange: NSRange) -> NSRange? {
         guard blockRange.length > 0, NSMaxRange(blockRange) <= text.length else { return nil }
         let openingLine = text.lineRange(for: NSRange(location: blockRange.location, length: 0))

@@ -21,7 +21,7 @@ func canApplyHistoryRestore(previewBaseline: String, currentContent: String) -> 
 struct FileHistoryPanel: View {
     let fileURL: URL?
     @ObservedObject var document: MarkdownDocument
-    /// When set, "Restore…" is offered on revision diffs (stage 5).
+    /// When set, "Restore…" is offered on revision diffs.
     var onRestore: ((_ oldContent: String, _ baseline: String) -> Void)? = nil
 
     @ObservedObject private var gitCache = FileHistoryGitCache.shared

@@ -1,9 +1,8 @@
 import AppKit
 
-/// The run's area, one rect per line fragment it spans. Horizontally each rect
-/// is the glyph box — widening that would light up the gutter and the space past
-/// EOL (the phantom underline) — and vertically it is the whole line fragment,
-/// because the leading above and below the glyphs still belongs to that line.
+/// The run's area, one rect per line fragment: horizontally the glyph box
+/// (wider would light the gutter and past-EOL — phantom underline), vertically
+/// the whole used fragment (the leading still belongs to that line).
 func visualRunRects(_ range: NSRange, layoutManager: NSLayoutManager,
                     textContainer: NSTextContainer) -> [NSRect] {
     guard range.length > 0 else { return [] }
@@ -11,11 +10,10 @@ func visualRunRects(_ range: NSRange, layoutManager: NSLayoutManager,
                                               actualCharacterRange: nil)
     guard glyphRange.length > 0 else { return [] }
     var rects: [NSRect] = []
-    // `usedRect` is the part of the fragment that holds glyphs. Measured in
-    // TextKit 1, `lineSpacing`, `minimumLineHeight` and `lineHeightMultiple`
-    // land inside it — the leading around the glyphs is covered. Paragraph
-    // spacing does not, and should not: the gap BETWEEN two blocks belongs to
-    // neither, and a link must not answer for a point outside its own block.
+    // usedRect covers glyphs plus leading: lineSpacing, minimumLineHeight and
+    // lineHeightMultiple land inside it (measured, TextKit 1). Paragraph
+    // spacing does not, and should not — the gap between blocks belongs to
+    // neither (docs/architecture.md § Mouse cursor).
     layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, lineGlyphs, _ in
         let part = NSIntersectionRange(glyphRange, lineGlyphs)
         guard part.length > 0 else { return }
@@ -36,13 +34,11 @@ func visualPointHitsCharacterRange(_ point: NSPoint, range: NSRange,
 
 // MARK: - Text view with drawn markers
 
-/// A large table drawn as a virtualized grid rather than laid out as NSTextTable
-/// cells (which peg the CPU past a few thousand cells). `range` is the island
-/// paragraph whose (hidden) spacer reserves the vertical space; `columnEdges`
-/// are absolute x positions left→right including the right edge; `rowHeights`
-/// are per-row heights (header at 0) so wrapped cells grow their row while
-/// short rows stay compact. Row rects are arithmetic from `rowHeights` — no
-/// full line-fragment enumeration — which keeps a 9000-row table cheap to draw.
+/// Large table drawn as a virtualized grid (NSTextTable pegs the CPU past a
+/// few thousand cells). `range` = island paragraph whose hidden spacer reserves
+/// the vertical space; `columnEdges` = absolute x, left→right incl. right edge;
+/// `rowHeights` per row (header at 0). Row rects are arithmetic from
+/// `rowHeights` — no line-fragment enumeration — keeping 9000 rows cheap.
 struct TableIslandEntry {
     let range: NSRange
     let grid: TableGrid
@@ -91,11 +87,10 @@ func tableIslandRowIndex(heights: [CGFloat], localY: CGFloat) -> Int {
     return heights.count - 1
 }
 
-/// Cell overlay editor. While editing, first responder is AppKit's field editor
-/// (an NSTextView), so `keyDown` on the field itself never sees Enter/Tab/Esc —
-/// those arrive as field-editor commands. Intercept them in
-/// `control(_:textView:doCommandBy:)`: plain Enter commits and exits (same as
-/// clicking outside), not "select all" / insert newline.
+/// Cell overlay editor. While editing, first responder is AppKit's field
+/// editor, so `keyDown` never sees Enter/Tab/Esc — they arrive as field-editor
+/// commands intercepted in `control(_:textView:doCommandBy:)`; plain Enter
+/// commits and exits (like a click outside), not "select all"/newline.
 private final class TableCellEditorField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
@@ -123,7 +118,6 @@ private final class TableCellEditorField: NSTextField, NSTextFieldDelegate {
         switch commandSelector {
         case #selector(insertNewline(_:)),
              #selector(insertNewlineIgnoringFieldEditor(_:)):
-            // Enter / Return → finish editing (commit), like a click outside.
             onCommit?(stringValue)
             return true
         case #selector(cancelOperation(_:)):
@@ -153,11 +147,10 @@ private final class TableCellEditorField: NSTextField, NSTextFieldDelegate {
 private final class TableCellEditorCell: NSTextFieldCell {
     var insets: NSSize = .zero
 
-    /// Bare `NSTextFieldCell` defaults to non-editable/non-selectable. After a
-    /// field swaps this cell in, `acceptsFirstResponder` stays false unless
-    /// these flags are true — overlay paints but never takes the caret.
-    /// Always construct via `init(textCell:)` (not the parameterless
-    /// convenience `init()`, which does not hit this override).
+    /// Bare `NSTextFieldCell` defaults to non-editable/non-selectable — the
+    /// overlay would paint but never take the caret. Always construct via
+    /// `init(textCell:)`; the parameterless convenience `init()` skips this
+    /// override.
     override init(textCell string: String) {
         super.init(textCell: string)
         isEditable = true
@@ -361,11 +354,9 @@ final class VisualNSTextView: NSTextView {
             if event.clickCount == 1, cycleBuiltInPluginIslandCell(hit) {
                 return
             }
-            // Island tables are a drawn grid over hidden pipe text. Letting
-            // NSTextView handle the click would plant a blinking caret in that
-            // text under the grid — useless (can't type into `.raw`) and
-            // distracting. Keep cell focus for F2/Enter, but do not move the
-            // insertion point into the island.
+            // Island tables are a drawn grid over hidden pipe text; a caret
+            // there is useless (can't type into `.raw`) and distracting. Keep
+            // cell focus for F2/Enter, never the insertion point.
             if activeEditor == nil {
                 clearInsertionPointIfInsideTableIsland(hit.entry.range)
                 window?.makeFirstResponder(self)
@@ -488,7 +479,7 @@ final class VisualNSTextView: NSTextView {
     }
 
     /// Raw `[text](destination)` under the cursor — scheme URLs and local
-    /// paths alike; the coordinator decides how to open (v: PDF sprint).
+    /// paths alike; the coordinator decides how to open.
     private func linkDestination(at point: NSPoint) -> String? {
         guard let storage = textStorage,
               let charIndex = hitCharacterIndex(at: point, attribute: .mdLink)
@@ -496,7 +487,7 @@ final class VisualNSTextView: NSTextView {
         return storage.attribute(.mdLink, at: charIndex, effectiveRange: nil) as? String
     }
 
-    // MARK: - Link affordance (plan 11.3)
+    // MARK: - Link affordance
 
     /// Links carry no permanent underline; the underline appears as a
     /// TEMPORARY layout-manager attribute (drawing-only, layout untouched)
@@ -573,13 +564,11 @@ final class VisualNSTextView: NSTextView {
                                                     layoutManager: layoutManager,
                                                     textContainer: textContainer)
                 else { return }
-                // The walk clips its runs to the visible range, so a link
-                // across the viewport edge would hover as its visible half.
-                // The ORDINARY effective range re-opens the run the storage
-                // actually holds — bounded, unlike a paragraph walk over a
-                // megabyte-long block, and without widening past that run.
-                // (Adjacent links with equal destinations are one run in the
-                // storage either way — that is issue #9, not this hit test.)
+                // Runs are clipped to the visible range — a link across the
+                // viewport edge would hover as its visible half. Re-open the
+                // ORDINARY effective range: bounded, unlike a paragraph walk
+                // over a megabyte block. (Adjacent equal-destination links are
+                // one storage run either way — issue #9, not this hit test.)
                 var effective = NSRange(location: 0, length: 0)
                 _ = storage.attribute(key, at: range.location, effectiveRange: &effective)
                 hit = effective.length > 0 ? effective : range

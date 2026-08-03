@@ -354,15 +354,12 @@ private func makeLocation(key: String, shape: FieldShape,
     let fieldLines = Array(lines[start..<end])
     let first = fieldLines[0]
     let last = fieldLines[fieldLines.count - 1]
-    // Include intervening newlines: from first.utf16Start through last raw +
-    // its newline when more body follows (so removal doesn't leave a double blank
-    // or glue lines). When this is the last content of the body, do NOT consume
-    // a trailing newline that isn't there; last.newline may still be "" .
+    // Range includes the newline after the last field line when more body
+    // follows (removal must not leave a double blank or glue lines); when the
+    // field is last, never consume a newline that isn't there.
     let endUTF16: Int
     let consumesTrailing: Bool
     if end < lines.count {
-        // Next line exists — range ends at the start of the next line (includes
-        // the newline after the last field line).
         endUTF16 = lines[end].utf16Start
         consumesTrailing = true
     } else {
@@ -468,7 +465,7 @@ private func rebuiltBlockListLines(key: String, items: [String],
         return keyLeading + "  "
     }()
     if items.isEmpty {
-        // Empty block list: just `key:` (no items). Editable as empty list.
+        // Empty block list: just `key:`.
         return result
     }
     for item in items {
@@ -482,7 +479,6 @@ private func replaceFieldLines(in document: String, location: FieldLocation,
     let ns = document as NSString
     guard NSMaxRange(location.utf16Range) <= ns.length else { return nil }
 
-    // Choose newline style from the field (or document).
     let nl = location.lines.first(where: { !$0.newline.isEmpty })?.newline
         ?? detectDocumentNewline(document)
 
@@ -496,9 +492,8 @@ private func replaceFieldLines(in document: String, location: FieldLocation,
     }
     var result = ns.replacingCharacters(in: location.utf16Range, with: replacement)
 
-    // Deleting the last field leaves the separator newline that sits between
-    // the (trimmed) body and the closing fence → `---\n\n---`. Collapse a
-    // now-whitespace-only body back to a truly empty block.
+    // Deleting the last field leaves the separator newline before the closing
+    // fence (`---\n\n---`); collapse a whitespace-only body to truly empty.
     if newLines.isEmpty {
         result = collapseWhitespaceOnlyFrontmatterBody(result)
     }
@@ -510,9 +505,8 @@ private func replaceFieldLines(in document: String, location: FieldLocation,
 private func collapseWhitespaceOnlyFrontmatterBody(_ document: String) -> String {
     guard let fm = frontmatterRange(in: document) else { return document }
     let ns = document as NSString
-    // Characters from after the opening fence through the start of the closing
-    // fence line may include body + separator newlines trimmed out of
-    // `fm.body`. If that span is only whitespace, drop it entirely.
+    // The span from after the opening fence to the closing fence line may hold
+    // whitespace trimmed out of `fm.body`; drop it when whitespace-only.
     let openEnd = fm.body.location
     var lineStart = 0, lineEnd = 0, contentsEnd = 0
     var loc = openEnd
@@ -550,9 +544,8 @@ private func insertFrontmatterLines(in document: String, lines: [String]) -> Str
             // Write payload + newline so the closing `---` stays on its own line.
             return ns.replacingCharacters(in: fm.body, with: payload + nl)
         }
-        // Append after existing body. Body range has trailing newlines before
-        // the closing fence trimmed out (see frontmatterRange), so always
-        // insert a separator newline before the new field lines.
+        // Body range has trailing newlines trimmed out (see frontmatterRange),
+        // so always insert a separator newline before the new field lines.
         let insertAt = NSRange(location: NSMaxRange(fm.body), length: 0)
         return ns.replacingCharacters(in: insertAt, with: nl + payload)
     }

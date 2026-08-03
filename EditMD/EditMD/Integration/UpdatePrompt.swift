@@ -20,10 +20,8 @@ struct UpdateAlertPresenter: UpdatePresenting {
     @discardableResult
     func present(_ result: UpdateCheckResult, checker: UpdateChecker,
                  urgency: PresentationUrgency) async -> Bool {
-        // `runModal` nested inside an open panel or another alert traps the
-        // user, and an alert raised while they are in another app arrives
-        // where they are not looking. Wait for a calm moment instead — a
-        // release is not urgent enough to interrupt anything.
+        // Nested runModal traps the user; an alert while they are in another
+        // app lands unseen. Wait for a calm moment — a release is not urgent.
         let patience = urgency == .unsolicited ? Self.unsolicitedPatience : nil
         guard await waitForCalm(patience: patience) else { return false }
         switch result {
@@ -42,13 +40,10 @@ struct UpdateAlertPresenter: UpdatePresenting {
         return true
     }
 
-    /// Polls rather than waiting on a notification. AppKit posts nothing when
-    /// a modal session *ends* while the app stays active, so an
-    /// activation-only observer would leave the alert pending indefinitely —
-    /// and then fire it at some unrelated later moment. A one-second tick
-    /// costs nothing on a check that happens once a day.
-    /// `patience` of `nil` waits indefinitely — that is the requested answer,
-    /// which must not evaporate because the user stepped away.
+    /// Polls, not observes: AppKit posts nothing when a modal session ends
+    /// while the app stays active, so an activation observer would leave the
+    /// alert pending and fire it at an unrelated moment. `patience == nil`
+    /// waits indefinitely (the requested answer must not evaporate).
     private func waitForCalm(patience: TimeInterval?) async -> Bool {
         let deadline = patience.map { Date().addingTimeInterval($0) }
         while !UpdateDecision.canPresentNow(appIsActive: NSApp.isActive,

@@ -1,14 +1,10 @@
 import Foundation
 import Markdown
 
-// Markdown lint for Source mode (v19).
-//
-// Detection principle: compare the raw text against what actually parsed
-// (collectSpans / AST). A construct that *looks* like intended markdown but
-// produced no corresponding node is what authors want flagged — e.g. `- [+]`
-// parses as a plain list item, not a task checkbox.
-//
-// Pure function over the text — no view/controller dependencies, unit-testable.
+// Markdown lint for Source mode. Detection principle: compare raw text against
+// what actually parsed (collectSpans / AST) — a construct that *looks* like
+// markdown but produced no node is what gets flagged (`- [+]` parses as a plain
+// list item, not a checkbox). Pure function, unit-testable.
 
 enum LintSeverity: Equatable {
     case error      // author clearly wanted markup and it will not render
@@ -37,7 +33,7 @@ enum LintRule: String, Equatable {
     case headingMissingSpace
     case unclosedCodeFence
     case tableCellCountMismatch
-    // Vault-lint (plan 06) — produced only by merge, never by `lint(_:)`.
+    // Vault-lint rules — produced only by merge, never by `lint(_:)`.
     case vaultDeadWikiLink
     case vaultAmbiguousWikiLink
     case vaultSelfWikiLink
@@ -102,8 +98,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     // MARK: Rule: accidentally repeated toggle markers
 
-    // These runs are unambiguous products of applying the same toolbar toggle
-    // twice. Asterisks are excluded because **** may be valid bold/italic.
+    // Unambiguous products of the same toolbar toggle applied twice. Asterisks
+    // excluded: **** may be valid bold/italic.
     let repeatedMarkerRx = try! NSRegularExpression(
         pattern: #"(~~~~)([^~\n]+)(~~~~)|(====)([^=\n]+)(====)"#)
     repeatedMarkerRx.enumerateMatches(
@@ -126,14 +122,12 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     // MARK: Rule: checkboxes (invalid char / empty / uppercase / missing spaces)
 
-    // A document-scoped multi-checkbox plugin replaces GFM's two-state
-    // grammar for this file, so the core [ ]/[x] style rules must not flag its
-    // developer-defined markers.
+    // A multi-checkbox plugin replaces GFM's two-state grammar for this file;
+    // core [ ]/[x] rules must not flag its markers.
     let pluginOwnsCheckboxSyntax = BuiltInPluginRegistry.ownsCoreCheckboxSyntax(in: text)
 
-    // list marker, spaces, then a bracket pair holding at most ONE char.
-    // Longer bracket content (`- [Link](url)`, `- [^1]`) never matches — the
-    // main false-positive guard.
+    // List marker, spaces, bracket pair holding at most ONE char. Longer
+    // content (`- [Link](url)`, `- [^1]`) never matches — main FP guard.
     let checkboxRx = try! NSRegularExpression(
         pattern: #"^[ \t]*(?:>[ \t]?)*(?:[-*+]|\d{1,9}[.)])[ \t]+\[([^\n\[\]]?)\](.?)"#,
         options: [.anchorsMatchLines])
@@ -229,8 +223,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     // MARK: Rule: unpaired emphasis / strikethrough / backtick
 
-    // Paired markers become boldMarker/strikethroughMarker/codeMarker spans;
-    // occurrences left in plain text are the unpaired ones.
+    // Paired markers become marker spans; occurrences left in plain text are
+    // the unpaired ones.
     func scanUnpaired(_ needle: String, rule: LintRule, severity: LintSeverity, message: String) {
         var search = NSRange(location: 0, length: nsText.length)
         while true {
@@ -279,8 +273,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
     unclosedLinkRx.enumerateMatches(in: text, range: NSRange(location: 0, length: nsText.length)) { m, _, _ in
         guard let m else { return }
         let r = m.range
-        // Check coverage of the [text] part only: GFM extended autolinks fire on
-        // the bare URL after "(", and their linkText span would mask the match.
+        // Coverage check on the [text] part only: GFM autolinks fire on the bare
+        // URL after "(" and their linkText span would mask the match.
         let bracketPart = NSRange(location: r.location, length: m.range(at: 1).length + 2)
         guard !isCovered(bracketPart), !intersects(linkTextSpans.map(\.range), bracketPart) else { return }
         diags.append(LintDiagnostic(
@@ -295,8 +289,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
 
     for s in spans {
         guard case .codeBlockBody = s.kind, s.range.location < nsText.length else { continue }
-        // Skip fences inside blockquotes: every line carries a "> " prefix and
-        // the close-detection below would false-positive.
+        // Skip fences inside blockquotes: the "> " prefix on every line would
+        // false-positive the close detection.
         guard !intersects(quoteRanges, s.range) else { continue }
         let first = nsText.character(at: s.range.location)
         guard first == 0x60 || first == 0x7E else { continue }  // ` or ~  (fenced only)
@@ -368,8 +362,8 @@ func lint(_ text: String) -> [LintDiagnostic] {
     return merged
 }
 
-/// Cells in a table row; nil when the line has no pipe at all (not a row —
-/// e.g. a trailing paragraph cmark glued to the table range).
+/// Cells in a table row; nil when no pipe at all (not a row — e.g. a trailing
+/// paragraph cmark glued to the table range).
 func tableCellCount(_ line: String) -> Int? {
     guard line.contains("|") else { return nil }
     // Escaped pipes are cell content, not separators.

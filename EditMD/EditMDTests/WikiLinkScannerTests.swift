@@ -38,11 +38,11 @@ final class WikiLinkScannerTests: XCTestCase {
         XCTAssertNil(p.heading)
     }
 
-    // MARK: the bug fixed from the research draft — alias AFTER heading
+    // MARK: alias AFTER heading (regression)
 
     func testHeadingThenAlias() {
-        // Research's parser stripped `#` first and lost the alias. Correct
-        // parse: pipe first → alias="alias", then `#` → heading="Heading".
+        // Stripping `#` first loses the alias. Correct parse: pipe first →
+        // alias="alias", then `#` → heading="Heading".
         let p = parseWikiInner("Note#Heading|alias")
         XCTAssertEqual(p.target, "Note")
         XCTAssertEqual(p.heading, "Heading")

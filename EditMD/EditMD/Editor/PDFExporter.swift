@@ -1,8 +1,8 @@
 import AppKit
 import WebKit
 
-/// Offscreen Preview → PDF export (D3). Holds a strong reference to the
-/// WKWebView until `createPDF` finishes so the load is not deallocated mid-flight.
+/// Offscreen Preview → PDF export. Holds a strong reference to the WKWebView
+/// until `createPDF` finishes so the load is not deallocated mid-flight.
 @MainActor
 enum PDFExporter {
 

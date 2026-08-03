@@ -1,13 +1,13 @@
 import XCTest
 @testable import EditMD
 
-/// Step 1.4 gate. Two properties are load-bearing and both are tested without
+/// Two properties are load-bearing and both are tested without
 /// any UI:
 ///
 ///  1. **Exactly one resolution per continuation.** Claude blocks on `openDiff`;
 ///     a leaked continuation hangs it forever, a double resume traps.
 ///  2. **Accept writes through `DocumentRegistry`.** Writing the file directly
-///     would make our own write look like an external change (v34).
+///     would make our own write look like an external change.
 @MainActor
 final class DiffApprovalControllerTests: XCTestCase {
 
@@ -79,7 +79,7 @@ final class DiffApprovalControllerTests: XCTestCase {
         XCTAssertNil(controller.current)
     }
 
-    /// The v34 invariant: accepting an edit to an OPEN file goes through the
+    /// Accepting an edit to an OPEN file goes through the
     /// registry, so the buffer updates, the file is flushed, and the write is
     /// not announced back to us as an external change.
     func testAcceptOnOpenFileUpdatesBufferAndRaisesNoConflict() async throws {

@@ -177,8 +177,8 @@ struct DiffSheetContent: Equatable, Sendable {
     var stats: LineDiffResult { lineDiff(before: before, after: after) }
 }
 
-/// Turns the sheet from a viewer into a decision: Claude's `openDiff` blocks on
-/// one of these two buttons (v36).
+/// Turns the sheet from a viewer into a decision: Claude's `openDiff` blocks
+/// on one of these two buttons.
 struct DiffApprovalActions {
     var acceptTitle: String = AIProposalChrome.acceptTitle
     var rejectTitle: String = AIProposalChrome.declineTitle
@@ -192,7 +192,7 @@ struct UnifiedDiffSheet: View {
     /// When set, the footer offers Accept/Reject instead of Close.
     var approval: DiffApprovalActions? = nil
 
-    /// External-change banner (v34).
+    /// External-change banner.
     init(notice: ExternalChangeNotice, onClose: @escaping () -> Void) {
         self.content = DiffSheetContent(
             title: notice.kind == .conflict ? "Conflict diff" : "External change",
@@ -272,7 +272,7 @@ struct UnifiedDiffSheet: View {
                 .foregroundStyle(.secondary)
             Spacer()
             if let approval {
-                // Same Accept/Decline vocabulary as Review suggest cards (stage 5).
+                // Same Accept/Decline vocabulary as Review suggest cards.
                 Button(approval.rejectTitle, action: approval.onReject)
                     .keyboardShortcut(.cancelAction)
                     .controlSize(.small)

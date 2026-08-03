@@ -2,6 +2,7 @@ import AppKit
 
 // Text fields inside an NSAlert accessory view, and their keyboard focus. Both
 // halves exist because AppKit does not hold up its end inside our own alerts.
+// docs/architecture.md § Menus and AppKit panels.
 
 /// A text field for an alert's accessory view.
 ///

@@ -1,14 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Trailing window-toolbar buttons shared by every pane so the set is identical
-/// whether the center shows the editor, a folder card, or the welcome screen
-/// (agterm-style flat icon buttons). Extracted from `ContentView` so it can be
-/// hosted once by `MainChrome` (main window, all branches) and by the lite
-/// window's `ContentView`.
-///
-/// The mode switcher is NOT here — it lives pinned to the trailing edge of
-/// `EditorActionStrip`, on the same line as the format tools.
+/// Trailing window-toolbar buttons shared by every pane so the set is
+/// identical on every center branch. Hosted once by `MainChrome` (main
+/// window) and by the lite window's `ContentView`. The mode switcher is NOT
+/// here — it is pinned to the trailing edge of `EditorActionStrip`.
 struct EditorToolbar: ToolbarContent {
     @ObservedObject var editorSettings: EditorSettings
     let appearanceIsDark: Bool
@@ -29,7 +25,7 @@ struct EditorToolbar: ToolbarContent {
             }
             .help(appearanceIsDark ? "Switch to light appearance" : "Switch to dark appearance")
         }
-        // Plan 09: unified AI face (agent activity + prompt palette).
+        // Unified AI face (agent activity + prompt palette).
         ToolbarItem(placement: .primaryAction) {
             AgentActivityButton()
         }

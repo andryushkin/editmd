@@ -74,13 +74,11 @@ final class ReviewControlTicket<Success: Sendable>: @unchecked Sendable {
 typealias ReviewControlMarkWriteTicket = ReviewControlTicket<ReviewControlMarkWriteResult>
 typealias ReviewControlMarksReadTicket = ReviewControlTicket<ReviewControlMarksReadResult>
 
-/// Drives the Review sidebar (phase 2, v37): loads the active file's
-/// smotr-compatible sidecar, exposes its marks, and persists mutations through
-/// the optimistic rev-guard. Marks belong to the main-window "active editor",
-/// mirroring `ClaudeIDEBridge`.
-///
-/// Disk IO (load / rev-guard save) never runs on the main actor; only the
-/// published state is touched here.
+/// Drives the Review sidebar: loads the active file's smotr-compatible
+/// sidecar, exposes its marks, persists mutations through the optimistic
+/// rev-guard. Marks belong to the main-window "active editor", mirroring
+/// `ClaudeIDEBridge`. Disk IO never runs on the main actor; only published
+/// state is touched here. docs/review.md.
 @MainActor
 final class ReviewModel: ObservableObject {
 
@@ -124,7 +122,7 @@ final class ReviewModel: ObservableObject {
     }
     /// Raw markdown of the active buffer — anchors resolve against it.
     /// Deliberately NOT @Published: it changes per keystroke, and publishing
-    /// it re-rendered the whole sidebar on every key press (v35.3 spirit).
+    /// re-rendered the whole sidebar on every key press.
     private(set) var currentText = ""
     /// Resolved anchors (mark id → UTF-16 range in the raw markdown),
     /// recomputed off-main and debounced behind typing. One shared pass —
@@ -734,10 +732,10 @@ final class ReviewModel: ObservableObject {
 
     // MARK: Suggestions (Claude's track-changes edits)
 
-    /// Applies a `suggest` mark — the async twin of `openDiff` Accept. The file
-    /// is rewritten through `DocumentRegistry.applyAgentEdit` (the ONLY write
-    /// path that keeps the v34 external-change invariant); the anchor is
-    /// re-resolved against the live buffer, an honest `needs-rebase` when gone.
+    /// Applies a `suggest` mark — async twin of `openDiff` Accept. Rewrites
+    /// through `DocumentRegistry.applyAgentEdit` (the ONLY write path that
+    /// keeps the external-change invariant); anchor re-resolved against the
+    /// live buffer, honest `needs-rebase` when gone.
     func acceptSuggestion(_ id: String) {
         guard let url = fileURL, var m = doc[id], m.isSuggestion else { return }
         guard let newContent = ReviewSidecar.applySuggest(m, to: currentText) else {
@@ -783,10 +781,10 @@ final class ReviewModel: ObservableObject {
         submit(.persist(url: url, doc: enqueuedDoc, baseRev: enqueuedBase))
     }
 
-    // MARK: Queue ➤ (step E)
+    // MARK: Queue ➤
 
-    /// Workspace root that should own `.smotr-queue.json` for the active file:
-    /// the longest-prefix workspace folder, else the file's parent directory.
+    /// Root owning `.smotr-queue.json` for the active file: longest-prefix
+    /// workspace folder, else the file's parent directory.
     func queueRoot(workspace: WorkspaceModel) -> URL? {
         if let url = fileURL, let ws = workspace.workspaceOwning(url) {
             return URL(fileURLWithPath: ws.folderPath, isDirectory: true)

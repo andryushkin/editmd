@@ -89,10 +89,10 @@ enum SidebarChrome {
         case .darkAqua, .vibrantDark,
              .accessibilityHighContrastDarkAqua,
              .accessibilityHighContrastVibrantDark:
-            // Was ~0.24 — slightly lifted so the pill reads on window chrome.
+            // Lifted so the pill reads on window chrome.
             return NSColor(srgbRed: 0.32, green: 0.32, blue: 0.33, alpha: 1)
         default:
-            // Was ~0.90 (#E5E5EA) — closer to white / window background.
+            // Close to white / window background.
             return NSColor(srgbRed: 0.945, green: 0.945, blue: 0.955, alpha: 1)
         }
     }

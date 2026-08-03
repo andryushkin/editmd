@@ -1,12 +1,9 @@
 import SwiftUI
 import AppKit
 
-/// Backing state for the file sidebar (Phase 3): the adopted workspace folders,
-/// which files are hidden per folder, pinned loose files, and the session's
-/// loose (Finder-opened, not-in-a-workspace) files. Persisted to UserDefaults
-/// keyed by folder path so the folders on disk stay clean (no dotfiles).
-///
-/// UserDefaults is injectable so tests get an isolated store.
+/// File-sidebar state: adopted roots, per-folder hidden files, pinned + loose
+/// files. Persisted to UserDefaults keyed by folder path so folders on disk
+/// stay clean (no dotfiles). UserDefaults injectable for test isolation.
 @MainActor
 final class WorkspaceModel: ObservableObject {
 
@@ -42,12 +39,10 @@ final class WorkspaceModel: ObservableObject {
     /// workspace root path → set of **relative paths** of hidden markdown files
     /// (e.g. `note.md`, `sub/a.md`). Legacy entries without `/` are root basenames.
     @Published var hiddenFiles: [String: Set<String>] { didSet { persist(hiddenFiles, Keys.hidden) } }
-    /// workspace root path → set of **relative paths** of folders the user created
-    /// in-app that must stay visible even while they hold no documents. Without
-    /// this a freshly made folder is classified "empty" and hidden behind the eye
-    /// the moment it is created. Stale entries (folder deleted/renamed) are
-    /// harmless: `keptEmptySubfolders` intersects them with folders that actually
-    /// exist and are empty, mirroring how `hiddenFiles` tolerates staleness.
+    /// root path → **relative paths** of user-created folders kept visible
+    /// while empty (else a fresh folder hides behind the eye at creation).
+    /// Stale entries harmless — intersected with folders that still exist.
+    /// docs/vault.md § Workspaces and sidebar.
     @Published var keptFolders: [String: Set<String>] { didSet { persist(keptFolders, Keys.kept) } }
     /// Pinned loose files (persist across launches), stored as paths.
     @Published var pinnedLoosePaths: [String] { didSet { persist(pinnedLoosePaths, Keys.pinned) } }
@@ -59,18 +54,16 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var missingFavoritePaths: Set<String> = []
     /// Session-only loose files (opened this run, not in any workspace).
     @Published var looseFiles: [URL] = []
-    /// Paths of subfolders expanded in the tree. Session state, not persisted:
-    /// a launch derives the open branch from `lastActivePath` instead (see
-    /// `normalizeStartupTree`). The tree is lazy — a subfolder's contents are
-    /// only scanned while it is expanded — so adopting a folder with thousands
-    /// of nested files stays cheap.
+    /// Expanded subfolder paths. Session-only: launch derives the open branch
+    /// from `lastActivePath` (`normalizeStartupTree`). Tree is lazy — contents
+    /// scanned only while expanded — so huge adopts stay cheap.
     @Published var expandedFolders: Set<String> = []
 
     /// Last file or folder the main window showed (persisted). Startup reopens
     /// this branch and collapses everything else — see `normalizeStartupTree`.
     @Published private(set) var lastActivePath: String? { didSet { persist(lastActivePath, Keys.lastActive) } }
 
-    /// D11: tag → files (frontmatter only). Filled off-main; read from UI.
+    /// tag → files (frontmatter only). Filled off-main; read from UI.
     @Published private(set) var tagIndex: [String: [URL]] = [:]
     private var tagScanInFlight = false
     private var tagScanPending = false
@@ -118,9 +111,8 @@ final class WorkspaceModel: ObservableObject {
         lastActivePath = Self.load(defaults, Keys.lastActive)
         normalizeStartupTree()
         refreshFavoriteAvailability()
-        // Folder contents may change in Finder/Terminal while EditMD is in the
-        // background — re-validate listings lazily on return (selector-based:
-        // the block API's @Sendable closure clashes with @MainActor).
+        // Re-validate listings lazily on activation (selector-based: the block
+        // API's @Sendable closure clashes with @MainActor).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appDidBecomeActive),
@@ -138,9 +130,8 @@ final class WorkspaceModel: ObservableObject {
     /// Records the main window's target so the next launch reopens this branch.
     func noteActive(_ url: URL) {
         lastActivePath = url.standardizedFileURL.path
-        // The active document may live in a different workspace — the link
-        // graph is scoped to one workspace at a time (`linkIndexRoots`).
-        // Lazy: a no-op unless someone already built (or is building) it.
+        // Link graph is scoped to one workspace (`linkIndexRoots`); lazy —
+        // no-op unless already built or building.
         linkIndex.noteActiveDocumentChanged(workspace: self)
     }
 
@@ -155,23 +146,17 @@ final class WorkspaceModel: ObservableObject {
         return workspaces.first?.url
     }
 
-    /// Roots automatic link indexing covers: ONE workspace — the active one.
-    /// Scanning every adopted workspace made launch/rebuild cost the sum of
-    /// all vaults, while backlinks and vault-lint are per-vault questions
-    /// anyway (Obsidian semantics: the vault is the resolution unit;
-    /// cross-workspace edges never resolved reliably — wiki targets were
-    /// ambiguous across vaults).
+    /// Link indexing covers ONE workspace — the active one. Scanning all
+    /// adopted roots cost the sum of all vaults, and the vault is the
+    /// resolution unit anyway (cross-vault wiki targets were ambiguous).
     var linkIndexRoots: [URL] {
         activeWorkspaceRoot.map { [$0] } ?? []
     }
 
-    /// Launch state of the tree: exactly one branch open — the one holding
-    /// `lastActivePath` — and every other root collapsed.
-    ///
-    /// Restoring every expanded folder verbatim (the old behaviour) meant the
-    /// first frame asked for a recursive scan of every open root at once, and
-    /// each of those roots showed up empty until its walk returned. Reopening
-    /// one branch is both what the user left behind and the cheapest scan.
+    /// Launch tree: exactly one branch open (the `lastActivePath` one), every
+    /// other root collapsed. Restoring all expanded folders verbatim made the
+    /// first frame recursively scan every open root at once, each showing
+    /// empty until its walk returned.
     private func normalizeStartupTree() {
         guard !workspaces.isEmpty else {
             expandedFolders = []
@@ -179,10 +164,9 @@ final class WorkspaceModel: ObservableObject {
         }
         guard let active = lastActivePath,
               let owner = workspaceOwning(URL(fileURLWithPath: active)) else {
-            // No remembered branch: show the first root's own contents, nothing
-            // nested (a fresh adopt looks the same way). A collapsed collection
-            // around that root stays collapsed — there is no branch to reveal,
-            // and a persisted collapse is the user's own choice.
+            // No remembered branch: first root's own contents, nothing nested.
+            // A collapsed collection around it stays collapsed — no branch to
+            // reveal, and the collapse is the user's choice.
             for i in workspaces.indices { workspaces[i].collapsed = (i != 0) }
             expandedFolders = []
             return
@@ -231,26 +215,21 @@ final class WorkspaceModel: ObservableObject {
         wasBackgrounded = true
     }
 
-    /// The process's FIRST activation arrives moments after launch, while the
-    /// warm scan (`applicationDidFinishLaunching`) is still running — nothing
-    /// external can have changed since that scan started reading the disk,
-    /// and deferring against it made every cold launch run two consecutive
-    /// full scans. Only a real background → foreground transition re-keys.
+    /// The FIRST activation arrives moments after launch, during the warm
+    /// scan; honouring it made every cold launch run two consecutive full
+    /// scans. Only a real background → foreground transition re-keys.
     func handleAppActivation(index: LinkIndex = .shared) {
         guard wasBackgrounded else { return }
         wasBackgrounded = false
         refreshLinkGraphAfterActivation(index: index)
     }
 
-    /// External editors can change closed files while EditMD is in the
-    /// background (open files are covered by the DocumentRegistry watcher).
-    /// Re-key the link graph so its (mtime, size) parse cache and resolve
-    /// cache revalidate against disk — a no-change rebuild is a walk plus
-    /// stats, not a re-parse. While a scan is in flight the re-key is
-    /// DEFERRED, not dropped: a key change now would cancel the scan and
-    /// throw away its work (cancelled scans keep no partial cache), but the
-    /// running scan may already have read a file the external editor changed
-    /// afterwards — LinkIndex replays the refresh once the scan finishes.
+    /// External editors change closed files only while backgrounded (open
+    /// files: DocumentRegistry watcher). Re-key so the (mtime, size) caches
+    /// revalidate — a no-change rebuild is a walk + stats, not a re-parse.
+    /// While a scan is in flight the re-key is DEFERRED, not dropped: a key
+    /// change would cancel the scan and lose its work, yet the scan may have
+    /// read a file changed after — LinkIndex replays the refresh at scan end.
     /// A cold index (never built, not building) stays lazy.
     func refreshLinkGraphAfterActivation(index: LinkIndex = .shared) {
         guard index.hasCompletedFullScan || index.isScanning else { return }
@@ -269,17 +248,15 @@ final class WorkspaceModel: ObservableObject {
     nonisolated private static let listedExtensions: Set<String> =
         Set(["md", "markdown", "textbundle", "pdf"]).union(supportedImageFileExtensions)
 
-    /// path → (epoch, direct md children). Views read listings through this
-    /// cache: a single blocked `contentsOfDirectory` (TCC arbitration, dead
-    /// network mount, huge directory) used to freeze the whole app because the
-    /// sidebar listed folders synchronously in its SwiftUI body.
+    /// path → (epoch, direct md children). Views must read listings through
+    /// this cache: one blocked `contentsOfDirectory` (TCC, dead network
+    /// mount) froze the app when the sidebar listed synchronously in body.
     private var folderListings: [String: (epoch: Int, files: [URL])] = [:]
     private var listingScansInFlight = Set<String>()
 
-    /// Direct markdown children of a folder (flat, non-recursive), name-sorted.
-    /// Non-blocking, stale-while-revalidate: a cache miss returns [] and fills
-    /// off the main actor; an out-of-epoch hit is served as-is while a refresh
-    /// runs (no flicker on `contentEpoch` bumps).
+    /// Direct md children, name-sorted. Non-blocking stale-while-revalidate:
+    /// miss returns [] and fills off-main; out-of-epoch hit served as-is
+    /// while refreshing (no flicker on `contentEpoch` bumps).
     func markdownFiles(in folder: URL) -> [URL] {
         let key = folder.standardizedFileURL
         let path = key.path
@@ -290,8 +267,8 @@ final class WorkspaceModel: ObservableObject {
             return hit.files
         }
         scheduleListingScan(path: path, folder: key, epoch: contentEpoch)
-        // Cold launch: serve last run's listing while the scan runs, so a
-        // restored branch draws its files in the first frame.
+        // Cold launch: last run's listing stands in so a restored branch
+        // draws its files in the first frame.
         return snapshot.entry(for: path)?.urls.files ?? []
     }
 
@@ -334,9 +311,8 @@ final class WorkspaceModel: ObservableObject {
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    /// Immediate subfolders of `folder` (non-recursive), name-sorted. Skips
-    /// hidden folders and packages (a `.textbundle` is a document, listed by
-    /// `markdownFiles`, not a folder to descend into).
+    /// Immediate subfolders, name-sorted. Skips hidden and packages (a
+    /// `.textbundle` is a document, not a folder to descend into).
     func subfolders(in folder: URL) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
         let items = (try? FileManager.default.contentsOfDirectory(
@@ -351,33 +327,27 @@ final class WorkspaceModel: ObservableObject {
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    /// Paths with a background tree-stats scan in flight (no duplicate walks).
     private var treeStatsScansInFlight = Set<String>()
 
-    /// Tree stats for `folder` (counts + direct md/empty child folders). Uses
-    /// `FolderStatsCache` keyed by path + `contentEpoch` so the sidebar and
-    /// folder card share one scan.
-    ///
-    /// Non-blocking: this is called from SwiftUI body (sidebar), so a cache
-    /// miss returns empty stats and fills the cache off the main actor — a
-    /// synchronous full-tree walk here froze app startup for minutes on a big
-    /// workspace (sample: `contentsOfDirectory` on the main thread).
+    /// Tree stats via `FolderStatsCache` (path + `contentEpoch` key) — sidebar
+    /// and folder card share one scan. Non-blocking: called from SwiftUI body,
+    /// so a miss returns empty stats and fills off-main — a synchronous walk
+    /// here froze startup for minutes on a big workspace.
     func treeStats(for folder: URL) -> FolderTreeStats {
         let path = folder.standardizedFileURL.path
         let epoch = contentEpoch
         if let entry = FolderStatsCache.lookupAny(path: path) {
-            // Stale-while-revalidate: keep showing the old tree while the
-            // rescan runs so an epoch bump doesn't blank the sidebar.
+            // Stale-while-revalidate: an epoch bump must not blank the sidebar.
             if entry.epoch != epoch {
                 scheduleTreeStatsScan(path: path, folder: folder.standardizedFileURL, epoch: epoch)
             }
             return entry.stats
         }
         scheduleTreeStatsScan(path: path, folder: folder.standardizedFileURL, epoch: epoch)
-        // Cold launch: last run's subfolder split (md-bearing vs empty) stands
-        // in until the recursive walk lands — that walk is what used to leave a
-        // restored root drawn open but empty for seconds. `folderTree` stays
-        // empty: only the folder card reads it, and it rescans on appear.
+        // Cold launch: last run's subfolder split stands in until the
+        // recursive walk lands (else a restored root draws open but empty for
+        // seconds). `folderTree` stays empty: only the folder card reads it,
+        // and it rescans on appear.
         if let entry = snapshot.entry(for: path) {
             let urls = entry.urls
             return FolderTreeStats(markdownCount: entry.markdownCount,
@@ -389,8 +359,7 @@ final class WorkspaceModel: ObservableObject {
                                directMarkdownFolders: [], directEmptyFolders: [])
     }
 
-    /// One background scan per path; publishes when the cache fills so the
-    /// sidebar re-renders with the real subfolder lists.
+    /// One background scan per path; publishes on cache fill.
     private func scheduleTreeStatsScan(path: String, folder: URL, epoch: Int) {
         guard !treeStatsScansInFlight.contains(path) else { return }
         treeStatsScansInFlight.insert(path)
@@ -400,8 +369,7 @@ final class WorkspaceModel: ObservableObject {
             }.value
             guard let self else { return }
             self.treeStatsScansInFlight.remove(path)
-            // Epoch advanced while scanning (New File/Folder) — stale result;
-            // the next body pass re-requests against the new epoch.
+            // Epoch advanced while scanning — stale; next body pass re-requests.
             guard self.contentEpoch == epoch else { return }
             let changed = FolderStatsCache.lookupAny(path: path)?.stats != stats
             FolderStatsCache.store(path: path, epoch: epoch, stats: stats)
@@ -417,8 +385,8 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
-    /// D11: ensure `tagIndex` is current for both filesystem contents and the
-    /// adopted root set (stale-while-revalidate).
+    /// Keep `tagIndex` current for filesystem contents + adopted root set
+    /// (stale-while-revalidate).
     func ensureTagIndex() {
         let epoch = contentEpoch
         let roots = workspaces.map(\.url)
@@ -438,8 +406,7 @@ final class WorkspaceModel: ObservableObject {
             let currentRoots = self.workspaces.map(\.url)
             let currentKey = self.tagScanKey(epoch: self.contentEpoch, roots: currentRoots)
             guard currentKey == key, !self.tagScanPending else {
-                // A change notification may have arrived while this scan was
-                // running. It could not start another scan then, so do it now.
+                // A change arrived mid-scan and could not start a scan then.
                 self.tagScanPending = false
                 self.ensureTagIndex()
                 return
@@ -463,17 +430,14 @@ final class WorkspaceModel: ObservableObject {
         treeStats(for: folder).directEmptyFolders
     }
 
-    /// No-document child folders shown alongside the markdown-bearing ones
-    /// rather than behind the eye: the ones the user created in-app, plus any
-    /// empty folder on the path to such a folder (otherwise a kept folder nested
-    /// inside a found-on-disk empty parent would be unreachable — the parent
-    /// would stay hidden and take the kept child down with it).
+    /// Empty child folders shown alongside md-bearing ones: user-created,
+    /// plus any empty ancestor of one (else a kept folder inside a
+    /// found-on-disk empty parent would be hidden with the parent).
     func keptEmptySubfolders(in folder: URL) -> [URL] {
         emptySubfolders(in: folder).filter(isKeptOrHoldsKept)
     }
 
-    /// No-document child folders that stay behind the eye with the hidden files:
-    /// found on disk (assets, stray dirs) with no kept folder anywhere inside.
+    /// Empty child folders behind the eye: found on disk, no kept folder inside.
     func unkeptEmptySubfolders(in folder: URL) -> [URL] {
         emptySubfolders(in: folder).filter { !isKeptOrHoldsKept($0) }
     }
@@ -528,12 +492,12 @@ final class WorkspaceModel: ObservableObject {
     func addWorkspace(_ folder: URL) {
         let path = folder.standardizedFileURL.path
         guard !workspaces.contains(where: { $0.folderPath == path }) else { return }
-        // Adopting can change the vault under the open document (a nested root
-        // becomes its closer owner) or the fallback first root.
+        // Adopting can change the vault under the open document (nested root
+        // becomes the closer owner) or the fallback first root.
         trackingEffectiveRoot {
             workspaces.append(Workspace(folderPath: path))
         }
-        // A loose file that now lives inside an adopted folder is no longer loose.
+        // A loose file now inside an adopted folder is no longer loose.
         looseFiles.removeAll { $0.deletingLastPathComponent().path == path }
     }
 
@@ -557,9 +521,9 @@ final class WorkspaceModel: ObservableObject {
         return workspaces.first { $0.folderPath == path }
     }
 
-    /// Renames an adopted root on disk, then migrates all path-keyed sidebar
-    /// state. Open documents are rejected because DocumentRegistry entries,
-    /// undo stacks, autosave and file watchers are URL-bound.
+    /// Disk rename + migration of all path-keyed sidebar state. Open
+    /// documents are rejected: registry entries, undo, autosave and watchers
+    /// are URL-bound.
     @discardableResult
     func renameFolderOnDisk(
         _ ws: Workspace,
@@ -634,7 +598,6 @@ final class WorkspaceModel: ObservableObject {
         let wasFavorite: Bool
     }
 
-    /// Moves one sidebar document to another folder on disk.
     @discardableResult
     func moveFileOnDisk(
         _ rawSource: URL,
@@ -645,9 +608,9 @@ final class WorkspaceModel: ObservableObject {
             .first?.destination ?? source
     }
 
-    /// Moves a sidebar selection as one logical transaction. Every source and
-    /// destination is preflighted before the first mutation. A mid-batch disk
-    /// failure rolls completed items back before the error reaches the UI.
+    /// One logical transaction: all sources/destinations preflighted before
+    /// the first mutation; a mid-batch disk failure rolls completed items
+    /// back before the error reaches the UI.
     @discardableResult
     func moveFilesOnDisk(
         _ rawSources: [URL],
@@ -700,8 +663,8 @@ final class WorkspaceModel: ObservableObject {
                 wasFavorite: isFavorite(source))
         }
 
-        // FileManager is synchronous and destination folders may live on slow
-        // external volumes, so keep the move off the main actor.
+        // FileManager is synchronous; destination may be a slow external
+        // volume — keep the move off the main actor.
         do {
             try await Task.detached(priority: .userInitiated) {
                 try Self.moveFilesAndReviewSidecars(
@@ -746,9 +709,8 @@ final class WorkspaceModel: ObservableObject {
         return moves
     }
 
-    /// The one derivation of a rename's destination URL — the UI transaction
-    /// (gates, registry reservation) and the disk core must agree on it
-    /// structurally, not by re-deriving the same string twice.
+    /// Single derivation of a rename's destination URL: UI transaction and
+    /// disk core must agree structurally, not by re-deriving the string.
     nonisolated static func renameDestination(
         for rawSource: URL, newName rawName: String
     ) throws -> URL {
@@ -759,12 +721,9 @@ final class WorkspaceModel: ObservableObject {
             .appendingPathComponent(newName).standardizedFileURL
     }
 
-    /// Renames one sidebar document in place (same folder, new basename).
-    /// Mirrors `moveFilesOnDisk` for a single explicit destination: the review
-    /// sidecar follows, path-keyed sidebar state migrates, and a disk failure
-    /// rolls back before the error reaches the UI. The extension is preserved
-    /// when the new name omits one; case-only renames go through a temporary
-    /// sibling (`moveFileForRename`).
+    /// In-place rename; mirrors `moveFilesOnDisk` (sidecar follows, state
+    /// migrates, disk failure rolls back). Extension preserved when omitted;
+    /// case-only renames go through a temporary sibling (`moveFileForRename`).
     @discardableResult
     func renameFileOnDisk(
         _ rawSource: URL,
@@ -840,9 +799,8 @@ final class WorkspaceModel: ObservableObject {
         return destination
     }
 
-    /// Number of open documents whose path is at or inside `folder`. Callers
-    /// pass `AppState.openDocumentURLsForDiskMutation()`; a folder with open
-    /// documents inside is refused for trashing, matching disk-rename.
+    /// Callers pass `AppState.openDocumentURLsForDiskMutation()`; a folder
+    /// with open documents inside is refused for trashing, matching rename.
     func openDocumentCount(inside folder: URL, among openURLs: [URL]) -> Int {
         let root = folder.standardizedFileURL.path
         return openURLs.reduce(into: 0) { count, url in
@@ -850,10 +808,9 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
-    /// Purges sidebar state for a folder that was deleted/trashed on disk: drops
-    /// any adopted root at or under it and forgets favorites, pins, loose files,
-    /// and expansion inside it. Hidden relative paths are left to the next
-    /// rescan (a gone file is never listed), matching single-file trash.
+    /// Purge sidebar state for a folder already gone from disk. Hidden
+    /// relative paths are left to the next rescan (a gone file is never
+    /// listed), matching single-file trash.
     func forgetTrashedFolder(_ rawFolder: URL) {
         let folder = rawFolder.standardizedFileURL
         let root = folder.path
@@ -878,8 +835,8 @@ final class WorkspaceModel: ObservableObject {
         missingFavoritePaths = missingFavoritePaths.filter {
             !Self.path($0, isInside: root)
         }
-        // The folder is already off disk, so this drops any kept entry inside
-        // it — otherwise a trashed kept folder would hold its ancestors visible.
+        // Folder is off disk, so this drops kept entries inside it — else a
+        // trashed kept folder would hold its ancestors visible.
         pruneStaleKeptFolders()
 
         noteFilesystemChange()
@@ -944,8 +901,7 @@ final class WorkspaceModel: ObservableObject {
             relocatedHidden[relocatedRoot, default: []].formUnion(hidden)
         }
         hiddenFiles = relocatedHidden
-        // Kept-visible folders are keyed by workspace root too; the relative
-        // paths are unchanged, only the root moves.
+        // keptFolders keyed by root too; relative paths unchanged.
         var relocatedKept: [String: Set<String>] = [:]
         for (root, kept) in keptFolders {
             let relocatedRoot = Self.relocatedPath(root, from: oldRoot, to: newRoot)
@@ -993,30 +949,25 @@ final class WorkspaceModel: ObservableObject {
         workspaces[i].collapsed.toggle()
     }
 
-    /// Expand a workspace root (show its children). No-op if already expanded.
     func expandWorkspace(_ ws: Workspace) {
         guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
         if workspaces[i].collapsed { workspaces[i].collapsed = false }
     }
 
-    /// Collapse a workspace root. No-op if already collapsed.
     func collapseWorkspace(_ ws: Workspace) {
         guard let i = workspaces.firstIndex(where: { $0.id == ws.id }) else { return }
         if !workspaces[i].collapsed { workspaces[i].collapsed = true }
     }
 
-    /// Expand a subfolder in the tree (lazy contents become visible).
     func expandFolder(_ folder: URL) {
         expandedFolders.insert(folder.standardizedFileURL.path)
     }
 
-    /// Collapse a subfolder in the tree. No-op if already collapsed.
     func collapseFolder(_ folder: URL) {
         expandedFolders.remove(folder.standardizedFileURL.path)
     }
 
-    /// Runs the folder open panel and adopts an existing folder — shared by the
-    /// sidebar and File ▸ Open Folder.
+    /// Shared by the sidebar and File ▸ Open Folder.
     func promptAddFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -1028,9 +979,8 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
-    /// Runs a save-style panel so the user can choose a parent location and
-    /// enter the name of a folder that does not exist yet. The created folder
-    /// is adopted by the sidebar and opened in the main window.
+    /// Save-style panel: choose parent + name of a folder that does not exist
+    /// yet; created folder is adopted and opened in the main window.
     func promptCreateFolder() {
         let panel = NSSavePanel()
         panel.title = String(localized: "New Folder")
@@ -1073,9 +1023,8 @@ final class WorkspaceModel: ObservableObject {
         linkIndex.invalidate(workspace: self)
     }
 
-    /// Creates a markdown file in `folder`. `name` is the user-facing name
-    /// (`.md` is appended when missing). Daily notes use the date as their name
-    /// and return the existing file instead of creating a duplicate.
+    /// `.md` appended when missing; daily notes use the date as name and
+    /// return the existing file instead of duplicating.
     @discardableResult
     func createMarkdownFile(
         named name: String,
@@ -1107,7 +1056,6 @@ final class WorkspaceModel: ObservableObject {
         return dest.standardizedFileURL
     }
 
-    /// Creates a subfolder in `folder`. Returns the new folder URL.
     @discardableResult
     func createSubfolder(named name: String, in folder: URL) throws -> URL {
         let folderName = try FolderNaming.folderName(from: name)
@@ -1116,12 +1064,11 @@ final class WorkspaceModel: ObservableObject {
             throw FolderCreateError.alreadyExists(folderName)
         }
         try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: false)
-        // A brand-new folder holds no documents, so it would land in the
-        // hidden "empty folders" bucket — keep the one the user just made visible.
+        // Brand-new folder holds no documents → would land in the hidden
+        // "empty folders" bucket; keep it visible.
         keepVisible(dest.standardizedFileURL)
         noteFilesystemChange()
-        // Ensure the new folder is visible: expand parent in the tree (or the
-        // workspace root's collapsed flag when the parent is a workspace).
+        // Expand the parent so the new folder is on screen.
         if let ws = workspaces.first(where: {
             $0.folderPath == folder.standardizedFileURL.path
         }) {
@@ -1132,7 +1079,6 @@ final class WorkspaceModel: ObservableObject {
         return dest.standardizedFileURL
     }
 
-    /// Creates a new root folder on disk and adopts it in the sidebar.
     @discardableResult
     func createWorkspaceFolder(named name: String, in parent: URL) throws -> URL {
         let folderName = try FolderNaming.folderName(from: name)
@@ -1208,9 +1154,8 @@ final class WorkspaceModel: ObservableObject {
         return keptFolders[ws.folderPath]?.contains(rel) == true
     }
 
-    /// True when some kept folder lives strictly inside `url`. Such a folder is
-    /// on the path to content the user made, so it must be drawn even though it
-    /// holds no documents of its own.
+    /// True when a kept folder lives strictly inside `url` — the ancestor is
+    /// on the path to user-made content and must be drawn.
     func containsKeptFolder(_ url: URL) -> Bool {
         guard let ws = workspaceOwning(url),
               let rel = relativePath(of: url, in: ws) else { return false }
@@ -1218,27 +1163,23 @@ final class WorkspaceModel: ObservableObject {
         return keptFolders[ws.folderPath]?.contains { $0.hasPrefix(prefix) } == true
     }
 
-    /// A no-document folder that should escape the hidden "empty folders"
-    /// bucket: kept itself, or an ancestor of a kept folder.
+    /// Escapes the hidden "empty folders" bucket: kept itself, or an ancestor
+    /// of a kept folder.
     func isKeptOrHoldsKept(_ url: URL) -> Bool {
         isKeptVisible(url) || containsKeptFolder(url)
     }
 
-    /// Drops kept entries whose folder no longer exists on disk. Without this a
-    /// deleted kept folder would keep its (now genuinely empty) ancestors out of
-    /// the hidden bucket forever, since `containsKeptFolder` is a pure prefix
-    /// check over the persisted set. Called when the folder is known gone
-    /// (`forgetTrashedFolder`) and on activation (external deletes). Fire and
-    /// forget — the existence probe runs off the main actor.
+    /// Drops kept entries whose folder is gone — else a deleted kept folder
+    /// keeps its ancestors out of the hidden bucket forever
+    /// (`containsKeptFolder` is a pure prefix check). Called from
+    /// `forgetTrashedFolder` and on activation. Fire-and-forget; probe off-main.
     func pruneStaleKeptFolders() {
         Task { await pruneStaleKeptFoldersNow() }
     }
 
-    /// Awaitable core of `pruneStaleKeptFolders`: the existence probe runs on a
-    /// detached task — a stale, network, or offline workspace volume must never
-    /// stall the main actor (CLAUDE.md) — then the result is applied on the main
-    /// actor, bailing if the set changed while the probe ran so a folder created
-    /// meanwhile is not clobbered.
+    /// Existence probe on a detached task (offline volume must never stall
+    /// the main actor); result applied on main, bailing if the set changed
+    /// mid-probe so a folder created meanwhile is not clobbered.
     func pruneStaleKeptFoldersNow() async {
         let snapshot = keptFolders
         guard !snapshot.isEmpty else { return }
@@ -1249,8 +1190,7 @@ final class WorkspaceModel: ObservableObject {
         if pruned != snapshot { keptFolders = pruned }
     }
 
-    /// Pure existence filter over a kept-folders snapshot; safe off the main
-    /// actor (touches only `FileManager`).
+    /// Pure existence filter; safe off-main (only `FileManager`).
     nonisolated private static func keptFoldersDroppingMissing(
         _ source: [String: Set<String>]
     ) -> [String: Set<String>] {
@@ -1268,8 +1208,8 @@ final class WorkspaceModel: ObservableObject {
         return result
     }
 
-    /// Records `url` so an empty folder the user just created stays in the
-    /// visible list. No-op outside any workspace (there is no tree to hide it).
+    /// Keep a just-created empty folder visible. No-op outside any workspace
+    /// (no tree to hide it).
     func keepVisible(_ url: URL) {
         guard let ws = workspaceOwning(url),
               let rel = relativePath(of: url, in: ws) else { return }
@@ -1280,8 +1220,7 @@ final class WorkspaceModel: ObservableObject {
 
     // MARK: - Loose files
 
-    /// Records a file opened outside any workspace so it shows under
-    /// "Open Files". No-op for files that belong to an adopted folder.
+    /// Record a file opened outside any workspace ("Open Files" section).
     func noteOpened(_ url: URL) {
         let std = url.standardizedFileURL
         // Nested files under a workspace root are also not "loose".
@@ -1291,8 +1230,8 @@ final class WorkspaceModel: ObservableObject {
         looseFiles.append(std)
     }
 
-    /// True only when the file's **parent** is exactly a workspace root
-    /// (legacy helper for root-level bookkeeping). Prefer `workspaceOwning` for hide.
+    /// True only when the **parent** is exactly a workspace root (legacy,
+    /// root-level bookkeeping). Prefer `workspaceOwning` for hide.
     func workspaceContaining(_ url: URL) -> Workspace? {
         let parent = url.standardizedFileURL.deletingLastPathComponent().path
         return workspaces.first { $0.folderPath == parent }

@@ -1,30 +1,17 @@
 import Foundation
 
-// Review marks — smotr-compatible sidecar model (phase 2, v37).
-//
-// A "mark" is a review thread anchored to a text fragment. Marks live in a
-// sidecar `<file>.md.review.json` NEXT TO the file; the original is never
-// touched (only accepted `suggest` edits rewrite the file, via the registry).
-//
-// The format is smotr's (~/Server/smotr) — EditMD is a *second* frontend for
-// the very same marks, so a sidecar written here must open in the smotr web
-// view without loss, and vice-versa. Two consequences drive the design:
-//
-//   1. Fidelity: every field we do not model (html-mark `selector`/`vtype`,
-//      future schema additions) is preserved verbatim through an `extra` bag.
-//      We only ever *add* known fields we set; we never drop what we read.
-//   2. Anchors are computed against the RAW markdown (EditMD's source of
-//      truth), matching smotr's own apply path (`_apply_suggest` rewrites the
-//      raw file). Best-effort `quote`+`prefix` resolution with an honest
-//      `needs-rebase` when the fragment is gone — never "approximately there".
-//
-// Pure value types + Foundation only: no AppKit, no actor isolation. The UI
-// model (`ReviewModel`) and the sidebar sit on top.
+// Review marks — smotr-compatible sidecar model (docs/review.md § Sidecar).
+// EditMD is a second frontend for smotr's (~/Server/smotr) format: a sidecar
+// written here must open in the smotr web view without loss and vice-versa.
+// Unknown fields survive via the `extra` bag (add known fields, never drop
+// what was read); anchors resolve against the RAW markdown — matching smotr's
+// `_apply_suggest` — with honest `needs-rebase` when the fragment is gone.
+// Pure value types + Foundation only; `ReviewModel` and the sidebar sit on top.
 
 // MARK: - Vocabulary
 
-/// Author intent for a mark. Claude processes open marks by this priority
-/// (`question → fix → rewrite → cut`), matching smotr's `_TYPE_PRIORITY`.
+/// Author intent. Agents process open marks by priority
+/// (question → fix → rewrite → cut), matching smotr's `_TYPE_PRIORITY`.
 enum ReviewMarkType: String, CaseIterable {
     case question   // blocking question (processed first)
     case fix        // fact / correctness
@@ -96,8 +83,8 @@ enum ReviewMarkStatus: String {
 
 // MARK: - Thread entry
 
-/// One reply on a mark's thread. smotr writes `{role, text, ts}`; unknown
-/// fields are preserved so a richer engine round-trips through us untouched.
+/// One thread reply. smotr writes `{role, text, ts}`; unknown fields are
+/// preserved for lossless round-trip.
 struct ReviewThreadEntry: Equatable {
     var role: String        // "author" | "claude"
     var text: String
@@ -138,12 +125,9 @@ extension ReviewThreadEntry: Codable {
 
 // MARK: - Mark
 
-/// A single review mark. Known fields are typed for ergonomic UI access; the
-/// `extra` bag carries everything else verbatim (html marks store
-/// `vtype`/`page`/`selector` there, and any future smotr field lands there too).
-///
-/// Fields are optional and encoded only when present, so a decode→encode cycle
-/// neither drops nor invents fields — the smotr contract is "no loss".
+/// A single mark. Known fields typed; `extra` carries everything else verbatim
+/// (html marks: `vtype`/`page`/`selector`). Optionals encode only when present,
+/// so decode→encode neither drops nor invents fields (smotr "no loss").
 struct ReviewMark: Equatable {
     var id: String
     var type: String
@@ -171,8 +155,8 @@ struct ReviewMark: Equatable {
 }
 
 extension ReviewMark {
-    /// One-line tooltip for the in-text wash — shared by Source, Visual and
-    /// Preview so the three surfaces describe a mark identically.
+    /// One-line tooltip for the in-text wash — shared by Source, Visual,
+    /// Preview so all three describe a mark identically.
     var washTooltip: String {
         if isSuggestion, let replacement {
             return "suggest: \(replacement)"
@@ -183,8 +167,8 @@ extension ReviewMark {
         return markType?.label ?? type
     }
 
-    /// A fresh author-created mark (EditMD only ever creates markdown marks:
-    /// quote + prefix + start, anchored in the raw text).
+    /// Fresh author-created mark (EditMD only creates markdown marks:
+    /// quote + prefix + start, anchored in raw text).
     init(type: ReviewMarkType, quote: String, prefix: String, start: Int, note: String) {
         let now = ReviewClock.nowMillis()
         self.id = ReviewSidecar.newMarkID(at: now)
@@ -270,8 +254,8 @@ extension ReviewMark: Codable {
 struct ReviewDocument: Equatable {
     var rev: Int = 0
     var marks: [ReviewMark] = []
-    /// Fenced-prompt cards keyed by heading anchor — smotr's feature; EditMD
-    /// preserves but does not create them.
+    /// Fenced-prompt cards keyed by heading anchor — smotr's; preserved,
+    /// never created here.
     var prompts: [String: JSONValue] = [:]
     var extra: [String: JSONValue] = [:]
 
@@ -381,16 +365,12 @@ enum ReviewSidecar {
 
     // MARK: Save (optimistic rev-guard, merge by id)
 
-    /// Persists `doc` for `file`, reconciling with whatever is on disk now.
-    ///
-    /// Because EditMD edits the sidecar directly (not through smotr's HTTP
-    /// endpoint), it plays the role smotr's server documents for out-of-band
-    /// writers: read the current disk `rev`; if another writer advanced it,
-    /// merge our marks by `id` onto the disk state rather than clobbering it;
-    /// always write `rev = diskRev + 1`.
-    ///
-    /// Returns the document actually written (with the bumped rev + merged
-    /// marks) so the caller can adopt it as its new base.
+    /// Persists `doc`, reconciling with disk. EditMD writes the sidecar
+    /// directly (no smotr HTTP endpoint), so it follows smotr's
+    /// out-of-band-writer rule: if disk `rev` advanced past `baseRev`, merge
+    /// our marks by id onto disk state instead of clobbering; always write
+    /// `rev = diskRev + 1`. Returns what was written so the caller adopts it
+    /// as its new base.
     @discardableResult
     static func save(_ doc: ReviewDocument, for file: URL, baseRev: Int) throws -> ReviewDocument {
         let path = url(for: file)
@@ -398,8 +378,8 @@ enum ReviewSidecar {
         var out = doc
 
         if let disk, disk.rev != baseRev {
-            // Someone advanced the file since we loaded: start from disk and
-            // re-apply our marks by id (whole-mark, like smotr's client merge).
+            // Disk advanced since load: start from disk, re-apply our marks by
+            // id (whole-mark, like smotr's client merge).
             var merged = disk
             for m in doc.marks { merged.upsert(m) }
             merged.prompts.merge(doc.prompts) { _, mine in mine }
@@ -443,17 +423,13 @@ enum ReviewSidecar {
 
     // MARK: Anchor resolution (port of smotr `_find_anchor`)
 
-    /// Locates the mark's `quote` in `text`, trying, in order: `prefix+quote`
-    /// (exact context), `quote` near the stored `start` offset, then `quote`
-    /// anywhere. Returns the range of the quote, or nil when the fragment is
-    /// gone (→ honest `needs-rebase`, never "approximately there").
-    ///
-    /// All arithmetic is UTF-16 code units with `.literal` search — the same
-    /// semantics as smotr's JS `indexOf`/slice offsets. Character (grapheme)
-    /// math skids when the prefix/quote boundary merges into one cluster
-    /// (e.g. prefix ends "e", quote starts with a combining accent): stepping
-    /// `prefix.count` Characters overshot and silently shifted the anchor —
-    /// wash on the wrong range, applySuggest corrupting the document.
+    /// Finds `quote`, in order: `prefix+quote` exact, `quote` near `start`,
+    /// `quote` anywhere. Nil when gone (→ honest `needs-rebase`, never
+    /// "approximately there"). All arithmetic is UTF-16 units + `.literal`
+    /// search — same semantics as smotr's JS indexOf/slice. Grapheme math
+    /// skids when the prefix/quote boundary merges into one cluster (combining
+    /// accent): stepping `prefix.count` Characters overshot the anchor — wash
+    /// on the wrong range, applySuggest corrupting the document.
     static func anchorRange(quote: String, prefix: String, start: Int,
                             in text: String) -> Range<String.Index>? {
         guard !quote.isEmpty else { return nil }
@@ -492,9 +468,8 @@ enum ReviewSidecar {
 
     // MARK: Suggest application (pure)
 
-    /// Applies a `suggest` mark to `content` by replacing the anchored `quote`
-    /// with `replacement`. Returns the new content, or nil when the anchor is
-    /// gone (caller marks the suggestion `needs-rebase` and leaves the file).
+    /// Replaces the anchored `quote` with `replacement`. Nil when the anchor
+    /// is gone (caller marks the suggestion `needs-rebase`, leaves the file).
     static func applySuggest(_ mark: ReviewMark, to content: String) -> String? {
         guard mark.isSuggestion, let replacement = mark.replacement,
               let r = anchorRange(for: mark, in: content) else { return nil }
@@ -505,11 +480,10 @@ enum ReviewSidecar {
 // MARK: - Anchor capture (creating a mark from a selection)
 
 extension ReviewSidecar {
-    /// Builds the anchor fields for a fresh mark from a selected range in the
-    /// raw text: quote = the selection, prefix = up to 30 UTF-16 units before
-    /// it (smotr's window), start = the UTF-16 offset — smotr's web view
-    /// reads these as JS string indices, so grapheme counts would drift on
-    /// any document containing emoji or combining marks.
+    /// Anchor fields from a selection in raw text: quote = selection, prefix =
+    /// up to 30 UTF-16 units before (smotr's window), start = UTF-16 offset —
+    /// smotr's web view reads these as JS string indices; grapheme counts
+    /// would drift on emoji/combining marks.
     static func captureAnchor(in text: String, range: Range<String.Index>)
         -> (quote: String, prefix: String, start: Int) {
         let quote = String(text[range])

@@ -1,8 +1,8 @@
 import Foundation
 import Combine
 
-/// Debounced workspace full-text search (plan 07). Scan runs off-main;
-/// results publish on the main actor. Never reads disk from SwiftUI `body`.
+/// Debounced workspace full-text search. Scan runs off-main; results publish
+/// on the main actor. Never reads disk from SwiftUI `body`.
 @MainActor
 final class WorkspaceSearchModel: ObservableObject {
     static let shared = WorkspaceSearchModel()

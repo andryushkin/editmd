@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Phase 3 (v38) — control protocol codec, skill installer, socket round-trip.
+/// Control protocol codec, skill installer, socket round-trip.
 final class ControlChannelTests: XCTestCase {
 
     // MARK: Codec
@@ -41,7 +41,7 @@ final class ControlChannelTests: XCTestCase {
         for need in ["ping", "status", "open", "reveal", "mode",
                      "marks.list", "marks.add", "diff.show", "workspace.add",
                      "agent-status",
-                     // Plan 10 «wikillm ready».
+                     // Vault-graph commands.
                      "links.outgoing", "links.backlinks", "links.resolve",
                      "outline", "lint.workspace", "lint.file", "index.status",
                      "tags.list", "tags.files", "frontmatter.get"] {
@@ -49,7 +49,7 @@ final class ControlChannelTests: XCTestCase {
         }
     }
 
-    // MARK: - Plan 10: vault-graph commands
+    // MARK: - Vault-graph commands
 
     private func makeVault() throws -> (root: URL, a: URL, b: URL) {
         let root = FileManager.default.temporaryDirectory
@@ -626,7 +626,7 @@ final class ControlChannelTests: XCTestCase {
             atPath: ReviewSidecar.url(for: oldFile).path))
     }
 
-    // MARK: Stage-3 — paths, off-main diff, pending jump
+    // MARK: Paths, off-main diff, pending jump
 
     /// The app's cwd is "/" under Finder — resolving relative paths there
     /// targets the wrong file, so the router must reject them outright

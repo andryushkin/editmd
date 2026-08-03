@@ -104,19 +104,13 @@ struct SearchRunResult: Equatable, Sendable {
 
 // MARK: - Case-insensitive contains (Cyrillic-safe, scalar fold)
 
-/// Simple lowercase case-fold for one Unicode scalar, covering the alphabets
-/// EditMD users actually search: ASCII, Latin-1 letters, and Russian Cyrillic
-/// (incl. Ё). Every other scalar passes through unchanged — i.e. it is compared
-/// case-sensitively.
-///
-/// Why not Foundation `range(of:options:.caseInsensitive)` (the v1 choice):
-/// it folds every script but iterates grapheme clusters, which measured
-/// 3–7 s for a whole-body scan of a 7k-file vault (50 MB). Folding scalar
-/// values directly is ~200× faster and produced identical match counts against
-/// Foundation across ASCII + Russian on that vault, including mixed case
-/// (`Витамин` == `витамин`). The narrowed coverage is deliberate; if a broader
-/// script ever needs folding, extend this table rather than reverting to the
-/// grapheme path.
+/// Lowercase fold for one scalar: ASCII, Latin-1 letters, Russian Cyrillic
+/// (incl. Ё); every other scalar compares case-sensitively. Not Foundation
+/// `.caseInsensitive`: that folds every script but iterates grapheme clusters —
+/// measured 3–7 s over a 7k-file / 50 MB vault; scalar folding is ~200× faster
+/// with identical match counts on ASCII + Russian (`Витамин` == `витамин`).
+/// Extend this table for broader coverage, never revert to the grapheme path
+/// (docs/vault.md § Search).
 @inline(__always)
 func searchFoldScalar(_ s: UInt32) -> UInt32 {
     if s >= 0x41 && s <= 0x5A { return s + 0x20 }              // A–Z
@@ -283,9 +277,8 @@ func searchContentMatches(
         )
     }
 
-    // Fold each side once and reuse across needles: the whole-body fold is the
-    // dominant cost, so folding `text` a single time (not once per needle) is
-    // what keeps a vault-wide search interactive.
+    // Fold each side once and reuse across needles — the whole-body fold
+    // dominates cost; per-needle folding would kill vault-wide interactivity.
     let foldedNeedles = needles.map(searchFolded)
     let foldedName = searchFolded(fileName)
     let foldedBody = searchFolded(text)

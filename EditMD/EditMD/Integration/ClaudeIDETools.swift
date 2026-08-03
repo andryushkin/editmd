@@ -1,6 +1,6 @@
 import Foundation
 
-// The 12 standard IDE tools Claude Code calls over the WebSocket channel (v36).
+// The 12 standard IDE tools Claude Code calls over the WebSocket channel.
 //
 // Names, parameters and response shapes follow the Claude Code IDE protocol
 // verbatim (see `docs/integration.md`) — including the two quirks:
@@ -122,7 +122,7 @@ enum DiffOutcome: String, Equatable, Sendable {
 /// One lint finding mapped onto the LSP-ish shape Claude expects.
 struct IDEDiagnostic: Equatable, Sendable {
     var message: String
-    /// `"Error"` / `"Warning"` — a name, not a number (see v36 gotchas).
+    /// `"Error"` / `"Warning"` — a name, not a number.
     var severity: String
     var source: String
     var code: String
@@ -406,7 +406,8 @@ extension ClaudeIDETools {
 
     /// The fixed set the CLI expects. Extra (EditMD-specific) tools are
     /// deliberately absent — the CLI filters `tools/list` against its own table
-    /// and a surprise entry can abort the handshake (spec, phase 1.5).
+    /// and a surprise entry can abort the handshake. New capabilities go to
+    /// `editmdctl` (docs/integration.md).
     static var descriptors: [JSONValue] {
         [
             tool("getCurrentSelection",

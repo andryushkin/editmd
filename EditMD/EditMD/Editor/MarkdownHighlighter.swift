@@ -5,7 +5,6 @@ import Markdown
 
 struct Span {
     enum Kind: Equatable {
-        // Existing
         case headingBody(Int), headingMarker
         case boldBody, boldMarker
         case italicBody, italicMarker
@@ -14,7 +13,6 @@ struct Span {
         case linkText(destination: String?), linkSyntax
         case quoteBody, quoteMarker
         case calloutMarker(type: String)
-        // New
         case codeBlockBody(language: String), codeBlockFence
         case thematicBreak
         case listBlock                                // full UnorderedList/OrderedList range
@@ -39,13 +37,9 @@ struct Span {
 }
 
 extension Span.Kind {
-    /// Delimiter / punctuation spans painted by the Source "marker color"
-    /// setting (heading `#`, list bullets, task checkbox `[ ]`/`[x]`,
-    /// emphasis/quote/code/table/link/image delimiters, fences, math `$`, wiki
-    /// `[[ ]]`). The callout marker and table backgrounds keep their own color.
-    ///
-    /// Exhaustive on purpose (no `default`): a new `Span.Kind` must opt in or
-    /// out here rather than silently defaulting to "not a marker".
+    /// Delimiter/punctuation spans painted by the Source "marker color" setting;
+    /// callout marker and table backgrounds keep their own color. Exhaustive on
+    /// purpose (no `default`): a new `Span.Kind` must opt in or out here.
     var isSyntaxMarker: Bool {
         switch self {
         case .headingMarker, .boldMarker, .italicMarker, .codeMarker,
@@ -139,9 +133,8 @@ private struct SpanCollector: MarkupWalker {
         guard let srcRange = codeBlock.range, let r = nsRange(for: srcRange) else { return }
         let lang = codeBlock.language ?? ""
         spans.append(Span(range: r, kind: .codeBlockBody(language: lang)))
-        // Detect fenced block by looking at the first character (` or ~).
-        // swift-markdown maps both indented and fenced-no-lang to language=nil,
-        // so we check the source text instead.
+        // Fenced detection via first source char (` or ~): swift-markdown maps
+        // both indented and fenced-no-lang to language=nil.
         let isFenced = r.location < nsText.length && {
             let ch = nsText.character(at: r.location)
             return ch == 0x60 || ch == 0x7E  // ` or ~
@@ -285,7 +278,7 @@ private struct SpanCollector: MarkupWalker {
             }
         }
 
-        // Descend to allow Strong/Emphasis/InlineCode inside cells to be highlighted
+        // Descend: inline formatting inside cells still highlights.
         descendInto(table)
     }
 
@@ -382,11 +375,9 @@ private struct SpanCollector: MarkupWalker {
         spans.append(Span(range: r, kind: .htmlInline))
     }
 
-    /// Wiki-links live in plain text — swift-markdown does not model them, so we
-    /// scan the source substring of each Text node. Inline code / code blocks
-    /// carry their content in `String` properties (not `Text` children), so they
-    /// are excluded for free. We scan the SOURCE slice (not `text.string`) so
-    /// escapes like `\[` can't drift the offsets.
+    /// Wiki-links: not in the AST — scan each Text node's SOURCE slice (not
+    /// `text.string`, so escapes like `\[` can't drift offsets). Inline/block
+    /// code hold content in `String` properties, so they're excluded for free.
     mutating func visitText(_ text: Text) {
         guard let src = text.range, let r = nsRange(for: src), r.length > 4 else { return }
         let substring = nsText.substring(with: r)
@@ -417,14 +408,12 @@ private struct SpanCollector: MarkupWalker {
 
 // MARK: - collectSpans
 
-/// Parses the markdown text with swift-markdown and returns highlight spans.
-/// Pure function — no dependency on any view or controller.
+/// Pure: markdown text → highlight spans; no view/controller dependency.
 func collectCoreSpans(_ text: String) -> [Span] {
     guard !text.isEmpty else { return [] }
-    // Math is masked out BEFORE parsing (same trick as the Preview): otherwise
-    // cmark reads TeX as markdown — a `=` line inside `$$…$$` turns the whole
-    // block into a giant setext H1, `*`/`_` spawn phantom emphasis. The mask
-    // preserves the UTF-16 layout, so span offsets stay valid in the original.
+    // Math masked BEFORE parsing (same trick as Preview): cmark otherwise reads
+    // TeX as markdown (`=` line in `$$…$$` → giant setext H1, `*`/`_` phantom
+    // emphasis). Mask preserves UTF-16 layout, so offsets stay valid.
     let mathSpans = scanMathSpans(in: text)
     let (parseText, _) = maskMathSpansForParsing(text, spans: mathSpans)
     let lineIdx = LineIndex(parseText)
@@ -433,9 +422,8 @@ func collectCoreSpans(_ text: String) -> [Span] {
     var collector = SpanCollector(text: parseText, lineIdx: lineIdx)
     collector.visit(document)
     var spans = collector.spans
-    // Math ($…$ / $$…$$) is not in the AST — a document-level post-scan, like
-    // wiki-links but cross-node (a $$ block spans lines). Appended last so the
-    // wash wins over surrounding block colors.
+    // Math is not in the AST — document-level post-scan (cross-node: a $$ block
+    // spans lines). Appended last so the wash wins over block colors.
     for m in mathSpans {
         let d = m.display ? 2 : 1
         spans.append(Span(range: NSRange(location: m.range.location, length: d),

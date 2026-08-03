@@ -1,14 +1,10 @@
 import Foundation
 
-/// A named container for adopted roots in the Files sidebar — "Work",
-/// "Personal", one per family of related projects. Presentation only: a
-/// collection is never a search, link, tag or graph boundary, and it is never
-/// an answer to `activeWorkspaceRoot`. Every index stays per root.
-///
-/// Membership lives on the root (`Workspace.collectionID`), not in a list of
-/// member paths: the sidebar already rewrites `Workspace` values when a root is
-/// renamed or removed, so the membership rides along for free and can never
-/// point at a root that is no longer adopted.
+/// Named container for adopted roots. Presentation only: never a search,
+/// link, tag or graph boundary, never an answer to `activeWorkspaceRoot`.
+/// Membership lives on the root (`Workspace.collectionID`), not in member
+/// lists, so it rides along on rename/removal and can never name an
+/// unadopted root. docs/vault.md § Collections.
 struct WorkspaceCollection: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var name: String

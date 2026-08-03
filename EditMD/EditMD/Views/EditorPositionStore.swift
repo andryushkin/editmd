@@ -19,9 +19,9 @@ final class EditorPositionStore {
         NotificationCenter.default.post(name: .editMDJumpToOffset, object: self)
     }
 
-    /// D5: transport for the split-mode scroll follow. Deliberately NOT
-    /// `markdownOffset` — that field is the caret restored on mode switches,
-    /// and a passive scroll must never move the caret.
+    /// Split-mode scroll-follow transport. Deliberately NOT `markdownOffset`
+    /// — that field is the caret restored on mode switches, and a passive
+    /// scroll must never move the caret.
     ///
     /// A FRACTIONAL markdown offset: whole part = character, fraction = how far
     /// between it and the next. Syncing whole characters (or whole lines) can

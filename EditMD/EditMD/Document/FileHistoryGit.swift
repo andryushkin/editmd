@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Git file history (plan 05)
+// MARK: - Git file history
 
 /// One commit that touched a file (`git log --follow`).
 struct GitFileHistoryEntry: Equatable, Sendable, Identifiable {
@@ -16,8 +16,8 @@ struct GitFileHistoryEntry: Equatable, Sendable, Identifiable {
     var id: String { hash }
 }
 
-/// Pure parser for `git log` fixture output. Format fields are NUL-separated:
-/// `%H %h %an %aI %s` then a final NUL; records follow each other.
+/// Pure parser for `git log` output. NUL-separated fields `%H %h %an %aI %s`
+/// + final NUL; records back to back.
 func parseGitFileHistoryLog(_ output: String, maxCount: Int = 50) -> [GitFileHistoryEntry] {
     guard !output.isEmpty else { return [] }
     // Split on NUL; trailing empty from final %x00 is fine.
@@ -65,8 +65,8 @@ extension GitCLI {
         guard let root = repositoryRoot(containing: file) else { return [] }
         let rel = relativePath(of: file, to: root)
         guard !rel.isEmpty else { return [] }
-        // %x00 field separators; subject may contain | or newlines in rare cases —
-        // we take only the first line of %s.
+        // %x00 separators; %s may contain | or newlines — only its first line
+        // is kept.
         let format = "%H%x00%h%x00%an%x00%aI%x00%s%x00"
         guard let out = run(in: root, arguments: [
             "log", "--follow", "--max-count=\(maxCount)",
@@ -80,7 +80,7 @@ extension GitCLI {
         guard let root = repositoryRoot(containing: file) else { return nil }
         let rel = relativePath(of: file, to: root)
         guard !rel.isEmpty, !revision.isEmpty else { return nil }
-        // `git show` may fail if --follow renamed the path; try current rel first.
+        // May fail when --follow renamed the path; current rel is tried as is.
         if let out = run(in: root, arguments: ["show", "\(revision):\(rel)"]) {
             return out
         }
@@ -126,7 +126,7 @@ final class FileHistoryGitCache: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] note in
-            // Commit watcher posts this with file URL as object when hash changes.
+            // Posted by the commit watcher with the file URL when hash changes.
             guard let url = note.object as? URL else { return }
             Task { @MainActor in self?.invalidate(url: url) }
         }
@@ -147,13 +147,12 @@ final class FileHistoryGitCache: ObservableObject {
     func history(for url: URL?) -> [GitFileHistoryEntry]? {
         guard let url else { return nil }
         let path = url.standardizedFileURL.path
-        // If we have any entry for this path, return it (head may be stale until
-        // refresh completes). Prefer exact HEAD match when known.
+        // Any entry for this path serves (head may be stale until refresh);
+        // exact HEAD match preferred.
         if let head = cachedHeadHint(for: path),
            let hit = cache[Key(path: path, head: head)] {
             return hit
         }
-        // Any cached list for path.
         if let any = cache.first(where: { $0.key.path == path }) {
             return any.value
         }

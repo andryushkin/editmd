@@ -1,7 +1,7 @@
 import AppKit
 
 // Table editing (native cells + raw GFM islands) of
-// VisualMarkdownView.Coordinator, extracted from VisualTextView.swift.
+// VisualMarkdownView.Coordinator.
 
 extension VisualMarkdownView.Coordinator {
         /// All cell paragraphs of a table, in document order.

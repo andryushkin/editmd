@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-// Table editing sprint: TableGrid structure ops (columns, row move),
+// TableGrid structure ops (columns, row move),
 // cursor-relative table context in Source markdown, clipboard conversion
 // (HTML tables from web/Word/Excel, TSV from spreadsheets).
 
@@ -273,7 +273,7 @@ final class TableClipboardHTMLTests: XCTestCase {
     func testBackslashDoublingIsCodeContextAware() {
         // Plain text needs doubled backslashes (inline-markdown cell
         // contract); a code span keeps them literal, so doubling there would
-        // display `\\` — codex review, round 3.
+        // display `\\`.
         let html = "<table><tr><th>Plain</th><th>Code</th></tr>" +
                    "<tr><td>C:\\dir\\_x</td><td><code>C:\\dir\\_x</code></td></tr></table>"
         let md = markdownTablesFromHTML(html)
@@ -286,7 +286,7 @@ final class TableClipboardHTMLTests: XCTestCase {
         // <kbd><code>…</code></kbd> must yield a single code span owned by
         // the outermost wrapper — the inner one used to open a second span,
         // pushing the outer into the plain-text fallback that doubled the
-        // backslashes (codex review, round 4).
+        // backslashes.
         let html = "<table><tr><th>K</th><th>V</th></tr>" +
                    "<tr><td><kbd><code>C:\\dir\\_x</code></kbd></td><td>ok</td></tr></table>"
         let md = markdownTablesFromHTML(html)

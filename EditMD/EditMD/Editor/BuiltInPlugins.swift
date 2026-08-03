@@ -56,10 +56,9 @@ struct BuiltInPluginTokenPayload: Hashable, Sendable {
 
     var state: BuiltInPluginTokenState { states[stateIndex] }
 
-    /// A configured one-state token is still a real plugin token and keeps its
-    /// icon, but presenting it as clickable would promise a change that cannot
-    /// happen. `isInteractive` distinguishes plugin-owned tokens from literal
-    /// core checkbox syntax; `canCycle` is the user-action capability.
+    /// A one-state token keeps its icon but must not present as clickable.
+    /// `isInteractive` = plugin-owned vs literal core syntax; `canCycle` = the
+    /// user-action capability.
     var canCycle: Bool { isInteractive && states.count > 1 }
 
     var next: BuiltInPluginTokenPayload {
@@ -190,12 +189,11 @@ struct BuiltInPluginSnapshot: Sendable {
         return result
     }
 
-    /// Backslash-escaped configured markers in a Text node, in DISPLAY
-    /// coordinates: candidates in `displaySource` aligned against the raw
-    /// `source`, keeping only occurrences whose source form carries an escape.
-    /// Each result is a non-interactive token whose payload `source` is the
-    /// VERBATIM escaped form — Visual stamps these on render so serialization
-    /// reproduces the author's escape instead of reviving a live widget.
+    /// Backslash-escaped configured markers, in DISPLAY coordinates: candidates
+    /// aligned against the raw `source`, keeping occurrences whose source form
+    /// carries an escape. Payload `source` is the VERBATIM escaped form —
+    /// Visual stamps these so serialization reproduces the author's escape
+    /// instead of reviving a live widget.
     func escapedLiteralTokens(in displaySource: String,
                               matching source: String) -> [BuiltInPluginToken] {
         guard displaySource != source else { return [] }
@@ -402,11 +400,10 @@ enum BuiltInPluginRegistry {
         })
     }
 
-    /// Snapshot for a markdown FRAGMENT rendered for insertion into a document
-    /// whose activations are `document` (table rebuilds, paste). The fragment
-    /// carries no frontmatter, so activation comes from the document and only
-    /// token ranges are rescanned locally. Without this a re-rendered fragment
-    /// loses its semantic runs and serialization escapes tokens to `\[x\]`.
+    /// Snapshot for a FRAGMENT rendered for insertion (table rebuilds, paste):
+    /// no frontmatter, so activation comes from the document; only token ranges
+    /// rescan locally. Without this a re-rendered fragment loses semantic runs
+    /// and serialization escapes tokens to `\[x\]`.
     static func snapshot(forFragment fragment: String,
                          in document: BuiltInPluginSnapshot) -> BuiltInPluginSnapshot {
         guard !fragment.isEmpty, !document.activations.isEmpty else { return .empty }

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Settings ▸ Integrations — one home for AI surfaces (plan 09 stage 4).
+/// Settings ▸ Integrations — one home for AI surfaces.
 struct IntegrationsSettingsTab: View {
     @ObservedObject var settings: EditorSettings
     @ObservedObject private var control = ControlService.shared
@@ -112,8 +112,8 @@ struct IntegrationsSettingsTab: View {
             }
 
             Section("External files") {
-                // A clean buffer ALWAYS follows the disk (v34 invariant); this
-                // toggle only controls the notification, and must say so.
+                // A clean buffer ALWAYS follows the disk; this toggle only
+                // controls the notification, and must say so.
                 Toggle(String(localized: "Show a toast when a clean buffer reloads from disk"),
                        isOn: $settings.general.autoReloadCleanExternal)
                 Text(String(localized: "A buffer with no unsaved edits always follows the disk. Dirty buffers still show the conflict chip."))

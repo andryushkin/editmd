@@ -97,13 +97,13 @@ enum FolderRenameError: LocalizedError, Equatable {
     }
 }
 
-// `homeDocument(in:)` moved to Editor/VaultLint.swift (pure — shared
-// with the offline editmdctl engine).
+// `homeDocument(in:)` lives in Editor/VaultLint.swift (pure — shared with
+// the offline editmdctl engine).
 
 // MARK: - Recursive tree stats
 
-/// One node in the nested-folder tree (D8). `markdownCount` is the number of
-/// Displayable files DIRECTLY in this folder — descendants report their own counts.
+/// One node in the nested-folder tree. `markdownCount` counts displayable
+/// files DIRECTLY in this folder — descendants report their own counts.
 struct FolderTreeNode: Equatable, Sendable, Identifiable {
     var url: URL
     var markdownCount: Int
@@ -122,7 +122,7 @@ struct FolderTreeStats: Equatable, Sendable {
     var directMarkdownFolders: [URL]
     /// Direct child folders with no markdown in the tree (bottom section, like "Hidden").
     var directEmptyFolders: [URL]
-    /// Full nested tree of folders that contain markdown (D8).
+    /// Full nested tree of folders that contain markdown.
     var folderTree: [FolderTreeNode] = []
 }
 

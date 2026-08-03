@@ -6,13 +6,10 @@ enum GutterTypography {
     static let fontSize: CGFloat = 11
 }
 
-/// Geometry of the Source/Visual line-number gutter.
-///
-/// The numbers used to live in an `NSRulerView`, which AppKit pins to the left
-/// edge of the scroll view — far from a centred reading column. They are drawn
-/// inside the text view now, in its left inset, right next to the text (the
-/// Preview CSS rail works the same way). The inset RESERVES room for them
-/// whether or not they're shown, so toggling never shifts the text.
+/// Geometry of the Source/Visual line-number gutter. Numbers draw inside the
+/// text view's left inset (no NSRulerView — AppKit pins it to the scroll-view
+/// edge, far from a centred column; Preview's CSS rail matches). The inset
+/// RESERVES room whether or not numbers show, so toggling never shifts text.
 enum GutterMetrics {
     /// Numbers → text. Matches `PreviewGutterMetrics.gapPx` so the three modes
     /// place their digits identically.
@@ -48,11 +45,10 @@ struct GutterState {
     /// Index 0 = display hard-line 1 → source line number. Empty = identity
     /// (Source); Visual passes the paragraph→markdown map.
     var displayToSourceLine: [Int] = []
-    /// Caret offset (UTF-16, this view's own text) when its line's number
-    /// should stand out; `nil` = no current-line emphasis. Deliberately an
-    /// offset, not a line number: the drawing pass already walks the visible
-    /// hard lines, so matching there is O(visible) — deriving a line number on
-    /// every caret move would rescan the whole prefix of a large file.
+    /// Caret offset (UTF-16, this view's text); `nil` = no emphasis. An offset,
+    /// not a line number, on purpose: the drawing pass already walks visible
+    /// hard lines (O(visible)); deriving a line number per caret move would
+    /// rescan the whole prefix of a large file.
     var caretOffset: Int?
 }
 
@@ -85,10 +81,9 @@ func gutterCaretLineRange(in ns: NSString, caret: Int) -> NSRange {
     return ns.lineRange(for: NSRange(location: min(loc, ns.length - 1), length: 0))
 }
 
-/// Caret offset the gutter should emphasize, or `nil` for none. A ranged
-/// selection emphasizes nothing: the selection fill already says where the
-/// user is, and lighting up only the anchor's number would claim a single
-/// current line across a multi-line selection.
+/// Caret offset to emphasize, or `nil`. A ranged selection emphasizes nothing:
+/// the selection fill already marks the spot, and lighting the anchor's number
+/// would claim one current line across a multi-line selection.
 func gutterEmphasisOffset(selection: NSRange, enabled: Bool) -> Int? {
     guard enabled, selection.length == 0 else { return nil }
     return selection.location
@@ -261,15 +256,11 @@ extension NSTextView {
         }
     }
 
-    /// Fills the hard line holding `caret` (all of its wrapped fragments) with
-    /// `color`, full editor width. Call from `drawBackground` BEFORE the gutter
-    /// so the numbers stay on top. No-op while a range is selected — the
-    /// selection highlight already says where the caret is.
-    /// `gutterReserve` is the margin `GutterMetrics.reserve` claimed for the
-    /// numbers; it is what places the band's left edge just outside them.
-    /// `opacity` 0 means "the theme default for the appearance this view is
-    /// rendering in" — resolved here, not at settings time, so a light/dark
-    /// flip repaints correctly.
+    /// Fills the caret's hard line (all wrapped fragments), full editor width.
+    /// Call from `drawBackground` BEFORE the gutter so numbers stay on top.
+    /// `gutterReserve` places the band's left edge just outside the numbers.
+    /// `opacity` 0 = theme default for the *drawing* appearance — resolved
+    /// here, not at settings time, so a light/dark flip repaints correctly.
     @MainActor
     func drawCurrentLineHighlight(in rect: NSRect, caret: Int, tint: NSColor,
                                   opacity: CGFloat, gutterReserve: CGFloat) {
@@ -298,14 +289,12 @@ extension NSTextView {
             }
         }
         guard var band = fill, band.intersects(rect) else { return }
-        // The band covers the line number (as Xcode's does) but starts a couple
-        // of points left of it, not at the view edge. The numbers are right
-        // aligned at `inset.width - gap` and occupy `reserve - gap - edgePad`,
-        // so their left edge is `inset.width - reserve + edgePad`. Without a
-        // known reserve (numbers hidden / other host) fall back to a small
-        // margin. The right margin is small and fixed — mirroring the left
-        // inset would leave a far wider gap than Xcode's, since that inset
-        // carries the reserve.
+        // Band covers the number (like Xcode) but starts left of it, not at the
+        // view edge. Numbers are right-aligned at `inset.width - gap`, so their
+        // left edge = `inset.width - reserve + edgePad`; unknown reserve
+        // (numbers hidden / other host) falls back to a small margin. Right
+        // margin fixed — mirroring the left inset would gape (it carries the
+        // reserve).
         let numbersLeft = gutterReserve > 0
             ? inset.width - gutterReserve + GutterMetrics.edgePad
             : GutterMetrics.edgePad
@@ -331,9 +320,9 @@ func sourceLineNumber(at utf16Offset: Int, in markdown: String) -> Int {
         .reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
 }
 
-/// For each Visual display paragraph (same order as hard `\n` lines in the
-/// visual buffer), the 1-based **source** line where that paragraph begins.
-/// Single forward scan — not one full-prefix walk per paragraph (that was O(n²)).
+/// Per Visual display paragraph (hard-`\n` order), the 1-based **source** line
+/// where it begins. Single forward scan — a full-prefix walk per paragraph was
+/// O(n²).
 func displayToSourceLineMap(paragraphRanges: [NSRange], markdown: String) -> [Int] {
     if paragraphRanges.isEmpty { return [] }
     let ns = markdown as NSString

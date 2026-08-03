@@ -272,7 +272,7 @@ final class WordAndCharCountTests: XCTestCase {
     }
 }
 
-// MARK: - stripInlineMarkers (B4)
+// MARK: - stripInlineMarkers
 
 final class StripInlineMarkersTests: XCTestCase {
 
@@ -322,7 +322,7 @@ final class StripInlineMarkersTests: XCTestCase {
     }
 }
 
-// MARK: - cycleCase (B5)
+// MARK: - cycleCase
 
 final class CycleCaseTests: XCTestCase {
 
@@ -347,7 +347,7 @@ final class CycleCaseTests: XCTestCase {
     }
 }
 
-// MARK: - dividerSnippet (B3)
+// MARK: - dividerSnippet
 
 final class DividerSnippetTests: XCTestCase {
 
@@ -412,7 +412,7 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertTrue(classifyMarkdownLine("> quoted").quote)
     }
 
-    /// Review P1: the checkmark must recognize EXACTLY what the toggle press
+    /// The checkmark must recognize EXACTLY what the toggle press
     /// recognizes (`transformLines` grammar) — no lenient extras.
     func testClassifierMatchesTransformLinesGrammar() {
         // A heading nested in a quote is quote-only: the heading toggle would
@@ -431,7 +431,7 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertNil(classifyMarkdownLine("  # indented").headingLevel)
     }
 
-    /// Review P1: paragraph ranges carry the line terminator, transformLines'
+    /// Paragraph ranges carry the line terminator, transformLines'
     /// lines never do — the classifier must normalize to the logical line.
     func testClassifierNormalizesTrailingNewline() {
         XCTAssertTrue(classifyMarkdownLine(">\n").quote)
@@ -477,7 +477,7 @@ final class SourceLineBlockTests: XCTestCase {
         XCTAssertEqual(levels(of: "Title\n===\nbody"), [1, 1, nil])
     }
 
-    /// Review P1: the Setext fallback must demand the literal underline —
+    /// The Setext fallback must demand the literal underline —
     /// cmark also calls `  # indented` a heading, the toggle grammar doesn't.
     func testSetextUnderlineShape() {
         XCTAssertTrue(isSetextUnderline("==="))
@@ -507,7 +507,7 @@ final class SourceLineBlockTests: XCTestCase {
     }
 }
 
-// MARK: - cycleCaseAttributed (B5, Visual)
+// MARK: - cycleCaseAttributed (Visual)
 
 final class CycleCaseAttributedTests: XCTestCase {
 

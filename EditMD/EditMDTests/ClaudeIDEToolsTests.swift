@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Step 1.3 gate: the 12 tools against a fake editor. The response *shape* is
+/// The 12 tools against a fake editor. The response *shape* is
 /// the contract with a CLI we cannot patch — assert the JSON, not just the
 /// Swift values. Also covers the edge cases the CLI hits in practice: no
 /// selection, file not open, file outside the workspace.
@@ -302,7 +302,7 @@ final class ClaudeIDEToolsTests: XCTestCase {
     // MARK: - tools/list
 
     /// The CLI expects exactly the standard set; a surprise entry can abort the
-    /// handshake (see spec, phase 1.5).
+    /// handshake.
     func testDescriptorsAreTheTwelveStandardTools() throws {
         let names = ClaudeIDETools.descriptors.compactMap { $0["name"]?.stringValue }
         XCTAssertEqual(Set(names), [

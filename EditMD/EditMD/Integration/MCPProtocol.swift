@@ -1,6 +1,6 @@
 import Foundation
 
-// JSON-RPC 2.0 codec for the Claude Code IDE channel (v36).
+// JSON-RPC 2.0 codec for the Claude Code IDE channel.
 //
 // The IDE protocol is MCP (2025-03-26) carried over a WebSocket instead of
 // stdio: the same `initialize` / `tools/list` / `tools/call` handshake, plus

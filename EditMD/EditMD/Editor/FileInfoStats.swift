@@ -41,13 +41,9 @@ func computeFileInfoStats(text: String) -> FileInfoStats {
     )
 }
 
-/// Number of lines as a text editor would show them: empty string → 0;
-/// `"a"` → 1; `"a\n"` → 1 (trailing newline does not open an empty last line
-/// for the count — matches `split(separator: "\n", omittingEmptySubsequences: false)`
-/// only when there is no trailing terminator, otherwise `components` of `\n`
-/// with a drop of the final empty fragment).
-/// Walk Unicode scalars — Swift `Character` treats CRLF (`\r\n`) as one
-/// extended grapheme cluster, which would hide CRLF vs LF detection.
+/// Lines as an editor counts them: `""` → 0, `"a"` → 1, `"a\n"` → 1 (a trailing
+/// terminator opens no empty last line). Walks Unicode scalars — Swift
+/// `Character` folds CRLF into one grapheme, which would hide CRLF vs LF.
 func lineCount(in text: String) -> Int {
     if text.isEmpty { return 0 }
     var count = 1

@@ -12,9 +12,8 @@ struct MarkdownSerialization {
     /// For each display paragraph (index = paragraph order in the attributed
     /// string) the UTF-16 range of its emitted piece in `markdown`.
     let paragraphRanges: [NSRange]
-    /// UTF-16 ranges of the corresponding paragraphs in the Visual buffer.
-    /// Keeping these beside `paragraphRanges` avoids rescanning the whole
-    /// display string to locate the caret after every keystroke.
+    /// UTF-16 ranges of the same paragraphs in the Visual buffer — avoids
+    /// rescanning the display string to locate the caret per keystroke.
     let displayParagraphRanges: [NSRange]
 }
 
@@ -385,12 +384,10 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
         }
 
         if let token = run.builtInPluginToken {
-            // Typing next to a token run inherits its attribute and merges
-            // into the same run (before the token at a paragraph start, after
-            // it elsewhere); emitting only `state.source` would silently drop
-            // those characters. The token's own display is the icon text; an
-            // SF Symbol shows as the U+FFFC attachment char, or as the source
-            // text when the symbol name does not resolve on this system.
+            // Typing next to a token run merges into it (inherits the
+            // attribute); emitting only `state.source` would silently drop
+            // those characters. Display is the icon text; an SF Symbol shows
+            // as U+FFFC, or as source text when the name doesn't resolve.
             let displays: [String]
             switch token.state.icon {
             case .emoji(let value), .text(let value):
@@ -416,9 +413,9 @@ private func serializeInlines(_ attr: NSAttributedString, in range: NSRange,
                     run.text.replacingOccurrences(of: mdObjectChar, with: "")))
             }
         } else if let wiki = run.wikiLink {
-            // Round-trip source of truth: re-emit the verbatim inner text, never
-            // reconstruct from parsed fields. After marker management so bold/
-            // italic around a wiki-link keep their wrappers.
+            // Round-trip source of truth: re-emit the verbatim inner text,
+            // never reconstruct from parsed fields. After marker management so
+            // bold/italic around a wiki-link keep their wrappers.
             result += "[[\(wiki.originalInner)]]"
         } else if let tex = run.mathTex {
             // Rendered formula attachment — the verbatim `$…$`/`$$…$$` source.
@@ -518,14 +515,11 @@ private func codeSpan(_ text: String) -> String {
     return fence + pad + text + pad + fence
 }
 
-/// Escapes markdown-significant characters in plain text. U+2028 (hard break)
-/// becomes the backslash form, re-applying the quote/indent prefix.
 /// Escapes plain text while keeping configured plugin token sources (`[x]`)
-/// verbatim. Visual has no way to TYPE a semantic token run, so a token typed
-/// or pasted as plain text must survive serialization and become a live
-/// widget on the next render — exactly what the same bytes mean in Source
-/// mode. Escaped literals never reach this path: the renderer stamps them
-/// with a payload run that re-emits the author's `\[x\]`.
+/// verbatim: Visual can't TYPE a semantic token run, so a token typed/pasted
+/// as plain text must survive serialization and go live on the next render —
+/// the same bytes mean that in Source mode. Escaped literals never reach this
+/// path (the renderer stamps them with a payload run re-emitting `\[x\]`).
 private func escapeInlinePreservingPluginTokens(
     _ text: String, continuationPrefix: String, escapePipes: Bool,
     pluginSnapshot: BuiltInPluginSnapshot) -> String {

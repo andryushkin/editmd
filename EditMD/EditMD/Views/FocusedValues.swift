@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Inline styles active at the caret / over the selection (B6).
+/// Inline styles active at the caret / over the selection.
 struct ActiveInlineFormats: Equatable {
     var bold = false
     var italic = false
@@ -26,8 +26,8 @@ struct FormatActions {
     var toggleChecklist: (() -> Void)? = nil
     /// Add/edit/remove a link on the selection (⌘K) — Source and Visual.
     var editLink: (() -> Void)? = nil
-    // Format-menu block/inline commands (v25). Optional: a mode publishes
-    // only what it implements, the menu item disables on nil.
+    // Format-menu block/inline commands. Optional: a mode publishes only
+    // what it implements, the menu item disables on nil.
     var toggleStrikethrough: (() -> Void)? = nil
     var toggleCodeSpan: (() -> Void)? = nil
     /// `==…==` highlight (Obsidian-style).
@@ -37,13 +37,13 @@ struct FormatActions {
     var setHeading: ((Int) -> Void)? = nil
     /// Plain body paragraph (strip heading / list / quote structure).
     var setBody: (() -> Void)? = nil
-    /// Strip inline markers / md.* styles only (keep heading/list) — B4.
+    /// Strip inline markers / md.* styles only (keep heading/list).
     var clearInlineFormatting: (() -> Void)? = nil
-    /// Insert a thematic break (`---`) — B3.
+    /// Insert a thematic break (`---`).
     var insertDivider: (() -> Void)? = nil
     /// Pick an image, store it beside the document, and insert `![](...)`.
     var insertImage: (() -> Void)? = nil
-    /// Cycle selection case UPPER → lower → Capitalized — B5.
+    /// Cycle selection case UPPER → lower → Capitalized.
     var cycleCase: (() -> Void)? = nil
     var toggleBulletList: (() -> Void)? = nil
     var toggleNumberedList: (() -> Void)? = nil
@@ -76,9 +76,9 @@ struct DocumentActions {
     var fileURL: URL? = nil
     /// Flush coalesced typing into `markdownContent` before export.
     var prepareForExport: (() -> Void)? = nil
-    /// Open the Commit-this-file sheet (stage 4). Nil when not in a git repo.
+    /// Open the Commit-this-file sheet. Nil when not in a git repo.
     var presentCommit: (() -> Void)? = nil
-    /// Confirm + `git push` (stage 5). Nil when not in a git repo.
+    /// Confirm + `git push`. Nil when not in a git repo.
     var presentPush: (() -> Void)? = nil
     var canCommit: Bool = false
     var canPush: Bool = false

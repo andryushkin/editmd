@@ -1,12 +1,9 @@
 import Foundation
 
-// URL-linkify door for paste: when the clipboard is exactly one web URL and it
-// is dropped onto a non-empty selection, the selection becomes a Markdown link
-// `[selection](url)`. With no selection the normal plain-text paste path runs
-// (the URL is inserted verbatim). Pure helpers so Source and Visual share one
-// detector and one serializer. Only fires at paste time — there is no live
-// linkification as the user types, so deleting the formatting afterwards never
-// brings it back.
+// URL-linkify door for paste: clipboard = exactly one web URL dropped onto a
+// non-empty selection → `[selection](url)`; no selection → normal plain paste.
+// Pure helpers shared by Source and Visual. Fires only at paste time — no live
+// linkification, so deleting the formatting never brings it back.
 
 /// The clipboard string when it is exactly a single web URL — one line, an
 /// http/https scheme, a non-empty host, and no internal whitespace. Returns the

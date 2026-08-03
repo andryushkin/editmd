@@ -21,7 +21,7 @@ struct AgentPromptItem: Equatable, Sendable, Identifiable {
     let command: String
 }
 
-/// Pure prompt builder — same texts as skill package (stage 3 keeps them aligned).
+/// Pure prompt builder — texts must stay aligned with the skill package.
 func buildAgentPromptItems(_ ctx: AgentPromptContext) -> [AgentPromptItem] {
     var items: [AgentPromptItem] = []
     let root = ctx.workspaceRootPath

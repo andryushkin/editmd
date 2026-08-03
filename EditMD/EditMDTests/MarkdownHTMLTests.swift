@@ -327,7 +327,7 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testPreviewPageUsesVerticalInsetForTopPadding() {
         let page = previewHTMLPage(markdown: "# Title", fontSize: 14, insetH: 40, insetV: 8)
-        // Top padding must track Settings ▸ Vertical (was a hardcoded 24px).
+        // Top padding must track Settings ▸ Vertical, not a hardcoded value.
         XCTAssertTrue(page.contains("padding: 8px 40px "), page)
         XCTAssertTrue(page.contains("#preview-content > :first-child { margin-top: 0; }"), page)
     }
@@ -401,7 +401,7 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(page.contains("function alignLineNumberGutter()"), page)
         XCTAssertTrue(page.contains("desiredLeft - el.getBoundingClientRect().left"), page)
         XCTAssertFalse(page.contains("li[data-ln]::before"), page)
-        // 32 content inset + gutter column + the new 18px text gap.
+        // 32 content inset + gutter column + 18px text gap.
         XCTAssertTrue(page.contains("padding: 24px 32px 64px 93px"), page)
     }
 
@@ -454,19 +454,15 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("a_<wbr>b_<wbr>c"), html)
     }
 
-    // MARK: - Preview line numbers (C1)
+    // MARK: - Preview line numbers
 
     func testPreviewLineNumbersMatchSourceLines() {
         let md = "# Title\n\nParagraph text.\n\n## Second\n\n- item\n"
         let gutter = PreviewGutterOptions(showLineNumbers: true)
         let html = markdownHTMLBody(md, gutter: gutter)
-        // Line 1: # Title
         XCTAssertTrue(html.contains("data-ln=\"1\""), html)
-        // Line 3: paragraph
         XCTAssertTrue(html.contains("data-ln=\"3\""), html)
-        // Line 5: ## Second
         XCTAssertTrue(html.contains("data-ln=\"5\""), html)
-        // Line 7: list item
         XCTAssertTrue(html.contains("data-ln=\"7\""), html)
     }
 
@@ -478,7 +474,7 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<h1") && html.contains("data-ln=\"5\""), html)
     }
 
-    // MARK: - Math (formulas sprint)
+    // MARK: - Math
 
     func testInlineMathKeepsVerbatimTeX() {
         // `_` and `\f` would be mangled by a plain cmark parse — the masked

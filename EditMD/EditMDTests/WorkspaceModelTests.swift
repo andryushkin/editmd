@@ -2,7 +2,7 @@ import XCTest
 import Testing
 @testable import EditMD
 
-/// Phase 3: folder scan filtering, hide/unhide, per-path persistence, pinning,
+/// Folder scan filtering, hide/unhide, per-path persistence, pinning,
 /// and loose-file bookkeeping. Persistence uses an injected UserDefaults suite
 /// so tests stay isolated from the real store.
 @MainActor
@@ -272,7 +272,7 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(names(model.looseFilesToShow), ["outside.md"])
     }
 
-    // MARK: - Frontmatter tags (D11)
+    // MARK: - Frontmatter tags
 
     func testFrontmatterTagsFlowList() {
         let md = "---\ntags: [demo, markup]\n---\n\n# Hi\n"

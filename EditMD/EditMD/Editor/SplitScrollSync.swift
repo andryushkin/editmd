@@ -1,24 +1,13 @@
 import AppKit
 
-/// Split-mode scroll sync — the geometry Source and Visual share.
+/// Split-mode scroll sync. Shared coordinate = FRACTIONAL markdown offset: the
+/// paragraph at the TOP of the viewport + how far down it the top edge sits;
+/// Preview interpolates between its own anchors.
 ///
-/// The shared coordinate is a FRACTIONAL markdown offset: the paragraph at the
-/// TOP of the viewport, plus how far down that paragraph the top edge has
-/// travelled, expressed in characters. Preview maps it to a Y by interpolating
-/// between its own anchors.
-///
-/// Anchoring the BOTTOM edge (an earlier cut) is what made Preview sit still
-/// while the editor already scrolled: to put the editor's last visible line at
-/// its own bottom edge, Preview needs `y - viewportHeight`, which is negative —
-/// and clamps to zero — for the whole first screenful. Whenever the panes have
-/// different content heights, one of them pays that debt. The top edge is
-/// shared: both panes start at zero and move together.
-///
-/// Syncing a LINE (a character index, or a line plus a sub-line fraction) is
-/// also wrong: the editor's line and Preview's line are different objects,
-/// since the panes wrap at different column widths. A paragraph-relative
-/// position has no such dependency — it is monotonic on both sides, so the
-/// follow is monotonic too.
+/// Not the BOTTOM edge: `y - viewportHeight` is negative (clamps to 0) for the
+/// whole first screenful, so Preview sat still while the editor scrolled.
+/// Not a LINE: the panes wrap at different widths, so their lines are different
+/// objects; a paragraph-relative position is monotonic on both sides.
 enum SplitScrollSync {
 
     /// Gap between the anchor and the viewport's top edge. The JS side uses the

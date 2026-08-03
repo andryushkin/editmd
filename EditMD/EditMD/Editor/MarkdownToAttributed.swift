@@ -1,19 +1,15 @@
 import AppKit
 import Markdown
 
-// Visual (WYSIWYG) mode foundation — v20.
-//
-// Model: the attributed string contains NO markdown markers. Each display
-// paragraph (text between "\n") carries a `.mdBlock` attribute describing its
-// block semantics; inline semantics live in `.mdInline` / `.mdLink` /
-// `.mdImage`. Fonts and colors are DERIVED presentation — the serializer
-// (AttributedToMarkdown.swift) reads only the semantic attributes.
-//
-// Constructs the model cannot represent (tables, HTML blocks) become read-only
-// "islands": `.raw` paragraphs that serialize back verbatim.
+// Visual (WYSIWYG) foundation. The attributed string contains NO markdown
+// markers: each display paragraph (text between "\n") carries `.mdBlock`;
+// inline semantics live in `.mdInline` / `.mdLink` / `.mdImage`. Fonts/colors
+// are DERIVED presentation — the serializer (AttributedToMarkdown.swift) reads
+// only the semantic attributes. Constructs the model cannot represent (tables,
+// HTML blocks) become read-only `.raw` islands serialized back verbatim.
 //
 // Normalizations (serialize(render(x)) is the normal form; HTML-invariant):
-//   setext → ATX headings · reference links → inline · loose lists → tight ·
+//   setext → ATX headings · reference links → inline ·
 //   indented code → fenced · _em_/__strong__ → */** · +/* bullets → "-" ·
 //   soft breaks → spaces · hard breaks → backslash form · list nesting → 4 spaces
 
@@ -49,14 +45,11 @@ struct MDBlock: Equatable, Hashable {
         /// Read-only island: serialized verbatim from the stored source text.
         case raw(String)
 
-        // A hand-written hash so `.raw`'s payload is NOT walked. This kind is
-        // stored as an NSAttributedString attribute value, and NSTextStorage
-        // hashes attribute values while fixing/coalescing runs — for a large
-        // island (a whole 9000-row table lives in one `.raw`) the synthesized
-        // hash would re-walk the entire multi-hundred-KB string on every
-        // addAttribute, pegging the CPU. Length is a cheap discriminant;
-        // collisions are fine (Hashable only requires equal ⇒ equal-hash, and
-        // `==` still compares fully on the rare collision).
+        // Hand-written so `.raw`'s payload is NOT walked: NSTextStorage hashes
+        // attribute values while fixing runs, and a synthesized hash would
+        // re-walk a multi-hundred-KB island on every addAttribute, pegging the
+        // CPU. O(1) by contract (CLAUDE.md); collisions fine — `==` still
+        // compares fully.
         func hash(into hasher: inout Hasher) {
             switch self {
             case .paragraph: hasher.combine(0)
@@ -88,11 +81,10 @@ struct MDBlock: Equatable, Hashable {
     var group: Int = -1
     /// Leading spaces for blocks nested inside a list item.
     var listIndent: Int = 0
-    /// List items only: the source list was *loose* (blank lines between
-    /// items). The serializer re-emits those blanks between same-level
-    /// siblings so opening a document in Visual doesn't silently rewrite a
-    /// loose list to tight. EditMD renders both identically, so this is a
-    /// byte-fidelity concern, not a presentation one.
+    /// List items only: source list was *loose* (blank lines between items);
+    /// the serializer re-emits those blanks so Visual doesn't silently rewrite
+    /// loose to tight. Byte fidelity, not presentation — EditMD renders both
+    /// identically.
     var loose: Bool = false
 }
 
@@ -104,9 +96,9 @@ extension NSAttributedString.Key {
     static let mdWikiLink = NSAttributedString.Key("md.wikiLink")  // MDWikiLinkPayload
     static let mdBuiltInPluginToken = NSAttributedString.Key("md.builtInPluginToken")
     static let mdCalloutSoftBreak = NSAttributedString.Key("md.calloutSoftBreak")
-    /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. The run text
-    /// is the VERBATIM source including delimiters; the serializer re-emits it
-    /// without markdown escaping (cheap NSNumber value — v29 hash invariant).
+    /// Math run (`$…$` / `$$…$$`): Int, 0 = inline, 1 = display. Run text is
+    /// the VERBATIM source incl. delimiters; the serializer re-emits it without
+    /// escaping. Cheap NSNumber value keeps storage hashing O(1).
     static let mdMath = NSAttributedString.Key("md.math")
 }
 
@@ -141,10 +133,9 @@ struct VisualStyle {
 
     func headingSize(_ level: Int) -> CGFloat {
         let scaled = baseSize * elements.heading(level).sizeScale
-        // Optical cap (plan 11.2): the increment over body is limited in
-        // absolute points, so at accessibility-size bases the ramp compresses
-        // instead of exploding (Dynamic Type-style). At the default base 15
-        // none of the caps engage.
+        // Optical cap: the increment over body is limited in absolute points so
+        // accessibility-size bases compress instead of exploding. At the
+        // default base 15 none engage.
         let cap: CGFloat
         switch level {
         case 1: cap = 16
@@ -155,10 +146,8 @@ struct VisualStyle {
         return min(scaled, baseSize + cap)
     }
 
-    /// Mono size for inline code and listings: ×0.88 of body (mono runs
-    /// optically larger than proportional at equal size). Floor: 11pt — or
-    /// the body size itself when body is under 11pt, so code never exceeds
-    /// body (plan 11.3/11.4).
+    /// Mono ×0.88 of body (mono runs optically larger at equal size); floor
+    /// 11pt, but never above body size.
     var codeSize: CGFloat { max(baseSize * 0.88, min(baseSize, 11)) }
 
     func font(for styles: MDInlineStyle, blockKind: MDBlock.Kind) -> NSFont {
@@ -174,8 +163,8 @@ struct VisualStyle {
             let base = proportional(ofSize: headingSize(level), weight: weight)
             return styles.contains(.italic) ? base.withTraits(.italic) : base
         case .tableCell:
-            // Tabular figures so numeric columns align (plan 11.5); letters
-            // are unaffected. A custom body family keeps its own digits.
+            // Tabular figures so numeric columns align; a custom body family
+            // keeps its own digits.
             var weight = bodyWeight
             if styles.contains(.bold) { weight = (elements.bold.weight ?? .bold).nsWeight }
             let base = bodyFamily.isEmpty
@@ -304,10 +293,10 @@ private final class VisualRenderer {
 
     func run() -> NSAttributedString {
         let document = Document(parsing: parseSource)
-        // YAML frontmatter isn't in the markdown grammar. It is not displayed
-        // in Visual at all (the Properties inspector owns it) — skip the AST
-        // nodes it produced (a thematic break + a setext heading). The Visual
-        // coordinator re-attaches the verbatim block on serialize.
+        // YAML frontmatter isn't in the grammar and isn't displayed in Visual
+        // (the Properties inspector owns it): skip the AST nodes it produced
+        // (thematic break + setext heading); the coordinator re-attaches the
+        // verbatim block on serialize.
         let frontmatter = frontmatterRange(in: source)
         let skipUntil = frontmatter.map { NSMaxRange($0.full) } ?? 0
         for child in document.children {
@@ -331,9 +320,9 @@ private final class VisualRenderer {
 
     private func renderBlock(_ block: Markup, ctx: Ctx) {
         noteSource(block)
-        // A block fully inside a multiline `$$` span (masked → sentinel
-        // paragraphs; blank lines inside TeX split it into several) becomes
-        // ONE verbatim math run; the follow-up pieces are dropped silently.
+        // A block fully inside a multiline `$$` span becomes ONE verbatim math
+        // run (blank lines inside TeX split it into several parsed blocks);
+        // follow-up pieces are dropped.
         if let idx = multilineMathIndex(containing: block) {
             if !emittedMath.contains(idx) {
                 emittedMath.insert(idx)
@@ -391,13 +380,11 @@ private final class VisualRenderer {
         }
     }
 
-    /// Above this many cells a native NSTextTable is rendered as a monospace
-    /// island instead. NSTextTable layout is super-linear in cell count — a few
-    /// thousand cells peg the CPU indefinitely (TextKit lays out every cell of
-    /// the whole document up front, no virtualization). The island is plain
-    /// monospace text that lays out fast and round-trips the pipe table
-    /// verbatim; FSNotes/Obsidian likewise never use native table widgets for
-    /// large tables. Small tables keep the editable grid.
+    /// Above this, tables render as monospace islands: NSTextTable layout is
+    /// super-linear in cell count (TextKit lays out every cell up front, no
+    /// virtualization) — a few thousand cells peg the CPU. Islands lay out fast
+    /// and round-trip the pipe table verbatim. Independent of
+    /// `markdownIsHeavy` (docs/architecture.md § Performance).
     static let maxNativeTableCells = 400
 
     private func renderTable(_ table: Markdown.Table, ctx: Ctx) {
@@ -405,8 +392,8 @@ private final class VisualRenderer {
         let alignments = table.columnAlignments
         let columns = max(1, alignments.count)
 
-        // Count rows with an early-out at the budget (rows is a Sequence, and
-        // a giant table would be wasteful to fully materialize just to size it).
+        // Early-out at the budget: rows is a Sequence, and fully materializing
+        // a giant table just to size it is wasteful.
         var rowCount = 1  // header row
         for _ in table.body.rows {
             rowCount += 1
@@ -613,13 +600,10 @@ private final class VisualRenderer {
         }
     }
 
-    /// A list is *loose* when a blank line separates any two consecutive items.
-    /// Item source ranges alone can't tell tight from loose (a loose item's
-    /// range simply absorbs the trailing blank line, so the item-to-item line
-    /// gap is 1 either way); instead we check the source line immediately
-    /// before each item start. Multi-paragraph items already serialize with
-    /// blank lines via `.listContinuation`, so only the item-to-item gap
-    /// matters here. Missing ranges (never happens for parsed lists) → tight.
+    /// Loose = blank line between any two consecutive items. Item ranges can't
+    /// tell (a loose item's range absorbs its trailing blank), so check the
+    /// source line before each item start. Multi-paragraph items already
+    /// serialize blanks via `.listContinuation`. Missing ranges → tight.
     private func listIsLoose(_ items: [ListItem]) -> Bool {
         let ranges = items.compactMap(\.range)
         guard ranges.count == items.count, ranges.count >= 2 else { return false }
@@ -629,9 +613,8 @@ private final class VisualRenderer {
         return false
     }
 
-    /// Whether the given 1-based line of the parsed (masked) source is empty or
-    /// whitespace-only. Masking preserves line boundaries, so blank lines match
-    /// the original text.
+    /// 1-based line of the masked source empty/whitespace-only; masking
+    /// preserves line boundaries, so blanks match the original text.
     private func sourceLineIsBlank(_ line: Int) -> Bool {
         guard line >= 1, line <= lineIdx.lineCount else { return false }
         let ns = parseSource as NSString
@@ -654,11 +637,9 @@ private final class VisualRenderer {
 
     // MARK: Islands
 
-    /// A large table stored as a raw island. The `.raw` value is the verbatim
-    /// pipe markdown (serializer reads it → round-trips unchanged), but the
-    /// DISPLAYED text drops the `| --- |` delimiter line so the grid drawn in
-    /// Visual has no empty band under the header. Display is cosmetic; only the
-    /// stored `.raw` feeds serialization.
+    /// Large table as raw island: `.raw` holds the verbatim pipe markdown
+    /// (round-trips unchanged); the DISPLAYED text is cosmetic and never feeds
+    /// serialization.
     private func renderTableIsland(_ table: Markdown.Table, ctx: Ctx) {
         let raw: String
         if let srcRange = table.range {
@@ -672,10 +653,8 @@ private final class VisualRenderer {
             raw = table.format()
         }
         guard !raw.isEmpty else { return }
-        // Single spacer glyph: vertical space is set by presentation
-        // (min=max line height = sum of wrapped row heights). Drawing paints
-        // the real grid in drawBackground. Display is cosmetic; `.raw` holds
-        // the verbatim pipe markdown for serialization.
+        // Single spacer glyph: vertical space set by presentation (min=max line
+        // height = sum of wrapped row heights); drawBackground paints the grid.
         let display = "\u{00A0}"
         appendParagraph(makeBlock(.raw(raw), ctx)) { b in
             self.appendText(display, block: b, styles: [], link: nil)

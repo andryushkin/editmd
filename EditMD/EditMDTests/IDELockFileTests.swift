@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Step 1.2 gate: the lock file IS the discovery mechanism. Wrong schema, wrong
+/// The lock file IS the discovery mechanism. Wrong schema, wrong
 /// permissions or a stale file and `/ide` either finds nothing or dials a dead
 /// port. All tests run against an injected directory — never `~/.claude/ide`.
 final class IDELockFileTests: XCTestCase {

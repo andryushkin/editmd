@@ -3,10 +3,9 @@ import AppKit
 
 // MARK: - Action bag (all modes)
 
-/// Closures the top action strip invokes. Modes publish what they support;
-/// nil → button hidden or beeps. Shared by Source / Visual / Preview.
-/// Closure bag for the action strip. Not an ObservableObject on purpose:
-/// bindings are installed from `updateNSView` / format publishers; publishing
+/// Closure bag the strip invokes; modes publish what they support (nil →
+/// hidden or beeps). Not an ObservableObject on purpose: bindings are
+/// installed from `updateNSView` / format publishers, and publishing
 /// `objectWillChange` during a view update freezes SwiftUI.
 @MainActor
 final class EditorStripActions {
@@ -15,13 +14,11 @@ final class EditorStripActions {
     var toggleStrikethrough: (() -> Void)?
     var toggleCodeSpan: (() -> Void)?
     var toggleHighlight: (() -> Void)?
-    /// Add/edit a link on the selection (⌘K) — both editing modes.
     var editLink: (() -> Void)?
-    /// Heading 1…3 (Title / Heading / Subheading).
+    /// Heading 1…3.
     var setHeading: ((Int) -> Void)?
     /// Plain paragraph (strip structure).
     var setBody: (() -> Void)?
-    /// Clear inline styles only (B4).
     var clearInlineFormatting: (() -> Void)?
     var insertDivider: (() -> Void)?
     var cycleCase: (() -> Void)?
@@ -32,8 +29,8 @@ final class EditorStripActions {
     var toggleQuote: (() -> Void)?
     var insertImage: (() -> Void)?
 
-    // Table / formula insertion works in both editing modes (Source inserts
-    // raw markdown templates); the row/column ops stay Visual-only.
+    // Table/formula insertion is dual-mode (Source inserts raw markdown
+    // templates); row/column ops stay Visual-only.
     var insertTable: (() -> Void)?
     var tableAddRow: (() -> Void)?
     var tableDeleteRow: (() -> Void)?
@@ -42,7 +39,7 @@ final class EditorStripActions {
     var insertInlineFormula: (() -> Void)?
     var insertBlockFormula: (() -> Void)?
 
-    /// Active inline formats at caret — drives accent tint on B/I/`/S (B6).
+    /// Active inline formats at caret — drives accent tint on B/I/`/S.
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
 
     func run(_ action: (() -> Void)?) {
@@ -53,20 +50,17 @@ final class EditorStripActions {
 
 // MARK: - Strip UI
 
-/// Top accessory bar over the editor — system `.accessoryBar` tool groups
-/// plus a stock segmented mode switcher pinned to the trailing edge.
-/// The leading inset matches the active mode's reading field. Tool groups
-/// that no longer fit the space between them collapse into an "…" menu — the
-/// switcher must never be overlapped.
+/// Top accessory bar: `.accessoryBar` tool groups + segmented mode switcher
+/// pinned trailing. Leading inset matches the active mode's reading field;
+/// overflowing groups collapse into "…" — the switcher must never be
+/// overlapped. docs/architecture.md § Action strip.
 struct EditorActionStrip: View {
     nonisolated private static let editingToolIDs =
         [StripGroup.inline, .headings, .lists, .insert, .cleanup].flatMap(\.toolIDs)
 
-    /// Pure, mode-aware source of truth for the tools the strip renders.
-    /// Full Preview exposes only review-oriented actions; Split keeps Source
-    /// editing tools and appends Review for selections from either pane.
-    /// Both editing modes get the whole Insert group; the native table
-    /// row/column ops (`table.*`) exist only where `showTableOps`.
+    /// Pure source of truth for rendered tools. Full Preview: review-oriented
+    /// only; Split: Source tools + Review. `table.*` ops only where
+    /// `showTableOps`.
     nonisolated static func toolIDs(for mode: EditorMode,
                                     showTableOps: Bool,
                                     showReviewAction: Bool) -> [String] {
@@ -95,59 +89,51 @@ struct EditorActionStrip: View {
     /// Closures only — not observed for UI identity (mutating them must not
     /// republish during `updateNSView` or SwiftUI freezes).
     var actions: EditorStripActions
-    /// Source / Visual / Preview inset for column alignment.
+    /// Active mode's inset for column alignment.
     var insetH: CGFloat
     var columnWidth: CGFloat
-    /// Width of the Source pane in split, used only to align the tools' left
-    /// edge and the gutter toggle over that pane's text/numbers (field
-    /// geometry) and to pick the split trailing padding. It does NOT bound the
-    /// tool lane — the tools flow across the whole strip up to the mode switch.
-    /// nil (non-split) means the strip spans the whole editor area.
+    /// Split only: Source pane width, used to align the tools' left edge and
+    /// gutter toggle. Does NOT bound the tool lane — tools flow across the
+    /// whole strip up to the mode switch. nil = whole editor area.
     var editingPaneWidth: CGFloat? = nil
-    /// Left edge of the text as reported by Source/Visual (their inset already
-    /// reserves the numbers margin). nil → compute it (Preview).
+    /// Text left edge from Source/Visual (inset already reserves numbers
+    /// margin). nil → compute it (Preview).
     var textLeading: CGFloat? = nil
     /// Numbers → text gap, so the toggle lands over the digits.
     var railGap: CGFloat = 0
-    /// Preview only: its rail (numbers + gap) widens the text's left padding,
-    /// and nobody reports the result — so the strip adds it itself.
+    /// Preview only: the rail widens the text's left padding and nobody
+    /// reports the result — the strip adds it itself.
     var previewRailWidth: CGFloat = 0
     /// Native table row/column ops (Visual only). Driven by mode, not by
-    /// nil-ing closures on the actions bag. Table/formula *insertion* shows in
-    /// both editing modes regardless.
+    /// nil-ing closures on the actions bag.
     var showTableOps: Bool = false
-    /// Review compose exists only in the main workspace window, which owns the
-    /// Review sidebar. Lite windows keep this false and omit the button.
+    /// Review compose exists only in the main window (owns the Review
+    /// sidebar); lite windows omit the button.
     var showReviewAction: Bool = false
     var addReviewMark: () -> Void = {}
-    /// B6: tint B/I/`/S when caret is inside those styles.
+    /// Tint B/I/`/S when caret is inside those styles.
     var activeFormats: ActiveInlineFormats = ActiveInlineFormats()
-    /// Mode switcher — pinned to the trailing edge of the strip (the window
-    /// toolbar no longer carries it).
     var mode: EditorMode
     var setEditorMode: (EditorMode) -> Void
     /// Line-number toggle, drawn over the gutter it controls.
     var showLineNumbers: Bool
     var toggleLineNumbers: () -> Void
 
-    /// Measured pill widths, keyed by `StripGroup.rawValue` + the two reserved
-    /// keys below. Filled by the hidden measurement layer; pill widths don't
-    /// depend on the available width, so this settles on the first pass.
+    /// Measured pill widths (hidden measurement layer). Pill widths don't
+    /// depend on available width, so this settles on the first pass.
     @State private var widths: [String: CGFloat] = [:]
 
     private static let modeKey = "__mode"
     private static let overflowKey = "__overflow"
-    /// The terminal (lane-alone) overflow pill: wider than "…" because of the
-    /// glyph + chevron, so it is measured separately and planning reserves
-    /// the larger of the two.
+    /// Terminal (lane-alone) overflow pill: wider than "…" (glyph + chevron),
+    /// measured separately; planning reserves the larger of the two.
     private static let soloOverflowKey = "__overflow.solo"
     private static let gutterKey = "__gutter"
-    /// Measurement key suffix for a group's compact representation.
     private static let compactKeySuffix = ".compact"
-    /// Gap to the strip's service neighbours: mode switch, "…", gutter toggle.
+    /// Gap to service neighbours: mode switch, "…", gutter toggle.
     private static let groupSpacing: CGFloat = 8
-    /// Semantic boundary between tool groups inside the well (plan 12.1 —
-    /// proximity grouping instead of hairlines; 12 pt, art-locked).
+    /// Semantic boundary between groups (proximity grouping instead of
+    /// hairlines; art-locked).
     private static let groupGap: CGFloat = 12
     /// Gap before the "…" overflow pill (service control, not a group).
     private static let overflowGap: CGFloat = 8
@@ -158,8 +144,8 @@ struct EditorActionStrip: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Build every StripItem once per body pass. The same instances feed
-            // visible pills, overflow and the hidden measurement layer.
+            // One StripItem build per body pass feeds visible pills, overflow
+            // and the measurement layer.
             let groups = activeGroups
             let itemsByGroup = Dictionary(uniqueKeysWithValues:
                 groups.map { ($0, items(for: $0)) })
@@ -167,11 +153,9 @@ struct EditorActionStrip: View {
                 stripWidth: geo.size.width, editingPaneWidth: editingPaneWidth)
             let field = field(for: editingWidth)
             let lead = field.textLeading
-            // The strip is one bar: the tools flow from the field's left edge
-            // across the whole width up to the mode switch. The right boundary
-            // is ALWAYS the switch (plan 12.0) — it used to be the text
-            // column's trailing margin in non-split, which parked a dead zone
-            // on wide windows and collapsed groups into "…" with room to spare.
+            // Right boundary is ALWAYS the switch: bounding the lane at the
+            // text column's trailing margin parked a dead zone on wide windows
+            // and collapsed groups into "…" with room to spare.
             let stripTrail = SidebarChrome.barPaddingH
             let modeWidth = widths[Self.modeKey] ?? 0
             let toolLaneWidth = Self.resolvedToolLaneWidth(
@@ -183,9 +167,8 @@ struct EditorActionStrip: View {
                 Self.commandTree(for: mode, showTableOps: showTableOps,
                                  showReviewAction: showReviewAction)
                     .map { ($0.id, $0.children) })
-            // The well's own horizontal padding eats into the lane before any
-            // group does — without this the "…" collapse triggers a dozen
-            // points late and the last group clips under the switcher.
+            // Well padding eats into the lane before any group — omitting it
+            // triggers the "…" collapse late and clips under the switcher.
             let planned = Self.layoutPlan(
                 budget: toolLaneWidth - 2 * Self.toolWellPaddingH,
                 groupGap: Self.groupGap,
@@ -205,11 +188,10 @@ struct EditorActionStrip: View {
             let visibleGroups = groups.filter { displayByID[$0.rawValue] != .overflow }
             let overflowGroups = groups.filter { displayByID[$0.rawValue] == .overflow }
             HStack(alignment: .center, spacing: 0) {
-                // groupGap separates semantic groups; the "…" pill is a
-                // service control and sits at the tighter overflowGap. The
-                // group container renders only when non-empty: an empty HStack
-                // still counts as a sibling and its spacing shifted the lone
-                // terminal pill into the clip (review fix).
+                // "…" is a service control at the tighter overflowGap. Group
+                // container renders only when non-empty: an empty HStack still
+                // counts as a sibling and its spacing shifted the lone
+                // terminal pill into the clip.
                 HStack(alignment: .center, spacing: Self.overflowGap) {
                     if !visibleGroups.isEmpty {
                         HStack(alignment: .center, spacing: Self.groupGap) {
@@ -230,14 +212,11 @@ struct EditorActionStrip: View {
                                      collapsedAlone: visibleGroups.isEmpty)
                     }
                 }
-                // Compact metrics: at .regular the accessory buttons carry
-                // enough system padding that a ~450pt lane fit NOTHING and
-                // every group fell into "…" — .small keeps the same glyphs
-                // with tighter boxes, so groups survive on narrow panes.
+                // .small: at .regular the system padding meant a ~450pt lane
+                // fit NOTHING and every group fell into "…".
                 .controlSize(.small)
-                // One shared well behind ALL the tools (user-picked look):
-                // hugs the visible buttons, mirrors the segmented switcher's
-                // bezel so the two read as sibling panels on the strip.
+                // One shared well behind ALL tools, mirroring the switcher's
+                // bezel (deliberate look).
                 .padding(.horizontal, Self.toolWellPaddingH)
                 .padding(.vertical, 3)
                 .background(
@@ -245,8 +224,8 @@ struct EditorActionStrip: View {
                         .fill(Color(nsColor: .quaternarySystemFill))
                 )
                 .frame(width: toolLaneWidth, alignment: .leading)
-                // Belt and braces: even if a pill measures wider than planned,
-                // it gets clipped instead of drawing over the switcher.
+                // A pill measuring wider than planned clips instead of
+                // drawing over the switcher.
                 .clipped()
                 Spacer(minLength: Self.groupSpacing)
                 modePill
@@ -254,21 +233,18 @@ struct EditorActionStrip: View {
             .padding(.leading, lead)
             .padding(.trailing, stripTrail)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            // Sits in the left margin, centred over the numbers column — the
+            // Toggle sits in the left margin over the numbers column; the
             // rail is reserved either way, so it never moves.
             .overlay(alignment: .leading) {
-                // The glyph is centred in its hit target, so aligning the
-                // BOX with the digits leaves the symbol visibly left of them
-                // — nudge back by half the slack. Two clamps: a `barPaddingH`
-                // floor (a narrow rail must not pin the toggle to the pane
-                // edge) and a ceiling short of `lead` — the tool well now
-                // paints from `lead`, and the toggle box used to cross it
-                // invisibly, which the well turned into a visible overlap.
+                // Glyph is centred in its hit target: aligning the BOX with
+                // the digits leaves the symbol left of them — nudge by half
+                // the slack. Clamps: barPaddingH floor, and a ceiling short of
+                // `lead` (the well paints from `lead`; a crossing toggle box
+                // shows as visible overlap).
                 let gutterWidth = widths[Self.gutterKey] ?? 0
                 let ideal = field.railTrailingX - gutterWidth + Self.gutterGlyphInset
-                // The groupSpacing gap to the tool well is a hard rule; the
-                // barPaddingH inset from the pane edge only applies while it
-                // doesn't violate that gap (a narrow rail can't have both).
+                // groupSpacing gap to the well is a hard rule; barPaddingH
+                // inset applies only while it doesn't violate that gap.
                 let clearance = lead - gutterWidth - Self.groupSpacing
                 gutterPill
                     .offset(x: max(0, min(max(SidebarChrome.barPaddingH, ideal),
@@ -278,10 +254,8 @@ struct EditorActionStrip: View {
                 measurementLayer(groups: groups, itemsByID: itemsByID,
                                  nodesByGroup: nodesByGroup)
             }
-            // One deliberate toolbar backing across the whole width. The tools
-            // flow across Source + Preview up to the reserved mode switch;
-            // without a bar they read as two floating clusters with a gap. The
-            // bar ties them into a single strip spanning both panes.
+            // One toolbar backing across the whole width — without it the
+            // tools read as two floating clusters with a gap in Split.
             .background { stripBar }
             .onPreferenceChange(StripWidthKey.self) { widths = $0 }
         }
@@ -293,9 +267,8 @@ struct EditorActionStrip: View {
         min(max(0, editingPaneWidth ?? stripWidth), max(0, stripWidth))
     }
 
-    /// Tool-lane width: everything between the field's left edge and the mode
-    /// switch. All metrics are explicit (plan 12.0) — the lane must NOT depend
-    /// on the text column's trailing margin.
+    /// Tool-lane width: field's left edge → mode switch. All metrics
+    /// explicit — the lane must NOT depend on the text column's trailing margin.
     nonisolated static func resolvedToolLaneWidth(stripWidth: CGFloat,
                                                   lead: CGFloat,
                                                   trailingInset: CGFloat,
@@ -304,16 +277,12 @@ struct EditorActionStrip: View {
         max(0, stripWidth - lead - trailingInset - modeWidth - modeGap)
     }
 
-    /// Two-stage degradation (plan 12.2). All groups start full; while the
-    /// state doesn't fit the budget, groups fold into their compact menus by
-    /// `compressionRank`, then leave into the shared "…" by `overflowRank`.
-    /// The result keeps the input order — group order is part of the UI
-    /// contract. The cost of a candidate state is recomputed from scratch on
-    /// every step: sequential subtraction goes wrong exactly at the threshold.
-    /// `soloOverflowWidth` — the terminal pill (textformat + chevron) is wider
-    /// than the plain "…", but it only ever appears with NO visible groups, so
-    /// its width must not be reserved by ordinary overflow states (and the
-    /// group gap disappears with the groups). nil → same as `overflowWidth`.
+    /// Two-stage degradation: full → compact by `compressionRank` → "…" by
+    /// `overflowRank`; result keeps input order (group order is UI contract).
+    /// Cost is recomputed from scratch each step — sequential subtraction
+    /// goes wrong exactly at the threshold. `soloOverflowWidth`: the terminal
+    /// pill is wider but appears only with NO visible groups, so ordinary
+    /// overflow states must not reserve it. nil → same as `overflowWidth`.
     nonisolated static func layoutPlan(budget: CGFloat,
                                        groupGap: CGFloat,
                                        overflowGap: CGFloat,
@@ -322,8 +291,8 @@ struct EditorActionStrip: View {
                                        items: [StripLayoutItem])
         -> [(id: String, display: StripGroupDisplay)] {
         guard !items.isEmpty else { return [] }
-        // First frame: nothing measured yet — show everything full; the
-        // visible lane's `.clipped()` covers that one frame.
+        // First frame: unmeasured — show everything full; the lane's
+        // `.clipped()` covers that one frame.
         guard !items.contains(where: { $0.fullWidth <= 0 }) else {
             return items.map { ($0.id, .full) }
         }
@@ -348,8 +317,8 @@ struct EditorActionStrip: View {
             .sorted { ($0.compressionRank ?? .max) < ($1.compressionRank ?? .max) }
         for item in byCompression {
             guard cost() > budget else { break }
-            // An unmeasured compact width can't be planned — skip, the group
-            // will fall through to overflow if the lane stays too tight.
+            // Unmeasured compact width can't be planned — skip; the group
+            // falls through to overflow if the lane stays too tight.
             guard let compact = item.compactWidth, compact > 0 else { continue }
             display[item.id] = .compact
         }
@@ -365,10 +334,10 @@ struct EditorActionStrip: View {
         nodes.flatMap { $0.isLeaf ? [$0.id] : flattenedCommandIDs($0.children) }
     }
 
-    /// Group-level command tree: top-level nodes are the strip groups (id ==
-    /// group rawValue), children are the group's commands; Table and Formula
-    /// are submenus inside `insert`. Single source for every representation —
-    /// `flattenedCommandIDs(commandTree(…)) == toolIDs(…)` is tested.
+    /// Command tree: top-level nodes = groups, children = commands; Table and
+    /// Formula are submenus inside `insert`. Single source for every
+    /// representation — `flattenedCommandIDs(commandTree(…)) == toolIDs(…)`
+    /// is tested.
     nonisolated static func commandTree(for mode: EditorMode,
                                         showTableOps: Bool,
                                         showReviewAction: Bool) -> [StripCommandNode] {
@@ -384,9 +353,8 @@ struct EditorActionStrip: View {
                     .filter(allowed.contains).map { StripCommandNode(id: $0) }
                 let math = ["math.inline", "math.block"]
                     .filter(allowed.contains).map { StripCommandNode(id: $0) }
-                // A submenu node with no allowed commands is dropped whole —
-                // an empty node would surface its structural id as a fake
-                // leaf in `flattenedCommandIDs` (review fix).
+                // Empty submenu node is dropped whole — it would surface its
+                // structural id as a fake leaf in `flattenedCommandIDs`.
                 children = ["image", "divider", "codeblock"].filter(allowed.contains)
                     .map { StripCommandNode(id: $0) }
                     + [StripCommandNode(id: "table.menu", children: table),
@@ -417,10 +385,9 @@ struct EditorActionStrip: View {
             .compactMap(StripGroup.init(rawValue:))
     }
 
-    /// Every pill laid out at its natural size, off-screen: a group that lives
-    /// in the "…" menu still needs a width, or it could never come back. Both
-    /// representations of the compressible groups are always measured, so the
-    /// plan is a deterministic function of the lane width.
+    /// Every pill measured off-screen: a group in "…" still needs a width or
+    /// it could never come back. Both representations of compressible groups
+    /// are always measured, so the plan is deterministic in lane width.
     private func measurementLayer(groups: [StripGroup],
                                   itemsByID: [String: StripItem],
                                   nodesByGroup: [String: [StripCommandNode]]) -> some View {
@@ -444,7 +411,7 @@ struct EditorActionStrip: View {
             gutterPill.measureWidth(key: Self.gutterKey)
         }
         // Must match the visible lane's control size, or the plan runs on
-        // .regular widths and overflows too early.
+        // .regular widths and overflows early.
         .controlSize(.small)
         .fixedSize()
         .hidden()
@@ -453,18 +420,15 @@ struct EditorActionStrip: View {
 
     // MARK: Groups
 
-    /// Full representation of one group. EVERY branch walks the command tree
-    /// (review fix — the ordinary groups used to render a parallel items
-    /// array, so the flatten invariant wasn't actually proven): a leaf renders
-    /// as a one-tap button, a submenu node as a chevron-free menu; a submenu
-    /// with a single command (Source's Table) renders as a direct button — a
-    /// one-item menu would cost an extra click.
+    /// Full representation. EVERY branch must walk the command tree (a
+    /// parallel items array broke the flatten invariant): leaf → one-tap
+    /// button, submenu → chevron-free menu; a single-command submenu renders
+    /// as a direct button — a one-item menu costs an extra click.
     @ViewBuilder private func groupPill(_ group: StripGroup,
                                         itemsByID: [String: StripItem],
                                         nodes: [StripCommandNode]) -> some View {
         if group == .cleanup {
-            // One eraser menu; the three utilities read by name instead of the
-            // old T / Aa / aA glyph triple (and flatten into "…" as items).
+            // One eraser menu; utilities read by name, flatten into "…" as items.
             cluster {
                 AccessoryBarMenu(systemImage: "eraser",
                                  help: String(localized: "Cleanup")) {
@@ -472,9 +436,9 @@ struct EditorActionStrip: View {
                 }
             }
         } else if group == .theme {
-            // One palette button; the presets live in its menu (and flatten
-            // into plain items inside "…"). Themes are genuinely single-select,
-            // so the Picker stays (the toggle rule covers heading/list only).
+            // Presets live in the palette menu. Themes are genuinely
+            // single-select, so the Picker stays (toggle rule covers
+            // heading/list only).
             cluster {
                 themeMenu
             }
@@ -500,14 +464,14 @@ struct EditorActionStrip: View {
         }
     }
 
-    /// Compact representation (plan 12.2): the whole group folds into one
-    /// menu whose visible system chevron says "this is a menu".
+    /// Compact representation: the whole group folds into one menu whose
+    /// visible chevron says "this is a menu".
     @ViewBuilder private func compactPill(_ group: StripGroup,
                                           itemsByID: [String: StripItem],
                                           nodes: [StripCommandNode]) -> some View {
         if group == .headings {
-            // Dynamic glyph: the active level shows before any click; width is
-            // reserved by the widest state so a level change never replans.
+            // Dynamic glyph; width reserved by the widest state so a level
+            // change never replans.
             ZStack {
                 AccessoryBarMenu(glyph: .text("H3"), help: group.title,
                                  showsIndicator: true) { EmptyView() }
@@ -520,8 +484,8 @@ struct EditorActionStrip: View {
                 }
             }
         } else {
-            // Insert: plus in a dashed placeholder frame — "insert a block
-            // here" (user pick, 12.3; bare plus read as nothing).
+            // Insert: plus in a dashed placeholder frame (a bare plus read
+            // as nothing).
             AccessoryBarMenu(glyph: group == .lists ? .symbol("list.bullet")
                                                     : .symbol("plus.square.dashed"),
                              help: group.title, showsIndicator: true) {
@@ -530,7 +494,7 @@ struct EditorActionStrip: View {
         }
     }
 
-    /// Neutral "H" outside a heading (12.3 may switch it to "¶" by eye).
+    /// Neutral "H" outside a heading.
     private var compactHeadingsGlyph: String {
         if let level = activeFormats.headingLevel, (1...3).contains(level) {
             return "H\(level)"
@@ -538,10 +502,9 @@ struct EditorActionStrip: View {
         return "H"
     }
 
-    /// `collapsedAlone` — terminal state, the pill is the whole lane: a bare
-    /// "…" next to nothing reads as noise, so it becomes the system text-
-    /// format glyph with a visible chevron (user call, 12.3): "the tools
-    /// live in here". Next to visible groups it stays the quiet "…".
+    /// `collapsedAlone` — terminal state, pill is the whole lane: a bare "…"
+    /// next to nothing reads as noise, so it becomes the textformat glyph
+    /// with a visible chevron. Next to visible groups it stays "…".
     private func overflowPill(_ groups: [StripGroup],
                               itemsByID: [String: StripItem],
                               nodesByGroup: [String: [StripCommandNode]],
@@ -559,9 +522,8 @@ struct EditorActionStrip: View {
         }
     }
 
-    /// Menu rows for a command (sub)tree. The tree is at most two levels deep
-    /// by construction, so the recursion is written out explicitly (opaque
-    /// `some View` cannot recurse).
+    /// Tree is at most two levels deep, so the recursion is written out
+    /// explicitly (opaque `some View` cannot recurse).
     @ViewBuilder private func menuRows(_ nodes: [StripCommandNode],
                                        itemsByID: [String: StripItem]) -> some View {
         ForEach(nodes, id: \.id) { node in
@@ -570,8 +532,8 @@ struct EditorActionStrip: View {
                     menuRow(item)
                 }
             } else if node.children.count == 1, let only = node.children.first {
-                // Same rule as the full pill: a one-command submenu (Source's
-                // Table) flattens into a direct row — no extra click.
+                // Same rule as the full pill: one-command submenu flattens
+                // into a direct row.
                 if let item = itemsByID[only.id] {
                     menuRow(item)
                 }
@@ -587,8 +549,8 @@ struct EditorActionStrip: View {
         }
     }
 
-    /// Stateful command → Toggle (system checkmark, re-select clears, several
-    /// can be on at once — Quote plus a list). Momentary command → Button.
+    /// Stateful command → Toggle (several can be on at once — Quote plus a
+    /// list); momentary → Button.
     @ViewBuilder private func menuRow(_ item: StripItem) -> some View {
         if let active = item.active {
             Toggle(isOn: Binding(get: { active }, set: { _ in item.action() })) {
@@ -605,11 +567,9 @@ struct EditorActionStrip: View {
         }
     }
 
-    /// Line-number toggle. Lives in the left margin instead of a tool group:
-    /// it belongs to the gutter it sits over, and must never collapse into "…".
-    /// Bare glyph on purpose (user call): no accessory backplate, no well —
-    /// the accent tint alone carries the state, so it reads as part of the
-    /// margin rather than another panel crowding the tool well.
+    /// Line-number toggle. In the left margin, not a tool group: it belongs
+    /// to the gutter and must never collapse into "…". Bare glyph on purpose —
+    /// accent tint alone carries the state.
     private var gutterPill: some View {
         Button {
             toggleLineNumbers()
@@ -627,9 +587,7 @@ struct EditorActionStrip: View {
         .fixedSize()
     }
 
-    /// The mode switcher is the same stock segmented control as the sidebar
-    /// navigators, at its intrinsic width (`fit`) — system selection, no
-    /// hand-drawn pill.
+    /// Same stock segmented control as the sidebar navigators, intrinsic width.
     private var modePill: some View {
         SidebarNavStrip(
             tabs: EditorMode.allCases.map { candidate in
@@ -703,8 +661,7 @@ struct EditorActionStrip: View {
                           action: { runHeading(3) }),
             ]
         case .cleanup:
-            // Feeds the "…" overflow menu; the strip itself renders the group
-            // as `cleanupMenu`, not from these items.
+            // Feeds the "…" menu only; the strip renders the group as a menu.
             items = [
                 StripItem(id: "plain", glyph: .symbol("eraser"), title: String(localized: "Clear Inline Formatting"),
                           help: String(localized: "Plain text (clear inline formatting)"), menuIcon: "eraser",
@@ -739,8 +696,7 @@ struct EditorActionStrip: View {
                           action: { actions.run(actions.toggleQuote) }),
             ]
         case .theme:
-            // Feeds the "…" overflow menu; the strip itself renders the group
-            // as `themeMenu`, not from these items.
+            // Feeds the "…" menu only; the strip renders `themeMenu`.
             let current = PreviewTheme.preset(
                 named: EditorSettings.shared.previewTypography.theme).id
             items = PreviewTheme.allPresets.map { preset in
@@ -801,9 +757,8 @@ struct EditorActionStrip: View {
         return items.filter { allowed.contains($0.id) }
     }
 
-    /// StripItem ids one group actually builds — test seam for the invariant
-    /// "every command-tree leaf has a StripItem" (`StripGroup` is private, so
-    /// the group is addressed by its raw id).
+    /// Test seam for "every command-tree leaf has a StripItem" (`StripGroup`
+    /// is private, so the group is addressed by raw id).
     func itemIDs(forGroupID id: String) -> [String] {
         guard let group = StripGroup(rawValue: id) else { return [] }
         return items(for: group).map(\.id)
@@ -839,17 +794,16 @@ struct EditorActionStrip: View {
 
     private var stripHeight: CGFloat { SidebarChrome.barHeight }
 
-    /// Full-width strip backing. `windowBackgroundColor` matches the sidebar
-    /// panes; on macOS 26 it equals `textBackgroundColor`, so the strip reads
-    /// flush with a default-themed editor — deliberate after the explicit
-    /// band tint was rejected by eye.
+    /// `windowBackgroundColor` matches the sidebar panes; on macOS 26 it
+    /// equals `textBackgroundColor` so the strip reads flush with a
+    /// default-themed editor — deliberate (explicit band tint rejected).
     private var stripBar: some View {
         Rectangle()
             .fill(Color(nsColor: .windowBackgroundColor))
     }
 
-    /// Preview reports nothing — its column is centred in CSS, and the rail
-    /// (numbers + gap) sits inside the body's left padding.
+    /// Preview reports nothing — its column is centred in CSS and the rail
+    /// sits inside the body's left padding.
     private func field(for width: CGFloat) -> EditorFieldGeometry {
         let sideMargin: CGFloat = columnWidth > 0 && width > 0
             ? max(0, (width - min(columnWidth, width)) / 2)
@@ -861,16 +815,14 @@ struct EditorActionStrip: View {
                                    railGap: railGap)
     }
 
-    /// One tool group: accessory-bar controls packed tight, no background —
-    /// the system style draws hover/pressed/on shapes per control, so the
-    /// capsule wells and hand-drawn hairlines are gone. Zero spacing: each
-    /// control already carries the style's own padding.
+    /// Zero spacing: each accessory-bar control carries the style's own
+    /// padding; the system style draws hover/pressed/on shapes per control.
     private func cluster<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 0) { content() }
     }
 }
 
-// MARK: - Layout planner (plan 12.2)
+// MARK: - Layout planner
 
 /// One group as the width planner sees it. Internal (not private) so the
 /// planner stays testable past the private `StripGroup`.
@@ -889,12 +841,11 @@ enum StripGroupDisplay: Equatable {
     case full, compact, overflow
 }
 
-// MARK: - Command tree (plan 12.2)
+// MARK: - Command tree
 
-/// One node of the command tree — the single source the full pills, compact
-/// menus and the "…" menu all render from. A leaf id is an action id from
-/// `toolIDs`; a node with children is a submenu (its id is structural).
-/// Depth is at most 2 (group → submenu → leaf) by construction.
+/// Single source the full pills, compact menus and "…" all render from.
+/// Leaf id = action id from `toolIDs`; children = submenu (structural id).
+/// Depth ≤ 2 (group → submenu → leaf) by construction.
 struct StripCommandNode: Equatable {
     let id: String
     var children: [StripCommandNode] = []
@@ -939,11 +890,10 @@ private enum StripGroup: String, CaseIterable, Identifiable {
         }
     }
 
-    // Plan 12.2 degradation policy (art-locked in the plan; do not reshuffle
-    // without recording the decision). Inline and the single-button groups
-    // never compact.
+    // Degradation policy is art-locked — do not reshuffle without recording
+    // the decision. Inline and single-button groups never compact.
 
-    /// Order of folding into a compact menu; nil → the group never compacts.
+    /// Order of folding into a compact menu; nil → never compacts.
     var compressionRank: Int? {
         switch self {
         case .insert: return 0

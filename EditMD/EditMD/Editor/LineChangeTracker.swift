@@ -1,13 +1,11 @@
 import Foundation
 
-// MARK: - Session dirty-line tracking (v34.1)
+// MARK: - Session dirty-line tracking
 
-/// Tracks which **current** 1-based line numbers differ from a per-file baseline.
-/// Baseline resets on open and on external disk apply; marks clear on app quit
-/// (in-memory) and when git commit touches the path (`GitCommitWatcher`).
-///
-/// Not the same as git working-tree dirty: baseline is “content when we last
-/// anchored”, not HEAD.
+/// Tracks which **current** 1-based lines differ from a per-file baseline.
+/// Baseline resets on open and external disk apply; marks clear on quit
+/// (in-memory) and when a git commit touches the path (`GitCommitWatcher`).
+/// Not git working-tree dirty: baseline is "content when last anchored", not HEAD.
 @MainActor
 final class LineChangeTracker: ObservableObject {
     static let shared = LineChangeTracker()
@@ -50,19 +48,14 @@ final class LineChangeTracker: ObservableObject {
         GitCommitWatcher.shared.noteOpened(url: key)
     }
 
-    /// User typed or paste: recompute dirty vs baseline. Small buffers diff
-    /// inline; large ones are debounced and diffed off the main actor — a full
-    /// Myers line diff per keystroke on main hitched typing in big files.
+    /// Recompute dirty vs baseline on typing/paste. Small buffers diff inline;
+    /// large ones debounce + diff off-main (a Myers line diff per keystroke on
+    /// main hitched typing in big files).
     ///
-    /// `caretUTF16Offset` (into `content`) breaks the tie when an inserted line
-    /// is a duplicate of a neighbour: a pure line diff can't tell which of the
-    /// equal lines is the new one, so it would mark an untouched line. The caret
-    /// is where the user actually typed, so we snap the mark there.
-    ///
-    /// The offset is passed instead of a resolved line so the O(n) offset→line
-    /// scan happens where the diff already runs — inline for small buffers, but
-    /// off the main actor for large ones (converting on main per keystroke would
-    /// undo the very hitch-avoidance the debounced path exists for).
+    /// `caretUTF16Offset` breaks the duplicate-line tie: a line diff can't tell
+    /// which of several equal lines is new, so the mark snaps to the caret. An
+    /// offset, not a resolved line, so the O(n) offset→line scan runs where the
+    /// diff runs — off-main for large buffers.
     func noteContent(url: URL?, content: String, caretUTF16Offset: Int? = nil) {
         guard let url else { return }
         let key = url.standardizedFileURL
@@ -149,13 +142,9 @@ final class LineChangeTracker: ObservableObject {
 
     // MARK: - Pure recompute
 
-    /// Current-document line numbers (1-based) that are inserts or replacements
-    /// relative to baseline (LCS line diff). Pure — callable off the main actor.
-    ///
-    /// `caretLine`, when given, disambiguates a duplicate-line insertion (see
-    /// `noteContent`): the line diff is free to attribute a new line to any of
-    /// several equal lines in a run, so it may light up an untouched one. The
-    /// caret pins the mark to the line the user is actually editing.
+    /// 1-based current lines that are inserts/replacements vs baseline (LCS line
+    /// diff). Pure — callable off-main. `caretLine` disambiguates duplicate-line
+    /// insertions (see `noteContent`).
     nonisolated static func dirtyLineNumbers(baseline: String, current: String,
                                              caretLine: Int? = nil) -> Set<Int> {
         if baseline == current { return [] }
@@ -174,12 +163,10 @@ final class LineChangeTracker: ObservableObject {
         return dirty
     }
 
-    /// A pure line-diff can attribute a duplicate insertion to any equal line in
-    /// a contiguous run. When the caret isn't on one of the marked lines but its
-    /// line is content-identical to a marked line — with only equal lines in
-    /// between — the run is ambiguous, so move that mark onto the caret line.
-    /// Keeps the mark count identical; never fires for real (distinct-content)
-    /// changes, so multi-region edits are untouched.
+    /// Moves a mark onto the caret line when the caret's line is
+    /// content-identical to a marked line with only equal lines between (the
+    /// run is ambiguous). Mark count unchanged; never fires for
+    /// distinct-content changes, so multi-region edits are untouched.
     nonisolated static func snapMarksToCaret(_ marks: Set<Int>, caretLine caret: Int,
                                              current: String) -> Set<Int> {
         guard !marks.isEmpty, !marks.contains(caret) else { return marks }

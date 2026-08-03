@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import SwiftUI
 
-// Lifecycle owner of the IDE channel (v36): starts/stops the WebSocket server,
+// Lifecycle owner of the IDE channel: starts/stops the WebSocket server,
 // keeps `~/.claude/ide/<port>.lock` truthful, and publishes the connection
 // state the toolbar chip renders.
 //
@@ -15,8 +15,8 @@ final class ClaudeIDEService: ObservableObject {
     static let shared = ClaudeIDEService()
 
     /// Identity of a running server. Living inside the `State` cases, it is
-    /// dropped atomically with the state transition — no separate fields to
-    /// forget on a teardown path (the v36.1 lock-file-resurrection bug class).
+    /// dropped atomically with the state transition — separate fields were once
+    /// forgotten on a teardown path and resurrected a stale lock file.
     struct Session: Equatable, Sendable {
         let port: UInt16
         let token: String
@@ -206,7 +206,7 @@ final class ClaudeIDEService: ObservableObject {
 
     /// The CLI matches its cwd against `workspaceFolders` at `/ide` time.
     /// Rewrite the file in place (same port, same token) when the set changes —
-    /// a live connection survives it (verified by hand, see HISTORY v36).
+    /// a live connection survives it (verified by hand).
     func refreshWorkspaceFolders() {
         guard let session = state.session else { return }
         let folders = claudeIDEWorkspaceFolders().map(\.path)

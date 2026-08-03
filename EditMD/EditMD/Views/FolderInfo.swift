@@ -228,7 +228,6 @@ struct FolderInfoCard: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    // Future: git status strip (branch / dirty / pull·push) when git lands.
                     contentList
                     nestedFolderTree
                     Spacer(minLength: 0)
@@ -462,7 +461,7 @@ struct FolderInfoCard: View {
         .padding(.leading, contentIconRail)
     }
 
-    // MARK: Nested folder tree (D8)
+    // MARK: Nested folder tree
 
     /// Full-depth tree of folders with .md counts — data only from cached scan.
     @ViewBuilder private var nestedFolderTree: some View {

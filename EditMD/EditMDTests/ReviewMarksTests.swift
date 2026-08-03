@@ -2,7 +2,7 @@ import Testing
 import XCTest
 @testable import EditMD
 
-/// Phase 2 (v37) — smotr-compatible review sidecar: schema fidelity, anchors,
+/// Smotr-compatible review sidecar: schema fidelity, anchors,
 /// rev-guard, suggest application.
 final class ReviewMarksTests: XCTestCase {
 
@@ -361,7 +361,7 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertTrue(cmd.contains("'/tmp/my project'\\''s notes'"))
     }
 
-    // MARK: Round-trip against on-disk smotr-written fixture (step F)
+    // MARK: Round-trip against on-disk smotr-written fixture
 
     /// EditMD must open a sidecar that a real smotr session wrote (or that
     /// matches its schema) without loss, and re-encode to the same logical
@@ -469,7 +469,7 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(round.marks[0].thread?[1].extra["extra"], .bool(true))
     }
 
-    // MARK: ReviewModel persistence pipeline (stage-2 race fixes)
+    // MARK: ReviewModel persistence pipeline (race regressions)
 
     @MainActor
     func testComposeRequestIsConsumedExactlyOnce() {
@@ -598,7 +598,7 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(model.doc.marks.map(\.note), ["on b"])
     }
 
-    /// Stage-4: the shared anchor cache re-resolves after (debounced) text
+    /// The shared anchor cache re-resolves after (debounced) text
     /// edits — views and the sidebar read the dict instead of searching.
     @MainActor
     func testAnchorCacheTracksTextEdits() async throws {
@@ -623,7 +623,7 @@ final class ReviewMarksTests: XCTestCase {
         XCTAssertEqual(model.anchor(for: mark)?.location, 10)
     }
 
-    // MARK: UTF-16 anchor arithmetic (stage-5 — smotr-JS offset semantics)
+    // MARK: UTF-16 anchor arithmetic (smotr-JS offset semantics)
 
     /// Prefix ends with a base letter, quote begins with a combining accent —
     /// smotr's JS slices at UTF-16 boundaries, so this is a legal sidecar.

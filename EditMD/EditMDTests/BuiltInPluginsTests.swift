@@ -266,7 +266,7 @@ final class BuiltInPluginsTests: XCTestCase {
     func testTokenRunSerializesThroughSFSymbolTextFallback() {
         // An unresolvable SF Symbol renders the token as its source TEXT, not
         // as an attachment. Serialization must still recognize that run as
-        // the token — review follow-up (codex P1).
+        // the token.
         let state = BuiltInPluginTokenState(source: "[X]", label: "Done",
                                             icon: .sfSymbol("no.such.symbol.zzz"),
                                             strikethrough: false)
@@ -281,7 +281,7 @@ final class BuiltInPluginsTests: XCTestCase {
     func testTextMergedIntoTokenRunKeepsBothTokenAndText() {
         // Typing at a paragraph start inherits the following token's
         // attribute; typing after a token inherits it too. Neither side may
-        // be dropped, and U+FFFC must never leak — review follow-up (codex P2).
+        // be dropped, and U+FFFC must never leak.
         let states = [BuiltInPluginTokenState(source: "[?]", label: "Review",
                                               icon: .emoji("❓"), strikethrough: false)]
         let payload = BuiltInPluginTokenPayload(pluginID: MultiCheckboxPlugin.pluginID,
@@ -301,7 +301,7 @@ final class BuiltInPluginsTests: XCTestCase {
         // A live token puts the Text node on the matched-pieces path, whose
         // gaps come from RAW source. Escapes in those gaps must display
         // resolved and re-serialize byte-identically — this exact mix used to
-        // grow one backslash per save (codex review, round 2).
+        // grow one backslash per save.
         let body = "prose [X] and \\[X\\] plus \\_lit"
         let markdown = frontmatter + "\n" + body
         let snapshot = BuiltInPluginRegistry.snapshot(for: markdown)

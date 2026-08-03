@@ -1,15 +1,11 @@
 import Foundation
 
-// Queue + headless agent trigger for review marks (v37 step E).
-//
-// Mirrors smotr's ➤ button:
-//   1. Snapshot every open mark under the workspace into `.smotr-queue.json`
-//      at the workspace root (`{created, count, marks:[{file, kind, …mark}]}`).
-//   2. Optionally spawn `claude -p "/smotr -pr"` in that root (opt-in setting);
-//      otherwise surface the command for the user to run in a terminal.
-//
-// Pure Foundation for the queue IO; the Process spawn lives in
-// `ReviewAgentRunner` (@MainActor façade, Process off-main).
+// Queue + headless agent trigger for review marks — mirrors smotr's ➤ button:
+// snapshot open marks under the workspace into `.smotr-queue.json`
+// (`{created, count, marks:[{file, kind, …mark}]}`), then optionally spawn the
+// configured harness (docs/review.md § Agent handoff). Queue IO is pure
+// Foundation; Process spawn lives in `ReviewAgentRunner` (@MainActor façade,
+// Process off-main).
 
 // MARK: - Queue snapshot
 
@@ -79,7 +75,6 @@ enum ReviewQueue {
 
             let parent = url.deletingLastPathComponent()
             let artifactURL = parent.appendingPathComponent(artifactName)
-            // Relative path from workspace root.
             let full = artifactURL.standardizedFileURL.path
             guard full.hasPrefix(rootPath + "/") || full == rootPath else { continue }
             let rel: String
@@ -282,7 +277,7 @@ final class ReviewAgentRunner: ObservableObject {
     @Published private(set) var root: URL?
 
     private var waitTask: Task<Void, Never>?
-    /// Live process for Stop (stage 1 AI ready).
+    /// Live process for Stop.
     private var runningProcess: Process?
 
     var isRunning: Bool {

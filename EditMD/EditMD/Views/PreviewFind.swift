@@ -2,9 +2,9 @@ import SwiftUI
 
 // MARK: - Model
 
-/// ⌘F search state for a full Preview window (sprint 5). Highlighting and
-/// navigation happen JS-side in the WKWebView; this holds the incremental
-/// query and the match tally the page reports back. One instance per
+/// ⌘F search state for a full Preview window. Highlighting and navigation
+/// happen JS-side in the WKWebView; this holds the incremental query and the
+/// match tally the page reports back. One instance per
 /// `ContentView`, handed to `MarkdownPreviewView` and published as a focused
 /// value so the Edit ▸ Find menu can drive it while Preview is the active mode.
 @MainActor

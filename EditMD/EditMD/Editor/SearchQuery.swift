@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Query model
 
-/// Parsed workspace search query (plan 07). Pure value; no I/O.
+/// Parsed workspace search query. Pure value; no I/O.
 struct SearchQuery: Equatable, Sendable {
     /// Free-text AND tokens (case-insensitive match in body or file name).
     var tokens: [String]

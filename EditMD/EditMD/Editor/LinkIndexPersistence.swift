@@ -1,21 +1,11 @@
 import Foundation
 
-/// On-disk form of the link index: `<workspace>/.editmd/link-index.json`
-/// (plan 10, «wikillm ready»). Written after a successful full scan of the
-/// active workspace; read once per cold start to seed `LinkIndex.scanCache`,
-/// so launching on an unchanged vault costs a walk + stats instead of a full
-/// re-parse. External tools (wikillm agents) read the same file directly.
-///
-/// Contract:
-/// - Workspace-only. Loose/lite documents never create `.editmd/`.
-/// - All paths are relative to the workspace root — the vault stays portable.
-/// - `.editmd/.gitignore` (`*`) makes the directory self-ignoring: the index
-///   is a cache, the user chose not to version it (plan 10 review).
-/// - Deterministic output (sorted files, sorted JSON keys) so repeated saves
-///   of an unchanged vault are byte-identical.
-/// - A corrupt / foreign-version file is silently ignored (the scan just
-///   runs without a seed) and overwritten by the next save.
-/// - Disk I/O only off the main actor.
+/// On-disk link index: `<workspace>/.editmd/link-index.json`. Written after a
+/// successful full scan; read once per cold start to seed `LinkIndex.scanCache`
+/// (unchanged vault = walk + stats, no re-parse). External tools (wikillm
+/// agents) read the same file. Contract — workspace-only, root-relative paths,
+/// self-ignoring `.gitignore`, deterministic output, corrupt/foreign versions
+/// silently ignored, disk I/O off-main: docs/vault.md § Link index.
 enum LinkIndexPersistence {
 
     static let directoryName = ".editmd"
@@ -30,10 +20,9 @@ enum LinkIndexPersistence {
 
     struct Entry: Codable {
         var path: String
-        /// Exact bit pattern of `Date.timeIntervalSinceReferenceDate`: the
-        /// seeded value must compare `==` against a future stat of the same
-        /// unchanged file, and a decimal round-trip through JSON is not
-        /// guaranteed to be bit-exact.
+        /// Exact bit pattern of `timeIntervalSinceReferenceDate`: the seeded
+        /// value must compare `==` to a future stat, and a decimal JSON
+        /// round-trip is not guaranteed bit-exact.
         var mtimeBits: UInt64
         var size: Int64
         var headings: [String]
@@ -124,9 +113,8 @@ enum LinkIndexPersistence {
                 resolveFingerprint: fingerprint))
         }
         entries.sort { $0.path < $1.path }
-        // Fixed scannedAt would break byte-determinism between saves of an
-        // unchanged vault — round to whole seconds and accept the field
-        // changing per save; determinism is asserted over `files` in tests.
+        // scannedAt rounds to whole seconds and may change per save;
+        // determinism is asserted over `files` in tests.
         let payload = FilePayload(
             version: formatVersion,
             scannedAt: Date(timeIntervalSince1970:
@@ -167,10 +155,9 @@ enum LinkIndexPersistence {
                 links.append((link, kind))
             }
             guard links.count == entry.links.count else { continue }
-            // A single unsafe resolved/candidate path (e.g. `../outside.md`
-            // spliced into an otherwise-valid entry) taints ALL resolve-info
-            // for this entry: keep the raw links, drop the cached resolution
-            // so the scan re-resolves it inside the root.
+            // One unsafe resolved/candidate path taints ALL resolve-info for
+            // this entry: keep raw links, drop cached resolution so the scan
+            // re-resolves inside the root.
             var resolveTainted = false
             for (link, kind) in links {
                 raw.append(OutgoingLink(

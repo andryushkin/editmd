@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Step 1.1 gate: the JSON-RPC codec is the only thing between the CLI's bytes
+/// The JSON-RPC codec is the only thing between the CLI's bytes
 /// and our tool handlers. Ids must round-trip by exact type, notifications must
 /// stay unanswered, and malformed frames must produce protocol errors rather
 /// than crashes.

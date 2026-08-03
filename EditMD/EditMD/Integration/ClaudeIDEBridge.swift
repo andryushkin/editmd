@@ -2,12 +2,10 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// The main-actor side of the IDE channel (v36).
-//
-// `ClaudeIDEBridge` is the only place the editor talks to the integration:
-// coordinators push selections in, `openFile` pushes a reveal request out.
-// `LiveEditorContext` is the nonisolated adapter the tools call — it hops to
-// the main actor for state and stays off it for disk work (v35.3 invariant).
+// Main-actor side of the IDE channel. `ClaudeIDEBridge` is the only place the
+// editor talks to the integration: coordinators push selections in, `openFile`
+// pushes reveal requests out. `LiveEditorContext` is the nonisolated adapter
+// the tools call — main-actor hops for state, detached tasks for disk.
 
 extension Notification.Name {
     /// Posted when Claude's `openFile` wants a range revealed. Observed by the
@@ -15,11 +13,11 @@ extension Notification.Name {
     static let claudeIDERevealRequested = Notification.Name("editmd.claudeIDE.reveal")
 }
 
-/// A non-empty selection in markdown-source coordinates, used to anchor a new
-/// review mark (phase 2). Value type so it crosses actor hops freely.
+/// Non-empty selection in markdown-source coordinates anchoring a new review
+/// mark. Value type so it crosses actor hops freely.
 struct ReviewSelectionSource: Sendable {
     let url: URL
-    /// Range in **markdown source** coordinates (Visual maps via the v22 map).
+    /// Markdown source coordinates (Visual maps via the paragraph map).
     let range: NSRange
     let markdown: String
 }
@@ -29,12 +27,11 @@ final class ClaudeIDEBridge: ObservableObject {
 
     static let shared = ClaudeIDEBridge()
 
-    /// A selection captured verbatim from an editor. Positions are derived on
-    /// demand: `textViewDidChangeSelection` fires on every caret move, and
-    /// mapping an offset to (line, character) is O(offset).
+    /// Positions derived on demand: `textViewDidChangeSelection` fires per
+    /// caret move, and offset → (line, character) is O(offset).
     private struct RawSelection: Equatable, Sendable {
         let url: URL
-        /// Range in **markdown source** coordinates.
+        /// Markdown source coordinates.
         let range: NSRange
         let markdown: String
     }
@@ -43,21 +40,20 @@ final class ClaudeIDEBridge: ObservableObject {
     /// `getCurrentSelection` (the caret is where Claude is being asked about).
     @Published private(set) var hasSelection = false
 
-    /// File shown in the main window — the "active editor" for phase 1.
+    /// File shown in the main window — the "active editor".
     private(set) var activeURL: URL?
 
     private var raw: RawSelection?
     private var latestRaw: RawSelection?
-    /// Once the debounce settles, the latest selection is kept materialized
-    /// (positions + selected text) and `latestRaw` is dropped — its document
-    /// string would otherwise pin a stale full-document copy after edits
-    /// diverge the COW storage. Still used by `getLatestSelection`.
+    /// After the debounce settles the selection is kept materialized and
+    /// `latestRaw` dropped — its document string would pin a stale
+    /// full-document copy once edits diverge the COW storage.
     private var latestMaterialized: IDESelection?
-    /// Last non-empty selection kept for review-mark capture (v37). Clicking
-    /// Review ▸ + moves first-responder out of the NSTextView; AppKit often
-    /// collapses the selection to a caret *before* the button action runs, so
-    /// `raw` is already empty. This snapshot survives that focus hop until the
-    /// active file changes or a new non-empty selection replaces it.
+    /// Last non-empty selection, for review-mark capture. Clicking Review ▸ +
+    /// moves first-responder out of the NSTextView and AppKit often collapses
+    /// the selection before the button action runs, so `raw` is already empty.
+    /// Survives the focus hop until the active file changes or a new non-empty
+    /// selection replaces it.
     private var latestNonEmpty: RawSelection?
     private var selectionNotifyTask: Task<Void, Never>?
 
@@ -87,9 +83,8 @@ final class ClaudeIDEBridge: ObservableObject {
     }
 
 #if DEBUG
-    /// Full singleton cleanup for order-independent tests. Production callers
-    /// use `setActiveURL`; only tests need to cancel debounce work and erase
-    /// every remembered selection regardless of file guards.
+    /// Full singleton cleanup for order-independent tests: cancels debounce
+    /// work and erases every remembered selection regardless of file guards.
     func resetForTesting() {
         selectionNotifyTask?.cancel()
         selectionNotifyTask = nil
@@ -106,7 +101,7 @@ final class ClaudeIDEBridge: ObservableObject {
     // MARK: Selection
 
     /// Called from both editor coordinators. `markdownRange` is already in
-    /// source coordinates (Visual maps through the v22 paragraph map).
+    /// source coordinates (Visual maps through the paragraph map).
     func noteSelection(url: URL?, markdownRange: NSRange, markdown: String) {
         guard let url else {
             raw = nil
@@ -145,10 +140,9 @@ final class ClaudeIDEBridge: ObservableObject {
         latestRaw.map(Self.materialize) ?? latestMaterialized
     }
 
-    /// Non-empty selection in source coordinates for creating a review mark
-    /// (v37). Prefers the live selection; if the caret already collapsed
-    /// (typical when the user clicked Review ▸ +), falls back to the last
-    /// non-empty snapshot for the active file.
+    /// Prefers the live selection; if the caret already collapsed (typical
+    /// after clicking Review ▸ +), falls back to the last non-empty snapshot
+    /// for the active file.
     func reviewSelectionSource() -> ReviewSelectionSource? {
         if let raw, raw.range.length > 0 {
             return ReviewSelectionSource(url: raw.url, range: raw.range,
@@ -178,7 +172,6 @@ final class ClaudeIDEBridge: ObservableObject {
         NotificationCenter.default.post(name: .claudeIDERevealRequested, object: nil)
     }
 
-    /// Consumes a pending reveal for `url`, if it is fresh and belongs to it.
     func takeReveal(for url: URL?) -> NSRange? {
         guard let url, let pending = pendingReveal else { return nil }
         guard pending.url == url.standardizedFileURL else { return nil }

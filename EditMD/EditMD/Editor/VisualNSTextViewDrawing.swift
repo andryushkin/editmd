@@ -2,7 +2,6 @@ import AppKit
 
 // Background drawing of VisualNSTextView: gutter, code panels, quote bars,
 // list markers, thematic breaks, and virtualized table islands.
-// Extracted from VisualNSTextView.swift.
 
 extension VisualNSTextView {
     /// Six-dot grip glyph centered in the gutter zone.
@@ -194,8 +193,8 @@ extension VisualNSTextView {
         for entry in quoteEntries {
             guard let rectUnion = trimmedRect(entry), rectUnion.intersects(rect) else { continue }
             let callout = makeCallout(entry.calloutType)
-            // Plain quotes are quiet (plan 11.4): a thin neutral bar, no
-            // accent, no wash. Callouts keep their typed color.
+            // Plain quotes are quiet: a thin neutral bar, no accent, no wash.
+            // Callouts keep their typed color.
             (callout?.color.withAlphaComponent(0.78)
                 ?? theme.secondaryColor.withAlphaComponent(0.45)).setFill()
             for level in 0..<entry.depth {
@@ -224,8 +223,8 @@ extension VisualNSTextView {
         }
 
         // Bullets — depth cycles • (fill) / ◦ (stroke) / ▪ (square), like
-        // Source. Neutral tone and a small dot (plan 11.4): the accent is
-        // reserved for interactive marks, list bullets are furniture.
+        // Source. Neutral tone, small dot: the accent is reserved for
+        // interactive marks, list bullets are furniture.
         for (range, depth) in bulletEntries {
             guard let marker = markerRect(forParagraph: range) else { continue }
             let radius = min(2, marker.height * 0.18)
@@ -251,7 +250,7 @@ extension VisualNSTextView {
         }
 
         // Ordered numbers — tabular figures, secondary tone, right-aligned to
-        // the marker column so units and tens don't dance (plan 11.4).
+        // the marker column so units and tens don't dance.
         for (range, _, number) in numberEntries {
             guard let marker = markerRect(forParagraph: range) else { continue }
             let numberSize = max(9, round(EditorSettings.shared.visual.fontSize * 0.75))
@@ -294,7 +293,7 @@ extension VisualNSTextView {
             drawBuiltInPluginIcon(token.state.icon, label: token.state.label, in: box)
         }
 
-        // Thematic breaks — a 1pt hairline (plan 11.4).
+        // Thematic breaks — a 1pt hairline.
         for range in ruleRanges {
             guard let rectUnion = unionRect(for: range), rectUnion.intersects(rect) else { continue }
             theme.separatorColor.setFill()
@@ -382,8 +381,8 @@ extension VisualNSTextView {
             let rowY = top + entry.rowOffset(i)
             let rowRect = NSRect(x: left, y: rowY, width: width, height: rowH)
             if i == 0 {
-                // No header fill (plan 11.5) — the header reads through
-                // weight and its heavier bottom rule.
+                // No header fill — the header reads through weight and its
+                // heavier bottom rule.
                 border.setFill()
                 NSRect(x: left, y: top, width: width, height: 0.5).fill()   // table top
                 drawTableRow(grid.headers, in: rowRect, font: entry.headerFont,
@@ -403,8 +402,7 @@ extension VisualNSTextView {
                    height: ruleHeight).fill()   // row rule
         }
 
-        // Vertical column separators — the full thin grid (user decision
-        // after the 11.5 eye review), same hairline as the row rules.
+        // Vertical column separators — same hairline as the row rules.
         let visTop = max(dirty.minY, top)
         let visBottom = min(dirty.maxY, bottom)
         if visBottom > visTop {

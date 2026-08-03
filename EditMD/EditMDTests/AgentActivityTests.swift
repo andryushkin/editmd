@@ -17,7 +17,7 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertTrue(items.contains { $0.id == "connect-editmd" })
         let queue = items.first { $0.id == "process-queue" }!
         XCTAssertTrue(queue.command.contains("claude"))
-        // Plan 10: the vault-graph prompt teaches «ask EditMD, don't walk».
+        // The vault-graph prompt teaches «ask EditMD, don't walk».
         let vault = items.first { $0.id == "vault-graph" }
         XCTAssertNotNil(vault)
         XCTAssertTrue(vault!.command.contains("editmdctl index status"))

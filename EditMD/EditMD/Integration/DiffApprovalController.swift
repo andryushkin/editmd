@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-// `openDiff` — the only blocking tool in the IDE protocol (v36).
+// `openDiff` — the only blocking tool in the IDE protocol.
 //
 // Claude calls it and stops; EditMD shows the diff; the user's click decides
 // the answer. Two hard rules live here:
@@ -14,7 +14,7 @@ import SwiftUI
 //
 //  2. **Accept writes through `DocumentRegistry`.** A raw `write(to:)` bypasses
 //     `knownModDate` + watch re-arm, so our own write comes back as an
-//     "external change" conflict chip (v34 invariant).
+//     "external change" conflict chip.
 
 @MainActor
 final class DiffApprovalController: ObservableObject {

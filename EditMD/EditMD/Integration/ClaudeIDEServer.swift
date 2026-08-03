@@ -2,7 +2,7 @@ import Foundation
 import Network
 import os
 
-// WebSocket transport for the Claude Code IDE channel (v36).
+// WebSocket transport for the Claude Code IDE channel.
 //
 // Claude Code (the CLI) discovers us through `~/.claude/ide/<port>.lock`
 // (IDELockFile.swift), opens a WebSocket to 127.0.0.1:<port> carrying the
@@ -18,7 +18,7 @@ let claudeIDELog = Logger(subsystem: "andryushkin.EditMD", category: "claude-ide
 /// Header the CLI must present on the WebSocket upgrade.
 let claudeIDEAuthHeader = "x-claude-code-ide-authorization"
 
-/// MCP protocol revision the IDE channel is pinned to (spec 2.2).
+/// MCP protocol revision the IDE channel is pinned to.
 let claudeIDEProtocolVersion = "2025-03-26"
 
 // MARK: - Server

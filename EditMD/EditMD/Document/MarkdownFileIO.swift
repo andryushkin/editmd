@@ -1,10 +1,8 @@
 import Foundation
 import AppKit
 
-// Serialization + IO layer for markdown / textbundle files, extracted so that
-// both the DocumentGroup-era `MarkdownDocument` and the new `DocumentRegistry`
-// share ONE read/write format (they can never diverge). Phase 1 of the move off
-// DocumentGroup — see plan `bright-launching-stonebraker.md`.
+// Serialization + IO for markdown / textbundle files. `MarkdownDocument` and
+// `DocumentRegistry` share this ONE read/write format — they must never diverge.
 
 // MARK: - textbundle info.json
 
@@ -16,9 +14,8 @@ private struct TextBundleInfo: Encodable {
 
 // MARK: - Serialization core (FileWrapper ⇄ content)
 
-/// Parses a loaded file wrapper into `(content, assets)`. Mirrors the read
-/// branches of `MarkdownDocument.init(configuration:)`; the single place the
-/// read format lives.
+/// File wrapper → `(content, assets)`. Mirrors
+/// `MarkdownDocument.init(configuration:)`; the single home of the read format.
 func parseMarkdownWrapper(_ file: FileWrapper, isTextBundle: Bool) throws -> (content: String, assets: FileWrapper?) {
     if isTextBundle {
         guard let wrappers = file.fileWrappers,
@@ -35,9 +32,9 @@ func parseMarkdownWrapper(_ file: FileWrapper, isTextBundle: Bool) throws -> (co
     }
 }
 
-/// Builds the file wrapper to persist. Mirrors
-/// `MarkdownDocument.fileWrapper(snapshot:configuration:)` — the single place
-/// the write format lives.
+/// Wrapper to persist. Mirrors
+/// `MarkdownDocument.fileWrapper(snapshot:configuration:)`; the single home of
+/// the write format.
 func makeMarkdownWrapper(content: String, assets: FileWrapper?, isTextBundle: Bool) -> FileWrapper {
     guard isTextBundle else {
         return FileWrapper(regularFileWithContents: content.data(using: .utf8) ?? Data())
@@ -63,20 +60,17 @@ func makeMarkdownWrapper(content: String, assets: FileWrapper?, isTextBundle: Bo
 
 // MARK: - Disk IO
 
-/// Reads a `.md`/`.markdown` file or `.textbundle` package from disk.
-/// textbundle is detected by extension or directory shape.
-///
-/// Plain files use `String(contentsOf:)` — `FileWrapper(.immediate)` walks
-/// xattrs/resource forks and is far too expensive on the hot disk-watch path
-/// (continuous `.attrib` events + FileWrapper was freezing the main thread
-/// when opening large notes like `Claude.md`).
+/// Reads `.md`/`.markdown` or a `.textbundle` package (detected by extension
+/// or directory shape). Plain files use `String(contentsOf:)` —
+/// `FileWrapper(.immediate)` walks xattrs/resource forks and is far too
+/// expensive on the hot disk-watch path (froze main on large notes).
 func loadMarkdownDocument(from url: URL) throws -> (content: String, assets: FileWrapper?) {
     let ext = url.pathExtension.lowercased()
     if ext == "textbundle" {
         let wrapper = try FileWrapper(url: url, options: .immediate)
         return try parseMarkdownWrapper(wrapper, isTextBundle: true)
     }
-    // Regular file (or anything that isn't a package): cheap UTF-8 read.
+    // Regular file (anything not a package): cheap UTF-8 read.
     var isDir: ObjCBool = false
     if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue {
         let text = try String(contentsOf: url, encoding: .utf8)
@@ -87,9 +81,9 @@ func loadMarkdownDocument(from url: URL) throws -> (content: String, assets: Fil
     return try parseMarkdownWrapper(wrapper, isTextBundle: wrapper.isDirectory)
 }
 
-/// Atomically writes content (+ optional textbundle assets) to `url`. For an
-/// existing file the original URL is passed so unchanged sub-wrappers (assets)
-/// can be reused instead of rewritten.
+/// Atomic write of content (+ optional textbundle assets). For an existing
+/// file the original URL is passed so unchanged sub-wrappers (assets) are
+/// reused, not rewritten.
 func writeMarkdownDocument(content: String, assets: FileWrapper?, to url: URL) throws {
     let isBundle = url.pathExtension.lowercased() == "textbundle"
     let wrapper = makeMarkdownWrapper(content: content, assets: assets, isTextBundle: isBundle)
@@ -97,11 +91,11 @@ func writeMarkdownDocument(content: String, assets: FileWrapper?, to url: URL) t
     try wrapper.write(to: url, options: .atomic, originalContentsURL: original)
 }
 
-/// Exact, value-typed baseline for a textbundle's assets tree. Comparing only
-/// top-level names misses an external rewrite of `assets/image.png`, while
-/// comparing disk wrappers directly with the live model confuses a local image
-/// insertion with an external conflict. The flattened tree keeps both cases
-/// distinct and is safe to retain across path/cache transitions.
+/// Exact value-typed baseline of a textbundle's assets tree. Top-level names
+/// alone miss an external rewrite of `assets/image.png`; comparing disk
+/// wrappers with the live model confuses a local image insertion with an
+/// external conflict. The flattened tree keeps both distinct and survives
+/// path/cache transitions.
 struct DocumentAssetsFingerprint: Equatable, Sendable {
     private struct Entry: Equatable, Sendable {
         let path: String

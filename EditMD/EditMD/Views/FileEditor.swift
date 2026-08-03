@@ -137,10 +137,9 @@ struct MainWindowView: View {
 
     var body: some View {
         let branch = centerBranch
-        // The workspace sidebar lives in `MainChrome`, a stable parent that is
-        // NOT `.id`-swapped per file. Only the CENTER (welcome / pdf / folder /
-        // editor) is `.id`-recreated on navigation, so the sidebar survives file
-        // switches — its scroll offset, selection and filter persist (A1).
+        // Sidebar lives in `MainChrome` (NOT `.id`-swapped per file); only the
+        // CENTER is `.id`-recreated on navigation, so the sidebar's scroll
+        // offset, selection and filter survive file switches.
         MainChrome(activeURL: appState.currentURL,
                    activeIsFolder: branch.isFolder,
                    inspectorAvailable: branch.inspectorAvailable) {
@@ -190,13 +189,11 @@ struct MainWindowView: View {
     }
 }
 
-/// Stable left workspace chrome for the MAIN window. The `content` (the center
-/// pane) is `.id`-swapped per file, but the sidebar lives here so it survives
-/// file switches — no teardown, so its scroll position, multi-selection and
-/// filter text persist (A1). Owns the sidebar show/hide + width, the divider,
-/// the toolbar toggle and the `sidebarVisible` focused value, so those exist
-/// once for the whole window instead of once per center branch. Lite windows
-/// have no workspace sidebar and never mount this.
+/// Stable left chrome for the MAIN window: `content` is `.id`-swapped per
+/// file, but the sidebar lives here so it survives file switches. Owns the
+/// sidebar show/hide + width, divider, toolbar toggle and `sidebarVisible`
+/// focused value — once per window, not per center branch. Lite windows
+/// never mount this.
 private struct MainChrome<Content: View>: View {
     /// The file/folder currently on screen — highlights the active row.
     let activeURL: URL?

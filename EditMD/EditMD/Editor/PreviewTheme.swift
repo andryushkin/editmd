@@ -1,43 +1,32 @@
 import Foundation
 
-/// A Preview-only markdown look: typography, colors and decorations for the
-/// rendered HTML page. Source and Visual are not affected — their look still
-/// comes from `EditorTheme`. A theme is a CSS layer inserted between the
-/// page's base rules and the user's per-element overrides, so the cascade
-/// keeps the precedence: base < theme < user settings.
-///
-/// Themes are compiled-in declarations (no JSON/user theme files), matching
-/// the plugin model: a limited, opinionated set. The selected theme id is
-/// persisted in `PreviewTypographySettings.theme`.
+/// Preview-only look (Source/Visual come from `EditorTheme`): a CSS layer
+/// between the page's base rules and the user's per-element overrides —
+/// cascade base < theme < user. Compiled-in declarations only (no JSON/user
+/// files), matching the plugin model; the selected id persists in
+/// `PreviewTypographySettings.theme`.
 struct PreviewTheme {
     let id: String
     let title: String
-    /// CSS `font-family` stack for body text (headings inherit). Applied only
-    /// when the user hasn't picked an explicit Preview font family.
-    /// `nil` = keep the default system sans stack.
+    /// Body `font-family` stack (headings inherit); applied only when the user
+    /// hasn't picked an explicit family. nil = system sans.
     let bodyFontStack: String?
-    /// Dark-appearance body stack, for themes whose reference dark look is a
-    /// different design with a different family (Typora: Github body is Open
-    /// Sans, Night is Helvetica Neue). Emitted by `pageCSS` as a dark-media
-    /// rule — and only while the user hasn't picked an explicit family, so a
-    /// user choice keeps winning in both appearances. `nil` = one stack.
+    /// Dark-appearance body stack for themes whose dark reference is a
+    /// different design (Typora). Emitted as a dark-media rule only while the
+    /// user keeps the default family — a user choice wins in both appearances.
+    /// nil = one stack.
     let darkBodyFontStack: String?
-    /// `@font-face` rules for stack members macOS doesn't ship. Faces embed
-    /// bundled files as `data:` URIs: the page CSP allows only
-    /// `font-src data:`, an external font URL would never load.
+    /// `@font-face` for stack members macOS doesn't ship, embedded as `data:`
+    /// URIs — page CSP allows only `font-src data:`.
     let fontFacesCSS: String
-    /// Reference base font size / reading-column width, for themes ported
-    /// from a source that fixes its page geometry. Written into the real
-    /// Preview settings once, at selection time, by
-    /// `EditorSettings.migratedPreviewGeometry` — render paths always read
-    /// plain settings. `nil` = keep whatever the user has.
+    /// Reference geometry for ported themes; written into real Preview settings
+    /// once at selection (`EditorSettings.migratedPreviewGeometry`) — render
+    /// paths always read plain settings. nil = keep the user's.
     let preferredFontSize: CGFloat?
     let preferredColumnWidth: CGFloat?
-    /// Rules appended after the page's base CSS (including its dark-mode
-    /// block) and before the user's element CSS — later rules win at equal
-    /// specificity. Themes deliberately do not set the page background or the
-    /// base body text color: `background: Canvas` stays system-adaptive and a
-    /// General ▸ Text color override must keep winning.
+    /// Appended after base CSS (incl. its dark block), before user element CSS.
+    /// Deliberately never sets page background or base text color: Canvas stays
+    /// system-adaptive and a Text-color override must keep winning.
     let css: String
 
     init(id: String, title: String, bodyFontStack: String?,
@@ -54,16 +43,14 @@ struct PreviewTheme {
         self.css = css
     }
 
-    /// Resolved body `font-family` for the page: an explicit user family
-    /// always beats the theme's stack.
+    /// An explicit user family always beats the theme's stack.
     func cssFontFamily(userFamily: String) -> String {
         if !userFamily.isEmpty { return "\"\(userFamily)\", -apple-system, sans-serif" }
         return bodyFontStack ?? "-apple-system, \"Helvetica Neue\", sans-serif"
     }
 
-    /// The theme's complete CSS layer for a page render: bundled font faces,
-    /// the look itself, and — while the user keeps the default font — the
-    /// dark-appearance body family. `css` alone stays the pure look.
+    /// Complete CSS layer: font faces + look + (while the user font is
+    /// default) the dark body family. `css` alone stays the pure look.
     func pageCSS(userFamily: String) -> String {
         var out = fontFacesCSS + css
         if userFamily.isEmpty, let dark = darkBodyFontStack {
@@ -86,9 +73,8 @@ extension PreviewTheme {
         css: ""
     )
 
-    /// Near-monochrome: structure carried by weight and whitespace, not color.
-    /// No heading rules, no code panels, no table zebra; links underlined in
-    /// the text color instead of painted blue.
+    /// Near-monochrome: structure via weight and whitespace; links underlined
+    /// in text color, no heading rules, no code panels, no zebra.
     static let minimal = PreviewTheme(
         id: "minimal",
         title: String(localized: "Minimal"),
@@ -108,9 +94,8 @@ extension PreviewTheme {
         """
     )
 
-    /// Book-like reading: serif body, centered chapter titles, italic quotes
-    /// without the colored bar, a fleuron instead of a horizontal rule, warm
-    /// muted accents.
+    /// Book-like: serif body, centered chapter titles, italic bar-less quotes,
+    /// fleuron for hr, warm muted accents.
     static let literary = PreviewTheme(
         id: "literary",
         title: String(localized: "Literary"),
@@ -135,9 +120,8 @@ extension PreviewTheme {
         """
     )
 
-    /// Paper-like formality: serif, justified text, centered title, booktabs
-    /// tables (horizontal rules only), centered display math, plain `\\texttt`
-    /// inline code, one restrained link blue.
+    /// Paper-like: serif, justified, centered title, booktabs tables, centered
+    /// display math, plain inline code, one restrained link blue.
     static let academic = PreviewTheme(
         id: "academic",
         title: String(localized: "Academic"),
@@ -197,17 +181,14 @@ extension PreviewTheme {
         """
     )
 
-    /// Typora's default pair from typora/typora-default-themes — two designs,
-    /// not one recolored: light is the "Github" theme (bold Open Sans headings
-    /// on #eee hairlines, #4183C4 links, bordered gray code panels, striped
-    /// tables), dark is Typora's dark default "Night" (normal-weight Lucida
-    /// Grande headings without rules, #e0e0e0 underlined links, indented
-    /// 2px-bar quotes, #333 code panels, square bullets, zebra off). Night's
-    /// own #363B40 page background is NOT ported: themes keep the system
-    /// Canvas. Reference geometry 16px/860px comes from github.css.
+    /// Typora's default pair (typora-default-themes) — two designs, not one
+    /// recolored: light = "Github" (Open Sans, #4183C4 links), dark = "Night"
+    /// (Lucida Grande headings, underlined #e0e0e0 links, #333 code panels).
+    /// Night's own #363B40 page background is NOT ported — themes keep system
+    /// Canvas. Reference geometry 16px/860px from github.css.
     static let typora = PreviewTheme(
-        // The id stays "typora": it is persisted in user settings and keyed by
-        // the legacy geometry startup upgrade; only the display name is "Night".
+        // id stays "typora": persisted in settings and keyed by the legacy
+        // geometry upgrade; only the display name is "Night".
         id: "typora",
         title: String(localized: "Night"),
         bodyFontStack: "\"Open Sans\", \"Clear Sans\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
@@ -269,12 +250,10 @@ extension PreviewTheme {
         """
     )
 
-    /// Open Sans faces for the Typora/Github stack, bundled from Typora's own
-    /// theme repo (`Resources/opensans/`, Apache 2.0) because macOS doesn't
-    /// ship the family — without them the theme silently fell back to
-    /// Helvetica Neue, changing metrics and line breaks. The unicode-range
-    /// mirrors github.css: latin/latin-ext only, so Cyrillic falls back to
-    /// Helvetica Neue exactly like in Typora itself.
+    /// Open Sans faces bundled from Typora's theme repo (`Resources/opensans/`,
+    /// Apache 2.0) — macOS doesn't ship the family and the silent Helvetica
+    /// fallback changed metrics. unicode-range mirrors github.css (latin only),
+    /// so Cyrillic falls back to Helvetica Neue exactly like Typora.
     private static let openSansFontFaces: String = {
         let range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, "
             + "U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, "
@@ -288,8 +267,7 @@ extension PreviewTheme {
         ]
         var css = ""
         for face in faces {
-            // Like KaTeX: the build may flatten Resources subfolders into the
-            // bundle root, so try the subdirectory first, then flat.
+            // Build may flatten Resources subfolders: try subdirectory, then flat.
             guard let url = Bundle.main.url(forResource: face.file, withExtension: "woff",
                                             subdirectory: "opensans")
                     ?? Bundle.main.url(forResource: face.file, withExtension: "woff"),
@@ -313,8 +291,7 @@ extension PreviewTheme {
         .standard, .minimal, .literary, .academic, .technical, .typora,
     ]
 
-    /// Looks up a theme by its persisted id, falling back to the default look
-    /// for unknown/legacy ids.
+    /// Theme by persisted id; unknown/legacy ids fall back to default.
     static func preset(named name: String) -> PreviewTheme {
         allPresets.first { $0.id == name } ?? .standard
     }

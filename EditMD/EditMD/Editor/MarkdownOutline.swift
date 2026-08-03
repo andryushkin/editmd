@@ -15,10 +15,9 @@ struct OutlineItem: Equatable, Identifiable {
     var id: Int { markdownOffset }
 }
 
-/// Extracts the heading outline from markdown text. Pure function of the
-/// text: parses with swift-markdown (so `# text` inside code fences is never
-/// a heading), positions convert through LineIndex (source columns are
-/// 1-based UTF-8 bytes, see the cmark notes in CLAUDE.md).
+/// Extracts the heading outline. Pure over text: parses with swift-markdown
+/// (`# text` in code fences is never a heading); positions convert through
+/// LineIndex (cmark source columns are 1-based UTF-8 bytes).
 func markdownOutline(_ text: String) -> [OutlineItem] {
     guard !text.isEmpty else { return [] }
     // YAML frontmatter isn't part of the markdown grammar — strip it before

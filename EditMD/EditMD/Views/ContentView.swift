@@ -9,35 +9,26 @@ func builtInPluginConfigurationDiagnosticsForStatusBar(
     return BuiltInPluginRegistry.configurationDiagnostics(in: markdown)
 }
 
-/// Width the flexible editor column keeps before the side panels start to
-/// shrink. Chosen so a usable reading measure survives with BOTH panels open —
-/// at their navigator-strip floors (118pt sidebar, 190pt inspector) the clamp
-/// only engages well under the enforced window minimum.
-/// This governs the editor vs. the side panels; it is unrelated to the
-/// Source/Preview split's own 160pt pane floor, which divides space *inside*
-/// the editor area.
+/// Editor-column floor before side panels shrink. Unrelated to the
+/// Source/Preview split's own 160pt pane floor (that divides space *inside*
+/// the editor area).
 let editorColumnMinWidth: CGFloat = 260
 
-/// Floor for the main workspace window. Pane clamp only prevents *overlap*;
-/// without a window min the user can still drag the frame until the editor is
-/// a mid-word wrapping strip while both side panels stay open. 900 leaves a
-/// readable ~398pt editor at default panel widths (220 + 280 + 2); 720 was
-/// still too tight in practice (title/body mid-word wrap, strip buttons
-/// clipped).
-/// Enforced via `NSWindow.contentMinSize` — SwiftUI `.frame(minWidth:)` alone
-/// does not reliably stop live resize on `Window` scenes.
+/// Main-window floor. Pane clamp only prevents *overlap*, not a mid-word
+/// wrapping editor strip; 900 leaves ~398pt editor at default panel widths
+/// (720 was too tight in practice). Enforced via `NSWindow.contentMinSize` —
+/// `.frame(minWidth:)` alone does not reliably stop live resize on `Window`
+/// scenes.
 let mainWindowMinWidth: CGFloat = 900
 let mainWindowMinHeight: CGFloat = 420
 
-/// Lite windows have no workspace sidebar (inspector still optional), so they
-/// can be narrower than the main workspace.
+/// Lite windows have no workspace sidebar, so they can be narrower.
 let liteWindowMinWidth: CGFloat = 560
 let liteWindowMinHeight: CGFloat = 360
 
-/// Drag range for a side pane whose floor is derived from its own chrome. The
-/// ceiling stays a fixed reading-width cap, so `max` keeps the range valid if a
-/// future navigator strip ever grows past it (a `ClosedRange` with lower >
-/// upper traps at runtime).
+/// Fixed reading-width cap; `max` in `sidePaneWidthRange` keeps the range
+/// valid if a navigator strip ever outgrows it (ClosedRange lower > upper
+/// traps at runtime).
 let sidePaneWidthCeiling: Double = 400
 
 func sidePaneWidthRange(floor: CGFloat) -> ClosedRange<Double> {
@@ -45,21 +36,18 @@ func sidePaneWidthRange(floor: CGFloat) -> ClosedRange<Double> {
     return lower...max(lower, sidePaneWidthCeiling)
 }
 
-/// Clamp a persisted pane width on read. Stored widths predate the current
-/// floors (both panes used to bottom out at 150), so a pane that is never
-/// dragged would otherwise keep painting its navigator strip clipped.
+/// Clamp on read: stored widths predate the current floors, so a never-dragged
+/// pane would keep painting its navigator strip clipped.
 func clampPaneWidth(_ width: Double, to range: ClosedRange<Double>) -> Double {
     min(range.upperBound, max(range.lowerBound, width))
 }
 
-/// Shared geometry of the right inspector pane. The editor host and the folder
-/// host write the SAME `inspectorWidth` default, so the range and the fallback
-/// live here instead of being repeated (and drifting) in both.
+/// Right-inspector geometry, shared: editor host and folder host write the
+/// SAME `inspectorWidth` default.
 enum InspectorPane {
-    /// Floor = the navigator strip's own width: dragging narrower than that
-    /// clipped the trailing tabs (Links / Backlinks / Info) behind the edge.
-    /// This bounds the *preferred* (stored) width. The display width can still
-    /// dip below it in the compressed regime — see `resolveSidePaneWidths`.
+    /// Floor = navigator-strip width (narrower clips trailing tabs). Bounds
+    /// the *preferred* width; display can dip below it when compressed — see
+    /// `resolveSidePaneWidths`.
     static var widthRange: ClosedRange<Double> {
         sidePaneWidthRange(floor: InspectorSidebar.minimumPaneWidth)
     }
@@ -67,7 +55,6 @@ enum InspectorPane {
         min(widthRange.upperBound, max(280, widthRange.lowerBound))
     }
 
-    /// Clamp a persisted width — stored values predate the current floor.
     static func clampWidth(_ width: Double) -> Double {
         clampPaneWidth(width, to: widthRange)
     }
@@ -76,30 +63,18 @@ enum InspectorPane {
 struct ResolvedPaneWidths: Equatable {
     var sidebar: CGFloat
     var inspector: CGFloat
-    /// Display / preferred ratio: 1 when the panels fit, <1 while compressed.
-    /// Divider drags invert through it so a resize writes a *preferred* width
-    /// (see `preferredPaneWidthFromDrag`).
+    /// Display/preferred ratio: 1 when panels fit, <1 compressed. Divider
+    /// drags invert through it (`preferredPaneWidthFromDrag`).
     var scale: CGFloat
 }
 
-/// Clamp the fixed side-panel widths to the available width so the flexible
-/// editor column keeps at least `editorMin`. SwiftUI's `HStack` will not
-/// compress a rigid `.frame(width:)`, so when the window is too narrow the
-/// panels overflow their slots and draw on top of the editor / each other
-/// (reported as the inspector overlapping neighbouring panes). Shrinking the
-/// panels proportionally into the leftover budget keeps every pane side-by-side.
-/// The stored (requested) widths are untouched, so panels restore when the
-/// window widens again.
-///
-/// This clamp deliberately ignores the panes' navigator floors (see
-/// `InspectorPane.widthRange`): those bound what the user can *drag* to, while
-/// this is the last-resort anti-overlap squeeze. In the compressed regime a
-/// pane can therefore paint narrower than its tab strip and clip a trailing
-/// tab — e.g. a min-width main window with the sidebar dragged to its 400pt
-/// max leaves the inspector under its navigator floor. Honouring the floor here would
-/// mean pushing the editor below `editorMin` (it is the flexible pane, so no
-/// overlap either way); that trade was not taken because the squeeze is
-/// already a degraded state and the editor floor guards readability.
+/// Clamp side-panel widths so the flexible editor keeps `editorMin`: HStack
+/// never compresses a rigid `.frame(width:)`, so overflowing panels would draw
+/// on top of the editor / each other. Panels shrink proportionally; stored
+/// widths stay untouched so they restore on widen. Deliberately ignores the
+/// panes' navigator floors (those bound *dragging*): honouring them here would
+/// push the editor below `editorMin`, so a compressed pane may clip a trailing
+/// tab — accepted degraded state.
 func resolveSidePaneWidths(
     available: CGFloat,
     sidebarWidth: CGFloat,
@@ -117,26 +92,19 @@ func resolveSidePaneWidths(
     }
     let dividers = (sidebarVisible ? dividerWidth : 0)
         + (inspectorVisible ? dividerWidth : 0)
-    // How much width the panels may occupy while leaving the editor its floor.
     let budget = max(0, available - dividers - editorMin)
     guard requested > budget else {
         return ResolvedPaneWidths(sidebar: sidebar, inspector: inspector, scale: 1)
     }
-    // Overflow: scale both panels down proportionally into the budget so their
-    // sum never exceeds what the editor can spare — no pane overlaps another.
     let scale = budget / requested
     return ResolvedPaneWidths(
         sidebar: sidebar * scale, inspector: inspector * scale, scale: scale)
 }
 
-/// Map a divider drag back to a *preferred* (stored) panel width. The grab
-/// strip sits at the panel's DISPLAY edge, which in a clamped window is the
-/// shrunken width (`preferred * scale`). Writing the raw display width into
-/// storage would overwrite the preferred width with the compressed one — a
-/// no-op drag would collapse a stored 220 down to ~119 and break "restore on
-/// widen". Dividing by `scale` inverts the clamp, so a drag that does not move
-/// leaves the stored width unchanged, and a real drag scales into preferred
-/// space before the range clamp.
+/// Map a divider drag back to the *preferred* (stored) width. The grab strip
+/// sits at the DISPLAY edge (`preferred * scale`); writing raw display width
+/// would overwrite the preferred width with the compressed one and break
+/// restore-on-widen. Dividing by `scale` inverts the clamp.
 func preferredPaneWidthFromDrag(
     displayWidth: CGFloat,
     scale: CGFloat,
@@ -147,30 +115,23 @@ func preferredPaneWidthFromDrag(
     return min(range.upperBound, max(range.lowerBound, preferred))
 }
 
-/// Where the divider line goes for a pointer at `localX` inside the strip,
-/// which starts at `originX`. The grab offset — how far from the line the
-/// press landed — is held for the whole drag, so grabbing the strip's edge
-/// moves the divider BY the pointer's movement instead of snapping the line
-/// under the cursor on the first drag event.
+/// Grab offset (press distance from the line) held for the whole drag, so
+/// grabbing the strip's edge moves the divider BY the pointer instead of
+/// snapping the line under the cursor on the first drag event.
 func dividerLineX(originX: CGFloat, localX: CGFloat, grabOffset: CGFloat) -> CGFloat {
     originX + localX - grabOffset
 }
 
-/// The grab strip, as an AppKit view that owns both the cursor and the drag.
-///
-/// Cursor arbitration starts from the deepest view the pointer HIT-TESTS to, so
-/// whoever wins is decided by hit testing, not by drawing order: an imperative
-/// `NSCursor.set` from SwiftUI is simply the last writer until the next move,
-/// and `zIndex` buys nothing. This view must therefore both take part in hit
-/// testing (f32f4b9 made it transparent, and ↔ stopped appearing at all) and
-/// live inside a full-size ancestor — an `NSView` in a branch that overhangs its
-/// parent is not reliably reached by `hitTest`, which is why the strip is
-/// attached with `paneGrabStrip` to the whole pane container instead of to the
-/// 1pt line. Being opaque to the pointer, it owns the resize drag as well.
+/// Grab strip as an AppKit view owning both cursor and drag.
+/// docs/architecture.md § Mouse cursor over the pane dividers.
+/// Cursor arbitration starts from the deepest hit-tested view, so the strip
+/// must take part in hit testing (transparent = no ↔ at all) and live inside a
+/// full-size ancestor — an overhanging `NSView` in a SwiftUI branch is not
+/// reliably hit-tested, hence `paneGrabStrip` attaches to the whole pane
+/// container, not the 1pt line.
 private final class DividerGrabView: NSView {
-    /// X of the strip's left edge in the caller's coordinate space, kept fresh
-    /// by `updateNSView`: the drag reports an absolute x there, and the strip
-    /// itself moves with every resize tick.
+    /// Strip's left edge in caller's space, kept fresh by `updateNSView` —
+    /// the strip moves with every resize tick.
     var originX: CGFloat = 0
     var onDrag: ((CGFloat) -> Void)?
 
@@ -178,10 +139,8 @@ private final class DividerGrabView: NSView {
         addCursorRect(bounds, cursor: .resizeLeftRight)
     }
 
-    /// A SwiftUI neighbour publishes no cursor at all, so nothing replaces ↔ when
-    /// the pointer leaves this rect and the strip reads as far wider than it is.
-    /// `.inVisibleRect` deliberately mirrors the cursor rect above, which covers
-    /// the whole (visible) view.
+    /// SwiftUI neighbours publish no cursor, so nothing replaces ↔ on exit —
+    /// hence the exit tracking. `.inVisibleRect` mirrors the cursor rect.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
@@ -191,18 +150,12 @@ private final class DividerGrabView: NSView {
             owner: self))
     }
 
-    /// An AppKit neighbour restores its own shape on the next move; only leave
-    /// the arrow where nobody would. The neighbour is looked for among the
-    /// hit view's ANCESTORS, because `hitTest` returns the deepest view and a
-    /// text view's document view is not always the leaf.
-    ///
-    /// `WKWebView` is deliberately NOT in that list, and the trade is known:
-    /// it publishes nothing over blank regions (§ Mouse cursor), so counting
-    /// it as a cursor owner leaves ↔ lying across the whole Preview — the
-    /// complaint this work started from. Without it, crossing straight onto
-    /// linked Preview content and stopping can show the arrow until the next
-    /// move, if WebKit published before this callback. A stuck ↔ needs a trip
-    /// elsewhere to clear; an arrow clears itself on the next move.
+    /// Restore arrow only where nobody would: the cursor-owning neighbour is
+    /// searched among the hit view's ANCESTORS (hitTest returns the deepest
+    /// view). WKWebView deliberately NOT counted — it publishes nothing over
+    /// blank regions, so counting it leaves ↔ across the whole Preview; the
+    /// residual arrow-over-content case clears itself on the next move
+    /// (docs/architecture.md § Mouse cursor).
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         let hit = window?.contentView?.hitTest(event.locationInWindow)
@@ -211,10 +164,9 @@ private final class DividerGrabView: NSView {
         if !ownsCursor { NSCursor.arrow.set() }
     }
 
-    /// Press without movement is not a resize: reporting from `mouseDown` made
-    /// a plain click anywhere on the 14pt strip commit that x as the new pane
-    /// width, so clicking a sidebar row the strip overhangs nudged the pane.
-    /// The press only records where the line was grabbed.
+    /// Press without movement is not a resize: reporting from `mouseDown`
+    /// committed the click x as pane width, so clicking a row the strip
+    /// overhangs nudged the pane. Press only records the grab point.
     override func mouseDown(with event: NSEvent) {
         NSCursor.resizeLeftRight.set()
         grabOffset = convert(event.locationInWindow, from: nil).x - bounds.midX
@@ -223,10 +175,9 @@ private final class DividerGrabView: NSView {
     /// Pointer-to-line distance at the press, held for the drag.
     private var grabOffset: CGFloat = 0
 
-    /// Being opaque to the pointer, the strip would also swallow the wheel —
-    /// the pane under it is a SIBLING subtree, so the default responder walk
-    /// (up through the SwiftUI hosting chain) never reaches its scroll view
-    /// and the event dies. Hand it to whoever is behind the strip instead.
+    /// Opaque strip would swallow the wheel: the pane behind is a SIBLING
+    /// subtree, so the responder walk never reaches its scroll view.
+    /// Re-hit-test with the strip transparent and forward.
     override func scrollWheel(with event: NSEvent) {
         passesThroughHitTest = true
         let behind = window?.contentView?.hitTest(event.locationInWindow)
@@ -238,8 +189,8 @@ private final class DividerGrabView: NSView {
         behind.scrollWheel(with: event)
     }
 
-    /// Set only for the hit test above: `hitTest` must keep returning self for
-    /// every other event, which is what makes the strip grabbable at all.
+    /// Only for the wheel re-hit-test; `hitTest` must return self for every
+    /// other event — that is what makes the strip grabbable at all.
     private var passesThroughHitTest = false
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -247,8 +198,8 @@ private final class DividerGrabView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        // a drag past a pane's width clamp leaves the strip behind, and the
-        // cursor rect with it; hold ↔ for as long as the mouse is down.
+        // Drag past the width clamp leaves the strip (and its cursor rect)
+        // behind; hold ↔ while the mouse is down.
         NSCursor.resizeLeftRight.set()
         report(event)
     }
@@ -272,12 +223,11 @@ private struct DividerGrabStrip: NSViewRepresentable {
     }
 }
 
-/// agterm-style divider between the editor and a side pane: the 1px separator
-/// line alone. Its interactive half is `paneGrabStrip`, attached to the pane
-/// CONTAINER — see `DividerGrabView` for why it cannot hang off this line.
+/// The 1px separator line alone. Its interactive half is `paneGrabStrip`,
+/// attached to the pane CONTAINER — see `DividerGrabView` for why it cannot
+/// hang off this line.
 struct PaneDivider: View {
-    /// Grab strip width, centred on the 1px line. Was 12; the pointer target
-    /// is what the user aims at, and 1px of visible line is not it.
+    /// Grab-strip width centred on the 1px line.
     static let grabWidth: CGFloat = 14
 
     var body: some View {
@@ -289,13 +239,10 @@ struct PaneDivider: View {
 }
 
 extension View {
-    /// Overlay the grab strip for a divider whose line sits at `lineX` in this
-    /// container's own coordinates, centred on it and overhanging both panes.
-    /// `lineX` is nil while that divider is not on screen.
-    ///
-    /// The drag reports the ABSOLUTE cursor x in those coordinates, not
-    /// accumulated translation — the divider moves with the resize, so
-    /// translation-based dragging feeds back on itself and flickers.
+    /// Grab strip centred on the divider line at `lineX` (nil = divider off
+    /// screen). The drag reports ABSOLUTE cursor x, not accumulated
+    /// translation — the divider moves with the resize, so translation-based
+    /// dragging feeds back on itself and flickers.
     func paneGrabStrip(lineX: CGFloat?, onDrag: @escaping (CGFloat) -> Void) -> some View {
         let width = PaneDivider.grabWidth
         return overlay(alignment: .leading) {
@@ -313,7 +260,7 @@ struct ContentView: View {
 
     @ObservedObject var document: MarkdownDocument
     let fileURL: URL?
-    /// Lite (separate) windows pass false to suppress the workspace sidebar.
+    /// Lite windows pass false: no workspace sidebar.
     var allowsSidebar: Bool = true
     /// Main workspace window (Save As re-opens in place).
     var isMain: Bool = true
@@ -321,15 +268,14 @@ struct ContentView: View {
     var onSaveAs: () -> Void = {}
 
     @AppStorage("editorMode") private var storedMode: String = EditorMode.preview.rawValue
-    /// Left workspace sidebar show/hide (the sidebar itself + its width live in
-    /// `MainChrome`; this window still flips visibility, e.g. the Git chip).
+    /// Sidebar itself + width live in `MainChrome`; this window still flips
+    /// visibility (e.g. the Git chip).
     @AppStorage("sidebarVisible") private var sidebarVisible = false
     @AppStorage("sidebarTab") private var sidebarTab = "files"
-    /// Right document-scope inspector (Outline / Info / …).
     @AppStorage("inspectorVisible") private var inspectorVisible = false
     @AppStorage("inspectorWidth") private var inspectorWidth = InspectorPane.defaultWidth
     @AppStorage("inspectorTab") private var inspectorTab = "outline"
-    /// Dedicated Source + Preview mode: edit pane's share of the split.
+    /// Split mode: edit pane's share.
     @AppStorage("splitFraction") private var splitFraction = 0.5
     @ObservedObject private var editorSettings = EditorSettings.shared
     @ObservedObject private var workspace = WorkspaceModel.shared
@@ -339,22 +285,21 @@ struct ContentView: View {
     @State private var charCount = 0
     @State private var formatActions: FormatActions?
     @State private var lintSummary: LintSummary?
-    /// Left edge of the text reported by Source/Visual (their reading inset —
-    /// it already reserves the numbers margin). Preview computes its own.
+    /// Text left edge from Source/Visual (their inset already reserves the
+    /// numbers margin). Preview computes its own.
     @State private var editorTextLeading: CGFloat = 0
     @State private var showLintPopover = false
     @State private var positionStore = EditorPositionStore()
-    /// Shared Notes-style action strip (all three modes). Held in a ref box so
-    /// rebinding closures does not trigger SwiftUI view updates.
+    /// Shared action strip (all modes). Ref box: rebinding closures must not
+    /// trigger SwiftUI view updates.
     @State private var stripActions = EditorStripActions()
-    /// B6: strip B/I/`/S accent state (updated from editor caret callbacks).
+    /// Strip B/I/`/S accent state (from editor caret callbacks).
     @State private var activeFormats = ActiveInlineFormats()
-    /// Epoch gate over `activeFormats` writes: publishes queued by an outgoing
-    /// editor (Source/Visual main-queue hop, Preview's WebKit message queue)
-    /// are dropped once the mode switches — see `setEditorMode`.
+    /// Epoch gate over `activeFormats` writes: drops publishes queued by an
+    /// outgoing editor — see `setEditorMode`.
     @State private var formatsGate = ActiveFormatsGate()
-    /// ⌘F find state for full Preview mode (sprint 5). Driven by the Edit ▸ Find
-    /// menu via a focused value, and by the overlaid `PreviewFindBar`.
+    /// ⌘F find state for full Preview mode; driven by Edit ▸ Find (focused
+    /// value) and the overlaid `PreviewFindBar`.
     @StateObject private var previewFind = PreviewFindModel()
     @State private var showExternalDiff = false
     @State private var showGitCommit = false
@@ -365,8 +310,8 @@ struct ContentView: View {
 
     private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
 
-    /// The active Source/Visual look: the single fixed editor theme plus
-    /// General's base color overrides. (Preview has its own `PreviewTheme`.)
+    /// Source/Visual look: fixed editor theme + General's base color
+    /// overrides. Preview has its own `PreviewTheme`.
     private var theme: EditorTheme { editorSettings.effectiveTheme }
 
     private var appearanceIsDark: Bool { editorSettings.general.appearance.isDark }
@@ -378,8 +323,8 @@ struct ContentView: View {
         )
     }
 
-    /// Edit ▸ Find bridge for the active full Preview (sprint 5). Published only
-    /// while `mode == .preview`; Source/Visual keep the native `NSTextFinder`.
+    /// Edit ▸ Find bridge; published only while `mode == .preview` —
+    /// Source/Visual keep the native `NSTextFinder`.
     private var previewFindActions: PreviewFindActions {
         PreviewFindActions(
             show: { previewFind.activate() },
@@ -389,45 +334,41 @@ struct ContentView: View {
         )
     }
 
-    /// Switch editor mode after flushing any coalesced typing onto the
-    /// document undo stack (so ⌘Z still works after Source↔Visual↔Preview).
-    /// Only the synchronous belt lives here; the idempotent tail of every
-    /// transition runs in `modeDidChange()` — the `storedMode` observation
-    /// that also catches writers bypassing this func (control socket).
+    /// Switch mode after flushing coalesced typing onto the undo stack (⌘Z
+    /// must survive mode switches). Only the synchronous belt lives here; the
+    /// idempotent tail runs in `modeDidChange()`, which also catches writers
+    /// bypassing this func (control socket).
     private func setEditorMode(_ newMode: EditorMode) {
         guard newMode != mode else { return }
         document.commitContentEdit()
-        // Active formats are published per editor, and a mode must not
-        // inherit fields the incoming editor won't recompute (Source's list
-        // states are prefix-based, Visual's block-model — they disagree on
-        // edge cases; historically a Visual H1 stayed lit in Source forever).
-        // Advance + reset must stay synchronous with the write: a publish
-        // already sitting on the main queue can run before SwiftUI commits
-        // the change, and `modeDidChange` only cleans up at the commit.
+        // A mode must not inherit format fields the incoming editor won't
+        // recompute (Source prefix-based vs Visual block-model disagree on
+        // edge cases). Advance + reset must be synchronous with the write: a
+        // publish already on the main queue can run before SwiftUI commits,
+        // and `modeDidChange` only cleans up at the commit.
         formatsGate.advance()
         activeFormats = ActiveInlineFormats()
         storedMode = newMode.rawValue
     }
 
-    /// Idempotent tail of a mode transition, hooked to `storedMode` itself so
-    /// it runs for EVERY writer of the shared default: the strip/menu go
-    /// through `setEditorMode`, but the control socket (`editmdctl mode …`)
-    /// writes UserDefaults directly and used to bypass the reset entirely.
+    /// Idempotent tail of a mode transition, hooked to `storedMode` so it
+    /// runs for EVERY writer of the shared default — the control socket
+    /// (`editmdctl mode …`) writes UserDefaults directly, bypassing
+    /// `setEditorMode`.
     private func modeDidChange() {
         document.commitContentEdit()
-        // The render pass accompanying this change advanced the gate
-        // (`noteMode`), so a queued stale publish that slipped in before the
-        // commit is wiped by this reset, and one arriving after it is dropped
-        // by epoch. Each coordinator force-emits its first computed value, so
-        // the incoming mode repopulates the strip.
+        // The render pass advanced the gate (`noteMode`): a stale publish
+        // that slipped in before the commit is wiped by this reset, one after
+        // it is dropped by epoch. Coordinators force-emit their first value,
+        // repopulating the strip.
         activeFormats = ActiveInlineFormats()
         // Leaving Preview retires its ⌘F find bar and highlights.
         if mode != .preview { previewFind.close() }
         if mode != .visual {
             // Row/column ops exist only on Visual's native tables. Table and
             // formula *insertion* is dual-mode: leave those closures for the
-            // next mode's publish to rebind, so the Insert buttons don't go
-            // briefly dead on Source↔Split switches.
+            // next mode to rebind, so Insert buttons don't go briefly dead on
+            // Source↔Split switches.
             stripActions.tableAddRow = nil
             stripActions.tableDeleteRow = nil
             stripActions.tableAddColumn = nil
@@ -438,11 +379,9 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                // The left workspace sidebar lives in `MainChrome` (a stable
-                // parent that is NOT `.id`-swapped per file), so it survives file
-                // switches — no teardown, so its scroll / selection / filter
-                // persist (A1). Here we only lay out the editor + right inspector,
-                // and clamp the inspector against the editor's floor.
+                // Workspace sidebar lives in `MainChrome` (NOT `.id`-swapped
+                // per file) so its scroll/selection/filter survive file
+                // switches. Here: editor + right inspector only.
                 let panes = resolveSidePaneWidths(
                     available: geo.size.width,
                     sidebarWidth: 0,
@@ -476,11 +415,10 @@ struct ContentView: View {
                         .frame(width: panes.inspector)
                     }
                 }
-                // the strip belongs to this container, not to the 1pt line: only
-                // here does hit testing reach it on both sides of the divider.
+                // Strip on this container, not the 1pt line: only here does
+                // hit testing reach it on both sides of the divider.
                 .paneGrabStrip(lineX: inspectorVisible ? geo.size.width - panes.inspector : nil) { x in
-                    // Inspector is last: its display width is the span from the
-                    // divider to the right edge. Invert the clamp too.
+                    // Inspector is last: display width = divider→right edge.
                     inspectorWidth = preferredPaneWidthFromDrag(
                         displayWidth: geo.size.width - x, scale: panes.scale,
                         range: InspectorPane.widthRange)
@@ -489,13 +427,11 @@ struct ContentView: View {
             }
             statusBar
         }
-        // Appearance override lives on the window root (MainWindowView /
-        // LiteWindowContent) so non-editor panes follow it too. The sidebar
-        // toggle is provided once by `MainChrome`, not here.
+        // Appearance override lives on the window root so non-editor panes
+        // follow it too; sidebar toggle is provided once by `MainChrome`.
         .toolbar {
-            // Main window: MainChrome owns the shared trailing buttons so they
-            // exist on every branch (folder/welcome too). Lite windows have no
-            // MainChrome, so ContentView supplies them here.
+            // MainChrome owns the trailing buttons (they must exist on
+            // folder/welcome branches too); lite windows have no MainChrome.
             if !isMain {
                 EditorToolbar(
                     editorSettings: editorSettings,
@@ -573,8 +509,7 @@ struct ContentView: View {
                 ClaudeIDEBridge.shared.setActiveURL(fileURL)
                 ReviewModel.shared.setActiveFile(fileURL, text: document.content)
                 consumePendingControlJump()
-                // Feed Back/Forward the live caret so a departing entry
-                // remembers where the reader was. This view is .id-recreated
+                // Feed Back/Forward the live caret; this view is .id-recreated
                 // per file, so the closure always points at the current store.
                 DocumentHistory.shared.currentOffsetProvider = { [positionStore] in
                     positionStore.markdownOffset
@@ -582,7 +517,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: fileURL) { _ in
-            // A different file is now on screen — the old find no longer applies.
             previewFind.close()
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
@@ -596,11 +530,11 @@ struct ContentView: View {
         .onChange(of: lineChanges.revision) { _ in
             refreshGitSnapshot(mode: .deltaOnly, delayMs: 350)
         }
-        // Typing: update +/− only; never re-run status/branch/ahead-behind.
+        // Typing: +/− only; never re-run status/branch/ahead-behind.
         .onChange(of: document.content) { _ in
             refreshGitSnapshot(mode: .deltaOnly, delayMs: 450)
-            // Keep review anchors resolving against the live buffer (cheap: a
-            // String assignment; recompute only happens while the tab is shown).
+            // Keep review anchors on the live buffer (cheap String assignment;
+            // recompute only while the tab is shown).
             if isMain { ReviewModel.shared.setActiveFile(fileURL, text: document.content) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .gitRepositoryDidChange)) { note in
@@ -614,22 +548,20 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Meta may have changed in Terminal; keep debounce light.
             refreshGitSnapshot(mode: .full, delayMs: 200)
-            // The sidecar may have been rewritten out-of-band (Claude `/smotr
-            // -pr`, or the smotr web view) — pick up new replies / suggestions.
+            // Sidecar may have been rewritten out-of-band (smotr) — pick up
+            // new replies / suggestions.
             if isMain { ReviewModel.shared.reload() }
         }
-        // editmdctl open/reveal → jump to markdown offset in this window.
-        // The offset waits in AppState until the target file is mounted here
-        // (also consumed from onAppear / fileURL change) — no timers, no
-        // dropped jumps on slow opens.
+        // editmdctl open/reveal → jump. The offset waits in AppState until
+        // the target file is mounted here (also consumed from onAppear /
+        // fileURL change) — no timers, no dropped jumps on slow opens.
         .onReceive(NotificationCenter.default.publisher(for: .editMDControlJump)) { _ in
             consumePendingControlJump()
         }
     }
 
-    /// Claims AppState's pending control jump when it targets this window's
-    /// file. Deferred one runloop turn so SwiftUI finishes mounting/reloading
-    /// the editors for the new file before they are poked.
+    /// Deferred one runloop turn: SwiftUI must finish mounting the new file's
+    /// editors before they are poked.
     private func consumePendingControlJump() {
         guard isMain,
               let offset = AppState.shared.consumeControlJump(for: fileURL) else { return }
@@ -693,10 +625,7 @@ struct ContentView: View {
 
     // MARK: - Panes
 
-    /// The editor area right of the sidebar. Split is a first-class mode with a
-    /// fixed Source pane on the left and Preview on the right; Visual is never
-    /// mounted beside Preview.
-    /// Mode-specific inset for aligning the strip with the reading column.
+    /// Mode-specific inset aligning the strip with the reading column.
     private var stripInset: (h: CGFloat, column: CGFloat) {
         switch mode {
         case .source:
@@ -710,8 +639,7 @@ struct ContentView: View {
         }
     }
 
-    /// Same numbers the Preview CSS uses for its line-number rail — the strip
-    /// mirrors them instead of guessing.
+    /// Mirrors the Preview CSS line-number-rail numbers instead of guessing.
     private var previewRailWidth: CGFloat {
         let g = editorSettings.gutter
         let options = PreviewGutterOptions(
@@ -723,6 +651,8 @@ struct ContentView: View {
         return PreviewGutterMetrics.railPx(for: options)
     }
 
+    /// Split = fixed Source pane left + Preview right; Visual is never
+    /// mounted beside Preview.
     @ViewBuilder private var editorArea: some View {
         GeometryReader { geo in
             // Must precede every sink built below — see `noteMode`.
@@ -749,8 +679,8 @@ struct ContentView: View {
                                   })
                 switch mode {
                 case .preview:
-                    // Line numbers / dirty marks are baked into the HTML (`data-ln`)
-                    // so they scroll with the page — no separate rail to sync.
+                    // Line numbers / dirty marks are baked into the HTML
+                    // (`data-ln`) so they scroll with the page — no rail to sync.
                     MarkdownPreviewView(document: document, fileURL: fileURL,
                                         positionStore: positionStore,
                                         onRequestEdit: { setEditorMode(.visual) },
@@ -809,7 +739,7 @@ struct ContentView: View {
                 onTextLeading: { editorTextLeading = $0 }
             )
         case .preview:
-            // unreachable: editorArea routes .preview to the full preview
+            // Unreachable: editorArea routes .preview to the full preview.
             EmptyView()
         case .split:
             sourceEditorPane(syncsPreview: true)
@@ -841,10 +771,8 @@ struct ContentView: View {
         )
     }
 
-    /// Mirrors FormatActions into the shared strip bag. Straight copy of every
-    /// field: a mode that doesn't implement an action published nil, so the
-    /// strip inherits exactly the publisher's capabilities (Source's table
-    /// row/column ops stay nil; its insertTable is the markdown template).
+    /// Straight copy of every field: nil fields stay nil, so the strip
+    /// inherits exactly the publisher's capabilities.
     private func bindStrip(from fa: FormatActions) {
         stripActions.toggleBold = fa.toggleBold
         stripActions.toggleItalic = fa.toggleItalic
@@ -873,9 +801,8 @@ struct ContentView: View {
         // No objectWillChange — strip UI is mode-driven; closures are read on tap.
     }
 
-    /// The Preview/Split review button reuses the inspector's existing compose form.
-    /// The model keeps the request until the Review tab appears, avoiding a
-    /// race when this action also opens a previously hidden sidebar.
+    /// Model keeps the compose request until the Review tab appears —
+    /// avoids a race when this also opens a previously hidden sidebar.
     private func requestReviewMark() {
         guard allowsSidebar, mode == .preview || mode == .split else { return }
         inspectorVisible = true
@@ -883,8 +810,8 @@ struct ContentView: View {
         ReviewModel.shared.requestCompose()
     }
 
-    /// History tab restore: undoable whole-document replace. Rejects if the
-    /// buffer changed since the diff preview was opened.
+    /// Undoable whole-document replace; rejects if the buffer changed since
+    /// the diff preview was opened.
     private func restoreFromHistory(oldContent: String, baseline: String) {
         guard canApplyHistoryRestore(previewBaseline: baseline,
                                      currentContent: document.content) else {
@@ -910,7 +837,6 @@ struct ContentView: View {
         let pluginDiagnostics = builtInPluginConfigurationDiagnosticsForStatusBar(
             mode: mode, markdown: document.content)
         return HStack(spacing: 10) {
-            // D2: always-on lint chip in Source (checkmark when clean).
             if mode == .source || mode == .split {
                 lintStatusChip
             }
@@ -923,7 +849,6 @@ struct ContentView: View {
                     })
             }
             Spacer(minLength: 8)
-            // External disk change — compact chip left of word count.
             if let notice = externalChanges.notice(for: fileURL) {
                 ExternalChangeStatusChip(
                     notice: notice,
@@ -936,11 +861,10 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.quaternary)
             }
-            // Workspace background work (link index scan, vault-lint run).
             BackgroundActivityChip()
-            // Claude Code: grey while listening, accent once /ide attached.
+            // Grey while listening, accent once /ide attached.
             ClaudeIDEChip()
-            // Git: info only (Commit / Push live in the Git sidebar tab).
+            // Info only: Commit / Push live in the Git sidebar tab.
             if gitSnapshot.inRepo {
                 GitStatusChip(snapshot: gitSnapshot) {
                     guard allowsSidebar else { return }
@@ -959,7 +883,7 @@ struct ContentView: View {
         .padding(.vertical, 4)
     }
 
-    // MARK: - Lint status (D2)
+    // MARK: - Lint status
 
     @ViewBuilder private var lintStatusChip: some View {
         let summary = lintSummary
@@ -1061,8 +985,6 @@ struct ContentView: View {
 
     // MARK: - Sidebar open
 
-    /// Inspector's onOpen reuses the shared workspace-sidebar open routing,
-    /// anchored on the file currently on screen.
     private func openFromSidebar(_ url: URL) {
         openFileFromWorkspaceSidebar(url, currentURL: fileURL)
     }
@@ -1070,11 +992,9 @@ struct ContentView: View {
 
 // MARK: - Shared workspace-sidebar open routing
 
-/// Left-click a file in the workspace sidebar (or inspector). If it's already
-/// open in another window, ask whether to jump there or move it here (closing
-/// the other); otherwise replace the main window's file in place. Free function
-/// so `MainChrome` (which owns the hoisted sidebar) and `ContentView` (the
-/// inspector) share one behaviour.
+/// Open from sidebar/inspector: if already open in another window, ask jump
+/// vs. move-here; else replace the main window's file in place. Free function
+/// so `MainChrome` and `ContentView` share one behaviour.
 @MainActor
 func openFileFromWorkspaceSidebar(_ url: URL, currentURL: URL?) {
     let std = url.standardizedFileURL

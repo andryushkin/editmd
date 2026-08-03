@@ -1,12 +1,10 @@
 import AppKit
 
-// In-text wash for open review marks (v37 step C). Temporary layout-manager
-// attributes only — never touch NSTextStorage (document + undo stay clean),
-// matching the lint-underline pattern in SourceTextView.
-//
-// Source resolves anchors against the raw markdown (same as the sidecar).
-// Visual searches the display plain text for `quote` (markers are gone there;
-// a selection captured in Visual already maps to body text without `# `/`> `).
+// In-text wash for open review marks. Temporary layout-manager attributes
+// only — never NSTextStorage (document + undo stay clean), matching the
+// lint-underline pattern in SourceTextView. Source resolves anchors against
+// raw markdown (same as the sidecar); Visual searches the display plain text
+// for `quote` (markers gone there).
 
 enum ReviewHighlight {
 
@@ -24,11 +22,9 @@ enum ReviewHighlight {
         }
     }
 
-    /// Clears previous washes and paints the given ranges. Empty `highlights`
-    /// just clears. Safe to call when the layout manager is missing (no-op).
-    ///
-    /// Only `backgroundColor` is touched — lint owns temporary tooltips /
-    /// underlines, and the two must not wipe each other out.
+    /// Clears previous washes, paints `highlights`; empty just clears; no-op
+    /// without a layout manager. Only `backgroundColor` is touched — lint owns
+    /// temporary tooltips/underlines; the two must not wipe each other out.
     @MainActor
     static func apply(to textView: NSTextView, highlights: [ReviewAnchorHighlight]) {
         guard let lm = textView.layoutManager else { return }
@@ -47,14 +43,11 @@ enum ReviewHighlight {
         }
     }
 
-    /// Visual path: locate each open mark's `quote` inside the *display* string
-    /// (plainText search). Prefix is ignored — it may contain raw-markdown
-    /// context that does not appear in WYSIWYG text.
-    ///
-    /// `hintForRawOffset` translates the mark's raw-markdown `start` into a
-    /// display offset (Visual's paragraph map). The raw offset itself must NOT
-    /// be used as the hint: display text is shorter (markers stripped), so a
-    /// raw hint can overshoot the true occurrence and wash a later duplicate.
+    /// Visual path: locate each open mark's `quote` in the *display* string.
+    /// Prefix ignored (raw-markdown context absent in WYSIWYG text).
+    /// `hintForRawOffset` maps raw `start` → display offset; the raw offset
+    /// itself must NOT be the hint — display text is shorter (markers
+    /// stripped), so a raw hint can overshoot and wash a later duplicate.
     static func displayHighlights(marks: [ReviewMark], displayText: String,
                                   hintForRawOffset: (Int) -> Int? = { _ in nil })
         -> [ReviewAnchorHighlight] {

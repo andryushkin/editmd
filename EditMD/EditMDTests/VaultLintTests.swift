@@ -153,15 +153,11 @@ final class VaultLintTests: XCTestCase {
             ],
             roots: [root]
         )
-        // Self-link does create a backlink edge to self → NOT orphan by backlinks map.
-        // projectBacklinks will add a self edge; the plan says: "a file whose
-        // only link points to itself is both an orphan and selfWikiLink".
-        // Our projectBacklinks counts self as a backlink. Adjust orphan rule:
-        // exclude self-only backlinks? Plan: both orphan AND selfWikiLink.
-        // So orphan should ignore edges where source == target.
+        // projectBacklinks counts a self-link as a backlink edge, so the
+        // orphan rule must ignore edges where source == target: a file whose
+        // only link points to itself is both orphan AND selfWikiLink.
         let f = vaultLintFindings(index: snap)
         XCTAssertTrue(f.contains { $0.rule == .selfWikiLink })
-        // With current backlinks including self, orphan may be false — fix engine.
         XCTAssertTrue(f.contains { $0.rule == .orphanFile },
                       "self-only backlinks must not clear orphan: \(f)")
     }

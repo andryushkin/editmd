@@ -3,7 +3,6 @@ import AppKit
 import UniformTypeIdentifiers
 
 // File-move machinery shared by the sidebar, folder card and drag-and-drop.
-// Extracted from FolderInfo.swift.
 
 @MainActor
 @discardableResult

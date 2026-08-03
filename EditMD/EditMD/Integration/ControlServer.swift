@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 import os
 
-/// Unix-domain stream server for the control channel (v38).
+/// Unix-domain stream server for the control channel.
 ///
 /// BSD sockets (AF_UNIX) — simple JSON-lines: one request line → one response
 /// line. Accept loop on a utility queue; command dispatch on MainActor via

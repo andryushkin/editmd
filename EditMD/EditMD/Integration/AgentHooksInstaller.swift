@@ -1,8 +1,9 @@
 import AppKit
 import Foundation
 
-/// Installs agent-status hooks package into `~/.config/editmd/agent-status/`
-/// and optionally merges Claude hooks fragment (plan 09 stage 2/4).
+/// Installs the agent-status hooks package into
+/// `~/.config/editmd/agent-status/` and optionally merges the Claude hooks
+/// fragment.
 enum AgentHooksInstaller {
 
     static let configDirName = "editmd"

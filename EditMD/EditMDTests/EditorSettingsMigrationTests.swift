@@ -1,7 +1,7 @@
 import XCTest
 @testable import EditMD
 
-/// Plan-11 typography baseline: `EditorSettings.migratedVisual` hard-resets
+/// Typography baseline: `EditorSettings.migratedVisual` hard-resets
 /// the redesigned fields (reading column, element styles) and keeps the
 /// user's personal font/margins.
 @MainActor
@@ -48,7 +48,7 @@ final class EditorSettingsMigrationTests: XCTestCase {
     }
 }
 
-/// Plan-11 optical limits in `VisualStyle`: heading increment caps and the
+/// Optical limits in `VisualStyle`: heading increment caps and the
 /// mono `codeSize` floor/ceiling across the 9–40pt base range.
 final class VisualTypographyScaleTests: XCTestCase {
 

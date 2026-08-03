@@ -1,14 +1,9 @@
-// Wiki-links (`[[target#heading|alias]]`) — a pure, testable scanner.
-//
-// swift-markdown does not know about `[[...]]`, so we scan raw text ourselves.
-// The single most important invariant for round-trip: we keep the *verbatim*
-// text found inside `[[...]]` in `originalInner` and always re-emit that, never
-// reconstruct it from the parsed fields. That guarantees
-// `serialize(render(md)) == md` even for exotic escaping.
-//
-// The scanner is offset-based (UTF-16 `NSRange` relative to the scanned string),
-// matching the `LineIndex`/`collectSpans` idiom used elsewhere so callers in all
-// three modes (Source spans, Visual runs, Preview HTML) can splice results in.
+// Wiki-link (`[[target#heading|alias]]`) scanner — pure, testable;
+// swift-markdown doesn't know `[[...]]`. Round-trip invariant: `originalInner`
+// keeps the VERBATIM text inside `[[...]]` and is always re-emitted, never
+// reconstructed — `serialize(render(md)) == md` even for exotic escaping.
+// Offset-based (UTF-16 NSRange) matching the LineIndex/collectSpans idiom, so
+// all three modes can splice results in.
 
 import Foundation
 
@@ -40,15 +35,9 @@ struct WikiLinkMatch: Equatable, Sendable {
     let payload: MDWikiLinkPayload
 }
 
-/// Scans `text` for `[[...]]` occurrences.
-///
-/// Rules (matching Obsidian's live-preview behaviour):
-/// - A wiki-link is single-line — a newline before `]]` aborts the match.
-/// - The first `]]` closes; we do not attempt to nest `[[ ]]`.
-/// - Empty `[[]]` is ignored.
-///
-/// Callers are responsible for NOT scanning inside code spans / code blocks
-/// (do that at the AST-walk level, not here).
+/// Scans for `[[...]]`. Rules (matching Obsidian): single-line — newline before
+/// `]]` aborts; first `]]` closes, no nesting; empty `[[]]` ignored. Callers
+/// must NOT scan inside code spans/blocks — exclude at the AST-walk level.
 func scanWikiLinks(in text: String) -> [WikiLinkMatch] {
     let ns = text as NSString
     let n = ns.length
@@ -88,11 +77,9 @@ func scanWikiLinks(in text: String) -> [WikiLinkMatch] {
     return matches
 }
 
-/// Splits the text inside `[[...]]` into target / alias / heading / blockID.
-///
-/// Order matters: split the alias on `|` FIRST, then the heading/block on `#`
-/// within the remaining target part. Obsidian's form is `target#heading|alias`,
-/// so parsing `#` first would wrongly fold the alias into the heading.
+/// Splits `[[...]]` inner into target / alias / heading / blockID. Alias splits
+/// on `|` FIRST, then `#` within the target part — Obsidian's form is
+/// `target#heading|alias`; `#` first would fold the alias into the heading.
 func parseWikiInner(_ inner: String) -> MDWikiLinkPayload {
     // 1. Alias — first `|` (a table cell escapes it as `\|`; treat both as the
     //    separator and strip a trailing backslash from the target side).

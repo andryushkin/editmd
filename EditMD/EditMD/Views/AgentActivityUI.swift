@@ -3,7 +3,7 @@ import AppKit
 
 // MARK: - Toolbar ✨
 
-/// Plan 09 face of the AI system: sparkles in the toolbar + popover.
+/// Face of the AI system: sparkles in the toolbar + popover.
 /// Mounted by `EditorToolbar` as a plain ToolbarItem.
 struct AgentActivityButton: View {
     @ObservedObject private var activity = AgentActivityModel.shared
@@ -135,7 +135,7 @@ struct AgentActivityPopover: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            // Stage 7 event line: the last quiet auto-reload from disk.
+            // Last quiet auto-reload from disk.
             if let file = activity.lastDiskReloadFile,
                let at = activity.lastDiskReloadAt {
                 Text(String(localized: "Reloaded from disk: \(file) · \(at.formatted(date: .omitted, time: .shortened))"))

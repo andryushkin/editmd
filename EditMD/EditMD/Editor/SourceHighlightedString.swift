@@ -1,12 +1,10 @@
 import AppKit
 
-// Shared Source highlighting (editor + external-change diff). Extracted from
-// SourceTextView.swift — renders markdown with the same per-element
-// fonts/colors as Source mode without a live text view.
+// Shared Source highlighting without a live text view (editor + external-change
+// diff).
 
-/// Renders markdown with the same per-element fonts/colors as Source mode
-/// (Settings ▸ Source ▸ Elements + effective theme). No table-kern pass —
-/// callers that need alignment run it separately on a live text view.
+/// Markdown with the same per-element fonts/colors as Source mode. No
+/// table-kern pass — callers needing alignment run it on a live text view.
 @MainActor
 func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
     let settings = EditorSettings.shared.source
@@ -125,8 +123,8 @@ func makeSourceHighlightedString(_ text: String) -> NSAttributedString {
             break
         }
     }
-    // Syntax markers: repaint every delimiter / punctuation span with the
-    // configurable marker color (graphite default), mirroring the live editor.
+    // Syntax markers: repaint delimiter/punctuation spans with the marker
+    // color, mirroring the live editor.
     let markerColor = settings.markerColor ?? theme.markerColor
     for span in spans where NSMaxRange(span.range) <= full.length {
         if span.kind.isSyntaxMarker {

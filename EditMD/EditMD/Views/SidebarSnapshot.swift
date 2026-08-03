@@ -36,8 +36,8 @@ struct SidebarSnapshotEntry: Codable, Equatable, Sendable {
 /// Support/EditMD/sidebar-snapshot.json`.
 ///
 /// Reads happen once, in `WorkspaceModel.init` — a few dozen KB from our own
-/// container, before any window is on screen. Writes are debounced and run off
-/// the main actor: the sidebar must never block on disk (v35.3).
+/// container, before any window is on screen. Writes are debounced and run
+/// off the main actor: the sidebar must never block on disk.
 @MainActor
 final class SidebarSnapshotStore {
 

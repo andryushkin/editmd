@@ -13,9 +13,8 @@ struct EditMDApp: App {
     @FocusedValue(\.inspectorVisible) var inspectorVisible
     @FocusedValue(\.documentActions) var documentActions
     @FocusedValue(\.documentUndoActions) var documentUndoActions
-    /// Non-nil only while a full Preview is the active mode (sprint 5). When
-    /// present, Edit ▸ Find drives the Preview's JS search instead of the
-    /// native text finder (which the WKWebView doesn't answer).
+    /// Non-nil only while Preview is active: Edit ▸ Find then drives the
+    /// Preview's JS search (WKWebView ignores the native text finder).
     @FocusedValue(\.previewFind) var previewFind
 
     @StateObject private var history = DocumentHistory.shared
@@ -23,9 +22,8 @@ struct EditMDApp: App {
     @StateObject private var claudeService = ClaudeIDEService.shared
     @StateObject private var claudeBridge = ClaudeIDEBridge.shared
 
-    /// Routes an Edit ▸ Find command into the focused NSTextView's find bar.
-    /// performTextFinderAction reads the action from the SENDER's tag, so the
-    /// menu item itself is the message.
+    /// Edit ▸ Find → focused NSTextView's find bar. `performTextFinderAction`
+    /// reads the action from the SENDER's tag, so the menu item is the message.
     private func sendFindAction(_ action: NSTextFinder.Action) {
         let item = NSMenuItem()
         item.tag = action.rawValue
@@ -33,8 +31,8 @@ struct EditMDApp: App {
                          to: nil, from: item)
     }
 
-    /// File ▸ Open — DocumentGroup no longer provides it. Loads the chosen file
-    /// into the main window (Lite mode is only about Finder double-clicks).
+    /// File ▸ Open (no DocumentGroup to provide it). Loads into the main
+    /// window — Lite mode applies only to Finder double-clicks.
     @MainActor private func openFilePanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.markdown, .textBundle, .pdf]
@@ -45,12 +43,12 @@ struct EditMDApp: App {
         }
     }
 
-    /// File ▸ Export as PDF… — focused editor buffer (including unsaved/untitled).
+    /// File ▸ Export as PDF… — focused editor buffer (incl. unsaved/untitled).
     /// Folder-info / welcome leave `documentActions` nil, same as Save.
     @MainActor private func exportFocusedDocumentAsPDF() {
         guard let actions = documentActions else { NSSound.beep(); return }
         actions.prepareForExport?()
-        // Prefer live editor buffer — works without a path on disk.
+        // Live editor buffer — works without a path on disk.
         let content = actions.markdownContent()
         let url = actions.fileURL
         let name = url?.deletingPathExtension().lastPathComponent
@@ -58,8 +56,8 @@ struct EditMDApp: App {
         PDFExporter.export(markdown: content, suggestedName: name, fileURL: url)
     }
 
-    /// Help ▸ Demo Markup (D7): copy bundle KitchenSink.md to a temp file and
-    /// open in a lite window so all three modes can be smoke-tested.
+    /// Help ▸ Demo Markup: copy bundled KitchenSink.md to a temp file, open in
+    /// a lite window — smoke-tests all three modes.
     @MainActor private func openKitchenSinkDemo() {
         guard let src = Bundle.main.url(forResource: "KitchenSink", withExtension: "md")
                 ?? Bundle.main.url(forResource: "KitchenSink", withExtension: "md",
@@ -85,9 +83,9 @@ struct EditMDApp: App {
             MainWindowView()
         }
         .commands {
-            // Non-DocumentGroup apps: `replacing: .saveItem` is often empty in
-            // the File menu (system still shows Close). Put Save/Export after
-            // .newItem so they always appear with New/Open (see File menu repro).
+            // Without DocumentGroup, `replacing: .saveItem` often renders empty
+            // (system still shows Close) — Save/Export go after .newItem so
+            // they always appear with New/Open.
             CommandGroup(replacing: .newItem) {
                 Button("New") {
                     AppState.shared.openUntitled()
@@ -146,8 +144,8 @@ struct EditMDApp: App {
                 .disabled(documentActions?.presentPush == nil)
             }
 
-            // Clear system Save slot so we don't get a second empty/broken Save
-            // group above Close.
+            // Clear the system Save slot — avoids a second empty Save group
+            // above Close.
             CommandGroup(replacing: .saveItem) {
                 EmptyView()
             }
@@ -168,14 +166,9 @@ struct EditMDApp: App {
                 .disabled(documentUndoActions == nil)
             }
 
-            // Cut / Copy / Paste / Select All stay the stock SwiftUI items on
-            // purpose. Our own Buttons for them (they only re-sent the same
-            // standard selectors) broke ⌘X/⌘C/⌘V/⌘A in every AppKit panel of
-            // the app — the link dialog, the name prompts: while a panel is key
-            // SwiftUI validates its menu items as disabled, yet they still
-            // swallow the key equivalent, so nothing happens at all. A stock
-            // nil-target `paste:` item revalidates against the real responder
-            // chain instead and reaches the panel's field editor.
+            // Cut/Copy/Paste/Select All stay STOCK SwiftUI items — custom
+            // Buttons sending the same selectors broke ⌘X/⌘C/⌘V/⌘A inside every
+            // AppKit panel (docs/architecture.md § Menus and AppKit panels).
             CommandGroup(after: .pasteboard) {
                 Divider()
 
@@ -189,8 +182,8 @@ struct EditMDApp: App {
                     }
                     .keyboardShortcut("f")
 
-                    // Preview is read-only — no replace target there, so it always
-                    // falls through to the native finder (Source/Visual).
+                    // Preview is read-only: no replace target, always the
+                    // native finder (Source/Visual).
                     Button("Find and Replace…") {
                         sendFindAction(.showReplaceInterface)
                     }
@@ -229,8 +222,7 @@ struct EditMDApp: App {
 
                 Divider()
 
-                // at_mentioned — only meaningful while a `claude` client is
-                // attached (there is nobody to receive it otherwise).
+                // at_mentioned — only while a `claude` client is attached.
                 Button("Send to Claude") {
                     claudeBridge.sendSelectionToClaude()
                 }
@@ -255,8 +247,7 @@ struct EditMDApp: App {
                 .keyboardShortcut("s", modifiers: [.control, .command])
                 .disabled(sidebarVisible == nil)
 
-                // Right inspector (document-scope). ⌥⌘0 mirrors Xcode's
-                // Inspectors shortcut; ⌥⌘1…6 remain Format ▸ Heading.
+                // Right inspector. ⌥⌘0 mirrors Xcode; ⌥⌘1…6 stay Format ▸ Heading.
                 Button(inspectorVisible?.wrappedValue == true
                        ? "Hide Inspector" : "Show Inspector") {
                     inspectorVisible?.wrappedValue.toggle()
@@ -264,7 +255,7 @@ struct EditMDApp: App {
                 .keyboardShortcut("0", modifiers: [.option, .command])
                 .disabled(inspectorVisible == nil)
 
-                // D1: toggle shared with Settings ▸ gutter; editors already react (v27).
+                // Shares the Settings ▸ gutter toggle; editors react live.
                 Toggle("Line Numbers", isOn: Binding(
                     get: { EditorSettings.shared.gutter.showLineNumbers },
                     set: { EditorSettings.shared.gutter.showLineNumbers = $0 }
@@ -293,9 +284,8 @@ struct EditMDApp: App {
                 .keyboardShortcut("l", modifiers: [.command, .shift, .control])
             }
 
-            // Where macOS apps outside the App Store put it: the app menu,
-            // right under About. The automatic check is a Settings ▸ General
-            // switch; this item works whatever that switch says.
+            // App menu under About — the non-App-Store convention. Works
+            // regardless of the automatic-check switch in Settings ▸ General.
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     UpdateChecker.shared.checkManually()
@@ -428,8 +418,8 @@ struct EditMDApp: App {
             }
         }
 
-        // Separate (lite) windows — one file each, sidebar-less. Opened via the
-        // Lite-mode Finder route and the sidebar's "Open in separate window".
+        // Lite windows — one file each, sidebar-less (Lite-mode Finder route,
+        // sidebar "Open in separate window").
         WindowGroup(for: URL.self) { $url in
             LiteWindowContent(url: url)
         }
@@ -441,8 +431,8 @@ struct EditMDApp: App {
     }
 }
 
-/// Content of one lite window. A separate view so the appearance override
-/// (Settings ▸ General) applies at the window root — same as MainWindowView.
+/// One lite window. Separate view so the appearance override applies at the
+/// window root, same as MainWindowView.
 private struct LiteWindowContent: View {
     let url: URL?
     @ObservedObject private var editorSettings = EditorSettings.shared
@@ -458,8 +448,8 @@ private struct LiteWindowContent: View {
                     FileEditor(url: url, allowsSidebar: false, isMain: false)
                 }
             }
-            // Viewer panes have no editor status bar; still surface
-            // background workspace work (index scan / vault-lint).
+            // Viewer panes lack the editor status bar; still surface background
+            // workspace work (index scan / vault-lint).
             if let url, isPDFFile(url) || isImageFile(url) {
                 StandaloneActivityBar()
             }

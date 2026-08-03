@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Left-sidebar Search tab: workspace full-text query + results (plan 07).
+/// Left-sidebar Search tab: workspace full-text query + results.
 struct WorkspaceSearchSidebar: View {
     @ObservedObject var workspace: WorkspaceModel
     @ObservedObject var model: WorkspaceSearchModel

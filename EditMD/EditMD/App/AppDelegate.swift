@@ -1,55 +1,44 @@
 import AppKit
 
-/// Handles Finder / `open` events now that DocumentGroup no longer does it.
-/// Each opened file is routed through `AppState` (Lite-mode decides main vs
-/// separate window). Wired into the app via `NSApplicationDelegateAdaptor`.
+/// Finder / `open` events (DocumentGroup no longer handles them), routed via
+/// `AppState`; Lite mode decides main vs separate window.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Always land on Files after a cold launch; keep @AppStorage so the
-        // tab still sticks when the sidebar view is recreated mid-session (A4).
+        // Cold launch lands on Files; @AppStorage keeps the tab sticky across
+        // mid-session sidebar recreation.
         UserDefaults.standard.set("files", forKey: "sidebarTab")
-        // Editor mode is sticky within a session but not across launches: a cold
-        // launch starts in read-first Preview — unless the launch itself was an
-        // open that already picked a mode or has one in flight, which is what
-        // an `editmd://` clip does (its Apple Event beats this callback).
+        // Cold launch resets editor mode to Preview — unless an open already
+        // picked/claimed one (an `editmd://` clip's Apple Event beats this callback).
         AppState.shared.applyColdLaunchEditorMode()
-        // Install didBecomeActive observer for git commit → clear dirty marks.
+        // didBecomeActive observer: git commit → clear dirty marks.
         _ = GitCommitWatcher.shared
-        // Claude Code IDE channel: follows Settings ▸ General (default on).
-        // Skipped under XCTest — the unit-test host would open a real listener
-        // and drop a lock file into the developer's own `~/.claude/ide`.
+        // XCTest guard: the test host would open real listeners, drop a lock
+        // file into the developer's ~/.claude/ide, and clobber the real
+        // Application Support socket.
         if !Self.isRunningUnitTests {
+            // Both follow Settings ▸ General (default on).
             ClaudeIDEService.shared.activate()
-            // Always-on control socket for `editmdctl` (v38). Not under XCTest —
-            // would clobber the developer's Application Support socket.
             ControlService.shared.activate()
-            // Warm the link graph right away when a workspace exists —
-            // otherwise the first scan starts only when an editor pane calls
-            // ensureIndex, so the welcome/folder screen sat idle and the user
-            // paid the full scan on their first opened file instead. The
-            // status-bar chip shows its progress. Skipped under XCTest: the
-            // test host must not walk the developer's real vault.
+            // Warm the link graph now — otherwise the first scan waits for an
+            // editor pane's ensureIndex and the user pays it on first open.
+            // XCTest must not walk the developer's real vault.
             if !WorkspaceModel.shared.workspaces.isEmpty {
                 LinkIndex.shared.ensureIndex()
             }
             installBackForwardMouseMonitor()
             seedStarterFolder()
-            // Once a day, and silent unless there is really something newer —
-            // the app has no updater, so this is the only way a copy learns a
-            // release happened. Follows Settings ▸ General (default on).
+            // Daily, silent unless newer. The app has no updater — this is the
+            // only release-discovery path. Settings ▸ General (default on).
             UpdateChecker.shared.checkAutomaticallyIfDue()
         }
     }
 
-    /// First launch of an installation: create `~/Documents/EditMD` with the
-    /// README and the guide (see `StarterFolder`). Off the main actor — it is
-    /// a handful of file copies nobody is waiting for. On a genuinely fresh
-    /// start it also becomes the first workspace and the README opens; an
-    /// existing sidebar is left exactly as the user arranged it, and a launch
-    /// that already has something to show (an `editmd://` clip arrives before
-    /// this callback) keeps its own document.
+    /// First launch: seed `~/Documents/EditMD` (see `StarterFolder`), off-main.
+    /// Fresh start also adopts it and opens the README; an existing sidebar, or
+    /// a launch already showing a document (`editmd://` clip beats this
+    /// callback), is left alone.
     private func seedStarterFolder() {
         Task.detached(priority: .utility) {
             guard let root = await StarterFolder.seedIfNeeded() else { return }
@@ -72,17 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Retained so `applicationWillTerminate` can remove it — AppKit already
-    /// keeps the monitor alive on its own, but holding the token keeps install
-    /// and teardown symmetric with the other launch-time services.
+    /// Token kept only for symmetric teardown; AppKit retains the monitor itself.
     private var backForwardMonitor: Any?
 
-    /// Mouse side buttons → Back/Forward, like a browser. Button 3 is the
-    /// "back" thumb button, 4 is "forward" (macOS numbering). Consumed only
-    /// when the main window is key — history is that window's trail, so the
-    /// buttons stay free in lite windows and elsewhere; the nav itself no-ops
-    /// at the ends. Not installed under XCTest, matching the IDE/control
-    /// services.
+    /// Mouse buttons 3/4 → history Back/Forward (macOS numbering). Consumed
+    /// only while the main window is key — history is that window's trail, so
+    /// the buttons stay free in lite windows. Not installed under XCTest.
     private func installBackForwardMouseMonitor() {
         backForwardMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
             guard AppState.shared.mainWindowIsKey else { return event }
@@ -100,21 +84,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // The lock file must not outlive the process — a stale one makes the
-        // CLI dial a dead port on the next `/ide`.
+        // Stale lock file → CLI dials a dead port on the next `/ide`.
         ClaudeIDEService.shared.stopBeforeTerminate()
         ControlService.shared.stopBeforeTerminate()
         if let backForwardMonitor {
             NSEvent.removeMonitor(backForwardMonitor)
             self.backForwardMonitor = nil
         }
-        // Whatever the debounce hasn't written yet is the next launch's first
-        // frame — write it synchronously, the process is going away.
+        // Sync flush: the undebounced snapshot is the next launch's first frame.
         WorkspaceModel.shared.snapshot.flushSync()
     }
 
-    /// Finder / `open` file opens AND the `editmd://` scheme (web clipper) —
-    /// AppKit delivers both through this one callback.
+    /// AppKit delivers both Finder/`open` files and `editmd://` URLs here.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.scheme?.lowercased() == EditMDURLCommand.scheme {
