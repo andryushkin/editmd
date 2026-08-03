@@ -10,6 +10,9 @@ the doc matching your task's subsystem before changing it, and update it in
 the same change when you alter behavior it describes. The historical decision
 log is kept outside the repository; do not add chronology here.
 
+If `DOTMD.md` sits at the repository root, read it before planning any change:
+private working notes, untracked here.
+
 ## Project map
 
 - `EditMD/EditMD/App/` — lifecycle, windows, commands, open routing.

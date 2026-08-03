@@ -21,3 +21,6 @@ graphify-out/
 
 # Icon generator intermediates
 design/build/
+
+# Private working notes; never part of the repository.
+/DOTMD.md
