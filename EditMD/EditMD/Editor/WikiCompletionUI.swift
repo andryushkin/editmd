@@ -256,13 +256,9 @@ final class WikiCompletionController: NSObject, NSTableViewDataSource, NSTableVi
         if rect.isEmpty {
             rect = NSRect(x: rect.origin.x, y: rect.origin.y, width: 4, height: 16)
         }
-        if popover.isShown {
-            // Reposition by closing/reopening is heavy; NSPopover tracks if we
-            // show again with the same content controller.
-            popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
-        } else {
-            popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
-        }
+        // Also repositions when already shown: NSPopover tracks the new rect
+        // on a re-show with the same content controller (closing/reopening is heavy).
+        popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
         // Keep editor first responder so typing continues.
         textView.window?.makeFirstResponder(textView)
     }
