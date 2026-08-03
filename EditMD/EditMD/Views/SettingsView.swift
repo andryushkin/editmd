@@ -174,7 +174,7 @@ private struct GeneralTab: View {
                 ColorOverrideRow(title: "Changed-line mark",
                                  hex: $settings.gutter.dirtyMarkColorHex,
                                  fallback: settings.gutter.dirtyMarkNSColor)
-                Text("Marks compare to the text when the file was opened or last reloaded from disk. They clear when the app quits (session-only). Git commit clear comes next.")
+                Text("Marks compare to the text when the file was opened or last reloaded from disk. They clear when the app quits or when a commit includes the file.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Reset Gutter to Defaults") { settings.resetGutter() }
             }

@@ -4429,12 +4429,12 @@
         }
       }
     },
-    "Marks compare to the text when the file was opened or last reloaded from disk. They clear when the app quits (session-only). Git commit clear comes next." : {
+    "Marks compare to the text when the file was opened or last reloaded from disk. They clear when the app quits or when a commit includes the file." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Маркеры сравнивают с текстом на момент открытия файла или последней загрузки с диска. Сбрасываются при выходе из приложения (только на сессию). Очистка по git-коммиту — в планах."
+            "value" : "Маркеры сравнивают с текстом на момент открытия файла или последней загрузки с диска. Сбрасываются при выходе из приложения или когда коммит включает файл."
           }
         }
       }

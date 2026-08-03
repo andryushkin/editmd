@@ -534,8 +534,8 @@ struct GeneralSettings: Codable, Equatable {
 // MARK: - Gutter (line numbers + session dirty marks)
 
 /// Line-number gutter and “changed since baseline” marks for Source / Visual /
-/// Preview. Marks are session-only (cleared on quit); baseline = open or
-/// external apply. Git commit clear is a later stage.
+/// Preview. Marks clear on quit and when a git commit touches the path;
+/// baseline = open or external apply.
 struct GutterSettings: Codable, Equatable {
     /// Show 1-based line numbers in the left gutter.
     var showLineNumbers: Bool
