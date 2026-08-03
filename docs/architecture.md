@@ -18,7 +18,18 @@ through the registry:
   `DocumentRegistry.applyAgentEdit`. Writing the file any other way makes the
   file watcher treat the change as external.
 - The registry's own flush updates `knownModDate` and re-arms the watch, so a
-  self-write is never reported back as an external change.
+  self-write is never reported back as an external change. The echo guard is
+  time-bound: identical bytes within ~10 s of our own flush are not external,
+  while later identical bytes (a git checkout) are. The watcher ignores
+  `.attrib` events (Spotlight noise), re-arms only when the inode may have
+  been replaced, and app activation re-checks all open files gated by mtime.
+- A rename/move starts with `beginMovePreparation`, which synchronously
+  reserves a URL (live entry, LRU model, or URL-only token) so a re-entrant
+  acquire or agent edit cannot slip in between preflight and the disk
+  transaction; the caller detaches presentations with no intervening
+  suspension, then `persistMovePreparation` — failure rolls back via
+  `cancelMovePreparation`, success lands via `relocatePreparedDocument`. The
+  prepared store is uncapped and separate from the session LRU.
 - `ReferenceFileDocument` callbacks are nonisolated and `FileWrapper` is not
   `Sendable`; the snapshot type stays `@unchecked Sendable` deliberately.
 
@@ -29,6 +40,20 @@ through `WindowGroup(for: URL)` and attach to the same registry models, so two
 windows on one file share text and undo. Standard Cut/Copy/Paste/Undo travel
 the responder chain; editor-specific actions are routed through SwiftUI
 focused values (`EditMD/EditMD/Views/FocusedValues.swift`).
+
+Pane widths keep two values apart: the width the user *prefers* and the width
+currently *displayed*. `resolveSidePaneWidths` squeezes proportionally when
+the window is narrow (deliberately ignoring navigator floors), and
+`preferredPaneWidthFromDrag` inverts the squeeze so a drag that lands clamped
+does not destroy the stored preference. SwiftUI's `.frame(minWidth:)` does
+not stop live resize on `Window` scenes — the floor is enforced through
+`NSWindow.contentMinSize`.
+
+Editor mode is session-sticky but resets to Preview on a cold launch; a
+Finder open lands in Preview, a create in Visual. An `editmd://` open can
+arrive before `applicationDidFinishLaunching`, so opens may pick or reserve
+the launch mode and the reset steps aside (replayed if a reserved create
+never lands).
 
 ## Three modes, three code paths
 
@@ -102,6 +127,12 @@ is the epoch gate that drops such stale publishes:
   and deallocates the gate; the weak reference in each sink drops late
   publishes the same way.
 
+Preview rendering applies the same discipline at the task level: each render
+task stamps the slot it registered, and a cancelled task unwinding late must
+not clear its successor's registration (this once froze Preview for a whole
+session). A 3 s JS watchdog escalates to a full WKWebView reload when the
+page stops answering.
+
 ## Action strip
 
 `Views/EditorActionStrip.swift` plans its layout through testable value types
@@ -144,6 +175,11 @@ editor, the folder/file name prompts) — both were learned the hard way:
   is not painted at all (so the resting box is drawn by the field's layer). Both
   are app-specific: an isolated alert built from the same code behaves, which is
   why the workarounds are aimed at the symptoms.
+
+A related first-click trap lives in sidebar rows: an NSButton-backed SwiftUI
+`Button` ignores the first click after its view gains focus
+(`acceptsFirstMouse`), so rows use `.onTapGesture` — and overlapping tap
+targets (row gesture plus inner buttons) each swallow the first click.
 
 ## Mouse cursor over the pane dividers
 
@@ -225,7 +261,9 @@ alongside text. One contextual guard serves the paste path and the toolbar
 button: Source never inserts structure inside a fence; Visual never inserts it
 into `codeBlock`, `tableCell`, or `.raw`. A failed image save returns `false`
 so the ordinary paste still delivers the text flavor. Paste stays synchronous
-(honest plain-text fallback), so its file scanning must be minimal.
+(honest plain-text fallback), so its file scanning must be minimal. A bare
+URL pasted with no selection becomes a `<url>` autolink — pasted as plain
+text it would stay literal, since no render path emits GFM autolinks.
 
 `markdownImageSyntax` is the single serializer of image markdown and
 `supportedImageMIMETypes` the single source of image extensions/UTTypes.
@@ -252,7 +290,10 @@ image until the new bytes arrive. The check is opportunistic — on
 - Heavy payloads must not be hashed inside NSTextStorage attribute values —
   `MDBlock.hash(into:)` is O(1) by contract.
 - `maxNativeTableCells` (layout survival) and `markdownIsHeavy` (feature
-  degradation) answer different questions and must stay independent.
+  degradation) answer different questions and must stay independent. Above
+  the cell cap a table becomes a `.raw` island drawn as a virtualized grid in
+  `drawBackground`; row geometry is arithmetic over cached per-row heights,
+  never a line-fragment walk, so huge tables stay cheap.
 - Line numbers are drawn in the left text inset, not an `NSRulerView`; strip
   and gutter geometry comes from `EditorFieldGeometry` only.
 - Overlay views are pooled; adding/removing subviews inside layout creates a

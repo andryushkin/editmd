@@ -184,6 +184,10 @@ from mangling a vault:
   the shape rule in charge, exactly as a "missing" answer would, so the two
   cannot diverge.
 
+A destination carrying a query, a fragment, or a ported authority is never
+probed against the disk: its path alone would answer for a *different*
+destination, and no file name holds a port.
+
 A plain `notes.md` stays local whatever the answer: `md` is not a completable
 TLD, so linking a note before creating it keeps working.
 

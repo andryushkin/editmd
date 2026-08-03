@@ -41,7 +41,10 @@ timeout. Edits accepted from a diff are applied through
 ```
 
 `ControlRouter` is two-phase — main-actor state first, deferred disk work
-second; socket clients are handled concurrently and never block main.
+second; socket clients are handled concurrently and never block main. Client
+sockets are hardened: a concurrent queue so an idle client cannot starve
+accepts, 30 s send/receive timeouts, and `SO_NOSIGPIPE` so a dying peer
+cannot SIGPIPE the app.
 
 `editmdctl` (target defined in `EditMD/project.yml`) is the CLI over that
 socket. Commands: `ping`, `status`, `open`, `reveal`, `mode`, `marks`,
@@ -53,7 +56,10 @@ vault-graph queries directly from `<workspace>/.editmd/link-index.json`
 (`editmdctl/OfflineVault.swift`). That is why the link-graph core files must
 stay free of AppKit and app models, and why vault-graph wire shapes are
 defined only in `ControlGraphPayload.swift` — the app server and the offline
-engine must answer byte-compatibly.
+engine must answer byte-compatibly. Path containment is firmlink-safe on both
+sides: `canonicalFirmlinkPath` canonicalizes `/tmp` vs `/private/tmp` even
+for paths that do not exist yet, and is shared by the app's scope check and
+the offline `pathArg`.
 
 ## `editmd://` URL scheme (web-clipper handoff)
 
