@@ -16,8 +16,8 @@ private working notes, untracked here.
 ## Project map
 
 - `EditMD/EditMD/App/` — lifecycle, windows, commands, open routing.
-- `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`,
-  `DocumentRegistry`.
+- `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`
+  (also hosts `DocumentRegistry`).
 - `EditMD/EditMD/Editor/` — Source/Visual, round-trip, tables, formulas,
   highlighting, lint, review model, diff, PDF export.
 - `EditMD/EditMD/Views/` — layout, Preview, sidebars, settings, viewers.
