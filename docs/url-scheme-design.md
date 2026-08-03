@@ -1,9 +1,9 @@
-# Plan: `editmd://` URL scheme (web-clipper handoff)
+# `editmd://` URL scheme — design notes (web-clipper handoff)
 
 Status: **implemented** — both sides ship. The app behaviour is documented in
-[integration.md](integration.md) § `editmd://` URL scheme; this file is kept
-for the reference research behind the design and records where the
-implementation deviates from the original plan:
+[integration.md](integration.md) § `editmd://` URL scheme; this file keeps the
+research behind the design and records where the shipped behaviour differs from
+what was first sketched:
 
 - `&content=` is **not** honoured as a body carrier: it stays reserved and
   ignored, so without `&clipboard` the file is created empty. Whether it ever
@@ -11,11 +11,11 @@ implementation deviates from the original plan:
   [issue #4](https://github.com/andryushkin/editmd/issues/4).
 - Destination decision (step 4): a Settings ▸ General ▸ Web clips choice
   between a fixed folder (the default — a clipper is a capture inbox) and the
-  active workspace root. `&workspace=<name>`, listed in the plan as "later",
+  active workspace root. `&workspace=<name>`, first sketched as "later",
   shipped with it: it resolves against adopted workspaces **by name only**,
   because a path in the URL would let any web page choose where the app
   writes.
-- Extra guard the plan did not foresee: a launch caused by the URL delivers
+- Extra guard the sketch did not foresee: a launch caused by the URL delivers
   the open before `applicationDidFinishLaunching`, so the cold-launch editor
   mode reset is conditional — otherwise the clip opens in Preview.
 
