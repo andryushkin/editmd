@@ -1,14 +1,14 @@
 # EditMD — working guide
 
-Native macOS Markdown editor: SwiftUI + AppKit/TextKit 1. Three modes over one
-source of truth — the markdown string in `MarkdownDocument`. Source (raw text
-+ highlight/lint), Visual (attributed WYSIWYG with synchronous serialization),
-Preview (HTML in WKWebView). Sidebar: Files / Outline / Git / Review / Tags.
+Native macOS Markdown editor: SwiftUI + AppKit/TextKit 1. Four modes over one
+source of truth, the markdown string in `MarkdownDocument`: Source (raw text +
+highlight/lint), Visual (attributed WYSIWYG, synchronous serialization),
+Preview (HTML in WKWebView), Print (pages in PDFView, flagged off). Sidebar:
+Files / Outline / Git / Review / Tags.
 
 Domain documentation lives in `docs/` (`docs/README.md` is the index) — read
-the doc matching your task's subsystem before changing it, and update it in
-the same change when you alter behavior it describes. The historical decision
-log is kept outside the repository; do not add chronology here.
+the doc matching your task before changing it, and update it in the same
+change. The historical decision log is outside the repository; no chronology.
 
 If `DOTMD.md` sits at the repository root, read it before planning any change:
 private working notes, untracked here.
@@ -20,8 +20,7 @@ private working notes, untracked here.
   (also hosts `DocumentRegistry`).
 - `EditMD/EditMD/Editor/` — Source/Visual, round-trip, tables, formulas,
   highlighting, lint, review model, diff, PDF export, print page source.
-- `EditMD/EditMD/Views/` — layout, Preview, Print pane, sidebars, settings,
-  viewers.
+- `EditMD/EditMD/Views/` — layout, render panes, sidebars, settings, viewers.
 - `EditMD/EditMD/Integration/` — Claude IDE WebSocket/MCP, diff approval,
   control socket, skill installer.
 - `EditMD/EditMDTests/` — unit/integration tests.
@@ -40,18 +39,15 @@ xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platfor
 xcodebuild -project EditMD/EditMD.xcodeproj -scheme EditMD -destination 'platform=macOS' test
 ```
 
-Verify real errors with `xcodebuild`, not single-file editor diagnostics.
-After changes: targeted tests → full suite (in proportion to risk) →
-`git diff --check`. Before pushing, use the audit skill
-(`.agents/skills/editmd-audit`) when available; otherwise run
+Verify real errors with `xcodebuild`, not single-file diagnostics. After
+changes: targeted tests → full suite (in proportion to risk) →
+`git diff --check`. Before pushing use `.agents/skills/editmd-audit`, or run
 `scripts/audit.sh` and follow `docs/audit.md`. More in `docs/testing.md`.
 
-Building to a throwaway `-derivedDataPath` (review builds, signed copies,
-`.xcresult` bundles) is fine, but **delete it before ending the session** —
-nothing reclaims those paths automatically and each is 0.5–1 GB; leftovers
-accumulate into tens of gigabytes. Check with
+Building to a throwaway `-derivedDataPath` is fine, but **delete it before
+ending the session** — each is 0.5–1 GB and nothing reclaims them. Check
 `ls -d /tmp/*editmd* /tmp/EditMD* 2>/dev/null` and remove what the session
-created. The default DerivedData location needs no such cleanup.
+created. The default DerivedData location needs no cleanup.
 
 ## Non-negotiable invariants
 
@@ -63,18 +59,15 @@ domain docs.
   write path makes the file watcher report an external change.
 - A markdown feature spans four independent render paths (Source
   `collectSpans`, Visual `VisualRenderer`, Preview `HTMLBodyVisitor`, Print
-  `PrintPDFRenderer`) plus the Visual round-trip — check all of them. Split
-  is not a fifth: it mounts Source beside Preview.
-- Print is gated by `FeatureFlags.printMode`, off by default. A flag is read
-  once per launch and applied in exactly two places (`EditorMode.available`,
-  `EditorMode.resolve`), so the menu, the mode pill, Settings and the control
-  socket cannot disagree about which modes exist; with a flag off the app must
-  be indistinguishable from one built without the feature. Gated does not mean
-  exempt: it builds, it is tested, and it must not crash.
-- A prebuilt binary dependency in the build chain must be pinned by version
-  with its signature and checksum verified by the build script — never fetched
-  unpinned while building. The "no downloaded executable code" rule above is
-  about plugins and does not forbid a library compiled into the app.
+  `PrintPDFRenderer`) plus the Visual round-trip — check all of them; Split
+  mounts Source beside Preview and is not a fifth. Print is gated by
+  `FeatureFlags.printMode`, read only by `EditorMode.available`/`resolve` so
+  no surface can disagree about which modes exist; flag-off must be
+  indistinguishable from not built, and a gated feature still builds, is
+  tested, and must not crash.
+- A prebuilt binary dependency is version-pinned with signature and checksum
+  verified in the build script; the plugin rule below bans downloaded code,
+  not a library compiled into the app.
 - `.raw` islands are verbatim source of truth; frontmatter must survive
   byte-exact through `composeDocumentWithFrontmatter`. All offsets are UTF-16.
 - Plugins are built-in Swift types only (`BuiltInPluginRegistry`), activated
@@ -99,24 +92,17 @@ domain docs.
   overwriting — and ignores what it does not understand
   (`docs/integration.md` § URL scheme).
 
-## Localization
+## Language
 
-Development language is English: user-facing strings are English literals,
-translated to Russian in `Resources/Localizable.xcstrings` — and, for the
+English for all prose (comments, docs, commit messages) and for user-facing
+string literals, translated in `Resources/Localizable.xcstrings` — and, for
 strings the system shows in its own prompts, `Resources/InfoPlist.xcstrings`;
-every new user-facing string needs a ru entry with matching format specifiers.
-Protocol messages and logs are never localized. Details (language switch,
-test-host `-AppleLanguages (en)`) in `docs/architecture.md` § Localization.
-
-## Language policy
-
-English for all prose: code comments, documentation, commit messages, string
-literals in code that are not data. Deliberate exceptions that must **not** be
-"cleaned up": the ru localization catalogs and the language-name endonym in
-`AppLanguage.swift`, Cyrillic test data and fixtures (they cover UTF-16 and
-case-folding paths),
-language-sensitive examples, and Russian trigger phrases in the shipped agent
-skill.
+every new one needs a ru entry with matching format specifiers. Protocol
+messages and logs are never localized. Deliberate non-English that must
+**not** be "cleaned up": the ru catalogs, the endonym in `AppLanguage.swift`,
+Cyrillic test data and fixtures (they cover UTF-16 and case-folding paths),
+language-sensitive examples, and the Russian trigger phrases in the shipped
+agent skill. Details in `docs/architecture.md` § Localization.
 
 ## Working rules
 
@@ -128,14 +114,13 @@ skill.
   path.
 - External contributions follow `CONTRIBUTING.md`: bugs → Issues, ideas and
   questions → Discussions, anything beyond a small fix needs a discussion
-  before a PR. When triaging or drafting replies, apply that policy — a
-  design-based decline of clean code is a normal outcome. Never reply
+  first; a design-based decline of clean code is a normal outcome. Never reply
   publicly, close, or merge an outside issue/PR without the maintainer's
   explicit approval.
 - Releases follow `docs/releasing.md`: version bumps in `project.yml` are
-  routine, but `CHANGELOG.md` sections, tags, and GitHub Releases are cut
-  only on the maintainer's explicit request (`.agents/skills/editmd-push`).
-  A release ends with redeploying `dotmd.tools` — installed copies learn about
-  it from `/editmd/latest.json`, which is only as fresh as that deploy.
+  routine; `CHANGELOG.md`, tags and GitHub Releases only on the maintainer's
+  explicit request (`.agents/skills/editmd-push`). A release ends with
+  redeploying `dotmd.tools` — installed copies learn of it from
+  `/editmd/latest.json`, only as fresh as that deploy.
 - Durable new rules are added here briefly; subsystem explanations belong in
   the matching `docs/` file; unfinished work is tracked in GitHub Issues.
