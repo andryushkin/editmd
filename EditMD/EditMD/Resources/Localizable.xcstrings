@@ -4137,7 +4137,14 @@
       }
     },
     "Line height" : {
-
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Межстрочный интервал"
+          }
+        }
+      }
     },
     "Line Numbers" : {
       "localizations" : {
@@ -8422,6 +8429,296 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Раз в сутки EditMD спрашивает dotmd.tools, есть ли более новая версия, и сообщает, только если она есть. В запросе передаются версия и macOS, с которых он отправлен, — ничего, что опознаёт вас или ваши файлы. Обновление остаётся ручным: через Homebrew или заменой приложения."
+          }
+        }
+      }
+    },
+    "Print" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Печать"
+          }
+        }
+      }
+    },
+    "US Letter" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "US Letter"
+          }
+        }
+      }
+    },
+    "US Legal" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "US Legal"
+          }
+        }
+      }
+    },
+    "Portrait" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Книжная"
+          }
+        }
+      }
+    },
+    "Landscape" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Альбомная"
+          }
+        }
+      }
+    },
+    "Page size and margins must be finite numbers." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер страницы и поля должны быть конечными числами."
+          }
+        }
+      }
+    },
+    "The page is too small to lay out text." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Страница слишком мала, чтобы разместить текст."
+          }
+        }
+      }
+    },
+    "The margins leave no room for text on the page." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поля не оставляют на странице места для текста."
+          }
+        }
+      }
+    },
+    "Sans" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Гротеск"
+          }
+        }
+      }
+    },
+    "Book" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Книга"
+          }
+        }
+      }
+    },
+    "Compact" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Плотная"
+          }
+        }
+      }
+    },
+    "The page could not be laid out." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сверстать страницы."
+          }
+        }
+      }
+    },
+    "The renderer produced no pages." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обработчик не выдал ни одной страницы."
+          }
+        }
+      }
+    },
+    "Rendering the pages took too long." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вёрстка страниц заняла слишком много времени."
+          }
+        }
+      }
+    },
+    "Laying out pages…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верстаем страницы…"
+          }
+        }
+      }
+    },
+    "Table of Contents" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оглавление"
+          }
+        }
+      }
+    },
+    "Zoom Out" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уменьшить"
+          }
+        }
+      }
+    },
+    "Zoom In" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Увеличить"
+          }
+        }
+      }
+    },
+    "Fit Page" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вписать страницу"
+          }
+        }
+      }
+    },
+    "Page" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Страница"
+          }
+        }
+      }
+    },
+    "Paper" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бумага"
+          }
+        }
+      }
+    },
+    "Orientation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ориентация"
+          }
+        }
+      }
+    },
+    "Top" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сверху"
+          }
+        }
+      }
+    },
+    "Bottom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снизу"
+          }
+        }
+      }
+    },
+    "Inside" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внутреннее"
+          }
+        }
+      }
+    },
+    "Outside" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внешнее"
+          }
+        }
+      }
+    },
+    "Sets the typefaces and reference measurements of the printed page. Print only — the other modes are not affected. The font settings below still override the theme." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Задаёт гарнитуры и опорные размеры печатной страницы. Только для Печати — остальные режимы не затрагиваются. Настройки шрифта ниже по-прежнему перекрывают тему."
+          }
+        }
+      }
+    },
+    "Fonts sent to the renderer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шрифты, передаваемые обработчику"
+          }
+        }
+      }
+    },
+    "Emoji and symbol coverage is always included and cannot be removed: a character with no font behind it stops an accessible PDF from being produced at all, so a page that looks fine in Preview would otherwise fail to print." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Покрытие эмодзи и символов включается всегда и не отключается: символ, за которым нет шрифта, вообще не даёт собрать доступный PDF — страница, нормальная в Предпросмотре, иначе просто не напечатается."
           }
         }
       }

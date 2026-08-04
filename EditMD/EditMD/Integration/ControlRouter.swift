@@ -347,9 +347,11 @@ enum ControlRouter {
     // MARK: mode
 
     private static func setMode(_ request: ControlRequest) throws -> JSONValue {
+        let offered = EditorMode.available()
         guard let raw = request.argString("mode") ?? request.argString("value"),
-              let mode = EditorMode(rawValue: raw.lowercased()) else {
-            throw ControlError("mode requires args.mode = source|visual|preview|split")
+              let mode = EditorMode.resolve(rawValue: raw.lowercased()) else {
+            throw ControlError("mode requires args.mode = "
+                + offered.map(\.rawValue).joined(separator: "|"))
         }
         // ContentView's @AppStorage("editorMode") observes UserDefaults itself.
         UserDefaults.standard.set(mode.rawValue, forKey: "editorMode")

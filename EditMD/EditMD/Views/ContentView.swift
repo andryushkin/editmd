@@ -298,9 +298,12 @@ struct ContentView: View {
     /// Epoch gate over `activeFormats` writes: drops publishes queued by an
     /// outgoing editor — see `setEditorMode`.
     @State private var formatsGate = ActiveFormatsGate()
-    /// ⌘F find state for full Preview mode; driven by Edit ▸ Find (focused
-    /// value) and the overlaid `PreviewFindBar`.
-    @StateObject private var previewFind = PreviewFindModel()
+    /// ⌘F find state for the read-only panes; driven by Edit ▸ Find (focused
+    /// value) and the overlaid `PaneFindBar`. One model each: the two panes
+    /// install their own search closures, and a shared model would leave the
+    /// outgoing pane's closures wired to the incoming one.
+    @StateObject private var previewFind = PaneFindModel()
+    @StateObject private var printFind = PaneFindModel()
     @State private var showExternalDiff = false
     @State private var showGitCommit = false
     @State private var gitSnapshot = GitFileSnapshot.empty
@@ -308,7 +311,18 @@ struct ContentView: View {
 
     private static let splitFractionRange = 0.25...0.75
 
-    private var mode: EditorMode { EditorMode(rawValue: storedMode) ?? .preview }
+    /// Resolved, not decoded: a gated mode left in the stored default (the
+    /// flag was on, then went away) must not become the active one.
+    private var mode: EditorMode { EditorMode.resolve(rawValue: storedMode) ?? .preview }
+
+    /// The find model of whichever read-only pane is on screen, or nil.
+    private var activePaneFind: PaneFindModel? {
+        switch mode {
+        case .preview: return previewFind
+        case .print:   return printFind
+        default:       return nil
+        }
+    }
 
     /// Source/Visual look: fixed editor theme + General's base color
     /// overrides. Preview has its own `PreviewTheme`.
@@ -318,19 +332,20 @@ struct ContentView: View {
 
     private var modeBinding: Binding<EditorMode> {
         Binding(
-            get: { EditorMode(rawValue: storedMode) ?? .preview },
+            get: { EditorMode.resolve(rawValue: storedMode) ?? .preview },
             set: { setEditorMode($0) }
         )
     }
 
-    /// Edit ▸ Find bridge; published only while `mode == .preview` —
-    /// Source/Visual keep the native `NSTextFinder`.
-    private var previewFindActions: PreviewFindActions {
-        PreviewFindActions(
-            show: { previewFind.activate() },
-            findNext: { previewFind.next() },
-            findPrevious: { previewFind.previous() },
-            useSelectionForFind: { previewFind.useSelectionForFind() }
+    /// Edit ▸ Find bridge; published only while a read-only pane is on screen
+    /// — Source/Visual keep the native `NSTextFinder`.
+    private var paneFindActions: PaneFindActions? {
+        guard let find = activePaneFind else { return nil }
+        return PaneFindActions(
+            show: { find.activate() },
+            findNext: { find.next() },
+            findPrevious: { find.previous() },
+            useSelectionForFind: { find.useSelectionForFind() }
         )
     }
 
@@ -362,8 +377,9 @@ struct ContentView: View {
         // it is dropped by epoch. Coordinators force-emit their first value,
         // repopulating the strip.
         activeFormats = ActiveInlineFormats()
-        // Leaving Preview retires its ⌘F find bar and highlights.
+        // Leaving a read-only pane retires its ⌘F find bar and highlights.
         if mode != .preview { previewFind.close() }
+        if mode != .print { printFind.close() }
         if mode != .visual {
             // Row/column ops exist only on Visual's native tables. Table and
             // formula *insertion* is dual-mode: leave those closures for the
@@ -441,8 +457,8 @@ struct ContentView: View {
             }
         }
         .agentActivityToast()
-        .focusedSceneValue(\.formatActions, mode == .preview ? nil : formatActions)
-        .focusedSceneValue(\.previewFind, mode == .preview ? previewFindActions : nil)
+        .focusedSceneValue(\.formatActions, activePaneFind == nil ? formatActions : nil)
+        .focusedSceneValue(\.paneFind, paneFindActions)
         .focusedSceneValue(\.editorMode, modeBinding)
         .focusedSceneValue(\.inspectorVisible, $inspectorVisible)
         .focusedSceneValue(\.documentUndoActions, DocumentUndoActions(
@@ -518,6 +534,7 @@ struct ContentView: View {
         }
         .onChange(of: fileURL) { _ in
             previewFind.close()
+            printFind.close()
             GitHeadContentCache.invalidate()
             refreshGitSnapshot(mode: .full, delayMs: 0)
             if isMain {
@@ -636,6 +653,10 @@ struct ContentView: View {
             return (editorSettings.preview.insetH, editorSettings.preview.columnWidth)
         case .split:
             return (editorSettings.source.insetH, editorSettings.source.columnWidth)
+        case .print:
+            // Pages are centered by the PDF view and the strip has nothing to
+            // align to; keep it flush with the pane's own controls.
+            return (14, 0)
         }
     }
 
@@ -663,7 +684,9 @@ struct ContentView: View {
                                   insetH: stripInset.h,
                                   columnWidth: stripInset.column,
                                   editingPaneWidth: mode == .split ? splitEditorWidth : nil,
-                                  textLeading: mode == .preview ? nil : editorTextLeading,
+                                  // Read-only panes have no editor text origin
+                                  // to follow; the strip falls back to insetH.
+                                  textLeading: activePaneFind == nil ? editorTextLeading : nil,
                                   railGap: mode == .preview
                                       ? PreviewGutterMetrics.gapPx : GutterMetrics.gap,
                                   previewRailWidth: mode == .preview ? previewRailWidth : 0,
@@ -690,13 +713,18 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(alignment: .topTrailing) {
                             if previewFind.isActive {
-                                PreviewFindBar(model: previewFind)
+                                PaneFindBar(model: previewFind)
                                     .padding(.top, 8)
                                     .padding(.trailing, 14)
                                     .transition(.move(edge: .top).combined(with: .opacity))
                             }
                         }
                         .animation(.easeOut(duration: 0.12), value: previewFind.isActive)
+                case .print:
+                    // Full-window only: Source + Print in the split needs a
+                    // source-line → page map that does not exist yet.
+                    PrintPane(document: document, fileURL: fileURL, findModel: printFind)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .split:
                     HStack(spacing: 0) {
                         editorPane
@@ -738,8 +766,8 @@ struct ContentView: View {
                 onActiveFormats: formatsGate.sink { activeFormats = $0 },
                 onTextLeading: { editorTextLeading = $0 }
             )
-        case .preview:
-            // Unreachable: editorArea routes .preview to the full preview.
+        case .preview, .print:
+            // Unreachable: editorArea routes the read-only panes itself.
             EmptyView()
         case .split:
             sourceEditorPane(syncsPreview: true)

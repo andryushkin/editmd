@@ -148,7 +148,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
     var onActiveFormats: ((ActiveInlineFormats) -> Void)? = nil
     /// ⌘F find state (full Preview only): coordinator installs search
     /// closures and reports match tallies back.
-    var findModel: PreviewFindModel? = nil
+    var findModel: PaneFindModel? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -659,7 +659,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
         var cachedStart: Int = -1
         var cachedEnd: Int = -1
         /// Weak: the model outlives any single coordinator (owned by ContentView).
-        weak var findModel: PreviewFindModel?
+        weak var findModel: PaneFindModel?
 
         deinit {
             renderTask?.cancel()
@@ -1006,7 +1006,7 @@ struct MarkdownPreviewView: NSViewRepresentable {
                                         completionHandler: nil)
         }
 
-        private func reportFind(_ result: Any?, to model: PreviewFindModel?) {
+        private func reportFind(_ result: Any?, to model: PaneFindModel?) {
             guard let model else { return }
             guard let dict = result as? [String: Any] else {
                 model.report(count: 0, index: 0)

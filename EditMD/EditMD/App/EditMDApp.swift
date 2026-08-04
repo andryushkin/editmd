@@ -13,9 +13,10 @@ struct EditMDApp: App {
     @FocusedValue(\.inspectorVisible) var inspectorVisible
     @FocusedValue(\.documentActions) var documentActions
     @FocusedValue(\.documentUndoActions) var documentUndoActions
-    /// Non-nil only while Preview is active: Edit ▸ Find then drives the
-    /// Preview's JS search (WKWebView ignores the native text finder).
-    @FocusedValue(\.previewFind) var previewFind
+    /// Non-nil only while a read-only pane (Preview, Print) is active: Edit ▸
+    /// Find then drives that pane's own search — neither WKWebView nor PDFView
+    /// answers the native text finder.
+    @FocusedValue(\.paneFind) var paneFind
 
     @StateObject private var history = DocumentHistory.shared
     // Both drive the enabled state of Edit ▸ Send to Claude.
@@ -174,25 +175,25 @@ struct EditMDApp: App {
 
                 Menu("Find") {
                     Button("Find…") {
-                        if let previewFind {
-                            previewFind.show()
+                        if let paneFind {
+                            paneFind.show()
                         } else {
                             sendFindAction(.showFindInterface)
                         }
                     }
                     .keyboardShortcut("f")
 
-                    // Preview is read-only: no replace target, always the
-                    // native finder (Source/Visual).
+                    // Preview and Print are read-only: no replace target,
+                    // always the native finder (Source/Visual).
                     Button("Find and Replace…") {
                         sendFindAction(.showReplaceInterface)
                     }
                     .keyboardShortcut("f", modifiers: [.option, .command])
-                    .disabled(previewFind != nil)
+                    .disabled(paneFind != nil)
 
                     Button("Find Next") {
-                        if let previewFind {
-                            previewFind.findNext()
+                        if let paneFind {
+                            paneFind.findNext()
                         } else {
                             sendFindAction(.nextMatch)
                         }
@@ -200,8 +201,8 @@ struct EditMDApp: App {
                     .keyboardShortcut("g")
 
                     Button("Find Previous") {
-                        if let previewFind {
-                            previewFind.findPrevious()
+                        if let paneFind {
+                            paneFind.findPrevious()
                         } else {
                             sendFindAction(.previousMatch)
                         }
@@ -211,8 +212,8 @@ struct EditMDApp: App {
                     Divider()
 
                     Button("Use Selection for Find") {
-                        if let previewFind {
-                            previewFind.useSelectionForFind()
+                        if let paneFind {
+                            paneFind.useSelectionForFind()
                         } else {
                             sendFindAction(.setSearchString)
                         }
@@ -231,7 +232,7 @@ struct EditMDApp: App {
             }
 
             CommandGroup(before: .toolbar) {
-                ForEach(EditorMode.allCases) { mode in
+                ForEach(EditorMode.available()) { mode in
                     Button(mode.title) {
                         editorMode?.wrappedValue = mode
                     }

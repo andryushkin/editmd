@@ -55,9 +55,9 @@ arrive before `applicationDidFinishLaunching`, so opens may pick or reserve
 the launch mode and the reset steps aside (replayed if a reserved create
 never lands).
 
-## Three modes, three code paths
+## Four modes, four code paths
 
-A markdown feature that spans modes has **three independent implementations**
+A markdown feature that spans modes has **four independent implementations**
 plus the round-trip, and a change must be checked in all of them:
 
 | Mode | Render path | Files |
@@ -65,6 +65,15 @@ plus the round-trip, and a change must be checked in all of them:
 | Source | `collectSpans` highlight + lint | `SourceTextView.swift`, `MarkdownHighlighter.swift`, `MarkdownLint.swift` |
 | Visual | `VisualRenderer` → attributed string | `MarkdownToAttributed.swift`, `Visual*.swift` |
 | Preview | `HTMLBodyVisitor` → HTML in WKWebView | `MarkdownHTML.swift`, `MarkdownPreviewView.swift` |
+| Print | `PrintPDFRenderer` → PDF in `PDFView` | `PrintPDFRenderer.swift`, `PrintPaneView.swift` |
+
+Split is not a fifth path: it mounts Source beside Preview.
+
+Print is gated by `FeatureFlags.printMode` and off by default, so it is absent
+from the View menu, the mode pill, the Settings tabs and the control socket
+until the flag is set. A gated mode still has to build, pass tests and behave;
+the gate is applied in exactly two places, `EditorMode.available` and
+`EditorMode.resolve`, so no surface can disagree about which modes exist.
 
 Serialization back from Visual lives in `AttributedToMarkdown.swift` and runs
 synchronously on every keystroke — Visual editing is only correct if
@@ -103,6 +112,26 @@ schemeless local links are routed through the JS bridge — a path starting with
 `/` resolves from the vault root, a plain relative path from the document's
 folder. KaTeX is bundled offline (`Resources/katex/`), so the page needs no
 network.
+
+Print specifics: the pane is read-only and full-window — Split stays Source +
+Preview, because pairing Source with pages needs a source-line → page map that
+does not exist. `PrintSettings` describes paper (size, orientation, margins),
+not a scrolling canvas, and `PrintTheme` is a separate type from `PreviewTheme`
+on purpose: the Preview settings migration is keyed on `PreviewTheme` ids, and
+a page renderer that knows nothing about CSS cannot be handed a stylesheet.
+`PDFView` gives paged scrolling, zoom and link following; ⌘F reuses the shared
+`PaneFindModel` over `PDFDocument.findString`, and the table of contents falls
+back to the markdown headings when the PDF carries no outline.
+
+The font set is part of the call, not a preference: `printFontSet` always
+appends emoji and symbol coverage, because a character with no font behind it
+fails an accessible PDF outright — a page that renders in Preview would
+otherwise simply not print. Page geometry is validated (`PrintPageGeometry`)
+before anything is laid out; a non-finite margin has to come back as a value.
+
+The source of the pages is scaffolding and is documented as such in
+`PrintPDFRenderer`: it does not paginate onto paper yet, so paper size and
+margins do not reach the output. Only the typography does.
 
 ## Async editor state
 

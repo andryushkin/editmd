@@ -25,6 +25,10 @@ struct SettingsView: View {
             ModeTab(settings: settings, mode: \.preview, monospaced: false,
                     resetAction: settings.resetPreview, extra: .lineHeight)
                 .tabItem { Label("Preview", systemImage: "eye") }
+            if FeatureFlags.printMode {
+                PrintTab(settings: settings)
+                    .tabItem { Label("Print", systemImage: "doc.plaintext") }
+            }
             BuiltInPluginsTab()
                 .tabItem { Label("Plugins", systemImage: "puzzlepiece.extension") }
             IntegrationsSettingsTab(settings: settings)
@@ -411,6 +415,67 @@ private struct ModeTab: View {
             get: { element.wrappedValue.color.map { Color(nsColor: $0) } ?? Color(nsColor: fallback) },
             set: { element.wrappedValue.colorHex = NSColor($0).hexString }
         )
+    }
+}
+
+// MARK: - Print
+
+/// Print is paper, so its tab is paper: page, margins, then type. There is no
+/// reading column and no per-element grid — the print theme owns the look, and
+/// the element colors in the other tabs belong to the screen.
+private struct PrintTab: View {
+    @ObservedObject var settings: EditorSettings
+
+    private var p: Binding<PrintSettings> {
+        Binding(get: { settings.print }, set: { settings.print = $0 })
+    }
+
+    var body: some View {
+        Form {
+            Section("Page") {
+                Picker("Paper", selection: p.paper) {
+                    ForEach(PrintPaperSize.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Orientation", selection: p.orientation) {
+                    ForEach(PrintOrientation.allCases) { Text($0.title).tag($0) }
+                }
+                if case .failure(let problem) = settings.print.geometry {
+                    Label(problem.message, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+            }
+            Section("Margins") {
+                ValueSlider(title: "Top", value: p.margins.top, range: PrintMargins.range)
+                ValueSlider(title: "Bottom", value: p.margins.bottom, range: PrintMargins.range)
+                ValueSlider(title: "Inside", value: p.margins.leading, range: PrintMargins.range)
+                ValueSlider(title: "Outside", value: p.margins.trailing, range: PrintMargins.range)
+            }
+            Section("Theme") {
+                Picker("Theme", selection: p.theme) {
+                    ForEach(PrintTheme.allPresets, id: \.id) { preset in
+                        Text(preset.title).tag(preset.id)
+                    }
+                }
+                Text("Sets the typefaces and reference measurements of the printed page. Print only — the other modes are not affected. The font settings below still override the theme.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Typography") {
+                FontSizeStepper(title: "Size", value: p.fontSize,
+                                range: PrintSettings.fontSizeRange)
+                FontFamilyPicker(title: "Family", family: p.fontFamily,
+                                 families: FontCatalog.allFamilies)
+                ValueSlider(title: "Line height", value: p.lineHeight,
+                            range: PrintSettings.lineHeightRange, format: "%.2f×")
+            }
+            Section("Fonts sent to the renderer") {
+                Text(settings.print.fontSet.joined(separator: " · "))
+                    .font(.system(.caption, design: .monospaced))
+                Text("Emoji and symbol coverage is always included and cannot be removed: a character with no font behind it stops an accessible PDF from being produced at all, so a page that looks fine in Preview would otherwise fail to print.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section { Button("Reset This Tab") { settings.resetPrint() } }
+        }
+        .formStyle(.grouped)
     }
 }
 

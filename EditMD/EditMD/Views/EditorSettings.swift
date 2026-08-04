@@ -615,6 +615,21 @@ final class EditorSettings: ObservableObject {
         }
     }
 
+    /// Paper, not a scrolling canvas — see `PrintSettings`. Selecting a print
+    /// theme rewrites the untouched geometry the same way Preview's does.
+    @Published var print: PrintSettings {
+        didSet {
+            persist(print, Keys.print)
+            if oldValue.theme != print.theme {
+                let migrated = Self.migratedPrintGeometry(
+                    print,
+                    from: PrintTheme.preset(named: oldValue.theme),
+                    to: PrintTheme.preset(named: print.theme))
+                if migrated != print { print = migrated }
+            }
+        }
+    }
+
     private enum Keys {
         static let general = "editorSettings.general"
         static let gutter = "editorSettings.gutter"
@@ -624,6 +639,7 @@ final class EditorSettings: ObservableObject {
         static let visualTableEditor = "editorSettings.visualTableEditor"
         static let preview = "editorSettings.preview"
         static let previewTypography = "editorSettings.previewTypography"
+        static let print = "editorSettings.print"
         static let visualTypographyBaseline = "editorSettings.visualTypographyBaseline"
         static let previewGeometryBaseline = "editorSettings.previewGeometryBaseline"
     }
@@ -642,6 +658,7 @@ final class EditorSettings: ObservableObject {
         visualTableEditor = Self.load(Keys.visualTableEditor) ?? VisualTableEditorSettings()
         preview = Self.load(Keys.preview) ?? Self.previewDefaults()
         previewTypography = Self.load(Keys.previewTypography) ?? PreviewTypographySettings(lineHeight: 1.6)
+        print = Self.load(Keys.print) ?? Self.printDefaults()
         // One-time upgrade for installs that picked a geometry-preferring
         // theme before selection-time rewriting existed (their stored stock
         // values were RENDERED as the theme's numbers by a since-removed
@@ -672,6 +689,33 @@ final class EditorSettings: ObservableObject {
     /// value still equals these.
     static func previewDefaults() -> ModeSettings {
         ModeSettings(fontSize: 15, insetH: 32, insetV: 24, columnWidth: 736)
+    }
+
+    /// Stock print defaults, and the reference point for `PrintTheme`
+    /// preferred geometry — same rule as Preview: a theme's numbers apply only
+    /// while the user's still equal these.
+    static func printDefaults() -> PrintSettings {
+        PrintSettings(theme: PrintTheme.standard.id)
+    }
+
+    /// Print theme switch, mirroring `migratedPreviewGeometry`: size, leading
+    /// and margins rewrite to the incoming theme's only while they still equal
+    /// the outgoing theme's — anything the user touched stays.
+    static func migratedPrintGeometry(_ current: PrintSettings,
+                                      from old: PrintTheme,
+                                      to new: PrintTheme) -> PrintSettings {
+        let stock = printDefaults()
+        var next = current
+        if current.fontSize == (old.preferredFontSize ?? stock.fontSize) {
+            next.fontSize = new.preferredFontSize ?? stock.fontSize
+        }
+        if current.lineHeight == (old.preferredLineHeight ?? stock.lineHeight) {
+            next.lineHeight = new.preferredLineHeight ?? stock.lineHeight
+        }
+        if current.margins == (old.preferredMargins ?? stock.margins) {
+            next.margins = new.preferredMargins ?? stock.margins
+        }
+        return next
     }
 
     /// Theme switch: values rewrite to the incoming theme's defaults only
@@ -746,11 +790,12 @@ final class EditorSettings: ObservableObject {
         preview = Self.previewDefaults()
         previewTypography = PreviewTypographySettings(lineHeight: 1.6)
     }
+    func resetPrint() { print = Self.printDefaults() }
 
     func resetToDefaults() {
         general = GeneralSettings()
         resetGutter()
-        resetSource(); resetVisual(); resetPreview()
+        resetSource(); resetVisual(); resetPreview(); resetPrint()
     }
 
     private var notifyTask: Task<Void, Never>?

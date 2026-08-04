@@ -590,7 +590,7 @@ struct EditorActionStrip: View {
     /// Same stock segmented control as the sidebar navigators, intrinsic width.
     private var modePill: some View {
         SidebarNavStrip(
-            tabs: EditorMode.allCases.map { candidate in
+            tabs: EditorMode.available().map { candidate in
                 SidebarNavTab(id: candidate.rawValue,
                               systemImage: candidate.systemImage,
                               help: "\(candidate.title) (\(candidate.shortcutHint))")

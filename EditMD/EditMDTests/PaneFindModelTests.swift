@@ -2,12 +2,12 @@ import XCTest
 @testable import EditMD
 
 @MainActor
-final class PreviewFindModelTests: XCTestCase {
+final class PaneFindModelTests: XCTestCase {
 
     /// A model wired to recording closures, so the pure state transitions can
     /// be tested without a live WKWebView.
-    private func makeModel() -> (PreviewFindModel, Recorder) {
-        let model = PreviewFindModel()
+    private func makeModel() -> (PaneFindModel, Recorder) {
+        let model = PaneFindModel()
         let rec = Recorder()
         model.runSearch = { rec.searches.append($0) }
         model.stepMatch = { rec.steps.append($0) }

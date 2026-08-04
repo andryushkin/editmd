@@ -19,8 +19,9 @@ private working notes, untracked here.
 - `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`
   (also hosts `DocumentRegistry`).
 - `EditMD/EditMD/Editor/` — Source/Visual, round-trip, tables, formulas,
-  highlighting, lint, review model, diff, PDF export.
-- `EditMD/EditMD/Views/` — layout, Preview, sidebars, settings, viewers.
+  highlighting, lint, review model, diff, PDF export, print page source.
+- `EditMD/EditMD/Views/` — layout, Preview, Print pane, sidebars, settings,
+  viewers.
 - `EditMD/EditMD/Integration/` — Claude IDE WebSocket/MCP, diff approval,
   control socket, skill installer.
 - `EditMD/EditMDTests/` — unit/integration tests.
@@ -60,9 +61,20 @@ domain docs.
 - One model per URL in `DocumentRegistry`. Agent edits and accepted review
   suggestions go only through `DocumentRegistry.applyAgentEdit`; any other
   write path makes the file watcher report an external change.
-- A markdown feature spans three independent render paths
-  (Source `collectSpans`, Visual `VisualRenderer`, Preview `HTMLBodyVisitor`)
-  plus the Visual round-trip — check all of them.
+- A markdown feature spans four independent render paths (Source
+  `collectSpans`, Visual `VisualRenderer`, Preview `HTMLBodyVisitor`, Print
+  `PrintPDFRenderer`) plus the Visual round-trip — check all of them. Split
+  is not a fifth: it mounts Source beside Preview.
+- Print is gated by `FeatureFlags.printMode`, off by default. A flag is read
+  once per launch and applied in exactly two places (`EditorMode.available`,
+  `EditorMode.resolve`), so the menu, the mode pill, Settings and the control
+  socket cannot disagree about which modes exist; with a flag off the app must
+  be indistinguishable from one built without the feature. Gated does not mean
+  exempt: it builds, it is tested, and it must not crash.
+- A prebuilt binary dependency in the build chain must be pinned by version
+  with its signature and checksum verified by the build script — never fetched
+  unpinned while building. The "no downloaded executable code" rule above is
+  about plugins and does not forbid a library compiled into the app.
 - `.raw` islands are verbatim source of truth; frontmatter must survive
   byte-exact through `composeDocumentWithFrontmatter`. All offsets are UTF-16.
 - Plugins are built-in Swift types only (`BuiltInPluginRegistry`), activated

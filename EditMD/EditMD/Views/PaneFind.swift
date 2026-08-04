@@ -2,13 +2,14 @@ import SwiftUI
 
 // MARK: - Model
 
-/// ⌘F search state for a full Preview window. Highlighting and navigation
-/// happen JS-side in the WKWebView; this holds the incremental query and the
-/// match tally the page reports back. One instance per
-/// `ContentView`, handed to `MarkdownPreviewView` and published as a focused
-/// value so the Edit ▸ Find menu can drive it while Preview is the active mode.
+/// ⌘F search state for a read-only pane — Preview and Print both use it, and
+/// neither answers to the native `NSTextFinder`. Searching and highlighting
+/// belong to the pane (JS in Preview's web view, `PDFDocument.findString` in
+/// Print's `PDFView`); this holds only the incremental query and the tally the
+/// pane reports back. One instance per pane per `ContentView`, published as a
+/// focused value so Edit ▸ Find drives whichever pane is on screen.
 @MainActor
-final class PreviewFindModel: ObservableObject {
+final class PaneFindModel: ObservableObject {
     /// Whether the find bar is on screen.
     @Published var isActive = false
     /// The live query (bound to the text field).
@@ -90,24 +91,24 @@ final class PreviewFindModel: ObservableObject {
 
 // MARK: - Focused value bridge (Edit ▸ Find menu → active Preview)
 
-/// Published by `ContentView` only while `mode == .preview`, so the Find menu
-/// can tell a focused Preview from a Source/Visual editor (which keep the
-/// native `NSTextFinder` path).
-struct PreviewFindActions {
+/// Published by `ContentView` only while a read-only pane is on screen, so the
+/// Find menu can tell it from a Source/Visual editor (which keeps the native
+/// `NSTextFinder` path).
+struct PaneFindActions {
     var show: () -> Void
     var findNext: () -> Void
     var findPrevious: () -> Void
     var useSelectionForFind: () -> Void
 }
 
-struct PreviewFindKey: FocusedValueKey {
-    typealias Value = PreviewFindActions
+struct PaneFindKey: FocusedValueKey {
+    typealias Value = PaneFindActions
 }
 
 extension FocusedValues {
-    var previewFind: PreviewFindActions? {
-        get { self[PreviewFindKey.self] }
-        set { self[PreviewFindKey.self] = newValue }
+    var paneFind: PaneFindActions? {
+        get { self[PaneFindKey.self] }
+        set { self[PaneFindKey.self] = newValue }
     }
 }
 
@@ -115,8 +116,8 @@ extension FocusedValues {
 
 /// Compact find bar overlaid at the top-trailing corner of the Preview pane.
 /// Enter jumps to the next match; the chevrons and ⌘G / ⌘⇧G do next/previous.
-struct PreviewFindBar: View {
-    @ObservedObject var model: PreviewFindModel
+struct PaneFindBar: View {
+    @ObservedObject var model: PaneFindModel
     @FocusState private var fieldFocused: Bool
 
     private var countLabel: String {

@@ -17,7 +17,9 @@ final class VisualEditingTests: XCTestCase {
     }
 
     func testEditorModesIncludeDedicatedSourcePreviewSplit() {
-        XCTAssertEqual(EditorMode.allCases.map(\.rawValue),
+        // The shipped list, not `allCases`: gated modes live in the enum but
+        // are not offered (see `PrintModeTests`).
+        XCTAssertEqual(EditorMode.available(printEnabled: false).map(\.rawValue),
                        ["source", "visual", "preview", "split"])
         XCTAssertEqual(EditorMode.split.title, "Split")
         XCTAssertEqual(EditorMode.split.shortcutHint, "⌘4")
