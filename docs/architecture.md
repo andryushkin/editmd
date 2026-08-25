@@ -168,7 +168,8 @@ and each knows one thing:
   nowhere else: no scheme, nothing absolute or starting with `~`, symlinks
   resolved on both sides before a component-wise containment test, `stat`
   before read, and the same extensions and size cap Preview inlines with. The
-  core reads png, jpeg, gif, webp and svg; the formats macOS also opens — heic,
+  core reads png, jpeg, gif, webp and svg (`PDMCore.readableImageFormats`); the
+  formats macOS also opens — heic,
   tiff, bmp — are re-encoded to PNG through ImageIO under the document's own
   name, because they printed before the move and heic is what these cameras
   write. The size cap is applied to the file on disk, not to the re-encoding.

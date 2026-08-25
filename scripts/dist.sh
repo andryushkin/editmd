@@ -69,13 +69,16 @@ xcodegen generate --spec "$SPEC" --quiet
 # ships silently. Before the Release build rather than after it: the failure
 # costs seconds here and ten minutes there.
 #
-# Debug, and a DerivedData of its own, on purpose. `@testable import` needs
-# ENABLE_TESTABILITY, which Release does not set; setting it would put
-# testability into the very binary this script packages. What is being checked
-# is the bytes in Vendor/, and those do not know which configuration links
-# them.
+# Debug on purpose — the *configuration*, not a directory of its own.
+# `@testable import` needs ENABLE_TESTABILITY, which Release does not set, and
+# setting it would put testability into the very binary this script packages.
+# What is being checked is the bytes in Vendor/, and those do not know which
+# configuration links them. The same DerivedData as the Release build below:
+# Xcode keeps configurations apart inside one (Build/Products/Debug against
+# /Release), so a second one buys nothing and costs a cold rebuild of every
+# dependency on every run.
 xcodebuild -project "$PROJECT" -scheme EditMD -configuration Debug \
-    -destination 'platform=macOS' -derivedDataPath "$DIST/DerivedDataABI" \
+    -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
     -only-testing:EditMDTests/PDMCoreTests test | tail -3
 
 for scheme in EditMD editmdctl; do

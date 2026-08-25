@@ -63,11 +63,13 @@ struct PrintTheme: Equatable {
         Self.stack(userFamily, over: headingFamilies.isEmpty ? bodyFamilies : headingFamilies)
     }
 
-    /// A chosen family in front of a stack, named once.
+    /// A chosen family in front of a stack, named once. Names come out
+    /// normalized by `normalizedFontFamily`, which is the only place that rule
+    /// lives.
     private static func stack(_ userFamily: String, over families: [String]) -> [String] {
-        let chosen = userFamily.trimmingCharacters(in: .whitespaces)
-        guard !chosen.isEmpty else { return families }
-        return [chosen] + families.filter { $0 != chosen }
+        let stack = families.compactMap(normalizedFontFamily)
+        guard let chosen = normalizedFontFamily(userFamily) else { return stack }
+        return [chosen] + stack.filter { $0 != chosen }
     }
 }
 

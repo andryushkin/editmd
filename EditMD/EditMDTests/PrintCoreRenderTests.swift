@@ -53,6 +53,30 @@ final class PrintCoreRenderTests: XCTestCase {
                            settings: settings, syntaxHighlighting: false)
     }
 
+    /// `.standard` with one field changed — the shape every probe of a boundary
+    /// value wants, and the shape that keeps them all going through the same
+    /// function the pane goes through.
+    private static func options(_ change: (inout PrintPageOptions) -> Void) -> PrintPageOptions {
+        var options = PrintPageOptions.standard
+        change(&options)
+        return options
+    }
+
+    /// A throwaway vault that removes itself when the test ends.
+    ///
+    /// The teardown is registered here rather than written at each call site: a
+    /// `defer` that is forgotten once leaves an eight-megabyte fixture behind on
+    /// every run from then on, and nothing would ever report it.
+    private func temporaryVault() throws -> URL {
+        let root = try Self.makeTemporaryVault()
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private func firstPage(of pdf: Data) throws -> PDFPage {
+        try XCTUnwrap(XCTUnwrap(PDFDocument(data: pdf)).page(at: 0))
+    }
+
     /// Every character box on a page that is a real box, unioned.
     ///
     /// A box that is not finite or has no area is not a mark on the page and is
@@ -154,11 +178,11 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertGreaterThan(a5.pageCount, a4.pageCount,
                              "A5 = \(a5.pageCount), A4 = \(a4.pageCount)")
 
-        let sheet = try XCTUnwrap(PDFDocument(data: a4.pdf)?.page(at: 0))
-            .bounds(for: .mediaBox)
+        let a4Document = try XCTUnwrap(PDFDocument(data: a4.pdf))
+        let sheet = try XCTUnwrap(a4Document.page(at: 0)).bounds(for: .mediaBox)
         XCTAssertEqual(sheet.width, 595.276, accuracy: 0.5)
         XCTAssertEqual(sheet.height, 841.890, accuracy: 0.5)
-        XCTAssertEqual(a4.pageCount, PDFDocument(data: a4.pdf)?.pageCount)
+        XCTAssertEqual(a4.pageCount, a4Document.pageCount)
     }
 
     func testLandscapeSwapsTheSidesOfTheSheet() async throws {
@@ -166,8 +190,7 @@ final class PrintCoreRenderTests: XCTestCase {
         settings.orientation = .landscape
         let result = try await PrintPDFRenderer.render(
             Self.request("# Heading\n\nShort.\n", settings: settings))
-        let sheet = try XCTUnwrap(PDFDocument(data: result.pdf)?.page(at: 0))
-            .bounds(for: .mediaBox)
+        let sheet = try firstPage(of: result.pdf).bounds(for: .mediaBox)
         XCTAssertEqual(sheet.width, 841.890, accuracy: 0.5)
         XCTAssertEqual(sheet.height, 595.276, accuracy: 0.5)
     }
@@ -198,15 +221,13 @@ final class PrintCoreRenderTests: XCTestCase {
         var settings = PrintSettings()
         settings.margins = PrintMargins(top: Self.pt(10), bottom: Self.pt(30),
                                         leading: Self.pt(40), trailing: Self.pt(20))
-        var options = PrintPageOptions.standard
-        options.pageNumbers = false
-        options.justify = true
+        let options = Self.options { $0.pageNumbers = false; $0.justify = true }
 
         let result = try await PrintPDFRenderer.render(
             Self.request(Self.unbrokenParagraph, settings: settings), options: options)
         XCTAssertGreaterThan(result.pageCount, 1,
                              "the first sheet must be full for its foot to mean anything")
-        let page = try XCTUnwrap(PDFDocument(data: result.pdf)?.page(at: 0))
+        let page = try firstPage(of: result.pdf)
         let sheet = page.bounds(for: .mediaBox)
         let (ink, outside) = Self.inkBounds(page)
 
@@ -218,12 +239,8 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertEqual(sheet.maxX - ink.maxX, Self.pt(20), accuracy: tolerance, "right")
         XCTAssertEqual(sheet.maxY - ink.maxY, Self.pt(10), accuracy: tolerance, "top")
 
-        let lineBox = settings.fontSize * settings.lineHeight
-        print("bottom gap: \(ink.minY) pt, margin \(Self.pt(30)) pt, "
-              + "line box \(lineBox) pt")
-        XCTAssertGreaterThanOrEqual(ink.minY, Self.pt(30) - tolerance, "bottom, too little")
-        XCTAssertLessThanOrEqual(ink.minY, Self.pt(30) + tolerance + lineBox,
-                                 "bottom, too much")
+        print("bottom gap: \(ink.minY) pt, margin \(Self.pt(30)) pt")
+        XCTAssertEqual(ink.minY, Self.pt(30), accuracy: tolerance, "bottom")
     }
 
     /// A link to a heading of this document is a jump inside the PDF, and it
@@ -300,10 +317,8 @@ final class PrintCoreRenderTests: XCTestCase {
     /// itself when nobody says anything, so a probe looking for `en` is green
     /// with the call removed entirely (measured 25 Aug 2026).
     func testTheChosenLanguageReachesThePDF() async throws {
-        var options = PrintPageOptions.standard
-        options.lang = "de"
         let result = try await PrintPDFRenderer.render(
-            Self.request("# Heading\n\nBody.\n"), options: options)
+            Self.request("# Heading\n\nBody.\n"), options: Self.options { $0.lang = "de" })
         XCTAssertTrue(Self.find("/Lang(de)", in: result.pdf), "no /Lang(de) in the PDF")
     }
 
@@ -312,8 +327,8 @@ final class PrintCoreRenderTests: XCTestCase {
     /// tell "we sent en" from "we sent nothing".
     func testTheDefaultLanguageIsStatedInTheJob() async throws {
         let job = try await PrintPDFRenderer.job(for: Self.request("Body.\n"))
-        XCTAssertEqual(job.lang, PrintJob.defaultLanguage)
-        XCTAssertEqual(PrintJob.defaultLanguage, "en")
+        XCTAssertEqual(job.page.lang, PrintPageOptions.defaultLanguage)
+        XCTAssertEqual(PrintPageOptions.defaultLanguage, "en")
     }
 
     /// PDF/UA is declared only when it was asked for.
@@ -322,12 +337,9 @@ final class PrintCoreRenderTests: XCTestCase {
     /// `/MarkInfo` are in every document this renderer makes, accessible or not,
     /// so a probe built on them is green either way.
     func testAccessibilityIsDeclaredOnlyWhenAskedFor() async throws {
-        var options = PrintPageOptions.standard
-        options.pdfUA = true
         let markdown = "# Heading\n\nBody.\n"
-
-        let accessible = try await PrintPDFRenderer.render(Self.request(markdown),
-                                                           options: options)
+        let accessible = try await PrintPDFRenderer.render(
+            Self.request(markdown), options: Self.options { $0.pdfUA = true })
         let plain = try await PrintPDFRenderer.render(Self.request(markdown))
         XCTAssertTrue(Self.find("pdfuaid", in: accessible.pdf))
         XCTAssertFalse(Self.find("pdfuaid", in: plain.pdf))
@@ -341,10 +353,8 @@ final class PrintCoreRenderTests: XCTestCase {
     /// asserted rather than assumed. Built by taking a real job and removing the
     /// coverage faces — the same document prints when they are there.
     func testAccessibilityRefusesAGlyphWithNoFontBehindIt() async throws {
-        var options = PrintPageOptions.standard
-        options.pdfUA = true
         var job = try await PrintPDFRenderer.job(for: Self.request("Target 🎯 here.\n"),
-                                                 options: options)
+                                                 options: Self.options { $0.pdfUA = true })
         job.fonts.removeAll { printCoverageFontFamilies.contains($0.family) }
 
         XCTAssertThrowsError(try PDMCore.render(job) { _ in nil }) { error in
@@ -411,10 +421,9 @@ final class PrintCoreRenderTests: XCTestCase {
     /// its `add_font` at the boundary both turn this red; a probe on the job
     /// alone would only catch the first.
     func testTheEmojiFaceIsDeliveredToTheRenderer() async throws {
-        var options = PrintPageOptions.standard
-        options.pdfUA = true
         let result = try await PrintPDFRenderer.render(
-            Self.request("# Heading\n\nTarget 🎯 here.\n"), options: options)
+            Self.request("# Heading\n\nTarget 🎯 here.\n"),
+            options: Self.options { $0.pdfUA = true })
         XCTAssertGreaterThan(result.pageCount, 0)
     }
 
@@ -424,10 +433,9 @@ final class PrintCoreRenderTests: XCTestCase {
     /// Apple Symbols, so they witness nothing. This character is the one measured
     /// to fail without it (25 Aug 2026).
     func testTheSymbolFaceIsDeliveredToTheRenderer() async throws {
-        var options = PrintPageOptions.standard
-        options.pdfUA = true
         let result = try await PrintPDFRenderer.render(
-            Self.request("# Heading\n\nA contour integral ∮ here.\n"), options: options)
+            Self.request("# Heading\n\nA contour integral ∮ here.\n"),
+            options: Self.options { $0.pdfUA = true })
         XCTAssertGreaterThan(result.pageCount, 0)
     }
 
@@ -525,13 +533,12 @@ final class PrintCoreRenderTests: XCTestCase {
     /// here is a default that could move underneath the app without a diff.
     func testTheStandardOptionsAreStatedInTheJob() async throws {
         let job = try await PrintPDFRenderer.job(for: Self.request("Body.\n"))
-        XCTAssertNil(job.title)
         XCTAssertTrue(job.links.isEmpty)
-        XCTAssertFalse(job.outline)
-        XCTAssertTrue(job.pageNumbers)
-        XCTAssertFalse(job.runningHeader)
-        XCTAssertFalse(job.justify)
-        XCTAssertFalse(job.pdfUA)
+        // The whole of what was decided at the boundary, compared as one value:
+        // seven fields copied across by hand is seven chances to mix two of them
+        // up, and this is the assertion that would not have noticed.
+        XCTAssertEqual(job.page, .standard)
+        XCTAssertNil(job.page.title)
         XCTAssertEqual(job.paper, "a4")
         XCTAssertEqual(job.fontSizePt, Double(PrintSettings().fontSize))
     }
@@ -566,7 +573,7 @@ final class PrintCoreRenderTests: XCTestCase {
     func testTextAfterANULByteStillPrints() async throws {
         let markdown = "Before\u{0}AfterTheNul\n"
         let result = try await PrintPDFRenderer.render(Self.request(markdown))
-        let page = try XCTUnwrap(PDFDocument(data: result.pdf)?.page(at: 0))
+        let page = try firstPage(of: result.pdf)
         XCTAssertEqual(page.string?.contains("AfterTheNul"), true, "\(page.string ?? "")")
     }
 
@@ -585,8 +592,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// A picture next to the document reaches the page, and one outside its
     /// folder does not — the renderer says so instead of silently printing it.
     func testALocalPictureIsSuppliedAndAnEscapingOneIsNot() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let folder = root.appendingPathComponent("doc")
 
         let inside = try await PrintPDFRenderer.render(
@@ -599,8 +605,7 @@ final class PrintCoreRenderTests: XCTestCase {
     }
 
     func testTheAssetLoaderRefusesEverythingOutsideItsFolder() throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let loader = PrintAssetLoader(baseDir: root.appendingPathComponent("doc"))
 
         XCTAssertNotNil(loader.bytes(forAssetNamed: "pic.png"))
@@ -626,19 +631,33 @@ final class PrintCoreRenderTests: XCTestCase {
     }
 
     /// A sibling folder whose name merely starts with the same characters is a
-    /// different folder. Compared as strings, `doc-other` is "inside" `doc`.
+    /// different folder. Compared as a plain string prefix, `doc-other` is
+    /// "inside" `doc`.
     func testAFolderWithASharedNamePrefixIsOutside() throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let loader = PrintAssetLoader(baseDir: root.appendingPathComponent("doc"))
+        let root = try temporaryVault()
+        let doc = root.appendingPathComponent("doc")
+        let loader = PrintAssetLoader(baseDir: doc)
         XCTAssertNil(loader.bytes(forAssetNamed: "../doc-other/pic.png"))
-        XCTAssertTrue(PrintAssetLoader.path(root.appendingPathComponent("doc/pic.png"),
-                                            isInside: root.appendingPathComponent("doc")))
-        XCTAssertFalse(PrintAssetLoader.path(root.appendingPathComponent("doc-other/pic.png"),
-                                             isInside: root.appendingPathComponent("doc")))
-        // A folder is not inside itself: there is no file there to read.
-        XCTAssertFalse(PrintAssetLoader.path(root.appendingPathComponent("doc"),
-                                             isInside: root.appendingPathComponent("doc")))
+        XCTAssertTrue(pathIsContained(doc.appendingPathComponent("pic.png").path,
+                                      in: doc.path))
+        XCTAssertFalse(pathIsContained(root.appendingPathComponent("doc-other/pic.png").path,
+                                       in: doc.path))
+    }
+
+    /// The document's own folder is not one of its pictures.
+    ///
+    /// The shared containment check answers true for the folder itself, which is
+    /// what a workspace scope wants and not what this wants — so the loader says
+    /// so outright instead of leaving it to the regular-file check to refuse by
+    /// accident. `.` and a trailing slash are the two ways a document can ask.
+    func testTheDocumentFolderIsNotOneOfItsOwnPictures() throws {
+        let root = try temporaryVault()
+        let loader = PrintAssetLoader(baseDir: root.appendingPathComponent("doc"))
+        XCTAssertTrue(pathIsContained(root.appendingPathComponent("doc").path,
+                                      in: root.appendingPathComponent("doc").path),
+                      "the shared check is scope-shaped; the loader must narrow it")
+        XCTAssertNil(loader.bytes(forAssetNamed: "."))
+        XCTAssertNil(loader.bytes(forAssetNamed: "sub/.."))
     }
 
     func testAnUnsavedDocumentHasNoAssetsAtAll() {
@@ -663,8 +682,7 @@ final class PrintCoreRenderTests: XCTestCase {
         let settings = PrintSettings()
         let normal = try await PrintPDFRenderer.render(
             Self.request(paragraph, settings: settings))
-        let measured = try XCTUnwrap(
-            Self.modeLineAdvance(XCTUnwrap(PDFDocument(data: normal.pdf)?.page(at: 0))))
+        let measured = try XCTUnwrap(Self.modeLineAdvance(firstPage(of: normal.pdf)))
         let expected = Double(settings.lineHeight * settings.fontSize)
         print("line advance at \(settings.fontSize) pt: measured \(measured) pt, "
               + "settings ask \(expected) pt")
@@ -677,8 +695,7 @@ final class PrintCoreRenderTests: XCTestCase {
         large.fontSize = settings.fontSize * 2
         let doubled = try await PrintPDFRenderer.render(
             Self.request(paragraph, settings: large))
-        let measuredLarge = try XCTUnwrap(
-            Self.modeLineAdvance(XCTUnwrap(PDFDocument(data: doubled.pdf)?.page(at: 0))))
+        let measuredLarge = try XCTUnwrap(Self.modeLineAdvance(firstPage(of: doubled.pdf)))
         let expectedLarge = Double(large.lineHeight * large.fontSize)
         print("line advance at \(large.fontSize) pt: measured \(measuredLarge) pt, "
               + "settings ask \(expectedLarge) pt")
@@ -712,18 +729,14 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertEqual(base.pdf, repeated.pdf,
                        "one document printed twice differs; nothing below can mean anything")
 
-        var variants: [(field: String, options: PrintPageOptions)] = []
-        func vary(_ field: String, _ change: (inout PrintPageOptions) -> Void) {
-            var options = PrintPageOptions.standard
-            change(&options)
-            variants.append((field, options))
-        }
-        vary("outline") { $0.outline = true }
-        vary("pageNumbers") { $0.pageNumbers = false }
-        vary("runningHeader") { $0.runningHeader = true }
-        vary("justify") { $0.justify = true }
-        vary("pdfUA") { $0.pdfUA = true }
-        vary("lang") { $0.lang = "de" }
+        let variants: [(field: String, options: PrintPageOptions)] = [
+            ("outline", Self.options { $0.outline = true }),
+            ("pageNumbers", Self.options { $0.pageNumbers = false }),
+            ("runningHeader", Self.options { $0.runningHeader = true }),
+            ("justify", Self.options { $0.justify = true }),
+            ("pdfUA", Self.options { $0.pdfUA = true }),
+            ("lang", Self.options { $0.lang = "de" }),
+        ]
 
         for variant in variants {
             let printed = try await PrintPDFRenderer.render(request, options: variant.options)
@@ -738,8 +751,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// Without this, swapping the kind and the line while copying a result out is
     /// invisible: every other probe only asks whether warnings exist at all.
     func testAMissingPictureIsReportedByKindAndLine() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         // 1: heading · 2: blank · 3: body · 4: blank · 5: the picture
         let markdown = "# Heading\n\nBody.\n\n![alt](gone.png)\n"
         let result = try await PrintPDFRenderer.render(
@@ -796,8 +808,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// warning dropped here cannot be shown by whatever displays them later.
     @MainActor
     func testThePaneKeepsTheWarningsOfItsLastPrint() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let model = PrintPaneModel()
         await model.render(Self.request("# Heading\n\n![alt](gone.png)\n",
                                         baseDir: root.appendingPathComponent("doc")),
@@ -817,8 +828,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// that difference has no name anywhere, and the next reader of a mismatch
     /// has only the bytes of two PDFs to work from.
     func testTheResultRecordsEveryFileTheRendererAskedFor() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let folder = root.appendingPathComponent("doc")
         let onDisk = try Data(contentsOf: folder.appendingPathComponent("pic.png"))
 
@@ -849,21 +859,16 @@ final class PrintCoreRenderTests: XCTestCase {
     /// The picture beside the document decides the digest, so the record can tell
     /// two otherwise identical prints apart.
     func testTheSameJobWithADifferentPictureRecordsADifferentDigest() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let markdown = "![x](pic.png)\n"
         let here = try await PrintPDFRenderer.render(
             Self.request(markdown, baseDir: root.appendingPathComponent("doc")))
         let there = try await PrintPDFRenderer.render(
             Self.request(markdown, baseDir: root.appendingPathComponent("doc-other")))
 
-        // The jobs are equal — same markdown, same settings — and the pages are
-        // not. Only the record says why.
-        let hereJob = try await PrintPDFRenderer.job(
-            for: Self.request(markdown, baseDir: root.appendingPathComponent("doc")))
-        let thereJob = try await PrintPDFRenderer.job(
-            for: Self.request(markdown, baseDir: root.appendingPathComponent("doc-other")))
-        XCTAssertEqual(hereJob, thereJob)
+        // The jobs are equal by construction — `PrintJob` has no `baseDir` in it
+        // at all — and the pages are not. Only the record says why, so only the
+        // things that can actually fail are asserted.
         XCTAssertNotEqual(here.pdf, there.pdf)
         XCTAssertNotEqual(here.assets.first?.digest, there.assets.first?.digest)
         XCTAssertEqual(here.assets.map(\.name), there.assets.map(\.name))
@@ -876,8 +881,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// document that shows its photographs on screen and prints blank squares
     /// would be an ordinary experience, not an edge case.
     func testFormatsTheRendererCannotReadArePrintedAnyway() async throws {
-        let root = try Self.makeTemporaryVault()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try temporaryVault()
         let folder = root.appendingPathComponent("doc")
 
         for (name, type) in [("shot.heic", UTType.heic),
@@ -900,6 +904,91 @@ final class PrintCoreRenderTests: XCTestCase {
         }
     }
 
+    /// The formats handed over untouched really do reach the page.
+    ///
+    /// Only the three converted ones were checked before. A format wrongly left
+    /// in the "reads it itself" list is the failure this catches: it would be
+    /// passed straight through and come back as a warning instead of a picture,
+    /// and nothing else here would notice.
+    func testFormatsTheRendererReadsItselfArePassedThroughAndPrint() async throws {
+        let root = try temporaryVault()
+        let folder = root.appendingPathComponent("doc")
+
+        // A 1×1 lossless picture, written out as bytes: ImageIO on this system
+        // decodes webp but cannot write it, so it cannot make its own fixture.
+        let webp = try XCTUnwrap(Data(base64Encoded:
+            "UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAA="))
+        let svg = Data("""
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="48">\
+            <rect width="64" height="48" fill="#39c"/></svg>
+            """.utf8)
+        let fixtures: [(String, Data)] = [
+            ("plain.png", try XCTUnwrap(Self.image(as: .png))),
+            ("moving.gif", try XCTUnwrap(Self.image(as: .gif))),
+            ("small.webp", webp),
+            ("drawing.svg", svg),
+        ]
+
+        for (name, bytes) in fixtures {
+            try bytes.write(to: folder.appendingPathComponent(name))
+            let result = try await PrintPDFRenderer.render(
+                Self.request("![alt](\(name))\n", baseDir: folder))
+            XCTAssertEqual(result.warnings.filter {
+                $0.rawKind == Self.missingAssetWarning
+                    || $0.rawKind == Self.unreadableAssetWarning
+            }.map(\.message), [], "\(name) did not reach the page")
+
+            let record = try XCTUnwrap(result.assets.first, name)
+            XCTAssertTrue(record.supplied, name)
+            // Handed over untouched: converting these would be work for nothing,
+            // and for svg it would turn a drawing into pixels.
+            XCTAssertEqual(record.byteCount, bytes.count, "\(name) was re-encoded")
+        }
+
+        XCTAssertTrue(PDMCore.readableImageFormats.isSuperset(of: ["png", "gif", "webp", "svg"]))
+    }
+
+    /// A photograph tagged "rotate 90" prints upright, not on its side.
+    ///
+    /// The renderer never sees the tag: PNG has nowhere to keep it, so the
+    /// rotation has to be applied while re-encoding or it is simply lost. The
+    /// fixture is 64 × 48 tagged as rotated, so a converter that ignores the tag
+    /// gives back 64 × 48 and one that honours it gives back 48 × 64.
+    func testAPictureTaggedWithAnOrientationIsTurnedTheRightWayUp() throws {
+        let tagged = try XCTUnwrap(Self.image(as: .tiff, orientation: 6))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(tagged as CFData, nil))
+        let stored = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        XCTAssertEqual(stored?[kCGImagePropertyOrientation] as? Int, 6,
+                       "the fixture must carry the tag, or this proves nothing")
+        XCTAssertEqual(stored?[kCGImagePropertyPixelWidth] as? Int, 64)
+
+        let converted = try XCTUnwrap(PrintAssetLoader.pngEncoded(tagged))
+        let out = try XCTUnwrap(CGImageSourceCreateWithData(converted as CFData, nil))
+        let props = CGImageSourceCopyPropertiesAtIndex(out, 0, nil) as? [CFString: Any]
+        XCTAssertEqual(props?[kCGImagePropertyPixelWidth] as? Int, 48, "width and height swapped")
+        XCTAssertEqual(props?[kCGImagePropertyPixelHeight] as? Int, 64)
+
+        // And an untagged picture keeps its own shape and its own resolution:
+        // the transform path must not quietly become a downscale.
+        let plain = try XCTUnwrap(Self.image(as: .tiff))
+        let plainOut = try XCTUnwrap(CGImageSourceCreateWithData(
+            try XCTUnwrap(PrintAssetLoader.pngEncoded(plain)) as CFData, nil))
+        let plainProps = CGImageSourceCopyPropertiesAtIndex(plainOut, 0, nil) as? [CFString: Any]
+        XCTAssertEqual(plainProps?[kCGImagePropertyPixelWidth] as? Int, 64)
+        XCTAssertEqual(plainProps?[kCGImagePropertyPixelHeight] as? Int, 48)
+    }
+
+    /// A picture small enough to read and too big once converted is refused,
+    /// not handed over. The cap belongs to what crosses the boundary.
+    func testAConversionThatOutgrowsTheCapIsNotHandedOver() throws {
+        let root = try temporaryVault()
+        let loader = PrintAssetLoader(baseDir: root.appendingPathComponent("doc"))
+        XCTAssertNotNil(loader.bytes(forAssetNamed: "scan.tiff"),
+                        "the small fixture must still go through")
+        XCTAssertNil(loader.bytes(forAssetNamed: "swollen.heic"),
+                     "160 KB of lossy noise becomes 11 MB of PNG, past the cap")
+    }
+
     /// Something that is not a picture at all under a picture's name is not
     /// smuggled through the converter — nothing is handed over and the renderer
     /// reports it, which is the truth from its side.
@@ -912,7 +1001,7 @@ final class PrintCoreRenderTests: XCTestCase {
     /// Generated rather than committed: a binary fixture in the repository is a
     /// thing nobody can read in a diff, and the encoder is the same one the
     /// loader decodes with.
-    private static func image(as type: UTType) -> Data? {
+    private static func image(as type: UTType, orientation: Int? = nil) -> Data? {
         let space = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(data: nil, width: 64, height: 48,
                                       bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -923,10 +1012,41 @@ final class PrintCoreRenderTests: XCTestCase {
         context.setFillColor(CGColor(red: 1, green: 0.4, blue: 0.1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
         guard let image = context.makeImage() else { return nil }
+        return encode(image, as: type,
+                      properties: orientation.map { [kCGImagePropertyOrientation: $0] })
+    }
+
+    /// Lossy noise: tiny on disk, enormous once it is pixels again. 2000 × 2000
+    /// at the lowest quality measured 26 Aug 2026 as 160 KB of HEIC and 11 MB of
+    /// PNG, so it is under the cap when read and over it when converted.
+    /// Built once for the whole run — it is the only expensive fixture here.
+    private static let swollenPicture: Data? = {
+        let side = 2000
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        for index in pixels.indices {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            pixels[index] = UInt8((seed >> 33) & 0xFF)
+        }
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let image = CGImage(width: side, height: side, bitsPerComponent: 8,
+                                  bitsPerPixel: 32, bytesPerRow: side * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGBitmapInfo(
+                                      rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                  provider: provider, decode: nil,
+                                  shouldInterpolate: false, intent: .defaultIntent)
+        else { return nil }
+        return encode(image, as: .heic,
+                      properties: [kCGImageDestinationLossyCompressionQuality: 0.05])
+    }()
+
+    private static func encode(_ image: CGImage, as type: UTType,
+                               properties: [CFString: Any]? = nil) -> Data? {
         let encoded = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             encoded, type.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary?)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return encoded as Data
     }
@@ -955,6 +1075,14 @@ final class PrintCoreRenderTests: XCTestCase {
             .write(to: root.appendingPathComponent("doc-other/pic.png"))
         try Data("# Notes\n".utf8).write(to: doc.appendingPathComponent("notes.md"))
         try Data(count: maxInlineImageBytes + 1).write(to: doc.appendingPathComponent("huge.png"))
+        // A format the renderer does not read, small enough to pass the cap…
+        if let tiff = Self.image(as: .tiff) {
+            try tiff.write(to: doc.appendingPathComponent("scan.tiff"))
+        }
+        // …and one that only passes it before it is converted.
+        if let swollen = Self.swollenPicture {
+            try swollen.write(to: doc.appendingPathComponent("swollen.heic"))
+        }
         try fm.createSymbolicLink(at: doc.appendingPathComponent("escape.png"),
                                   withDestinationURL: root.appendingPathComponent("secret.png"))
         return root

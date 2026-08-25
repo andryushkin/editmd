@@ -121,6 +121,18 @@ enum PDMCore {
 
 extension PDMCore {
 
+    /// Picture formats the core draws itself, by lowercased file extension.
+    ///
+    /// Knowledge about the boundary, so it lives with the boundary rather than
+    /// with the loader that consults it. Measured against the linked library on
+    /// 26 Aug 2026 — each of these prints with no warning — and it is the half
+    /// of the contract that decides whether a file is handed over untouched or
+    /// re-encoded first. A format wrongly listed here prints as a warning
+    /// instead of a picture, which is why the list is measured and not read off
+    /// a document.
+    static let readableImageFormats: Set<String> = ["png", "jpg", "jpeg",
+                                                    "gif", "webp", "svg"]
+
     /// Print one job.
     ///
     /// Synchronous and blocking: the C call has no cancellation, so this must be
@@ -157,19 +169,17 @@ extension PDMCore {
         else { throw CoreError.documentRejected }
         defer { pdm_document_free(doc) }
 
-        // The message belongs to the last *mutating* call and is destroyed by
-        // the next one, so it is copied out at the point of failure and never
-        // fetched later.
+        // Every call below goes through `check`, which copies the message at the
+        // point of failure. One implementation, and this is the shim that saves
+        // repeating the handle at every call site.
         func check(_ status: pdm_status, _ name: String) throws {
-            guard status != PDM_OK else { return }
-            let message = pdm_document_last_error(doc).map { String(cString: $0) }
-            throw CoreError.call(name: name, status: status, message: message)
+            try Self.check(status, name, doc: doc)
         }
 
         // Every setter is called and every status is read straight away. An
         // unchecked setter leaves the core on its own default and the print
         // succeeds looking exactly like the one that was asked for.
-        try check(pdm_document_set_title(doc, job.title), "set_title")
+        try check(pdm_document_set_title(doc, job.page.title), "set_title")
         try check(pdm_document_set_paper(doc, job.paper), "set_paper")
         try check(pdm_document_set_flipped(doc, job.flipped), "set_flipped")
         try check(pdm_document_set_margins_mm(doc,
@@ -179,7 +189,7 @@ extension PDMCore {
                                               job.marginsMM.left), "set_margins_mm")
         try check(pdm_document_set_font_size_pt(doc, job.fontSizePt), "set_font_size_pt")
         try check(pdm_document_set_leading_em(doc, job.leadingEm), "set_leading_em")
-        try check(pdm_document_set_justify(doc, job.justify), "set_justify")
+        try check(pdm_document_set_justify(doc, job.page.justify), "set_justify")
         // No probe can tell this call from its absence today, and that is a
         // property of our own font order rather than a gap in the probes: the
         // body families lead `PrintSettings.fontSet`, so the renderer's fallback
@@ -188,12 +198,12 @@ extension PDMCore {
         // and saying so is better than dressing a probe up as a check.
         try check(pdm_document_set_body_font(doc, job.bodyFont), "set_body_font")
         try check(pdm_document_set_mono_font(doc, job.monoFont), "set_mono_font")
-        try check(pdm_document_set_lang(doc, job.lang), "set_lang")
-        try check(pdm_document_set_outline(doc, job.outline), "set_outline")
-        try check(pdm_document_set_running_header(doc, job.runningHeader),
+        try check(pdm_document_set_lang(doc, job.page.lang), "set_lang")
+        try check(pdm_document_set_outline(doc, job.page.outline), "set_outline")
+        try check(pdm_document_set_running_header(doc, job.page.runningHeader),
                   "set_running_header")
-        try check(pdm_document_set_page_numbers(doc, job.pageNumbers), "set_page_numbers")
-        try check(pdm_document_set_pdf_ua(doc, job.pdfUA), "set_pdf_ua")
+        try check(pdm_document_set_page_numbers(doc, job.page.pageNumbers), "set_page_numbers")
+        try check(pdm_document_set_pdf_ua(doc, job.page.pdfUA), "set_pdf_ua")
 
         for file in job.fonts {
             let status = file.bytes.withUnsafeBytes { raw in
@@ -241,14 +251,11 @@ extension PDMCore {
                 // A name the core cannot have produced. Still recorded, so the
                 // list accounts for every request rather than for the ones that
                 // went well.
-                records.append(PrintAssetRecord(
-                    name: String(decoding: nameBytes, as: UTF8.self),
-                    supplied: false, byteCount: 0, digest: nil))
+                records.append(.notSupplied(String(decoding: nameBytes, as: UTF8.self)))
                 continue
             }
             guard let data = asset(name) else {
-                records.append(PrintAssetRecord(name: name, supplied: false,
-                                                byteCount: 0, digest: nil))
+                records.append(.notSupplied(name))
                 continue
             }
             let status = nameBytes.withUnsafeBytes { rawName in
@@ -272,7 +279,12 @@ extension PDMCore {
         return records
     }
 
-    /// `check` for the helpers above — same rule, same immediate copy.
+    /// The one place a status is turned into a failure.
+    ///
+    /// The message belongs to the last *mutating* call on this handle and is
+    /// destroyed by the next one, so it is copied out here, at the point of
+    /// failure, and never fetched later. That is the most fragile rule at this
+    /// boundary, which is exactly why it is written once.
     private static func check(_ status: pdm_status, _ name: String,
                               doc: OpaquePointer) throws {
         guard status != PDM_OK else { return }

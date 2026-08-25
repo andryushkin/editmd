@@ -138,6 +138,19 @@ struct PrintPageGeometry: Equatable, Sendable {
 /// Settings and it cannot be dropped by a theme.
 let printCoverageFontFamilies = ["Apple Color Emoji", "Apple Symbols"]
 
+/// The one rule for what a family name is: trimmed, and empty is no name.
+///
+/// Every list of families in Print goes through this — the set below, and the
+/// theme's stacks. It is not tidiness: `PrintFontLoader` collects the families
+/// it resolved into a set and then looks candidates up in it by exact match, so
+/// two places normalizing "almost the same way" means a family that resolved and
+/// is never named, and a page of body text printed in the monospaced face. One
+/// owner, and everything downstream works with names that are already normal.
+func normalizedFontFamily(_ raw: String) -> String? {
+    let name = raw.trimmingCharacters(in: .whitespaces)
+    return name.isEmpty ? nil : name
+}
+
 /// The complete family list handed to the page renderer, in fallback order:
 /// the user's or theme's text faces first, monospace for code, then coverage.
 /// Duplicates are removed keeping the first (highest-priority) position.
@@ -150,8 +163,7 @@ func printFontSet(bodyFamilies: [String],
     var seen = Set<String>()
     var out: [String] = []
     for family in bodyFamilies + headingFamilies + monoFamilies + printCoverageFontFamilies {
-        let name = family.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, seen.insert(name).inserted else { continue }
+        guard let name = normalizedFontFamily(family), seen.insert(name).inserted else { continue }
         out.append(name)
     }
     return out

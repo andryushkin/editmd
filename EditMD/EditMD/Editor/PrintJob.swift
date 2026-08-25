@@ -32,12 +32,18 @@ struct PrintMarginsMM: Equatable, Sendable {
 
 // MARK: - Values chosen at the boundary
 
-/// Page-level choices the Print pane has no control for.
+/// The page-level decisions the Print pane has no control for.
 ///
 /// A value with a production default rather than constants buried in the
 /// boundary: a probe changes one field and calls the *same* function the pane
 /// calls, so nothing has to grow a test-only path, and a defect planted in the
 /// render is a defect every probe walks through.
+///
+/// It sits inside `PrintJob` whole rather than being copied into it field by
+/// field. Seven fields of the same names and the same types, assigned one line
+/// at a time, is seven chances to put `outline` where `runningHeader` goes with
+/// nothing to catch it — and the copy would have to be kept in step by hand
+/// every time a decision is added here.
 struct PrintPageOptions: Equatable, Sendable {
     /// BCP-47 tag written into the PDF's `/Lang`.
     var lang: String
@@ -52,6 +58,14 @@ struct PrintPageOptions: Equatable, Sendable {
     /// nil lets the renderer take the frontmatter `title:`, then the first H1.
     var title: String?
 
+    /// The language every print declares while nothing chooses one.
+    ///
+    /// Named rather than left out: the renderer writes `/Lang(en)` on its own
+    /// when nobody says otherwise, so an omitted call is invisible in the
+    /// output. A constant that has to be moved on purpose is the difference
+    /// between a decision and an accident.
+    static let defaultLanguage = "en"
+
     /// What the Print pane prints with.
     ///
     /// `outline` is off because it adds a contents *page* to the document —
@@ -62,7 +76,7 @@ struct PrintPageOptions: Equatable, Sendable {
     /// `justify` is off because the pane has never justified. `pageNumbers` is
     /// on because this is paper.
     static let standard = PrintPageOptions(
-        lang: PrintJob.defaultLanguage,
+        lang: defaultLanguage,
         pdfUA: false,
         outline: false,
         pageNumbers: true,
@@ -82,15 +96,15 @@ struct PrintPageOptions: Equatable, Sendable {
 /// built by this app has to be comparable field by field with the job the
 /// command line builds from the same document. That comparison is what tells
 /// "the app prints differently" from "the renderer prints differently", and it
-/// only works if both sides say everything out loud.
+/// only works if both sides say everything out loud. Nesting `page` costs that
+/// comparison nothing: it is still one `==`.
 ///
 /// Assets are not here and cannot be: their names are known only after the
 /// markdown has been parsed, i.e. after the document handle exists, and the
-/// boundary requires them to be set on that same handle.
+/// boundary requires them to be set on that same handle. What was actually
+/// handed over is reported on the result instead — `PrintRenderResult.assets`.
 struct PrintJob: Equatable, Sendable {
     var markdown: String
-    /// nil = the renderer takes the frontmatter title, then the first H1.
-    var title: String?
     /// Paper name as the renderer spells it: `a4`, `a5`, `us-letter`,
     /// `us-legal`. Bare `letter` and `legal` are refused by it.
     var paper: String
@@ -101,30 +115,18 @@ struct PrintJob: Equatable, Sendable {
     var fontSizePt: Double
     /// Extra space between lines, in em — see `PrintJob.leadingEm(for:capHeightEm:)`.
     var leadingEm: Double
-    var justify: Bool
     /// nil = not named at all, which is not the same as naming a family the
     /// renderer has no bytes for.
     var bodyFont: String?
     var monoFont: String?
-    var lang: String
-    var outline: Bool
-    var runningHeader: Bool
-    var pageNumbers: Bool
-    var pdfUA: Bool
+    /// The decisions taken at the boundary rather than in the pane.
+    var page: PrintPageOptions
     /// Fallback chain, in order — see `PrintFontLoader`.
     var fonts: [PrintFontFile]
     /// Wiki-link target → destination. Empty here until the vault index is
     /// wired in; the field is written out rather than assumed so that an empty
     /// table is a stated fact and not a missing call.
     var links: [String: String]
-
-    /// The language every print declares while nothing chooses one.
-    ///
-    /// Named rather than left out: the renderer writes `/Lang(en)` on its own
-    /// when nobody says otherwise, so an omitted call is invisible in the
-    /// output. A constant that has to be moved on purpose is the difference
-    /// between a decision and an accident.
-    static let defaultLanguage = "en"
 }
 
 // MARK: - Building one from print intent
@@ -168,7 +170,6 @@ extension PrintJob {
         let margins = settings.margins
         self.init(
             markdown: request.markdown,
-            title: options.title,
             paper: Self.paperName(settings.paper),
             flipped: settings.orientation == .landscape,
             // leading/trailing are the app's words for the left and right edge
@@ -181,14 +182,9 @@ extension PrintJob {
             fontSizePt: Double(settings.fontSize),
             leadingEm: Self.leadingEm(for: settings.lineHeight,
                                       capHeightEm: fonts.bodyCapHeightEm),
-            justify: options.justify,
             bodyFont: fonts.bodyFont,
             monoFont: fonts.monoFont,
-            lang: options.lang,
-            outline: options.outline,
-            runningHeader: options.runningHeader,
-            pageNumbers: options.pageNumbers,
-            pdfUA: options.pdfUA,
+            page: options,
             fonts: fonts.files,
             links: [:])
     }

@@ -56,9 +56,9 @@ enum PrintFontLoader {
         // names out of the file itself; `family` here is our bookkeeping.
         var resolved = Set<String>()
 
-        for family in settings.fontSet {
-            let name = family.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { continue }
+        // `settings.fontSet` and the theme's stacks are already normalized —
+        // `normalizedFontFamily` owns that rule, and nothing here repeats it.
+        for name in settings.fontSet {
             var answered = false
             for url in faceFiles(of: name) {
                 // Already handed over for an earlier family: the bytes are in
@@ -100,9 +100,7 @@ enum PrintFontLoader {
     /// naming none, because it silently falls through to the first file in the
     /// chain instead of to the theme's next choice.
     private static func firstResolved(_ families: [String], in resolved: Set<String>) -> String? {
-        families
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { resolved.contains($0) }
+        families.first { resolved.contains($0) }
     }
 
     /// Files holding the faces of one family, sorted by path.

@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// Everything a print render needs, as a value: the pane re-renders when this
@@ -50,6 +51,11 @@ struct PrintAssetRecord: Equatable, Sendable {
     var byteCount: Int
     /// Lowercase hex SHA-256 of the bytes handed over, or nil when none were.
     var digest: String?
+
+    /// Nothing went over for this name — it was not found, or it was refused.
+    static func notSupplied(_ name: String) -> PrintAssetRecord {
+        PrintAssetRecord(name: name, supplied: false, byteCount: 0, digest: nil)
+    }
 }
 
 /// One print: the pages, how many of them, what the renderer survived, and which
@@ -139,6 +145,36 @@ enum PrintPDFRenderer {
 actor PrintRenderService {
     static let shared = PrintRenderService()
 
+    /// A queue of this actor's own, rather than a slice of the cooperative pool.
+    ///
+    /// One print is a synchronous call with no cancellation that runs for
+    /// seconds, plus ~199 MB of file reads. On the shared pool that occupies a
+    /// worker thread for the whole of it, and the pool is sized for work that
+    /// yields. The serial queue keeps exactly the property this actor exists
+    /// for — one print at a time, app-wide — and keeps it off everyone else's
+    /// threads.
+    private let queue = DispatchSerialQueue(label: "andryushkin.EditMD.print")
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    /// Checked once, on the first print, not on every one.
+    ///
+    /// The gate that reads the vendored files runs before the build; this is the
+    /// half that asks the library itself, and it belongs on the path that calls
+    /// it. Without it a core built against another contract is logged at launch
+    /// and then called anyway — the assertion at startup compiles to nothing in
+    /// a shipping build, and every other link in the vendoring chain exists to
+    /// make exactly this refusal possible.
+    private lazy var abi: Result<Void, PDMCore.CoreError> = {
+        do { try PDMCore.checkABI(); return .success(()) }
+        catch let error as PDMCore.CoreError { return .failure(error) }
+        catch { return .failure(.abiMismatch(found: PDMCore.abiVersion(),
+                                             expected: PDMCore.expectedABIVersion)) }
+    }()
+
+    /// The job for a request. No boundary call, so no contract check: this is
+    /// the value the app would send, and it is answerable whatever the linked
+    /// library turns out to speak.
     func job(for request: PrintRenderRequest, options: PrintPageOptions) throws -> PrintJob {
         try checkGeometry(request)
         return PrintJob(request: request,
@@ -165,6 +201,7 @@ actor PrintRenderService {
         // need a stand-in for the renderer, which does not exist here. Claiming
         // otherwise in a test name would be worse than saying this.
         try Task.checkCancellation()
+        if case .failure(let mismatch) = abi { throw PrintRenderError.core(mismatch) }
         let job = try job(for: request, options: options)
         try Task.checkCancellation()
         let assets = PrintAssetLoader(baseDir: request.baseDir)

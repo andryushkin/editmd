@@ -42,12 +42,22 @@ struct PrintAssetLoader: Sendable {
         // Standardizing alone only folds `..` away textually: a link inside the
         // document's own folder pointing anywhere on the disk would survive it
         // and read as an ordinary child.
+        //
+        // The comparison itself is `pathIsContained`, the same one the control
+        // socket and the offline vault use. It canonicalizes the firmlink
+        // prefix, which this needs and a component walk of its own would not
+        // have: resolution leaves `/private/tmp` on some paths and `/tmp` on
+        // others, and a folder under either would then read as outside itself.
         let base = baseDir.resolvingSymlinksInPath().standardizedFileURL
         let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
-        guard Self.path(resolved, isInside: base) else { return nil }
+        // `pathIsContained` is true for the folder itself, which is right for a
+        // workspace scope and wrong here: a folder is not one of its own
+        // pictures. Said outright rather than left to the file-type and
+        // regular-file checks below to reject by accident.
+        guard resolved != base, pathIsContained(resolved.path, in: base.path) else { return nil }
 
-        guard supportedImageFileExtensions.contains(resolved.pathExtension.lowercased())
-        else { return nil }
+        let format = resolved.pathExtension.lowercased()
+        guard supportedImageFileExtensions.contains(format) else { return nil }
 
         // Stat before read, and the size comes from the same stat: an oversized
         // file is refused without its bytes ever entering the process, and a
@@ -62,8 +72,7 @@ struct PrintAssetLoader: Sendable {
         guard let data = try? Data(contentsOf: resolved), data.count <= maxInlineImageBytes
         else { return nil }
 
-        let format = resolved.pathExtension.lowercased()
-        guard !Self.rendererReadsDirectly.contains(format) else { return data }
+        guard !PDMCore.readableImageFormats.contains(format) else { return data }
         // A picture macOS reads and the renderer does not. Before this went
         // through the page renderer these printed, because a web view drew them;
         // now they would be a blank space and a warning about a file that is
@@ -72,14 +81,15 @@ struct PrintAssetLoader: Sendable {
         //
         // Re-encoded under the *same* key: the renderer matches the bytes to the
         // name it asked for, and the name belongs to the document.
-        return Self.pngEncoded(data)
+        //
+        // The cap is applied again to the result, because the result is what
+        // crosses the boundary: PNG of a 7.9 MB photograph is tens of megabytes,
+        // and a file that was refused for its size when read must not walk back
+        // in three times larger for having been converted.
+        guard let converted = Self.pngEncoded(data), converted.count <= maxInlineImageBytes
+        else { return nil }
+        return converted
     }
-
-    /// Formats handed over untouched because the renderer reads them itself.
-    /// Everything else in `supportedImageMIMETypes` is converted below; the two
-    /// lists together are what makes the printed set equal the previewed one.
-    private static let rendererReadsDirectly: Set<String> = ["png", "jpg", "jpeg",
-                                                             "gif", "webp", "svg"]
 
     /// One picture re-encoded as PNG, or nil when the system cannot read it —
     /// in which case nothing is handed over and the renderer reports the file as
@@ -87,25 +97,30 @@ struct PrintAssetLoader: Sendable {
     ///
     /// PNG rather than JPEG on purpose: these are screenshots and diagrams as
     /// often as photographs, and a lossy step nobody asked for would show.
+    ///
+    /// Decoded through the thumbnail path, at the image's own pixel size, so
+    /// that the EXIF orientation is applied. `CGImageSourceCreateImageAtIndex`
+    /// hands back the stored pixels and leaves the rotation in a tag that PNG
+    /// has nowhere to put — a portrait photograph from a phone would print on
+    /// its side. `…FromImageAlways` keeps it from answering with an embedded
+    /// preview instead of the picture.
     static func pngEncoded(_ data: Data) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let pixels = [kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight]
+            .compactMap { properties?[$0] as? Int }
+        guard let longestSide = pixels.max(), longestSide > 0,
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: longestSide,
+              ] as CFDictionary)
+        else { return nil }
         let encoded = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             encoded, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return encoded as Data
-    }
-
-    /// Whether one canonical path lies under another.
-    ///
-    /// Compared component by component, never as a string prefix: `/vault2`
-    /// starts with the characters of `/vault` and is a different folder.
-    static func path(_ url: URL, isInside base: URL) -> Bool {
-        let baseComponents = base.pathComponents
-        let urlComponents = url.pathComponents
-        guard urlComponents.count > baseComponents.count else { return false }
-        return Array(urlComponents.prefix(baseComponents.count)) == baseComponents
     }
 }
