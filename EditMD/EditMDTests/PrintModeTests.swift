@@ -122,11 +122,20 @@ final class PrintModeTests: XCTestCase {
         XCTAssertEqual(ids.count, Set(ids).count, "\(ids)")
     }
 
-    func testUserFamilyBeatsTheThemeStackForBodyAndHeadings() {
+    /// The chosen family leads the stack; it does not replace it. Replacing it
+    /// leaves a machine that no longer has that face with no text face at all,
+    /// and the page then prints in whatever came next — the monospaced one.
+    func testUserFamilyLeadsTheThemeStackWithoutReplacingIt() {
         let compact = PrintTheme.preset(named: "compact")
-        XCTAssertEqual(compact.resolvedBodyFamilies(userFamily: "Avenir"), ["Avenir"])
-        XCTAssertEqual(compact.resolvedHeadingFamilies(userFamily: "Avenir"), ["Avenir"])
+        XCTAssertEqual(compact.resolvedBodyFamilies(userFamily: "Avenir"),
+                       ["Avenir"] + compact.bodyFamilies)
+        XCTAssertEqual(compact.resolvedHeadingFamilies(userFamily: "Avenir"),
+                       ["Avenir"] + compact.headingFamilies)
         XCTAssertEqual(compact.resolvedHeadingFamilies(userFamily: ""), compact.headingFamilies)
+        // Named twice is named once, and still first.
+        XCTAssertEqual(compact.resolvedBodyFamilies(userFamily: "Helvetica Neue"),
+                       ["Helvetica Neue", "SF Pro Text"])
+        XCTAssertEqual(compact.resolvedBodyFamilies(userFamily: "  "), compact.bodyFamilies)
     }
 
     func testHeadingsInheritTheBodyStackWhenAThemeSetsNone() {

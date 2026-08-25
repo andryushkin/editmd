@@ -41,13 +41,19 @@ enum PrintFontLoader {
     /// Reads files, so it belongs off the main actor — see `PrintRenderService`.
     static func selection(for settings: PrintSettings) -> PrintFontSelection {
         let theme = settings.resolvedTheme
-        var seenURLs = Set<URL>()
+        // Files whose bytes are actually in hand. Having a descriptor is not the
+        // same thing: the host answers from an index, and a face whose file has
+        // since been deleted, emptied or made unreadable still has one. A family
+        // counted as resolved on the strength of a descriptor would be named to
+        // the renderer without its bytes ever being handed over — the one way to
+        // name a font that is not there.
+        var loadedURLs = Set<URL>()
         var files: [PrintFontFile] = []
-        // A family the host could answer for. Not the same as "a family that
-        // contributed a file": two families can live in one collection file,
-        // and the second one is still available to the renderer even though its
-        // bytes were handed over under the first one's name. The renderer reads
-        // family names out of the file itself; `family` here is our bookkeeping.
+        // A family the renderer can draw with. Not the same as "a family that
+        // contributed a file": two families can live in one collection file, and
+        // the second is available to the renderer even though the bytes were
+        // handed over under the first one's name. The renderer reads family
+        // names out of the file itself; `family` here is our bookkeeping.
         var resolved = Set<String>()
 
         for family in settings.fontSet {
@@ -55,24 +61,27 @@ enum PrintFontLoader {
             guard !name.isEmpty else { continue }
             var answered = false
             for url in faceFiles(of: name) {
-                answered = true
-                guard seenURLs.insert(url).inserted else { continue }
+                // Already handed over for an earlier family: the bytes are in
+                // the chain, so this family is drawable even though it adds
+                // nothing.
+                if loadedURLs.contains(url) { answered = true; continue }
                 // Mapped rather than copied: the emoji collection alone is
                 // ~192 MB, and every print of every document carries it.
                 guard let bytes = try? Data(contentsOf: url, options: .mappedIfSafe),
                       !bytes.isEmpty else { continue }
+                loadedURLs.insert(url)
                 files.append(PrintFontFile(family: name, bytes: bytes))
+                answered = true
             }
             if answered { resolved.insert(name) }
         }
 
-        // The theme's own stack stands behind the user's choice, so a family
-        // that has since been uninstalled falls back to a text face rather than
-        // to whatever came first in the set — which, with nothing else
-        // resolving, would be the monospaced one.
-        let bodyCandidates = theme.resolvedBodyFamilies(userFamily: settings.fontFamily)
-            + theme.bodyFamilies
-        let bodyFont = firstResolved(bodyCandidates, in: resolved)
+        // The theme's stack already stands behind the user's choice inside
+        // `resolvedBodyFamilies`, so a family that has since been uninstalled
+        // falls back to a text face rather than to whatever came first in the
+        // set — which, with nothing else resolving, would be the monospaced one.
+        let bodyFont = firstResolved(theme.resolvedBodyFamilies(userFamily: settings.fontFamily),
+                                     in: resolved)
         let monoFont = firstResolved(theme.monoFamilies, in: resolved)
 
         return PrintFontSelection(

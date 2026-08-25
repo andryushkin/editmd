@@ -1,5 +1,8 @@
 import XCTest
+import CryptoKit
+import ImageIO
 import PDFKit
+import UniformTypeIdentifiers
 @testable import EditMD
 
 /// What the Print pane sends to the page renderer, and what comes back.
@@ -30,6 +33,18 @@ final class PrintCoreRenderTests: XCTestCase {
             repeating: "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do "
                      + "eiusmod tempor incididunt ut labore. ", count: 5)
     }.joined(separator: "\n\n")
+
+    /// One paragraph, several sheets long, with nothing in it that a page may
+    /// break at other than a line.
+    ///
+    /// The margin probe needs this: at a paragraph boundary the typesetter also
+    /// refuses to strand a line, so the foot of a sheet can sit two lines above
+    /// the margin for a reason that has nothing to do with margins. Inside one
+    /// paragraph the only slack left is where the line grid happens to land.
+    private static let unbrokenParagraph = String(
+        repeating: "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod "
+                 + "tempor incididunt ut labore et dolore magna aliqua enim ad minim. ",
+        count: 60)
 
     private static func request(_ markdown: String,
                                 settings: PrintSettings = PrintSettings(),
@@ -116,6 +131,10 @@ final class PrintCoreRenderTests: XCTestCase {
     /// the library and this probe could never disagree with it.
     private static let missingAssetWarning: Int32 = 1
 
+    /// `PDM_WARN_UNREADABLE_ASSET` — bytes were handed over and were not a
+    /// picture the renderer reads. Same rule about writing the number down.
+    private static let unreadableAssetWarning: Int32 = 2
+
     // MARK: - R-03 · the print is paginated
 
     /// The sheet is the sheet that was asked for, and a smaller one takes more of
@@ -161,12 +180,13 @@ final class PrintCoreRenderTests: XCTestCase {
     /// points are handed over as millimetres, and is therefore the one mistake a
     /// one-sided check is blind to.
     ///
-    /// The bottom edge gets more room than the other three, and not out of
-    /// kindness: the last line of a sheet sits on the leading grid and the
-    /// typesetter also refuses to leave one line of a paragraph behind, so the
-    /// gap there is the margin plus up to a few line boxes (measured 25 Aug 2026:
-    /// 2 pt at these margins, 34 pt at uniform 20 mm). Points-as-millimetres
-    /// would put it at 241 pt, three times outside even the loose bound.
+    /// The bottom edge gets a little more room than the other three, and only a
+    /// little: the last line of a sheet lands on the leading grid, so the gap
+    /// there is the margin plus whatever is left over — under one line box, now
+    /// that the fixture is a single unbroken paragraph and the widow rule has no
+    /// boundary to act at. Three line boxes, which an earlier revision allowed,
+    /// would have let an implementation widen the bottom margin by 17 mm and stay
+    /// green.
     ///
     /// Two settings differ from the pane's, and neither is a shortcut. Page
     /// numbers are off because a number sits *in* the bottom margin and would be
@@ -183,7 +203,9 @@ final class PrintCoreRenderTests: XCTestCase {
         options.justify = true
 
         let result = try await PrintPDFRenderer.render(
-            Self.request(Self.filler, settings: settings), options: options)
+            Self.request(Self.unbrokenParagraph, settings: settings), options: options)
+        XCTAssertGreaterThan(result.pageCount, 1,
+                             "the first sheet must be full for its foot to mean anything")
         let page = try XCTUnwrap(PDFDocument(data: result.pdf)?.page(at: 0))
         let sheet = page.bounds(for: .mediaBox)
         let (ink, outside) = Self.inkBounds(page)
@@ -197,8 +219,10 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertEqual(sheet.maxY - ink.maxY, Self.pt(10), accuracy: tolerance, "top")
 
         let lineBox = settings.fontSize * settings.lineHeight
+        print("bottom gap: \(ink.minY) pt, margin \(Self.pt(30)) pt, "
+              + "line box \(lineBox) pt")
         XCTAssertGreaterThanOrEqual(ink.minY, Self.pt(30) - tolerance, "bottom, too little")
-        XCTAssertLessThanOrEqual(ink.minY, Self.pt(30) + tolerance + 3 * lineBox,
+        XCTAssertLessThanOrEqual(ink.minY, Self.pt(30) + tolerance + lineBox,
                                  "bottom, too much")
     }
 
@@ -449,20 +473,51 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertEqual(PrintJob.leadingEm(for: 0.5, capHeightEm: 0.71), 0)
     }
 
-    /// A family the host does not have is not named to the renderer, and the
-    /// leading falls back to a stated constant rather than to a measured
-    /// substitute.
-    func testAnUnknownFamilyIsNeitherNamedNorMeasured() async throws {
+    /// A user's face that the machine no longer has falls back to the theme's
+    /// text face — not to whatever came next in the set.
+    ///
+    /// Whatever came next is the monospaced face: mono sits ahead of the coverage
+    /// faces in the set, so "first family that resolved" prints the body of the
+    /// document in Menlo. The fallback lives in the *set*, so what Settings shows
+    /// stays what gets printed.
+    func testAVanishedUserFamilyFallsBackToTheThemeFaceAndNotToTheMonoOne() async throws {
         var settings = PrintSettings()
         settings.fontFamily = "No Such Family At All"
+        XCTAssertNil(PrintFontLoader.capHeightEm(of: settings.fontFamily))
+
         let job = try await PrintPDFRenderer.job(for: Self.request("Body.\n",
                                                                    settings: settings))
-        XCTAssertNil(job.fonts.first { $0.family == "No Such Family At All" })
-        XCTAssertNotEqual(job.bodyFont, "No Such Family At All")
+        XCTAssertNil(job.fonts.first { $0.family == settings.fontFamily },
+                     "a family with no file must not be handed over")
+        XCTAssertEqual(job.bodyFont, "New York")
+        XCTAssertNotEqual(job.bodyFont, job.monoFont)
+
+        // And the bytes arrive in that order too: naming a face the renderer
+        // only meets after the monospaced one would still print monospaced if
+        // the name were ever dropped.
+        let newYork = job.fonts.firstIndex { $0.family == "New York" }
+        let menlo = job.fonts.firstIndex { $0.family == "Menlo" }
+        XCTAssertNotNil(newYork)
+        XCTAssertNotNil(menlo)
+        XCTAssertLessThan(try XCTUnwrap(newYork), try XCTUnwrap(menlo))
+
+        // The leading follows the face that will actually set the text.
         XCTAssertEqual(job.leadingEm,
-                       Double(settings.lineHeight) - printTypstCapHeightFallbackEm,
+                       Double(settings.lineHeight)
+                           - (try XCTUnwrap(PrintFontLoader.capHeightEm(of: "New York"))),
                        accuracy: 0.0001)
-        XCTAssertNil(PrintFontLoader.capHeightEm(of: "No Such Family At All"))
+        // Settings shows the list the page is printed from, fallback included.
+        XCTAssertEqual(settings.fontSet.first, settings.fontFamily)
+        XCTAssertTrue(settings.fontSet.contains("New York"), "\(settings.fontSet)")
+    }
+
+    /// The stated fallback is still what a face with no measurable cap height
+    /// gets. Nothing in the default themes reaches it, so it is asserted here
+    /// rather than left to be discovered wrong.
+    func testTheCapHeightFallbackIsUsedWhenNoFaceCanBeMeasured() {
+        XCTAssertEqual(PrintJob.leadingEm(for: 1.45, capHeightEm: printTypstCapHeightFallbackEm),
+                       1.45 - printTypstCapHeightFallbackEm, accuracy: 0.0001)
+        XCTAssertEqual(printTypstCapHeightFallbackEm, 0.71)
     }
 
     /// Every field the boundary is asked about is filled in, including the ones
@@ -752,6 +807,130 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertEqual(model.warnings.count, 1, "\(model.warnings)")
     }
 
+    // MARK: - What the renderer was actually handed
+
+    /// The result accounts for every file the renderer asked for, in its order,
+    /// and says what went over.
+    ///
+    /// Two prints whose jobs compare equal can still differ in their pages,
+    /// because the pictures beside the two documents differ. Without this record
+    /// that difference has no name anywhere, and the next reader of a mismatch
+    /// has only the bytes of two PDFs to work from.
+    func testTheResultRecordsEveryFileTheRendererAskedFor() async throws {
+        let root = try Self.makeTemporaryVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("doc")
+        let onDisk = try Data(contentsOf: folder.appendingPathComponent("pic.png"))
+
+        let result = try await PrintPDFRenderer.render(
+            Self.request("![here](pic.png)\n\n![gone](missing.png)\n", baseDir: folder))
+
+        XCTAssertEqual(result.assets.map(\.name), ["pic.png", "missing.png"],
+                       "document order, as the renderer asked")
+
+        let supplied = try XCTUnwrap(result.assets.first)
+        XCTAssertTrue(supplied.supplied)
+        XCTAssertEqual(supplied.byteCount, onDisk.count)
+        XCTAssertEqual(supplied.digest,
+                       SHA256.hash(data: onDisk).map { String(format: "%02x", $0) }.joined())
+
+        let absent = try XCTUnwrap(result.assets.last)
+        XCTAssertFalse(absent.supplied)
+        XCTAssertEqual(absent.byteCount, 0)
+        XCTAssertNil(absent.digest)
+    }
+
+    /// A document with no pictures asks for nothing, and says so.
+    func testADocumentWithNoPicturesRecordsNoAssets() async throws {
+        let result = try await PrintPDFRenderer.render(Self.request("Body.\n"))
+        XCTAssertTrue(result.assets.isEmpty)
+    }
+
+    /// The picture beside the document decides the digest, so the record can tell
+    /// two otherwise identical prints apart.
+    func testTheSameJobWithADifferentPictureRecordsADifferentDigest() async throws {
+        let root = try Self.makeTemporaryVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let markdown = "![x](pic.png)\n"
+        let here = try await PrintPDFRenderer.render(
+            Self.request(markdown, baseDir: root.appendingPathComponent("doc")))
+        let there = try await PrintPDFRenderer.render(
+            Self.request(markdown, baseDir: root.appendingPathComponent("doc-other")))
+
+        // The jobs are equal — same markdown, same settings — and the pages are
+        // not. Only the record says why.
+        let hereJob = try await PrintPDFRenderer.job(
+            for: Self.request(markdown, baseDir: root.appendingPathComponent("doc")))
+        let thereJob = try await PrintPDFRenderer.job(
+            for: Self.request(markdown, baseDir: root.appendingPathComponent("doc-other")))
+        XCTAssertEqual(hereJob, thereJob)
+        XCTAssertNotEqual(here.pdf, there.pdf)
+        XCTAssertNotEqual(here.assets.first?.digest, there.assets.first?.digest)
+        XCTAssertEqual(here.assets.map(\.name), there.assets.map(\.name))
+    }
+
+    /// Pictures macOS reads and the renderer does not still print.
+    ///
+    /// These three went onto the page before the move, drawn by a web view.
+    /// HEIC is what the cameras on these machines write by default, so a
+    /// document that shows its photographs on screen and prints blank squares
+    /// would be an ordinary experience, not an edge case.
+    func testFormatsTheRendererCannotReadArePrintedAnyway() async throws {
+        let root = try Self.makeTemporaryVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("doc")
+
+        for (name, type) in [("shot.heic", UTType.heic),
+                             ("scan.tiff", UTType.tiff),
+                             ("old.bmp", UTType.bmp)] {
+            let encoded = try XCTUnwrap(Self.image(as: type), "cannot write \(name) here")
+            try encoded.write(to: folder.appendingPathComponent(name))
+
+            let result = try await PrintPDFRenderer.render(
+                Self.request("![alt](\(name))\n", baseDir: folder))
+            XCTAssertEqual(result.warnings.filter {
+                $0.rawKind == Self.missingAssetWarning
+                    || $0.rawKind == Self.unreadableAssetWarning
+            }.map(\.message), [], "\(name) did not reach the page")
+
+            let record = try XCTUnwrap(result.assets.first, name)
+            XCTAssertTrue(record.supplied, name)
+            XCTAssertEqual(record.name, name, "the key must stay the document's own name")
+            XCTAssertGreaterThan(record.byteCount, 0, name)
+        }
+    }
+
+    /// Something that is not a picture at all under a picture's name is not
+    /// smuggled through the converter — nothing is handed over and the renderer
+    /// reports it, which is the truth from its side.
+    func testAFileThatIsNotAPictureIsNotConverted() throws {
+        XCTAssertNil(PrintAssetLoader.pngEncoded(Data("not an image".utf8)))
+    }
+
+    /// A small picture encoded in one of the formats macOS writes.
+    ///
+    /// Generated rather than committed: a binary fixture in the repository is a
+    /// thing nobody can read in a diff, and the encoder is the same one the
+    /// loader decodes with.
+    private static func image(as type: UTType) -> Data? {
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil, width: 64, height: 48,
+                                      bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        context.setFillColor(CGColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 64, height: 48))
+        context.setFillColor(CGColor(red: 1, green: 0.4, blue: 0.1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+        guard let image = context.makeImage() else { return nil }
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            encoded, type.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return encoded as Data
+    }
+
     /// `doc/` with a picture, a nested one, a link out, a decoy directory, an
     /// oversized file, a non-image, and a sibling sharing its name prefix.
     private static func makeTemporaryVault() throws -> URL {
@@ -769,7 +948,11 @@ final class PrintCoreRenderTests: XCTestCase {
         try png.write(to: doc.appendingPathComponent("pic.png"))
         try png.write(to: doc.appendingPathComponent("sub/nested.png"))
         try png.write(to: root.appendingPathComponent("secret.png"))
-        try png.write(to: root.appendingPathComponent("doc-other/pic.png"))
+        // Deliberately *different* bytes under the same name: the sibling folder
+        // is what shows that the record, not the job, is what tells two prints
+        // of one document apart.
+        try (Self.image(as: .png) ?? png)
+            .write(to: root.appendingPathComponent("doc-other/pic.png"))
         try Data("# Notes\n".utf8).write(to: doc.appendingPathComponent("notes.md"))
         try Data(count: maxInlineImageBytes + 1).write(to: doc.appendingPathComponent("huge.png"))
         try fm.createSymbolicLink(at: doc.appendingPathComponent("escape.png"),

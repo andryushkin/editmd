@@ -137,31 +137,48 @@ and each knows one thing:
 - `PrintPDFRenderer` turns a `PrintRenderRequest` into a `PrintJob` and knows no
   C name. It is not on the main actor: `PrintRenderService`, a single actor for
   the app, does the disk work and the one blocking call.
-- `PrintJob` is the whole of what the core is told, as a comparable value —
+- `PrintJob` is the whole of what the core is *told*, as a comparable value —
   a field for every setter, and every setter is called on every print. A core
   default is never left to stand in: it could move without a diff here, and the
   same job built by the command line has to compare field by field with this
   one. Values with no control in the pane live in `PrintPageOptions.standard`,
   which is a production value and not a test hook — a probe changes one field
   and calls the same function the pane calls.
+- What the core was *handed* is a separate question, and it is answered on the
+  result: `PrintRenderResult.assets` lists every file the core asked for, in its
+  order, with a byte count and a SHA-256 of what went over. It cannot live on the
+  job, because the names exist only after the markdown is parsed — and two prints
+  with equal jobs really can differ, when the pictures beside the two documents
+  differ. That is the difference this record names.
 - `PrintFontLoader` resolves families to face files through CoreText. The order
   is the fallback chain and is fixed: families in `PrintSettings.fontSet` order,
-  faces within a family by path, URLs deduplicated globally. A family the host
-  does not have is never named to the core. `leading` is not a CSS line height:
-  the core adds the body face's cap height back, so what it is given is
+  faces within a family by path, URLs deduplicated globally. A family is resolved
+  only once its bytes are actually read — a descriptor for a face whose file has
+  gone is not enough, or the core would be told a font it never received — and a
+  family that resolves to nothing is never named. `leading` is not a CSS line
+  height: the core adds the body face's cap height back, so what it is given is
   `lineHeight − capHeight` of the face actually chosen.
+  A user's chosen family leads the theme's stack rather than replacing it
+  (`PrintTheme.resolvedBodyFamilies`), so a face that has been uninstalled falls
+  back to the theme's text face instead of to the monospaced one further down the
+  set — and because the fallback lives in `fontSet`, the list Settings shows is
+  still the list the page is printed from.
 - `PrintAssetLoader` answers the core's requests for files. Names come from an
   untrusted document and arrive exactly as written, so the rules are here and
   nowhere else: no scheme, nothing absolute or starting with `~`, symlinks
   resolved on both sides before a component-wise containment test, `stat`
-  before read, and the same extensions and size cap Preview inlines with.
+  before read, and the same extensions and size cap Preview inlines with. The
+  core reads png, jpeg, gif, webp and svg; the formats macOS also opens — heic,
+  tiff, bmp — are re-encoded to PNG through ImageIO under the document's own
+  name, because they printed before the move and heic is what these cameras
+  write. The size cap is applied to the file on disk, not to the re-encoding.
 
-Two regressions came with the move and are deliberate. Remote images no longer
+One regression came with the move and is deliberate: remote images no longer
 print — the core has no network and does not even list them as files it wants,
 and fetching them would mean a second markdown parser and a print that goes to
-the network. And the theme's heading face does not reach paper: the boundary has
-`body_font` and `mono_font` and nothing for headings, so `compact` prints its
-headings in the text face.
+the network. Separately, the theme's heading face does not reach paper: the
+boundary has `body_font` and `mono_font` and nothing for headings, so `compact`
+prints its headings in the text face.
 
 ## Async editor state
 

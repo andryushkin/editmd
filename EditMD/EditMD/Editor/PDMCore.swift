@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import OSLog
 import PrintDotMD
@@ -206,7 +207,7 @@ extension PDMCore {
             try check(pdm_document_set_link(doc, target, job.links[target]), "set_link")
         }
 
-        try setAssets(doc, asset: asset)
+        let assets = try setAssets(doc, asset: asset)
 
         var out: OpaquePointer?
         try check(pdm_document_render(doc, &out), "render")
@@ -215,13 +216,18 @@ extension PDMCore {
                                  message: "no result for a successful render")
         }
         defer { pdm_result_free(result) }
-        return copyOut(result)
+        return copyOut(result, assets: assets)
     }
 
     /// Hands over the bytes of every file the parsed document turned out to
-    /// refer to.
+    /// refer to, and reports what was handed over.
+    ///
+    /// The record is written here because here is the only place that knows: the
+    /// list of names exists only after the markdown was parsed, on the handle
+    /// that will print it.
     private static func setAssets(_ doc: OpaquePointer,
-                                  asset: (String) -> Data?) throws {
+                                  asset: (String) -> Data?) throws -> [PrintAssetRecord] {
+        var records: [PrintAssetRecord] = []
         for index in 0..<pdm_document_required_asset_count(doc) {
             guard let namePointer = pdm_document_required_asset(doc, index) else { continue }
             // Read with the length the core gives, not as a C string. The length
@@ -231,8 +237,20 @@ extension PDMCore {
             let nameLength = pdm_document_required_asset_len(doc, index)
             let nameBytes = [UInt8](UnsafeRawBufferPointer(start: namePointer,
                                                            count: nameLength))
-            guard let name = String(bytes: nameBytes, encoding: .utf8),
-                  let data = asset(name) else { continue }
+            guard let name = String(bytes: nameBytes, encoding: .utf8) else {
+                // A name the core cannot have produced. Still recorded, so the
+                // list accounts for every request rather than for the ones that
+                // went well.
+                records.append(PrintAssetRecord(
+                    name: String(decoding: nameBytes, as: UTF8.self),
+                    supplied: false, byteCount: 0, digest: nil))
+                continue
+            }
+            guard let data = asset(name) else {
+                records.append(PrintAssetRecord(name: name, supplied: false,
+                                                byteCount: 0, digest: nil))
+                continue
+            }
             let status = nameBytes.withUnsafeBytes { rawName in
                 data.withUnsafeBytes { rawData in
                     pdm_document_set_asset(
@@ -247,7 +265,11 @@ extension PDMCore {
                 }
             }
             try check(status, "set_asset", doc: doc)
+            records.append(PrintAssetRecord(
+                name: name, supplied: true, byteCount: data.count,
+                digest: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()))
         }
+        return records
     }
 
     /// `check` for the helpers above — same rule, same immediate copy.
@@ -260,7 +282,8 @@ extension PDMCore {
 
     /// Everything worth keeping out of a result, copied into Swift before the
     /// result is freed. Every pointer in there belongs to the library.
-    private static func copyOut(_ result: OpaquePointer) -> PrintRenderResult {
+    private static func copyOut(_ result: OpaquePointer,
+                                assets: [PrintAssetRecord]) -> PrintRenderResult {
         let length = pdm_result_pdf_len(result)
         let pdf = pdm_result_pdf(result).map { Data(bytes: $0, count: length) } ?? Data()
         let warnings = (0..<pdm_result_warning_count(result)).map { index in
@@ -277,6 +300,7 @@ extension PDMCore {
         }
         return PrintRenderResult(pdf: pdf,
                                  pageCount: Int(pdm_result_page_count(result)),
-                                 warnings: warnings)
+                                 warnings: warnings,
+                                 assets: assets)
     }
 }

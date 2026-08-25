@@ -45,16 +45,29 @@ struct PrintTheme: Equatable {
     }
 
     /// Body families for a render, honoring an explicit user choice.
+    ///
+    /// The chosen face goes in front of the theme's stack rather than replacing
+    /// it. That is what a font stack is for, and here it is load-bearing: a
+    /// family the machine no longer has resolves to no file at all, and with the
+    /// theme's faces gone from the list too there is nothing left for the page
+    /// but the monospaced face further down. The user's choice still wins
+    /// wherever it exists — it is first — and the theme stands behind it.
     func resolvedBodyFamilies(userFamily: String) -> [String] {
-        userFamily.isEmpty ? bodyFamilies : [userFamily]
+        Self.stack(userFamily, over: bodyFamilies)
     }
 
     /// Heading families. An explicit user family wins here too — a chosen face
     /// that applied to the text but not the headings would read as a bug — and
     /// otherwise a theme without its own heading stack inherits the body one.
     func resolvedHeadingFamilies(userFamily: String) -> [String] {
-        if !userFamily.isEmpty { return [userFamily] }
-        return headingFamilies.isEmpty ? bodyFamilies : headingFamilies
+        Self.stack(userFamily, over: headingFamilies.isEmpty ? bodyFamilies : headingFamilies)
+    }
+
+    /// A chosen family in front of a stack, named once.
+    private static func stack(_ userFamily: String, over families: [String]) -> [String] {
+        let chosen = userFamily.trimmingCharacters(in: .whitespaces)
+        guard !chosen.isEmpty else { return families }
+        return [chosen] + families.filter { $0 != chosen }
     }
 }
 

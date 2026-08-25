@@ -26,11 +26,41 @@ struct PrintWarning: Equatable, Sendable {
     var line: Int64?
 }
 
-/// One print: the pages, how many of them, and what the renderer survived.
+/// One file the renderer asked this app for, and what it got.
+///
+/// Recorded on the result rather than declared on the job, and the choice is not
+/// arbitrary. A job is what the app decides *before* anything is parsed, and the
+/// names of the files a document refers to do not exist until after — they come
+/// out of the parsed markdown, from the same handle that will print it. So the
+/// job cannot carry them without a second parse of the same text, and the
+/// symmetry that would buy is false: two prints whose jobs compare equal can
+/// still differ in their pages, because the pictures next to the two documents
+/// differ. That difference has to be visible somewhere, and here it is —
+/// alongside the pages it explains, in the order the renderer asked.
+///
+/// `digest` is the SHA-256 of the bytes handed over, and only of those: for a
+/// file that was not supplied there is nothing to hash and `supplied` says so.
+/// The digest is what lets a second producer of the same document be compared
+/// without shipping the pictures around.
+struct PrintAssetRecord: Equatable, Sendable {
+    /// The name as the renderer asked for it — already percent-decoded.
+    var name: String
+    var supplied: Bool
+    /// Bytes handed over. 0 when nothing was.
+    var byteCount: Int
+    /// Lowercase hex SHA-256 of the bytes handed over, or nil when none were.
+    var digest: String?
+}
+
+/// One print: the pages, how many of them, what the renderer survived, and which
+/// files it asked for on the way.
 struct PrintRenderResult: Equatable, Sendable {
     var pdf: Data
     var pageCount: Int
     var warnings: [PrintWarning]
+    /// In the order the renderer asked, which is document order without
+    /// duplicates.
+    var assets: [PrintAssetRecord]
 }
 
 enum PrintRenderError: Error, LocalizedError {
@@ -118,7 +148,25 @@ actor PrintRenderService {
 
     func render(_ request: PrintRenderRequest,
                 options: PrintPageOptions) throws -> PrintRenderResult {
+        // Checked twice, and the second time is the one that matters. The pane
+        // cancels its render task on every settings keystroke, but a cancelled
+        // task that is already queued on this actor still runs to completion —
+        // hundreds of megabytes of fonts read and a superseded revision printed,
+        // while the current one waits behind it. One actor for the app spreads
+        // that wait to every window.
+        //
+        // What this deliberately does *not* do is coalesce the queue down to
+        // "the one running plus the newest waiting". That needs a request
+        // generation and somewhere to drop the ones in between, which is
+        // machinery of its own and not this change. Written down so the next
+        // reader knows it was declined rather than overlooked.
+        //
+        // There is no deterministic probe for either check: provoking one would
+        // need a stand-in for the renderer, which does not exist here. Claiming
+        // otherwise in a test name would be worse than saying this.
+        try Task.checkCancellation()
         let job = try job(for: request, options: options)
+        try Task.checkCancellation()
         let assets = PrintAssetLoader(baseDir: request.baseDir)
         do {
             return try PDMCore.render(job) { assets.bytes(forAssetNamed: $0) }
