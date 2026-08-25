@@ -68,9 +68,8 @@ fail() {
 if [ ! -d "$XCF" ]; then
     fail "the core library is missing: $XCF" \
          "This is a prebuilt binary dependency and is not in the repository" \
-         "(277 MB, ignored by git). Build it with scripts/build-xcframework.sh" \
-         "in the PrintDotMD sources and copy dist/PrintDotMD.xcframework to" \
-         "the path above."
+         "(277 MB, ignored by git). Build it with the core's own build script" \
+         "and copy the resulting PrintDotMD.xcframework to the path above."
 fi
 [ -f "$LIB" ] || fail "the core library is damaged: $LIB is missing" \
     "Re-copy the whole PrintDotMD.xcframework directory; a partial copy" \
