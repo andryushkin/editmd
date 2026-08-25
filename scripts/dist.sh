@@ -60,6 +60,24 @@ fi
 
 # -- Build ------------------------------------------------------------------
 xcodegen generate --spec "$SPEC" --quiet
+
+# The other half of the core's ABI check, and the half no gate can do: the
+# pre-build script reads the vendored *header*, `PDMCoreTests` asks the linked
+# *library* through the wrapper. A header copied next to a mismatched archive
+# passes the first and fails the second, and in Release the wrapper's
+# `assertionFailure` compiles to nothing — so without this line such a core
+# ships silently. Before the Release build rather than after it: the failure
+# costs seconds here and ten minutes there.
+#
+# Debug, and a DerivedData of its own, on purpose. `@testable import` needs
+# ENABLE_TESTABILITY, which Release does not set; setting it would put
+# testability into the very binary this script packages. What is being checked
+# is the bytes in Vendor/, and those do not know which configuration links
+# them.
+xcodebuild -project "$PROJECT" -scheme EditMD -configuration Debug \
+    -destination 'platform=macOS' -derivedDataPath "$DIST/DerivedDataABI" \
+    -only-testing:EditMDTests/PDMCoreTests test | tail -3
+
 for scheme in EditMD editmdctl; do
     xcodebuild -project "$PROJECT" -scheme "$scheme" -configuration Release \
         -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
