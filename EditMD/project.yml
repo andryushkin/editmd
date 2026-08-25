@@ -65,6 +65,35 @@ targets:
         product: SwiftMath
       - package: HighlighterSwift
         product: Highlighter
+      # The prebuilt core, the one binary dependency SwiftPM does not fetch.
+      # It lives in the repository root rather than next to this spec because
+      # SRCROOT is `EditMD/`, and the sandbox profile Xcode gives script
+      # phases under ENABLE_USER_SCRIPT_SANDBOXING denies reading the whole
+      # SRCROOT subtree except for files declared one by one — declaring the
+      # directory grants nothing. Outside SRCROOT the pre-build gate below
+      # reads it with no settings changed. `embed: false`: it is a static
+      # library, it links into the executable and there is nothing to copy
+      # into the bundle.
+      - framework: ../Vendor/PrintDotMD.xcframework
+        embed: false
+    preBuildScripts:
+      # Runs before Sources — buildPhases come out as (Verify core, Sources,
+      # Resources, Frameworks), and a non-zero exit stops the build there, so
+      # a bad core is refused before Swift compiles and long before the
+      # linker speaks. A scheme pre-action would not do: its exit status does
+      # not fail the build.
+      #
+      # No `outputFiles`, deliberately: with a stamp file declared, Xcode
+      # skips the phase on the second consecutive build (measured: it ran,
+      # then it did not), and a gate that runs once is a gate that anything
+      # swapped in afterwards walks straight past. Without one it runs every
+      # time (measured: 1, 1) for ~3 s, which is what the check is worth.
+      # `basedOnDependencyAnalysis: false` states that on purpose; the build
+      # log then carries a `note:` saying the phase runs every build, which
+      # is the intended arrangement and not something to silence.
+      - name: Verify core
+        basedOnDependencyAnalysis: false
+        script: "\"$SRCROOT/../scripts/verify-core.sh\""
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: andryushkin.EditMD
@@ -79,6 +108,11 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_EMIT_LOC_STRINGS: YES
+        # System dependencies of the static core library. The list and its
+        # order are copied from the core's own link check and must stay equal
+        # to it: a static archive carries no link-time dependencies of its
+        # own, so whatever it calls has to be named here.
+        OTHER_LDFLAGS: -framework CoreFoundation -framework CoreGraphics -framework Security -liconv
 
   EditMDTests:
     type: bundle.unit-test

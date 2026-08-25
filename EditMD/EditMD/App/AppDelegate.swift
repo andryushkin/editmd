@@ -6,6 +6,9 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ask the prebuilt core which contract it speaks. The build gate read
+        // the vendored header; this is the library itself answering.
+        PDMCore.reportABI()
         // Cold launch lands on Files; @AppStorage keeps the tab sticky across
         // mid-session sidebar recreation.
         UserDefaults.standard.set("files", forKey: "sidebarTab")

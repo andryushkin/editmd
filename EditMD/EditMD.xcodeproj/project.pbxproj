@@ -188,6 +188,7 @@
 		B239CEB4FF79B86A804DE706 /* ControlService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF009B9BF4E810D4E4326786 /* ControlService.swift */; };
 		B35859FCE7B0D641E6361C3F /* WorkspaceModelDiskMoves.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F77DF16DCFB0ABC29266097 /* WorkspaceModelDiskMoves.swift */; };
 		B38040D7C9FD07223C539021 /* WikiLinkCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41663DF9728FB291C9E32A3 /* WikiLinkCore.swift */; };
+		B48FFD94C226DFB9D72DF605 /* PDMCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C41E87FF6208C6FDC743699 /* PDMCore.swift */; };
 		B4C4F0A1A2F50A32B0E80DE0 /* WikiCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947ED99781268CA58CDB8346 /* WikiCompletion.swift */; };
 		B53D01C27281EC597C43ACAE /* FileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF30D9BCD97859D07D2DEC3 /* FileEditor.swift */; };
 		B869A7BAAFE364B34AF60CFB /* VisualCoordinatorTables.swift in Sources */ = {isa = PBXBuildFile; fileRef = A26D9A42761B8A66313BBE3C /* VisualCoordinatorTables.swift */; };
@@ -201,6 +202,7 @@
 		BBD7230A06F923D8C34F074B /* MarkdownToAttributed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */; };
 		C106C0911196133FE31E1962 /* WikiLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85FFB7B92DF1171B9199CF5 /* WikiLink.swift */; };
 		C1A2DCF388416B296E7D3147 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87EE8F7004E9218A269E9F18 /* FeatureFlags.swift */; };
+		C2C2199ED45D27F36BBA1C73 /* PDMCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B04EB1A7CA05DAC3A50427F8 /* PDMCoreTests.swift */; };
 		C2C53AE2E88D287C68315E63 /* Markdown showcase.md in Resources */ = {isa = PBXBuildFile; fileRef = BB304C68316C26311E9A12CD /* Markdown showcase.md */; };
 		C33C622FA631B642CCD13E2F /* Editing modes.md in Resources */ = {isa = PBXBuildFile; fileRef = 548ACD6D4D3E315FDD2F03D8 /* Editing modes.md */; };
 		C35B91E1B819952B68AB3C3D /* ClaudeIDEToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E413FED3089FC1FF9B3FD3A0 /* ClaudeIDEToolsTests.swift */; };
@@ -227,6 +229,7 @@
 		D5AA69E012EE62FC6CDB2811 /* hooks.fragment.json in Resources */ = {isa = PBXBuildFile; fileRef = DBC28EEF1DCFD0D801EB4E4F /* hooks.fragment.json */; };
 		D67AD4925BBD795C7C93C3EB /* URLCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EBA854EB4C1D63CD44E98B /* URLCommand.swift */; };
 		D6C835716D0D97649D553A9B /* FrontmatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DD0CAD0D628FCF78FC3457 /* FrontmatterTests.swift */; };
+		D8AAD6362FED24AF12182943 /* PrintDotMD.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 22A6BC61B192D1992A5FF242 /* PrintDotMD.xcframework */; };
 		D8B5C3AD7B4487201D0A2B6F /* katex-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 27E82A0F4F1660860F876997 /* katex-LICENSE.txt */; };
 		D8DDBACA66BC7E909E514061 /* LinkGraphEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CA4996EFB22C0BE541058D /* LinkGraphEngine.swift */; };
 		D94A6524993EEBECE6CEBE28 /* VisualCoordinatorFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C533D1EB178B1762DC881704 /* VisualCoordinatorFormat.swift */; };
@@ -311,6 +314,7 @@
 		1F700A1EEC267F66246E53F7 /* examples.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = examples.md; sourceTree = "<group>"; };
 		20EEA6EC840B9F6F54E41660 /* MarkdownToAttributed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownToAttributed.swift; sourceTree = "<group>"; };
 		2203D65082D4E4CC44C4B9AE /* RemoteImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImageCache.swift; sourceTree = "<group>"; };
+		22A6BC61B192D1992A5FF242 /* PrintDotMD.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = PrintDotMD.xcframework; path = ../Vendor/PrintDotMD.xcframework; sourceTree = "<group>"; };
 		24A5D47A63A861FEDAA4AB02 /* FrontmatterEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontmatterEdit.swift; sourceTree = "<group>"; };
 		24CE99A0AC7E04E47BF21BF1 /* PasteLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteLinkTests.swift; sourceTree = "<group>"; };
 		25AB9F276A468E4E12A55339 /* URLCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLCommandTests.swift; sourceTree = "<group>"; };
@@ -369,6 +373,7 @@
 		699B6916CC8820D33D30549E /* FormattingHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpers.swift; sourceTree = "<group>"; };
 		6A36F400AB7AB26E43FEBF3C /* TagScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagScan.swift; sourceTree = "<group>"; };
 		6B7E13F1F9342FAE1AD367A7 /* MarkdownHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTML.swift; sourceTree = "<group>"; };
+		6C41E87FF6208C6FDC743699 /* PDMCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDMCore.swift; sourceTree = "<group>"; };
 		6CD98340498DA61A5DE1B2C9 /* editmdctl */ = {isa = PBXFileReference; includeInIndex = 0; path = editmdctl; sourceTree = BUILT_PRODUCTS_DIR; };
 		703CA6794BAE5546ADC06370 /* FormattingHelpersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingHelpersTests.swift; sourceTree = "<group>"; };
 		712E11F4E017EA05D0CC6575 /* LargeDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeDocumentTests.swift; sourceTree = "<group>"; };
@@ -437,6 +442,7 @@
 		AB851CD26B911D4370D78D4C /* EditorToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbar.swift; sourceTree = "<group>"; };
 		AC8AD07144B2A6466FF2484C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AF10741C3AEBB50F10400861 /* WikiLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkResolver.swift; sourceTree = "<group>"; };
+		B04EB1A7CA05DAC3A50427F8 /* PDMCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDMCoreTests.swift; sourceTree = "<group>"; };
 		B06686FA0DE7F63466003697 /* PreviewThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewThemeTests.swift; sourceTree = "<group>"; };
 		B07A13AEA492FEA0C2B1942F /* TextDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDiff.swift; sourceTree = "<group>"; };
 		B0C706ADFA88BEB3B4664DB8 /* EditMDTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EditMDTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -546,6 +552,7 @@
 				00C5A7CF1EEDAF4F103444B5 /* Markdown in Frameworks */,
 				16A09F6624873FD33471F396 /* SwiftMath in Frameworks */,
 				5102EA54A432A745DC14B499 /* Highlighter in Frameworks */,
+				D8AAD6362FED24AF12182943 /* PrintDotMD.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -605,6 +612,14 @@
 				97EA04AEFF297C30EA7EC742 /* OfflineVault.swift */,
 			);
 			path = editmdctl;
+			sourceTree = "<group>";
+		};
+		256E22CDB6505C61B5D7C87A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				22A6BC61B192D1992A5FF242 /* PrintDotMD.xcframework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		2984DE20EB9E70C34D0B4767 /* editmd-mcp */ = {
@@ -681,6 +696,7 @@
 				0E24489CEA45FF0DDABBBD39 /* MathScan.swift */,
 				D6FBD098CEF4B3D371C55809 /* PasteLink.swift */,
 				336FFD4A0B5057982542467A /* PDFExporter.swift */,
+				6C41E87FF6208C6FDC743699 /* PDMCore.swift */,
 				FEBF2CF897D2D1102D9587DD /* PreviewHTMLPage.swift */,
 				36AC3F8E6AD27CC5138046DE /* PreviewTheme.swift */,
 				D9F7B3AFDA983CA8169CDFEE /* PrintHTMLBridge.swift */,
@@ -729,6 +745,7 @@
 				2984DE20EB9E70C34D0B4767 /* editmd-mcp */,
 				21EBB9C51F3D8A62862143F5 /* editmdctl */,
 				BB2D9D688B6394A586DDEF3F /* EditMDTests */,
+				256E22CDB6505C61B5D7C87A /* Frameworks */,
 				A1087D93804719B777F561BA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -927,6 +944,7 @@
 				C6AFC7A52B6C647853A15EB1 /* PaneFindModelTests.swift */,
 				B9DB1D7CD5C15A6CCFF9FC07 /* PaneLayoutTests.swift */,
 				24CE99A0AC7E04E47BF21BF1 /* PasteLinkTests.swift */,
+				B04EB1A7CA05DAC3A50427F8 /* PDMCoreTests.swift */,
 				B06686FA0DE7F63466003697 /* PreviewThemeTests.swift */,
 				E727587FD40B76BF7D203471 /* PrintModeTests.swift */,
 				A11113E961095021DD99965B /* ReviewMarksTests.swift */,
@@ -977,6 +995,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A8E4A7CAE2C1F6AF58CA373F /* Build configuration list for PBXNativeTarget "EditMD" */;
 			buildPhases = (
+				32C43497D116B579819CC1BB /* Verify core */,
 				2F30CE9651E41CA03F8098FB /* Sources */,
 				0123A7349D5EFE829048ACE6 /* Resources */,
 				3A5F6828D0E4DC808334D2FE /* Frameworks */,
@@ -1144,6 +1163,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		32C43497D116B579819CC1BB /* Verify core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Verify core";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/../scripts/verify-core.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		2C4DBF1892EC458D036BE01B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -1182,6 +1223,7 @@
 				CEE95797B45754B164DD2E4A /* MarkdownOutlineTests.swift in Sources */,
 				84B2C2A257C1C1B36CA5031C /* MarkdownTableGridTests.swift in Sources */,
 				F2A0594151F491FD4EF8D2D2 /* MathScanTests.swift in Sources */,
+				C2C2199ED45D27F36BBA1C73 /* PDMCoreTests.swift in Sources */,
 				67DDC97CE95FEB494F3C644A /* PaneFindModelTests.swift in Sources */,
 				0A625AAFDA7852E7D20D1287 /* PaneLayoutTests.swift in Sources */,
 				F86C88A331E73B7E5A8482E8 /* PasteLinkTests.swift in Sources */,
@@ -1301,6 +1343,7 @@
 				35B92D0E158EC663900ABF69 /* OutlineSidebar.swift in Sources */,
 				D2AF156355D2EE1D1D574931 /* PDFExporter.swift in Sources */,
 				9A30207A6B49C5012AC2FAFA /* PDFViewerView.swift in Sources */,
+				B48FFD94C226DFB9D72DF605 /* PDMCore.swift in Sources */,
 				9A3F5B461E2DE38A98B3DCC8 /* PaneFind.swift in Sources */,
 				0353C007A177A804DC1FAB73 /* PasteLink.swift in Sources */,
 				277B400F047B382A82503250 /* PreviewHTMLPage.swift in Sources */,
@@ -1617,6 +1660,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 431;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"../Vendor\"",
+				);
 				INFOPLIST_FILE = EditMD/App/Info.plist;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1625,6 +1672,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.47.16;
+				OTHER_LDFLAGS = "-framework CoreFoundation -framework CoreGraphics -framework Security -liconv";
 				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;
@@ -1659,6 +1707,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 431;
 				ENABLE_HARDENED_RUNTIME = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"../Vendor\"",
+				);
 				INFOPLIST_FILE = EditMD/App/Info.plist;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1667,6 +1719,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.47.16;
+				OTHER_LDFLAGS = "-framework CoreFoundation -framework CoreGraphics -framework Security -liconv";
 				PRODUCT_BUNDLE_IDENTIFIER = andryushkin.EditMD;
 				PRODUCT_NAME = EditMD;
 				SDKROOT = macosx;

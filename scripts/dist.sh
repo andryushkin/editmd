@@ -17,6 +17,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The core library is checked before anything else happens. The app target
+# runs the same script as a pre-build phase, but a release must not depend on
+# that: the check belongs on the path that produces the thing users install,
+# and it costs three seconds.
+scripts/verify-core.sh
+
 ADHOC=0
 [ "${1:-}" = "--adhoc" ] && ADHOC=1
 

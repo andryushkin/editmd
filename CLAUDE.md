@@ -67,7 +67,10 @@ domain docs.
   tested, and must not crash.
 - A prebuilt binary dependency is version-pinned with signature and checksum
   verified in the build script; the plugin rule below bans downloaded code,
-  not a library compiled into the app.
+  not a library compiled into the app. There is one — untracked
+  `Vendor/PrintDotMD.xcframework` — and `scripts/verify-core.sh` enforces the
+  rule against `Vendor/core.expected.json` (checksum, signature, team,
+  deployment target, ABI) from the app's pre-build phase and from `dist.sh`.
 - `.raw` islands are verbatim source of truth; frontmatter must survive
   byte-exact through `composeDocumentWithFrontmatter`. All offsets are UTF-16.
 - Plugins are built-in Swift types only (`BuiltInPluginRegistry`), activated

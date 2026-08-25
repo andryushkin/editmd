@@ -24,3 +24,8 @@ design/build/
 
 # Private working notes; never part of the repository.
 /DOTMD.md
+
+# Prebuilt core library: 277 MB, built elsewhere and copied in.
+# `Vendor/core.expected.json` next to it stays tracked — it is what
+# scripts/verify-core.sh checks the artifact against.
+/Vendor/PrintDotMD.xcframework/
