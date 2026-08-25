@@ -8543,12 +8543,42 @@
         }
       }
     },
-    "The page could not be laid out." : {
+    "The page renderer does not match this version of the app." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось сверстать страницы."
+            "value" : "Обработчик страниц не соответствует этой версии приложения."
+          }
+        }
+      }
+    },
+    "The page renderer could not read this document." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обработчик страниц не смог прочитать этот документ."
+          }
+        }
+      }
+    },
+    "The pages could not be produced (error %lld)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сверстать страницы (ошибка %lld)."
+          }
+        }
+      }
+    },
+    "The pages could not be produced: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сверстать страницы: %@"
           }
         }
       }
@@ -8559,16 +8589,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Обработчик не выдал ни одной страницы."
-          }
-        }
-      }
-    },
-    "Rendering the pages took too long." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Вёрстка страниц заняла слишком много времени."
           }
         }
       }

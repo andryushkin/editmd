@@ -14,11 +14,11 @@ struct PrintOutlineEntry: Identifiable, Equatable {
 
 /// The pane's table of contents.
 ///
-/// A PDF carries an outline only when whatever produced it wrote bookmarks,
-/// and the interim page source writes none (measured 4 Aug 2026:
-/// `outlineRoot == nil` from both WebKit paths). So when the document has one
-/// it is used, and otherwise the outline is rebuilt from the markdown headings
-/// — authoritative for text, level and order — with each heading placed on the
+/// A PDF carries an outline only when whatever produced it wrote bookmarks. The
+/// page renderer does, so the document's own outline is what the pane normally
+/// shows; the rebuild below is for PDFs that carry none — the export path, and
+/// any document opened here that was made elsewhere. It reads the markdown
+/// headings — authoritative for text, level and order — and places each on the
 /// first page at or after the previous heading that contains its text.
 ///
 /// The scan is monotonic on purpose: a title that repeats ("Notes") then lands
@@ -79,6 +79,10 @@ final class PrintPaneModel: ObservableObject {
     @Published private(set) var outline: [PrintOutlineEntry] = []
     @Published private(set) var isRendering = false
     @Published private(set) var errorMessage: String?
+    /// What the last print survived. Kept, not shown: the pane has nowhere to
+    /// report it yet, and a warning dropped at the boundary is a warning that
+    /// cannot be reported once there is somewhere to put it.
+    @Published private(set) var warnings: [PrintWarning] = []
     /// One-shot commands for the hosted `PDFView`, which owns page position and
     /// scale. Identified so the view applies each exactly once and a SwiftUI
     /// update pass cannot replay the last one.
@@ -97,13 +101,14 @@ final class PrintPaneModel: ObservableObject {
         isRendering = true
         defer { isRendering = false }
         do {
-            let data = try await PrintPDFRenderer.render(request)
+            let result = try await PrintPDFRenderer.render(request)
             guard !Task.isCancelled else { return }
-            guard let pdf = PDFDocument(data: data) else {
+            guard let pdf = PDFDocument(data: result.pdf) else {
                 errorMessage = PrintRenderError.noOutput.errorDescription
                 return
             }
             errorMessage = nil
+            warnings = result.warnings
             document = pdf
             outline = printOutline(for: pdf, markdown: request.markdown)
         } catch is CancellationError {

@@ -1,208 +1,138 @@
-import AppKit
-import WebKit
+import Foundation
 
 /// Everything a print render needs, as a value: the pane re-renders when this
 /// changes and only then.
-struct PrintRenderRequest: Equatable {
+struct PrintRenderRequest: Equatable, Sendable {
     var markdown: String
     /// Folder relative image sources resolve against (the package itself for a
     /// textbundle), exactly as Preview resolves them. nil for an unsaved
     /// document — local images then do not appear.
     var baseDir: URL?
     var settings: PrintSettings
+    /// Kept for the shape of the request, but code on paper is highlighted
+    /// either way: the page renderer offers no switch for it, and the setting
+    /// belongs to Source and Preview.
     var syntaxHighlighting: Bool
 }
 
+/// What one warning from the page renderer says.
+struct PrintWarning: Equatable, Sendable {
+    /// The kind, as the frozen number the boundary hands over. Not an enum: a
+    /// kind this app predates has to survive as "something we do not know",
+    /// which an exhaustive Swift type cannot express without losing it.
+    var rawKind: Int32
+    var message: String
+    /// 1-based line in the markdown, when the warning has one.
+    var line: Int64?
+}
+
+/// One print: the pages, how many of them, and what the renderer survived.
+struct PrintRenderResult: Equatable, Sendable {
+    var pdf: Data
+    var pageCount: Int
+    var warnings: [PrintWarning]
+}
+
 enum PrintRenderError: Error, LocalizedError {
+    /// The page cannot be laid out at all — caught before anything is printed,
+    /// because the Settings panel has to say so while the finger is still on the
+    /// slider.
     case geometry(PrintGeometryProblem)
-    case load(String)
-    case layoutFailed
+    /// The page renderer refused.
+    case core(PDMCore.CoreError)
+    /// Pages came back that PDFKit would not open.
     case noOutput
-    case timedOut
 
     var errorDescription: String? {
         switch self {
         case .geometry(let problem): return problem.message
-        case .load(let message):     return message
-        case .layoutFailed:          return String(localized: "The page could not be laid out.")
+        case .core(let error):       return error.errorDescription
         case .noOutput:              return String(localized: "The renderer produced no pages.")
-        case .timedOut:              return String(localized: "Rendering the pages took too long.")
         }
     }
 }
 
-/// Interim source of the Print pane's pages: the Preview HTML put through
-/// WebKit's `createPDF`.
+/// The Print pane's pages: markdown handed to the page renderer, a paginated
+/// tagged PDF back.
 ///
-/// **This does not paginate onto paper, and that is a known holding state.**
-/// Measured 4 Aug 2026: `createPDF` returns the whole document as strips of up
-/// to 800 × 14400 pt rather than sheets, keeps external link annotations, drops
-/// internal anchors, and writes no document outline. The page width and the
-/// margins in `PrintSettings` therefore do not reach the output yet; only the
-/// typography does. `NSPrintOperation`, which does paginate, cannot be used
-/// here — it takes the process down with a dispatch-queue assertion
-/// (EXC_BREAKPOINT in `_dispatch_assert_queue_fail`) whether the job is given
-/// an offscreen host window or the app's own, and whether or not it is allowed
-/// to spawn a thread.
+/// This is the translation layer and nothing else — it knows what the app means
+/// by a page and turns it into a `PrintJob`; it knows no C name. What it decides
+/// is exactly what a printed page cannot be asked about afterwards: which faces
+/// may be drawn with, which files the document may reach, and which of the
+/// renderer's own defaults are being accepted on purpose.
 ///
-/// The whole enum is scaffolding: it exists so the Print pane can be built and
-/// judged before the page renderer that will replace it arrives. Nothing above
-/// it knows how the pages were made.
-@MainActor
+/// Two things reach paper that never reached the pane before: real sheets of the
+/// declared size, and the internal anchors and bookmarks the previous source
+/// dropped. Two things stopped reaching it: remote images, which the renderer
+/// does not fetch because it has no network at all — and a print that quietly
+/// went to the network for a picture is not a property worth keeping — and the
+/// theme's heading face, for which the boundary has no setter.
 enum PrintPDFRenderer {
 
-    /// Hard cap on one render. Print is allowed to be slow — it is not allowed
-    /// to leave the pane spinning forever because a remote image never answers.
-    static let timeout: Duration = .seconds(30)
-
-    static func render(_ request: PrintRenderRequest) async throws -> Data {
-        // Validated even though the interim source ignores the page box: a
-        // margin that is not a finite number must be refused at the top of the
-        // call, not discovered inside a layout engine.
-        guard case .success(let geometry) = request.settings.geometry else {
-            if case .failure(let problem) = request.settings.geometry {
-                throw PrintRenderError.geometry(problem)
-            }
-            throw PrintRenderError.layoutFailed
-        }
-        let session = Session(html: html(for: request), geometry: geometry)
-        defer { session.tearDown() }
-        return try await session.run()
+    /// The pages for a request, printed with the values the pane prints with.
+    ///
+    /// `options` has a production default so the pane calls this with one
+    /// argument and a probe calls the *same* function with a changed one. There
+    /// is no separate path for tests: a defect planted in here fails the pane
+    /// and the probes together, which is the only arrangement in which a green
+    /// probe means anything.
+    static func render(_ request: PrintRenderRequest,
+                       options: PrintPageOptions = .standard) async throws -> PrintRenderResult {
+        try await PrintRenderService.shared.render(request, options: options)
     }
 
-    static func html(for request: PrintRenderRequest) -> String {
-        let settings = request.settings
-        let theme = settings.resolvedTheme
-        let baseDir = request.baseDir
-        return previewHTMLPage(
-            markdown: request.markdown,
-            fontSize: settings.fontSize,
-            insetH: 0,
-            insetV: 0,
-            lineHeight: settings.lineHeight,
-            columnWidth: 0,
-            fontFamily: PrintHTMLBridge.fontStack(
-                theme.resolvedBodyFamilies(userFamily: settings.fontFamily), generic: "serif"),
-            // Print styling is the print theme's alone: the per-element colors
-            // and accents in Settings belong to the screen modes.
-            elements: ElementStyles(),
-            themeCSS: PrintHTMLBridge.pageCSS(settings: settings, theme: theme),
-            gutter: .off,
-            syntaxHighlighting: request.syntaxHighlighting,
-            imageResolver: { MarkdownPreviewView.dataURI(for: $0, baseDir: baseDir) }
-        )
+    /// The job a request comes to — the whole of what the renderer is told.
+    ///
+    /// Exposed because it is the only place the app's intent is observable
+    /// without a PDF in the way: what got sent is a different question from what
+    /// came back, and answering them separately is what tells a translation
+    /// mistake here from a rendering mistake there.
+    static func job(for request: PrintRenderRequest,
+                    options: PrintPageOptions = .standard) async throws -> PrintJob {
+        try await PrintRenderService.shared.job(for: request, options: options)
+    }
+}
+
+/// Where a print actually happens.
+///
+/// An actor, and a single one for the whole app, for two reasons that do not
+/// overlap. The first is the boundary's: a document handle is not thread-safe,
+/// and the render call is synchronous with no cancellation, so it must run
+/// somewhere that is not the main actor and not two places at once. The second
+/// is ours: font lookup and reading font and image files are disk work, which
+/// has no business on the main actor either.
+///
+/// One instance app-wide means a second window's print waits for the first. That
+/// is the deliberate trade: the alternative is several prints competing for the
+/// typesetter's process-wide cache, which the header describes as trimmed after
+/// every print — i.e. shared, and not per handle.
+actor PrintRenderService {
+    static let shared = PrintRenderService()
+
+    func job(for request: PrintRenderRequest, options: PrintPageOptions) throws -> PrintJob {
+        try checkGeometry(request)
+        return PrintJob(request: request,
+                        options: options,
+                        fonts: PrintFontLoader.selection(for: request.settings))
     }
 
-    /// One render: a web view with no window, and a PDF capture. The web view
-    /// is torn down whatever happens — a leaked one keeps a web content process
-    /// alive per render.
-    @MainActor
-    private final class Session: NSObject, WKNavigationDelegate {
-        private let html: String
-        private let geometry: PrintPageGeometry
-        private let webView: WKWebView
-        /// Resumed exactly once: by the capture, by either failure callback, or
-        /// by the timeout. `finish` enforces the once.
-        private var continuation: CheckedContinuation<Data, Error>?
-        private var finished = false
-
-        init(html: String, geometry: PrintPageGeometry) {
-            self.html = html
-            self.geometry = geometry
-            // `createPDF` maps one CSS pixel to one PDF point, so the view is
-            // sized in points: the text frame the settings ask for, whatever
-            // the source then does with the page height.
-            webView = WKWebView(frame: NSRect(origin: .zero,
-                                              size: CGSize(width: geometry.pageSize.width,
-                                                           height: geometry.pageSize.height)))
-            super.init()
-            // The page prints black on white; a dark-appearance web view would
-            // resolve system colors the other way around inside the controls
-            // and images the CSS does not reach.
-            webView.appearance = NSAppearance(named: .aqua)
-            webView.navigationDelegate = self
+    func render(_ request: PrintRenderRequest,
+                options: PrintPageOptions) throws -> PrintRenderResult {
+        let job = try job(for: request, options: options)
+        let assets = PrintAssetLoader(baseDir: request.baseDir)
+        do {
+            return try PDMCore.render(job) { assets.bytes(forAssetNamed: $0) }
+        } catch let error as PDMCore.CoreError {
+            throw PrintRenderError.core(error)
         }
+    }
 
-        func run() async throws -> Data {
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: PrintPDFRenderer.timeout)
-                guard !Task.isCancelled else { return }
-                self?.finish(.failure(PrintRenderError.timedOut))
-            }
-            defer { timeoutTask.cancel() }
-            return try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
-                // Local images arrive as data: URIs — no file baseURL needed,
-                // and none is granted: the page must not read the disk.
-                webView.loadHTMLString(html, baseURL: nil)
-            }
-        }
-
-        func tearDown() {
-            webView.navigationDelegate = nil
-            webView.stopLoading()
-        }
-
-        private func finish(_ result: Result<Data, Error>) {
-            guard !finished else { return }
-            finished = true
-            let continuation = self.continuation
-            self.continuation = nil
-            continuation?.resume(with: result)
-        }
-
-        // MARK: Navigation
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            waitForImages(attemptsLeft: 20)
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!,
-                     withError error: Error) {
-            finish(.failure(PrintRenderError.load(error.localizedDescription)))
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
-                     withError error: Error) {
-            finish(.failure(PrintRenderError.load(error.localizedDescription)))
-        }
-
-        /// `didFinish` covers the main frame only — a remote `<img>` may still
-        /// be in flight, and a page captured mid-load loses it. ~2 s cap: the
-        /// pages must not stay hostage to a dead image host.
-        private func waitForImages(attemptsLeft: Int) {
-            let js = "Array.from(document.images).every(function (i) { return i.complete; })"
-            webView.evaluateJavaScript(js) { [weak self] result, _ in
-                Task { @MainActor in
-                    guard let self, !self.finished else { return }
-                    let done = (result as? Bool) ?? true
-                    if done || attemptsLeft <= 0 {
-                        self.capture()
-                    } else {
-                        try? await Task.sleep(for: .milliseconds(100))
-                        guard !self.finished else { return }
-                        self.waitForImages(attemptsLeft: attemptsLeft - 1)
-                    }
-                }
-            }
-        }
-
-        private func capture() {
-            // A null rect means the whole displayed page; a zero-height one is
-            // an empty capture area, not a sentinel for the full content.
-            webView.createPDF(configuration: WKPDFConfiguration()) { [weak self] result in
-                Task { @MainActor in
-                    guard let self else { return }
-                    switch result {
-                    case .success(let data) where !data.isEmpty:
-                        self.finish(.success(data))
-                    case .success:
-                        self.finish(.failure(PrintRenderError.noOutput))
-                    case .failure(let error):
-                        self.finish(.failure(PrintRenderError.load(error.localizedDescription)))
-                    }
-                }
-            }
+    /// Refused here rather than by the renderer, because the Settings panel
+    /// shows the same verdict for the same values before anything is printed and
+    /// the two must not be able to disagree.
+    private func checkGeometry(_ request: PrintRenderRequest) throws {
+        if case .failure(let problem) = request.settings.geometry {
+            throw PrintRenderError.geometry(problem)
         }
     }
 }

@@ -3,8 +3,8 @@
 Native macOS Markdown editor: SwiftUI + AppKit/TextKit 1. Four modes over one
 source of truth, the markdown string in `MarkdownDocument`: Source (raw text +
 highlight/lint), Visual (attributed WYSIWYG, synchronous serialization),
-Preview (HTML in WKWebView), Print (pages in PDFView, flagged off). Sidebar:
-Files / Outline / Git / Review / Tags.
+Preview (HTML in WKWebView), Print (paginated PDF from the prebuilt core, in
+PDFView, flagged off). Sidebar: Files / Outline / Git / Review / Tags.
 
 Domain documentation lives in `docs/` (`docs/README.md` is the index) — read
 the doc matching your task before changing it, and update it in the same
@@ -19,7 +19,7 @@ private working notes, untracked here.
 - `EditMD/EditMD/Document/` — `MarkdownDocument`, `DocumentStore`
   (also hosts `DocumentRegistry`).
 - `EditMD/EditMD/Editor/` — Source/Visual, round-trip, tables, formulas,
-  highlighting, lint, review model, diff, PDF export, print page source.
+  highlighting, lint, review model, diff, PDF export, print job + core call.
 - `EditMD/EditMD/Views/` — layout, render panes, sidebars, settings, viewers.
 - `EditMD/EditMD/Integration/` — Claude IDE WebSocket/MCP, diff approval,
   control socket, skill installer.
@@ -59,18 +59,19 @@ domain docs.
   write path makes the file watcher report an external change.
 - A markdown feature spans four independent render paths (Source
   `collectSpans`, Visual `VisualRenderer`, Preview `HTMLBodyVisitor`, Print
-  `PrintPDFRenderer`) plus the Visual round-trip — check all of them; Split
-  mounts Source beside Preview and is not a fifth. Print is gated by
-  `FeatureFlags.printMode`, read only by `EditorMode.available`/`resolve` so
-  no surface can disagree about which modes exist; flag-off must be
+  `PrintPDFRenderer` → `PrintJob` → core) plus the Visual round-trip — check
+  all of them; Split mounts Source beside Preview, not a fifth. Print is gated
+  by `FeatureFlags.printMode`, read only by `EditorMode.available`/`resolve`,
+  so no surface can disagree about which modes exist; flag-off must be
   indistinguishable from not built, and a gated feature still builds, is
-  tested, and must not crash.
+  tested and must not crash.
 - A prebuilt binary dependency is version-pinned with signature and checksum
   verified in the build script; the plugin rule below bans downloaded code,
   not a library compiled into the app. There is one — untracked
   `Vendor/PrintDotMD.xcframework` — and `scripts/verify-core.sh` enforces the
   rule against `Vendor/core.expected.json` (checksum, signature, team,
   deployment target, ABI) from the app's pre-build phase and from `dist.sh`.
+  Its C names live in `PDMCore.swift` alone, and it opens no file itself.
 - `.raw` islands are verbatim source of truth; frontmatter must survive
   byte-exact through `composeDocumentWithFrontmatter`. All offsets are UTF-16.
 - Plugins are built-in Swift types only (`BuiltInPluginRegistry`), activated

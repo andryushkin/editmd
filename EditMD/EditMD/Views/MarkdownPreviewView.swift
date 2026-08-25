@@ -589,8 +589,6 @@ struct MarkdownPreviewView: NSViewRepresentable {
             : fileURL.deletingLastPathComponent()
     }
 
-    nonisolated private static let maxInlineImageBytes = 8_000_000
-
     /// data: URI for a relative local image path, or nil to keep the original
     /// source (remote URLs, anchors, unknown types, oversized/missing files).
     nonisolated static func dataURI(for source: String, baseDir: URL?) -> String? {

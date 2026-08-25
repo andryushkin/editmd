@@ -65,7 +65,7 @@ plus the round-trip, and a change must be checked in all of them:
 | Source | `collectSpans` highlight + lint | `SourceTextView.swift`, `MarkdownHighlighter.swift`, `MarkdownLint.swift` |
 | Visual | `VisualRenderer` → attributed string | `MarkdownToAttributed.swift`, `Visual*.swift` |
 | Preview | `HTMLBodyVisitor` → HTML in WKWebView | `MarkdownHTML.swift`, `MarkdownPreviewView.swift` |
-| Print | `PrintPDFRenderer` → PDF in `PDFView` | `PrintPDFRenderer.swift`, `PrintPaneView.swift` |
+| Print | `PrintPDFRenderer` → `PrintJob` → the prebuilt core → PDF in `PDFView` | `PrintPDFRenderer.swift`, `PrintJob.swift`, `PDMCore.swift`, `PrintPaneView.swift` |
 
 Split is not a fifth path: it mounts Source beside Preview.
 
@@ -120,8 +120,9 @@ not a scrolling canvas, and `PrintTheme` is a separate type from `PreviewTheme`
 on purpose: the Preview settings migration is keyed on `PreviewTheme` ids, and
 a page renderer that knows nothing about CSS cannot be handed a stylesheet.
 `PDFView` gives paged scrolling, zoom and link following; ⌘F reuses the shared
-`PaneFindModel` over `PDFDocument.findString`, and the table of contents falls
-back to the markdown headings when the PDF carries no outline.
+`PaneFindModel` over `PDFDocument.findString`, and the table of contents comes
+from the PDF's own bookmarks, falling back to the markdown headings for a
+document that carries none.
 
 The font set is part of the call, not a preference: `printFontSet` always
 appends emoji and symbol coverage, because a character with no font behind it
@@ -129,9 +130,38 @@ fails an accessible PDF outright — a page that renders in Preview would
 otherwise simply not print. Page geometry is validated (`PrintPageGeometry`)
 before anything is laid out; a non-finite margin has to come back as a value.
 
-The source of the pages is scaffolding and is documented as such in
-`PrintPDFRenderer`: it does not paginate onto paper yet, so paper size and
-margins do not reach the output. Only the typography does.
+The pages come from the prebuilt core (`Vendor/PrintDotMD.xcframework`), which
+takes markdown and gives back a paginated, tagged PDF. The path is four layers
+and each knows one thing:
+
+- `PrintPDFRenderer` turns a `PrintRenderRequest` into a `PrintJob` and knows no
+  C name. It is not on the main actor: `PrintRenderService`, a single actor for
+  the app, does the disk work and the one blocking call.
+- `PrintJob` is the whole of what the core is told, as a comparable value —
+  a field for every setter, and every setter is called on every print. A core
+  default is never left to stand in: it could move without a diff here, and the
+  same job built by the command line has to compare field by field with this
+  one. Values with no control in the pane live in `PrintPageOptions.standard`,
+  which is a production value and not a test hook — a probe changes one field
+  and calls the same function the pane calls.
+- `PrintFontLoader` resolves families to face files through CoreText. The order
+  is the fallback chain and is fixed: families in `PrintSettings.fontSet` order,
+  faces within a family by path, URLs deduplicated globally. A family the host
+  does not have is never named to the core. `leading` is not a CSS line height:
+  the core adds the body face's cap height back, so what it is given is
+  `lineHeight − capHeight` of the face actually chosen.
+- `PrintAssetLoader` answers the core's requests for files. Names come from an
+  untrusted document and arrive exactly as written, so the rules are here and
+  nowhere else: no scheme, nothing absolute or starting with `~`, symlinks
+  resolved on both sides before a component-wise containment test, `stat`
+  before read, and the same extensions and size cap Preview inlines with.
+
+Two regressions came with the move and are deliberate. Remote images no longer
+print — the core has no network and does not even list them as files it wants,
+and fetching them would mean a second markdown parser and a print that goes to
+the network. And the theme's heading face does not reach paper: the boundary has
+`body_font` and `mono_font` and nothing for headings, so `compact` prints its
+headings in the text face.
 
 ## Async editor state
 

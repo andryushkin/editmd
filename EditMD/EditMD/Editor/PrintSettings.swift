@@ -3,9 +3,11 @@ import CoreGraphics
 
 // MARK: - Page geometry
 
-/// Page margins in PostScript points (72 per inch) — the unit the page
-/// renderer takes, so nothing is converted on the way out.
-struct PrintMargins: Codable, Equatable {
+/// Page margins in PostScript points (72 per inch) — the unit the app measures
+/// a page in everywhere else. The page renderer takes millimetres and names the
+/// four sides in a different order, so both are converted in one place on the
+/// way out (`PrintJob`).
+struct PrintMargins: Codable, Equatable, Sendable {
     var top: CGFloat
     var bottom: CGFloat
     var leading: CGFloat
@@ -139,6 +141,9 @@ let printCoverageFontFamilies = ["Apple Color Emoji", "Apple Symbols"]
 /// The complete family list handed to the page renderer, in fallback order:
 /// the user's or theme's text faces first, monospace for code, then coverage.
 /// Duplicates are removed keeping the first (highest-priority) position.
+///
+/// The order is the fallback chain the renderer walks, so it is part of what a
+/// print *is* — `PrintFontLoader` hands the files over in exactly this order.
 func printFontSet(bodyFamilies: [String],
                   headingFamilies: [String],
                   monoFamilies: [String]) -> [String] {
@@ -157,7 +162,7 @@ func printFontSet(bodyFamilies: [String],
 /// Print-mode knobs. Deliberately not `ModeSettings`: the other three modes
 /// describe a scrolling canvas (insets, an optional reading column), Print
 /// describes paper. The overlap is only the base font.
-struct PrintSettings: Codable, Equatable {
+struct PrintSettings: Codable, Equatable, Sendable {
     var paper: PrintPaperSize
     var orientation: PrintOrientation
     var margins: PrintMargins

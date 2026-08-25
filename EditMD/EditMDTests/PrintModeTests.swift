@@ -3,7 +3,8 @@ import PDFKit
 @testable import EditMD
 
 /// Print mode's pure parts: what the flag exposes, the page geometry gate, the
-/// font-set contract, the theme catalog and the settings migration.
+/// font-set contract, the theme catalog and the settings migration. What
+/// reaches the page renderer is in `PrintCoreRenderTests`.
 final class PrintModeTests: XCTestCase {
 
     // MARK: - The flag
@@ -175,37 +176,6 @@ final class PrintModeTests: XCTestCase {
         settings.margins = PrintMargins(top: 10, bottom: 20, leading: 30, trailing: 40)
         let data = try JSONEncoder().encode(settings)
         XCTAssertEqual(try JSONDecoder().decode(PrintSettings.self, from: data), settings)
-    }
-
-    // MARK: - HTML bridge
-
-    func testFontStackIsQuotedAndAlwaysEndsInAGeneric() {
-        XCTAssertEqual(PrintHTMLBridge.fontStack(["New York", " "], generic: "serif"),
-                       "\"New York\", serif")
-        XCTAssertEqual(PrintHTMLBridge.fontStack([], generic: "monospace"), "monospace")
-    }
-
-    /// The capture maps one CSS pixel to one PDF point, so the size chosen for
-    /// paper has to reach the page in px — in pt it would arrive a third large.
-    func testThemeLayerStatesTheBodySizeInPixels() {
-        var settings = PrintSettings()
-        settings.fontSize = 11
-        let css = PrintHTMLBridge.pageCSS(settings: settings, theme: .standard)
-        XCTAssertTrue(css.contains("font-size: 11.00px"), css)
-        XCTAssertTrue(css.contains("background: #fff"), css)
-    }
-
-    @MainActor
-    func testPrintPageForcesBlackOnWhiteOverTheAdaptiveBaseColors() throws {
-        let html = PrintPDFRenderer.html(for: PrintRenderRequest(
-            markdown: "# Title\n\nBody.", baseDir: nil,
-            settings: PrintSettings(), syntaxHighlighting: false))
-        // Base CSS keeps the adaptive colors; the print layer must land after
-        // it, or the page prints white on white under a dark appearance.
-        let base = try XCTUnwrap(html.range(of: "color: CanvasText"))
-        let printed = try XCTUnwrap(
-            html.range(of: "html, body { background: #fff; color: #000; }"))
-        XCTAssertLessThan(base.lowerBound, printed.lowerBound)
     }
 
     // MARK: - Outline

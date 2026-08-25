@@ -11,6 +11,13 @@ let supportedImageMIMETypes: [String: String] = [
 ]
 let supportedImageFileExtensions = Set(supportedImageMIMETypes.keys)
 
+/// Largest file Preview will inline and Print will embed.
+///
+/// One number for both on purpose: a picture that shows on screen and vanishes
+/// on paper — or the other way round — is a difference nobody can explain from
+/// the document.
+let maxInlineImageBytes = 8_000_000
+
 /// True for an image the native viewer knows how to open.
 func isImageFile(_ url: URL) -> Bool {
     supportedImageFileExtensions.contains(url.pathExtension.lowercased())

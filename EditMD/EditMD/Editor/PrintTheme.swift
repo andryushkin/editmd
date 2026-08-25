@@ -94,8 +94,13 @@ extension PrintTheme {
         preferredMargins: PrintMargins(top: 72, bottom: 84, leading: 90, trailing: 90)
     )
 
-    /// Dense technical output: small type, narrow margins, sans headings over a
-    /// serif text face so structure stays visible in a wall of prose.
+    /// Dense technical output: small type, narrow margins, a sans text face that
+    /// stays legible small.
+    ///
+    /// `headingFamilies` is a display cut of the same face and reaches the
+    /// screen modes only: the page renderer takes a body family and a mono
+    /// family and has no setter for headings, so on paper this theme sets its
+    /// headings in the text face.
     static let compact = PrintTheme(
         id: "compact",
         title: String(localized: "Compact"),
