@@ -29,6 +29,22 @@
 # contract itself changes. `team_identifier` and `min_macos` are not expected
 # to move at all.
 #
+# WHAT EACH CHECK CAN AND CANNOT CATCH — measured, not assumed.
+#
+# Checks 1-3 (checksum, signature, certificate) guard every single build.
+# Checks 4 and 5 (deployment target, ABI version) can only ever speak on the
+# day `library_sha256` is updated: the deployment target is a function of the
+# very bytes check 1 pins, and the header is sealed by the signature check 2
+# verifies. That is not a defect, it is the shape of the thing — but a planting
+# that skips updating `library_sha256` tests check 1, not the check it aimed at.
+#
+# THE FROZEN CHECKSUM IS A CLEAN-BUILD VALUE. Measured 25 Aug 2026: the same
+# sources rebuilt after `cargo clean` give the same library byte for byte
+# (three times over), while an incremental rebuild after editing the sources
+# and reverting them gave a different one. So "rebuilt on purpose" below means
+# a clean build; a checksum taken from an incremental rebuild will drift again
+# on the next clean one, and freezing it would break this gate on the second day.
+#
 # Usage: scripts/verify-core.sh [path-to-repo-root]
 set -euo pipefail
 
@@ -102,9 +118,25 @@ fi
 # -- 3. Signed by us ---------------------------------------------------------
 # `codesign --display` writes to stderr; without 2>&1 the grep sees nothing
 # and the check passes on every artifact, honest or not.
+#
+# THE TEAM FIELD ALONE PROVES NOTHING, and that is not a theoretical worry: it
+# was the finding that held this step open. `codesign --sign - --team-identifier
+# DZQ4PU9975` stamps the field onto an ad-hoc signature that carries no
+# certificate at all, and every check below used to pass on it. The requirement
+# says "verify the signature", so the requirement is a certificate requirement:
+# the anchor must be Apple's and the leaf must belong to our team.
+codesign --verify \
+    -R "=anchor apple generic and certificate leaf[subject.OU] = \"$WANT_TEAM\"" \
+    "$XCF" 2>/dev/null || fail \
+    "the core library is not signed by an Apple-issued certificate of team $WANT_TEAM." \
+    "The team field on its own is not evidence: 'codesign --sign -" \
+    "--team-identifier $WANT_TEAM' sets that field on an ad-hoc signature" \
+    "that has no certificate behind it. This check asks for the certificate."
 GOT_TEAM=$(codesign --display --verbose=2 "$XCF" 2>&1 \
     | sed -n 's/^TeamIdentifier=//p' | head -1)
-[ -n "$GOT_TEAM" ] || fail \
+# `codesign --display` prints the words "not set" rather than an empty value,
+# so an emptiness test never fires and this diagnosis was unreachable.
+[ "$GOT_TEAM" != "not set" ] || fail \
     "the core library signature carries no team identifier." \
     "An ad-hoc signature (codesign --sign -) looks like this. The artifact" \
     "must be signed with an Apple Development identity of team $WANT_TEAM."
@@ -119,8 +151,14 @@ GOT_TEAM=$(codesign --display --verbose=2 "$XCF" 2>&1 \
 # reports `minos`, the older LC_VERSION_MIN_MACOSX reports `version`, and a
 # single stray object built against a newer SDK is enough to break the app on
 # a machine the app claims to support.
+# An empty architecture list used to walk straight through: the guard for "no
+# deployment target found" lives inside the loop, so a body that never runs
+# left HIGHEST empty, and the comparison below read that as 0 — pass. errexit
+# does not help, a failed substitution in a `for` list does not raise it.
+ARCHS=$(lipo -archs "$LIB") || fail "cannot read the architectures of $LIB"
+[ -n "$ARCHS" ] || fail "$LIB carries no architecture slices at all."
 HIGHEST=""
-for arch in $(lipo -archs "$LIB"); do
+for arch in $ARCHS; do
     found=$(otool -arch "$arch" -l "$LIB" | awk '
         /^ +cmd LC_BUILD_VERSION/       { c = "build";   next }
         /^ +cmd LC_VERSION_MIN_MACOSX/  { c = "version"; next }
