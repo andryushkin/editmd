@@ -1087,4 +1087,150 @@ final class PrintCoreRenderTests: XCTestCase {
                                   withDestinationURL: root.appendingPathComponent("secret.png"))
         return root
     }
+
+    // MARK: - Comparison with the command line
+
+    /// The fallback chain is observable in the manifest: two faces swapped is a
+    /// different print, so it has to be a different file.
+    ///
+    /// This is the property that makes sorting `fonts` wrong, and nothing else
+    /// here would catch it — a sorted list of the same faces compares equal to
+    /// itself for as long as nobody prints with it.
+    func testTheJobManifestNoticesTheFontChainBeingReordered() async throws {
+        let job = try await PrintPDFRenderer.job(for: Self.request("Body.\n"))
+        let first = try XCTUnwrap(job.fonts.first, "no faces to reorder")
+        let other = try XCTUnwrap(job.fonts.firstIndex { $0.family != first.family },
+                                  "this needs a job carrying at least two families")
+        var reordered = job
+        reordered.fonts.swapAt(0, other)
+
+        let manifest = { (job: PrintJob) in
+            try PrintComparisonWire.encode(PrintComparisonWire.jobManifest(job, assets: []))
+        }
+        // The control comes first: without it the assertion below is also true
+        // of a serializer that answers differently every time it is called.
+        XCTAssertEqual(try manifest(job), try manifest(job))
+        XCTAssertNotEqual(try manifest(job), try manifest(reordered),
+                          "the order of the fallback chain does not reach the manifest")
+    }
+
+    /// A different file under the same name is a different print, and the
+    /// manifest says so — the pictures themselves never travel, only digests.
+    ///
+    /// The same reasoning as `testTheSameJobWithADifferentPictureRecordsADifferentDigest`,
+    /// one layer further out: there the record told two prints apart, here the
+    /// file the other producer reads has to.
+    func testTheJobManifestNoticesADifferentFileUnderTheSameName() async throws {
+        let job = try await PrintPDFRenderer.job(for: Self.request("![x](pic.png)\n"))
+        func manifest(_ digest: String) throws -> Data {
+            try PrintComparisonWire.encode(PrintComparisonWire.jobManifest(job, assets: [
+                PrintAssetRecord(name: "pic.png", supplied: true,
+                                 byteCount: 12, digest: digest)]))
+        }
+        let here = try manifest(String(repeating: "a", count: 64))
+        let there = try manifest(String(repeating: "b", count: 64))
+        XCTAssertNotEqual(here, there, "the asset digest does not reach the manifest")
+
+        // And a name nothing was supplied for adds nothing: there are no bytes
+        // behind it, so "absent" is the one thing both sides can agree on.
+        let absent = try PrintComparisonWire.encode(PrintComparisonWire.jobManifest(
+            job, assets: [PrintAssetRecord.notSupplied("gone.png")]))
+        XCTAssertEqual(absent, try PrintComparisonWire.encode(
+            PrintComparisonWire.jobManifest(job, assets: [])))
+    }
+
+    /// Lays the manifest, the blobs, the typesetting table and the pages where
+    /// a second producer of the same document can read them.
+    ///
+    /// With no destination named this still does every step and simply keeps
+    /// the result — deliberately, and it is the point of the arrangement: a
+    /// path that only runs when an outside gate sets three environment
+    /// variables is a path nobody notices breaking until the gate runs. Here
+    /// the ordinary run walks the same code over a fixture of its own, and the
+    /// only difference is whether there is somewhere to put the files.
+    ///
+    /// A caller has to export the four variables with a `TEST_RUNNER_` prefix —
+    /// `TEST_RUNNER_EDITMD_PRINT_COMPARE_DIR` and so on. `xcodebuild` does not
+    /// hand its own environment to the process the tests run in; it copies
+    /// across exactly the variables named that way, stripping the prefix.
+    /// Measured 26 Aug 2026: exported plainly, all four arrive as nothing here,
+    /// this runs the fixture, writes no files and reports success — which is
+    /// the shape of green a gate must never be allowed to read as agreement.
+    func testWritesTheComparisonArtefactsWhenAsked() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        func named(_ key: String) -> String? {
+            environment[key].flatMap { $0.isEmpty ? nil : $0 }
+        }
+        let destination = named("EDITMD_PRINT_COMPARE_DIR").map { URL(fileURLWithPath: $0) }
+        let vault = named("EDITMD_PRINT_COMPARE_VAULT")
+        let note = named("EDITMD_PRINT_COMPARE_NOTE")
+        let settingsFile = named("EDITMD_PRINT_COMPARE_SETTINGS")
+
+        let markdown: String
+        let baseDir: URL
+        let settings: PrintSettings
+        if let vault, let note, let settingsFile {
+            // The note is named relative to the vault with `/` separators, so
+            // it is appended component by component rather than pasted into a
+            // path string — a caller on the other side spells it that way and
+            // a leading or doubled separator must not change which file is read.
+            var file = URL(fileURLWithPath: vault, isDirectory: true)
+            for component in note.split(separator: "/") {
+                file.appendPathComponent(String(component))
+            }
+            markdown = try String(contentsOf: file, encoding: .utf8)
+            baseDir = file.deletingLastPathComponent()
+            settings = try JSONDecoder().decode(
+                PrintSettings.self, from: try Data(contentsOf: URL(fileURLWithPath: settingsFile)))
+        } else {
+            // Half a configuration is worse than none: it would print a fixture
+            // and lay it out under the name of the document that was asked for.
+            XCTAssertNil(vault ?? note ?? settingsFile,
+                         "the vault, the note and the settings are named together or not at all")
+            let root = try temporaryVault()
+            baseDir = root.appendingPathComponent("doc")
+            markdown = "# Heading\n\nBody with a picture.\n\n![alt](pic.png)\n"
+            settings = PrintSettings()
+        }
+
+        let request = Self.request(markdown, settings: settings, baseDir: baseDir)
+        let job = try await PrintPDFRenderer.job(for: request, options: .standard)
+        let result = try await PrintPDFRenderer.render(request, options: .standard)
+
+        XCTAssertFalse(result.pdf.isEmpty, "no pages to compare")
+        XCTAssertGreaterThanOrEqual(result.pageCount, 1)
+
+        let manifest = try PrintComparisonWire.encode(
+            PrintComparisonWire.jobManifest(job, assets: result.assets))
+        let parsed = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: manifest) as? [String: Any],
+            "the manifest does not read back as JSON")
+        XCTAssertEqual(parsed["format"] as? String, PrintComparisonWire.jobFormat)
+        XCTAssertEqual(parsed["version"] as? Int, PrintComparisonWire.version)
+        XCTAssertEqual((parsed["fonts"] as? [Any])?.count, job.fonts.count,
+                       "a face was dropped or duplicated on the way to the manifest")
+
+        let design = try PrintComparisonWire.encode(PrintComparisonWire.designManifest())
+        let parsedDesign = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: design) as? [String: Any])
+        XCTAssertEqual((parsedDesign["themes"] as? [Any])?.count, PrintTheme.allPresets.count)
+
+        guard let destination else { return }
+        let loader = PrintAssetLoader(baseDir: baseDir)
+        do {
+            try FileManager.default.createDirectory(at: destination,
+                                                    withIntermediateDirectories: true)
+            try PrintComparisonWire.writeJob(job, assets: result.assets,
+                                             assetBytes: { loader.bytes(forAssetNamed: $0) },
+                                             to: destination)
+            try PrintComparisonWire.writeDesign(to: destination)
+            try result.pdf.write(
+                to: destination.appendingPathComponent(PrintComparisonWire.pdfFileName))
+        } catch {
+            // Never a quiet return: a gate that asked for the files and got
+            // none would otherwise read this run as agreement.
+            XCTFail("cannot lay out the comparison artefacts in \(destination.path): \(error)")
+        }
+    }
+
 }
