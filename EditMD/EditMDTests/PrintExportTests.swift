@@ -236,6 +236,35 @@ final class PrintExportTests: XCTestCase {
             .contentsOfDirectory(atPath: root.path).sorted(), ["pic.png"])
     }
 
+    /// What the one constructor decides, stated apart from either caller.
+    ///
+    /// The pane and the export now both read this, which is the point of it —
+    /// and also the one thing the comparisons above cannot see: a mistake made
+    /// here moves both sides by the same amount and leaves every one of them
+    /// green. This probe is the one that is not blind to it.
+    func testTheRequestForADocumentTakesItsFolderAndThePrintSettings() {
+        let file = URL(fileURLWithPath: "/vault/notes/note.md")
+        let plain = PrintRenderRequest.forDocument(markdown: "x", fileURL: file)
+        XCTAssertEqual(plain.baseDir?.path, "/vault/notes",
+                       "pictures resolve against the document's folder")
+
+        let bundle = URL(fileURLWithPath: "/vault/notes/pack.textbundle")
+        XCTAssertEqual(PrintRenderRequest.forDocument(markdown: "x", fileURL: bundle).baseDir?.path,
+                       "/vault/notes/pack.textbundle",
+                       "a textbundle resolves them against itself, not its parent")
+
+        XCTAssertNil(PrintRenderRequest.forDocument(markdown: "x", fileURL: nil).baseDir,
+                     "a document with no path has no folder to resolve against")
+
+        // The print settings and not Preview's. The two have fields of the same
+        // names and different values, and a page laid out from the wrong one
+        // looks almost right.
+        XCTAssertEqual(plain.settings, EditorSettings.shared.print)
+        XCTAssertEqual(plain.syntaxHighlighting,
+                       EditorSettings.shared.general.syntaxHighlighting)
+        XCTAssertEqual(plain.markdown, "x")
+    }
+
     /// The control the others are read against: one document exported twice is
     /// one file. Without it, "the export and the pane differ" says nothing
     /// about which of them moved — or whether anything did.
