@@ -8742,6 +8742,226 @@
           }
         }
       }
+    },
+    "Print Report" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отчёт печати"
+          }
+        }
+      }
+    },
+    "Line %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Строка %lld"
+          }
+        }
+      }
+    },
+    "No line" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без строки"
+          }
+        }
+      }
+    },
+    "Printed as a checkbox" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Печатается клеткой чекбокса"
+          }
+        }
+      }
+    },
+    "Strikethrough is not printed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зачёркивание не печатается"
+          }
+        }
+      }
+    },
+    "At the head of a list item the renderer prints ☐ and ☑ for [ ] and [x], not the state this document declares." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В начале пункта списка ядро печатает ☐ и ☑ для [ ] и [x], а не то состояние, которое объявил документ."
+          }
+        }
+      }
+    },
+    "A state that strikes its line through in the editor prints plain: the markdown carries no strikethrough." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Состояние, зачёркнутое в редакторе, печатается без зачёркивания: в markdown его нет."
+          }
+        }
+      }
+    },
+    "Picture not supplied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка не передана"
+          }
+        }
+      }
+    },
+    "Picture in a format the renderer cannot read" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка в формате, который обработчик не читает"
+          }
+        }
+      }
+    },
+    "Link to a heading this document does not have" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ссылка на заголовок, которого в документе нет"
+          }
+        }
+      }
+    },
+    "Wiki-link target not resolved" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цель вики-ссылки не разрешена"
+          }
+        }
+      }
+    },
+    "Raw HTML dropped" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сырой HTML отброшен"
+          }
+        }
+      }
+    },
+    "Formula printed as written" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Формула напечатана как написана"
+          }
+        }
+      }
+    },
+    "Picture with no alternative description" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка без альтернативного описания"
+          }
+        }
+      }
+    },
+    "Nesting too deep; printed flattened" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком глубокая вложенность; напечатано без неё"
+          }
+        }
+      }
+    },
+    "Heading printed as emphasised text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заголовок напечатан выделенным текстом"
+          }
+        }
+      }
+    },
+    "Document language narrowed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык документа сужен"
+          }
+        }
+      }
+    },
+    "Link destination too long; printed as text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком длинный адрес ссылки; напечатан текстом"
+          }
+        }
+      }
+    },
+    "Repeated on the page" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторено на странице"
+          }
+        }
+      }
+    },
+    "Message from the typesetter" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сообщение вёрстки"
+          }
+        }
+      }
+    },
+    "Link scheme refused; printed as text" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Схема ссылки отклонена; напечатана текстом"
+          }
+        }
+      }
+    },
+    "Warning this build does not recognise" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предупреждение, которого эта сборка не знает"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

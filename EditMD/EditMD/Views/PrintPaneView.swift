@@ -79,10 +79,16 @@ final class PrintPaneModel: ObservableObject {
     @Published private(set) var outline: [PrintOutlineEntry] = []
     @Published private(set) var isRendering = false
     @Published private(set) var errorMessage: String?
-    /// What the last print survived. Kept, not shown: the pane has nowhere to
-    /// report it yet, and a warning dropped at the boundary is a warning that
-    /// cannot be reported once there is somewhere to put it.
-    @Published private(set) var warnings: [PrintWarning] = []
+    /// What the last print survived, and what it printed differently from the
+    /// way the other modes draw it. Shown by the report button in the pane
+    /// chrome; empty when there is nothing to say.
+    @Published private(set) var report = PrintReport.empty
+    /// The warnings of the last print, on their own.
+    ///
+    /// Kept as its own name because that is the question asked of this model —
+    /// what the print survived — and it must stay answerable without a reader
+    /// knowing how the report is assembled.
+    var warnings: [PrintWarning] { report.warnings }
     /// One-shot commands for the hosted `PDFView`, which owns page position and
     /// scale. Identified so the view applies each exactly once and a SwiftUI
     /// update pass cannot replay the last one.
@@ -108,7 +114,15 @@ final class PrintPaneModel: ObservableObject {
                 return
             }
             errorMessage = nil
-            warnings = result.warnings
+            // Off this actor: the notes come from a parse of the whole
+            // document, and the main actor is drawing the pages that are
+            // already on screen while it runs.
+            let markdown = request.markdown
+            let notes = await Task.detached(priority: .userInitiated) {
+                PrintReport.tokenNotes(in: markdown)
+            }.value
+            guard !Task.isCancelled else { return }
+            report = PrintReport(warnings: result.warnings, tokenNotes: notes)
             document = pdf
             outline = printOutline(for: pdf, markdown: request.markdown)
         } catch is CancellationError {
@@ -336,6 +350,7 @@ struct PrintPane: View {
     @StateObject private var model = PrintPaneModel()
     @ObservedObject private var editorSettings = EditorSettings.shared
     @State private var showOutline = false
+    @State private var showReport = false
 
     private var request: PrintRenderRequest {
         PrintRenderRequest(
@@ -419,6 +434,23 @@ struct PrintPane: View {
             }
             .editMDHelp(String(localized: "Fit Page"))
 
+            if !model.report.isEmpty {
+                Divider().frame(height: 14)
+
+                Button {
+                    showReport.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle")
+                        Text(verbatim: "\(model.report.count)").monospacedDigit()
+                    }
+                }
+                .editMDHelp(String(localized: "Print Report"))
+                .popover(isPresented: $showReport, arrowEdge: .bottom) {
+                    reportList
+                }
+            }
+
             if model.isRendering, model.document != nil {
                 ProgressView().controlSize(.small)
             }
@@ -459,6 +491,52 @@ struct PrintPane: View {
             .padding(10)
         }
         .frame(width: 280, height: 320)
+    }
+
+    /// What the last print survived, and what it printed differently.
+    ///
+    /// The line and the kind are shown as two separate columns of one row, from
+    /// the two separate fields — a warning that arrived with its kind and its
+    /// line swapped has to look wrong here, not merely different.
+    private var reportList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(model.report.warnings.enumerated()), id: \.offset) { entry in
+                    let warning = entry.element
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(warning.line.map { String(localized: "Line \($0)") }
+                             ?? String(localized: "No line"))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 62, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(warning.kindTitle).font(.system(size: 12, weight: .medium))
+                            Text(warning.message)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+
+                ForEach(model.report.tokenNotes) { note in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(verbatim: "\(note.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 62, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(note.title).font(.system(size: 12, weight: .medium))
+                            Text(note.detail)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 340, height: 300)
     }
 
     private func errorBar(_ message: String) -> some View {

@@ -59,6 +59,7 @@
 		2B3D81A455822ED02A0164B2 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 2DE5E72B6D910282961D4DE5 /* Markdown */; };
 		2DC3DD70D9EABD4B0A3F79BB /* AttributedToMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6777468CC5C87C9C9FBEBBB4 /* AttributedToMarkdown.swift */; };
 		2F7636D55EBECDE653FA9ED8 /* PropertiesPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF24B8D60ECFF50F6C9CEB16 /* PropertiesPanel.swift */; };
+		3037A9E1631D3FE011913D5C /* PrintPluginTokenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9BB1F59D2A9341532A46DA9 /* PrintPluginTokenTests.swift */; };
 		306320E68714D8C69F0D62A8 /* icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 5DE049C40EE9A0CB2F09BFBF /* icon.png */; };
 		30E56B4AF5BC704D47F080ED /* AgentActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB9FCF038DB3199144216643 /* AgentActivityTests.swift */; };
 		33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */; };
@@ -240,6 +241,7 @@
 		DA424E58D0274B4EB89F9151 /* DocumentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1F452F4D6375340DFCFE53 /* DocumentStoreTests.swift */; };
 		DB490D4FE279C4551AFF0CAA /* MarkdownHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55259E1AF23DB7613E7106E3 /* MarkdownHighlighterTests.swift */; };
 		DC139233A12E3FF14314161B /* MCPProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557D0F2E9CBEF94A255385CA /* MCPProtocolTests.swift */; };
+		DC150C446748B0FD9BB55B32 /* PrintReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7FF32B8A9EB006EA1C3EBA /* PrintReport.swift */; };
 		DD107E3AFA7F7F2B810068A6 /* MarkdownFileIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5F378F9744D89CD1F081FA /* MarkdownFileIO.swift */; };
 		DD6EE1E2FE82AC1E82097306 /* IDELockFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683585ED84041D652B804F1F /* IDELockFileTests.swift */; };
 		DDCA8AC25EA48234B39D850C /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE77D1C8C7F51E061E5A300 /* WelcomeView.swift */; };
@@ -459,6 +461,7 @@
 		B24E22CBA3DD03EC27DEB107 /* VisualNSTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualNSTextView.swift; sourceTree = "<group>"; };
 		B5D846CE48E058A5CF592086 /* MarkdownHTMLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLTests.swift; sourceTree = "<group>"; };
 		B8507D994F9CAE5DEB23B585 /* SidebarRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRows.swift; sourceTree = "<group>"; };
+		B9BB1F59D2A9341532A46DA9 /* PrintPluginTokenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintPluginTokenTests.swift; sourceTree = "<group>"; };
 		B9DB1D7CD5C15A6CCFF9FC07 /* PaneLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneLayoutTests.swift; sourceTree = "<group>"; };
 		B9ED6E1B1B01C53E6210BD88 /* WorkspaceSearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSearchModel.swift; sourceTree = "<group>"; };
 		BA0429CEF6CB09D827B5023C /* AgentActivityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityModel.swift; sourceTree = "<group>"; };
@@ -471,6 +474,7 @@
 		BD71CC6F81CE84EE6BC78017 /* DiffApprovalControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffApprovalControllerTests.swift; sourceTree = "<group>"; };
 		BE2F402FAF4915DDBA4EF545 /* FolderInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderInfoTests.swift; sourceTree = "<group>"; };
 		BEA29A71738433F0E90E2E0C /* WorkspaceSearchSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSearchSidebar.swift; sourceTree = "<group>"; };
+		BF7FF32B8A9EB006EA1C3EBA /* PrintReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrintReport.swift; sourceTree = "<group>"; };
 		C0992CECE61C61FF3A2B9A98 /* reference.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = reference.md; sourceTree = "<group>"; };
 		C2F98C956EE053104A4CF63B /* EditorFieldGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorFieldGeometry.swift; sourceTree = "<group>"; };
 		C405EA37EB9EF6ECAEEB7979 /* opensans-400i.woff */ = {isa = PBXFileReference; path = "opensans-400i.woff"; sourceTree = "<group>"; };
@@ -711,6 +715,7 @@
 				4EAB8A7BBF7D5819FFD1F687 /* PrintFontLoader.swift */,
 				77B3C0CE20E80AE69EF3E1FA /* PrintJob.swift */,
 				BA4FEB25B3642A01679C6F1B /* PrintPDFRenderer.swift */,
+				BF7FF32B8A9EB006EA1C3EBA /* PrintReport.swift */,
 				377881908FB717BEB10E3AC9 /* PrintSettings.swift */,
 				00FA54E5BAEB665DD78A19E2 /* PrintTheme.swift */,
 				2203D65082D4E4CC44C4B9AE /* RemoteImageCache.swift */,
@@ -959,6 +964,7 @@
 				DC8CC0DB5EBF2CA235E5CE2F /* PrintComparisonWire.swift */,
 				D1225A10644B2B4F5A92CCD5 /* PrintCoreRenderTests.swift */,
 				E727587FD40B76BF7D203471 /* PrintModeTests.swift */,
+				B9BB1F59D2A9341532A46DA9 /* PrintPluginTokenTests.swift */,
 				A11113E961095021DD99965B /* ReviewMarksTests.swift */,
 				902CDF64CE6CDC7E97E07494 /* RoundTripTests.swift */,
 				2F5C9AB47EBD2CE8A4C2E8EC /* SearchMatchTests.swift */,
@@ -1243,6 +1249,7 @@
 				A82C7E5B4133928DCA928E43 /* PrintComparisonWire.swift in Sources */,
 				545874DE26F78E56DB1429ED /* PrintCoreRenderTests.swift in Sources */,
 				D01FFF3CBEC50A9771493AEB /* PrintModeTests.swift in Sources */,
+				3037A9E1631D3FE011913D5C /* PrintPluginTokenTests.swift in Sources */,
 				8DE43667DAB5348234354DF4 /* ReviewMarksTests.swift in Sources */,
 				33987BB1DCF137F8619ED8A9 /* RoundTripTests.swift in Sources */,
 				CFE8F3E6709C55891CC38572 /* SearchMatchTests.swift in Sources */,
@@ -1367,6 +1374,7 @@
 				E5530EDF7A8D807EDF5F3A81 /* PrintJob.swift in Sources */,
 				5C9A5F7D2EDD11B9F0D1C663 /* PrintPDFRenderer.swift in Sources */,
 				F7152A7A01C080FD0ED4DE6B /* PrintPaneView.swift in Sources */,
+				DC150C446748B0FD9BB55B32 /* PrintReport.swift in Sources */,
 				8BB66FAEEB196F224EE22631 /* PrintSettings.swift in Sources */,
 				A4AFDC096F48672824EE7C8E /* PrintTheme.swift in Sources */,
 				2F7636D55EBECDE653FA9ED8 /* PropertiesPanel.swift in Sources */,
