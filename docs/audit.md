@@ -55,6 +55,20 @@ Static checks, a few seconds, exit code 1 on any failure:
    base can be determined the check FAILs rather than silently shrinking its
    scope.
 
+10. **One producer of PDF pages** — no occurrence of `createPDF(` or
+    `previewHTMLPage(` in any Swift source, tracked or not. The app prints
+    through the prebuilt core; a second producer means a web view rendering
+    pages of its own, and WebKit's `createPDF(` is the call it cannot avoid
+    whatever file or type it lives in. Preview's own `previewHTMLPageRender(`
+    is deliberately not matched. The check counts occurrences of those two
+    names, not calls — at a threshold of zero the distinction costs nothing,
+    and it is stated so that nobody later reads more into a PASS than a grep
+    can give. It does not see a producer that is not a web view
+    (`NSPrintOperation`, pages written through PDFKit): what passes here is
+    "no second producer on WebKit", not the whole of "one path into a PDF".
+    The rest of that sentence is held by the tests that compare the file an
+    export writes with the pages the Print pane shows.
+
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).
 

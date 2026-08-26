@@ -173,6 +173,40 @@ else
     if [ -z "$ws" ]; then pass "git-diff-check (base: $base)"; else fail "git-diff-check" $ws; fi
 fi
 
+# 10. One producer of PDF pages. The app prints through the core and nowhere
+#     else; a second producer is what this looks for, and what it looks for is
+#     WebKit's `createPDF(` — the call any web-view export needs, whatever file
+#     or type name it hides behind. A grep for a file or a type would have
+#     caught nothing: the name of the file that used to do this appears nowhere
+#     in the call.
+#
+#     What it counts is *occurrences of the two names in tracked and untracked
+#     Swift sources*, not calls: it is a grep, and a declaration named
+#     `createPDF` would count too. At a threshold of zero the difference costs
+#     nothing, and the check is written to claim only what it can see.
+#
+#     `previewHTMLPage(` was the wrapper that fed the old exporter its HTML.
+#     Preview itself calls `previewHTMLPageRender(`, which this pattern does
+#     not match — the trailing `(` is the whole of the distinction.
+#
+#     `--untracked` on purpose: a new file that has not been `git add`ed yet is
+#     exactly where a second producer appears first, and a check that reports
+#     PASS until someone stages it is a check with a hole the size of a commit.
+#
+#     WHAT IT DOES NOT SEE, stated here because a PASS will be read years from
+#     now by someone the reason has left: a producer of PDFs that is not a web
+#     view — `NSPrintOperation`, pages written through PDFKit — needs none of
+#     these two names and passes this check untouched. What is proved here is
+#     the narrower "no second producer on WebKit", not the whole of "one path
+#     into a PDF"; the rest of that sentence is held by the probes that compare
+#     what the export writes with what the pane prints.
+raw=$(git -c core.quotepath=false grep -n --untracked -I -F \
+        -e 'createPDF(' -e 'previewHTMLPage(' -- '*.swift')
+st=$?
+if [ $st -eq 1 ]; then pass "one-pdf-producer"
+elif [ $st -eq 0 ]; then fail "one-pdf-producer" $(printf '%s\n' "$raw" | cut -d: -f1,2)
+else fail "one-pdf-producer" "git grep errored ($st)"; fi
+
 echo
 if [ "$fails" -eq 0 ]; then
     echo "AUDIT: all mechanical checks passed."
