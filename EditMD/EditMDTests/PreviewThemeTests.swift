@@ -2,7 +2,7 @@ import XCTest
 @testable import EditMD
 
 /// Preview themes: catalog lookup, font resolution, and the CSS layering
-/// contract (base < theme < user element overrides) in `previewHTMLPage`.
+/// contract (base < theme < user element overrides) in `previewHTMLPageRender`.
 final class PreviewThemeTests: XCTestCase {
 
     // MARK: - Catalog

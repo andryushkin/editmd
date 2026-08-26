@@ -96,7 +96,7 @@ struct HTMLMathSpan {
     let units: Int
 }
 
-/// Body fragment + whether the document contains math (`previewHTMLPage`
+/// Body fragment + whether the document contains math (`previewHTMLPageRender`
 /// embeds the KaTeX assets only when it does).
 func markdownHTMLRender(_ text: String,
                         imageResolver: ((String) -> String?)? = nil,

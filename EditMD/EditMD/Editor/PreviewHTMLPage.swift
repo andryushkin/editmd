@@ -12,33 +12,11 @@ struct PreviewPageRender {
     let hasMathAssets: Bool
 }
 
-/// Wraps the rendered body in a standalone page. `color-scheme` + CSS system
-/// colors track light/dark without reloading; body font size and padding mirror
-/// the editor's `textContainerInset` so toggling edit↔preview doesn't jump.
-func previewHTMLPage(markdown: String,
-                     fontSize: CGFloat,
-                     insetH: CGFloat = 32,
-                     insetV: CGFloat = 24,
-                     lineHeight: CGFloat = 1.6,
-                     columnWidth: CGFloat = 0,
-                     fontFamily: String = "-apple-system, \"Helvetica Neue\", sans-serif",
-                     fontWeight: Int = 400,
-                     elements: ElementStyles = ElementStyles(),
-                     textColorHex: String? = nil,
-                     accentColorHex: String? = nil,
-                     themeCSS: String = "",
-                     gutter: PreviewGutterOptions = .off,
-                     syntaxHighlighting: Bool = true,
-                     imageResolver: ((String) -> String?)? = nil) -> String {
-    previewHTMLPageRender(
-        markdown: markdown, fontSize: fontSize, insetH: insetH, insetV: insetV,
-        lineHeight: lineHeight, columnWidth: columnWidth, fontFamily: fontFamily,
-        fontWeight: fontWeight, elements: elements, textColorHex: textColorHex,
-        accentColorHex: accentColorHex, themeCSS: themeCSS, gutter: gutter,
-        syntaxHighlighting: syntaxHighlighting, imageResolver: imageResolver).html
-}
-
-/// `previewHTMLPage` plus the shell's KaTeX capability bit (see `PreviewPageRender`).
+/// Wraps the rendered body in a standalone page, and says whether the shell
+/// embedded its KaTeX assets (see `PreviewPageRender`). `color-scheme` + CSS
+/// system colors track light/dark without reloading; body font size and padding
+/// mirror the editor's `textContainerInset` so toggling edit↔preview doesn't
+/// jump.
 func previewHTMLPageRender(markdown: String,
                            fontSize: CGFloat,
                            insetH: CGFloat = 32,

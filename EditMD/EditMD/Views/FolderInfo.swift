@@ -180,7 +180,7 @@ struct FolderInfoCard: View {
     @State private var homeDocPath: String?
 
     /// Preview H1 pixel size: body `fontSize` × `elements.h1.sizeScale`
-    /// (same formula as CSS `h1 { font-size: Nem }` in `previewHTMLPage`).
+    /// (same formula as CSS `h1 { font-size: Nem }` in `previewHTMLPageRender`).
     private var previewH1Size: CGFloat {
         let p = editorSettings.preview
         return p.fontSize * p.elements.h1.sizeScale

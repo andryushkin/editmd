@@ -352,14 +352,13 @@ struct PrintPane: View {
     @State private var showOutline = false
     @State private var showReport = false
 
-    private var request: PrintRenderRequest {
-        PrintRenderRequest(
-            markdown: document.content,
-            baseDir: fileURL.map {
-                $0.pathExtension == "textbundle" ? $0 : $0.deletingLastPathComponent()
-            },
-            settings: editorSettings.print,
-            syntaxHighlighting: editorSettings.general.syntaxHighlighting)
+    /// Not private, and the reason is a probe: File ▸ Export as PDF has to
+    /// print what this pane prints, and the only way to state that without
+    /// rebuilding the request in the test — which would compare two copies of
+    /// the same guess — is to read the request the pane itself would use.
+    var request: PrintRenderRequest {
+        .forDocument(markdown: document.content, fileURL: fileURL,
+                     settings: editorSettings)
     }
 
     var body: some View {

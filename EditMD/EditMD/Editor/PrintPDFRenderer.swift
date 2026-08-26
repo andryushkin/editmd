@@ -16,6 +16,32 @@ struct PrintRenderRequest: Equatable, Sendable {
     var syntaxHighlighting: Bool
 }
 
+extension PrintRenderRequest {
+
+    /// The request for one document, built the one way this app builds it.
+    ///
+    /// Both places that print — the pane and File ▸ Export as PDF — come here,
+    /// and that is the whole reason it exists: two callers assembling the same
+    /// four fields would agree on the day they were written and drift after it,
+    /// silently, because nothing about a printed page says which settings it
+    /// was printed from. With one constructor the two can only differ if one of
+    /// them changes the value afterwards, which is a thing a probe can see.
+    @MainActor
+    static func forDocument(markdown: String, fileURL: URL?,
+                            settings: EditorSettings = .shared) -> PrintRenderRequest {
+        PrintRenderRequest(
+            markdown: markdown,
+            // The document's folder — the package itself for a textbundle —
+            // exactly as Preview resolves relative images. nil for a document
+            // with no path yet, and then local pictures do not appear.
+            baseDir: fileURL.map {
+                $0.pathExtension == "textbundle" ? $0 : $0.deletingLastPathComponent()
+            },
+            settings: settings.print,
+            syntaxHighlighting: settings.general.syntaxHighlighting)
+    }
+}
+
 /// What one warning from the page renderer says.
 struct PrintWarning: Equatable, Sendable {
     /// The kind, as the frozen number the boundary hands over. Not an enum: a

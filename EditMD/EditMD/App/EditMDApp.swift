@@ -44,17 +44,21 @@ struct EditMDApp: App {
         }
     }
 
-    /// File ▸ Export as PDF… — focused editor buffer (incl. unsaved/untitled).
-    /// Folder-info / welcome leave `documentActions` nil, same as Save.
+    /// File ▸ Export as PDF… — focused editor buffer (incl. unsaved/untitled),
+    /// printed by the same renderer the Print pane uses.
+    ///
+    /// Everything but the presentation lives in `PDFExport.command`; what is
+    /// left here is what only a menu can do — beep when nothing is focused, and
+    /// show the reason a print gave. Folder-info / welcome leave
+    /// `documentActions` nil, same as Save.
     @MainActor private func exportFocusedDocumentAsPDF() {
-        guard let actions = documentActions else { NSSound.beep(); return }
-        actions.prepareForExport?()
-        // Live editor buffer — works without a path on disk.
-        let content = actions.markdownContent()
-        let url = actions.fileURL
-        let name = url?.deletingPathExtension().lastPathComponent
-            ?? String(localized: "Untitled")
-        PDFExporter.export(markdown: content, suggestedName: name, fileURL: url)
+        Task {
+            switch await PDFExport.command(documentActions) {
+            case .noDocument:        NSSound.beep()
+            case .failed(let error): NSAlert(error: error).runModal()
+            case .wrote, .cancelled: break
+            }
+        }
     }
 
     /// Help ▸ Demo Markup: copy bundled KitchenSink.md to a temp file, open in
