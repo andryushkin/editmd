@@ -223,32 +223,64 @@ final class PrintPluginTokenTests: XCTestCase {
         XCTAssertFalse(notes.contains { $0.title.isEmpty || $0.detail.isEmpty })
     }
 
-    /// A marker glued to the text of its item is not a task to the renderer,
-    /// and the note must not count it as one.
+    /// The three forms a list marker comes in, in one document.
     ///
-    /// Measured against the renderer: `- [x]glued` prints as its own text and
-    /// `- [x] spaced` prints as a box. The editor calls both list markers,
-    /// because to the editor they are — this is the one place the two readings
-    /// differ, and a note that counted both would be telling the reader about a
-    /// box that is not on the page.
-    func testAMarkerGluedToItsTextIsNotCountedAsACheckbox() throws {
-        let markdown = """
-            ---
-            editmd:
-              plugins:
-                multi-checkbox:
-                  states:
-                    - marker: "x"
-                      label: Done
-                      icon: "sf:checkmark.square"
-            ---
+    /// Two of them are separated by a space that is not there: `- [x]glued`
+    /// prints as its own text and `- [x] spaced` prints as a box. The third is
+    /// the marker alone at the end of its line, with nothing after it at all —
+    /// the form the counter answers from its own last branch, and the one the
+    /// step that wrote the counter measured by hand and did not leave a probe
+    /// for. The editor calls all three list markers, because to the editor they
+    /// are; this is the one place the two readings differ, and a note that
+    /// counted a form the renderer prints as text would be telling the reader
+    /// about a box that is not on the page.
+    static let threeMarkerForms = """
+        ---
+        editmd:
+          plugins:
+            multi-checkbox:
+              states:
+                - marker: "x"
+                  label: Done
+                  icon: "sf:checkmark.square"
+        ---
 
-            - [x]glued item
-            - [x] spaced item
-            """
-        let notes = PrintReport.tokenNotes(in: markdown)
+        - [x]glued item
+        - [x] spaced item
+        - [x]
+        """
+
+    func testAMarkerGluedToItsTextIsNotCountedAsACheckbox() throws {
+        let notes = PrintReport.tokenNotes(in: Self.threeMarkerForms)
         let boxes = try XCTUnwrap(notes.first { $0.kind == .printedAsCheckbox }, "\(notes)")
-        XCTAssertEqual(boxes.count, 1, "only the spaced one becomes a box on paper")
+        XCTAssertEqual(boxes.count, 2,
+                       "the spaced marker and the lone one; not the glued one")
+    }
+
+    /// The count is the number of boxes on the page, asked of the page.
+    ///
+    /// The probe above states the answer the counter gives; this one states the
+    /// answer the renderer gives, and they are only worth anything together. An
+    /// expectation written from the rule the counter follows is blind in
+    /// exactly the place the counter would be wrong — the counter repeats the
+    /// *renderer's* rule for what a task item is, and nothing in this app
+    /// enforces that except reading the printed page.
+    func testTheNoteCountsExactlyTheBoxesThePagePrints() async throws {
+        let result = try await PrintPDFRenderer.render(Self.request(Self.threeMarkerForms))
+        let page = try text(of: result.pdf)
+
+        let onPage = page.filter { $0 == "☑" }.count
+        let counted = PrintReport.tokenNotes(in: Self.threeMarkerForms)
+            .first { $0.kind == .printedAsCheckbox }?.count ?? 0
+        XCTAssertEqual(counted, onPage,
+                       "the note says \(counted) box(es), the page carries \(onPage):\n\(page)")
+
+        // Each form named separately, so a disagreement says which one moved.
+        XCTAssertEqual(printedForm(before: "glued item", in: page), .marker("[x]"),
+                       "\(printedForm(before: "glued item", in: page))")
+        XCTAssertEqual(printedForm(before: "spaced item", in: page), .checkbox("☑"),
+                       "\(printedForm(before: "spaced item", in: page))")
+        XCTAssertEqual(onPage, 2, "the spaced marker and the lone one:\n\(page)")
     }
 
     /// A document that declares no plugin has nothing to say.
