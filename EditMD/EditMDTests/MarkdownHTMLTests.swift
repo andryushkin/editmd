@@ -78,7 +78,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// The page pushes its anchor per frame instead of Swift polling it per
     /// wheel event (one round trip in flight dropped most of the gesture).
     func testPreviewPagePushesScrollAnchorAndFlagsProgrammaticScrolls() {
-        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# One\n\nTwo", fontSize: 14).html
         XCTAssertTrue(page.contains("messageHandlers.previewScroll.postMessage"), page)
         XCTAssertTrue(page.contains("if (suppressScrollReport > 0) return;"), page)
         XCTAssertTrue(page.contains("userScrolledSinceSettle = true;"), page)
@@ -112,7 +112,7 @@ final class MarkdownHTMLTests: XCTestCase {
         let html = markdownHTMLBody("```swift\nlet x = 1\n```")
         XCTAssertTrue(html.contains("--tl:#"), html)
         XCTAssertTrue(html.contains("--td:#"), html)
-        let page = previewHTMLPage(markdown: "```swift\nlet x = 1\n```", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "```swift\nlet x = 1\n```", fontSize: 14).html
         XCTAssertTrue(page.contains(".hljs-token { color: var(--tl); }"), "token CSS missing")
         XCTAssertTrue(page.contains(".hljs-token { color: var(--td); }"), "dark token CSS missing")
     }
@@ -195,7 +195,7 @@ final class MarkdownHTMLTests: XCTestCase {
     // MARK: - Full page
 
     func testPreviewPageWrapsBody() {
-        let page = previewHTMLPage(markdown: "# Title", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# Title", fontSize: 14).html
         XCTAssertTrue(page.contains("<!DOCTYPE html>"), page)
         XCTAssertTrue(page.contains("<main id=\"preview-content\"><h1>"), page)
         XCTAssertTrue(page.contains("<h1>"), page)
@@ -204,7 +204,7 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testPreviewPageIncludesPersistentLiveFragmentBridge() {
-        let page = previewHTMLPage(markdown: "- [ ] Task", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "- [ ] Task", fontSize: 14).html
         XCTAssertTrue(page.contains("window.editMDPreviewRevision = 0"), page)
         XCTAssertTrue(page.contains("window.editMDHydratePreviewContent = function ()"), page)
         // SYNCHRONOUS: the bridge is the Swift render task's continuation, so it
@@ -226,7 +226,7 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testPreviewPageIncludesFindLayer() {
-        let page = previewHTMLPage(markdown: "# Title\n\nfind me", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# Title\n\nfind me", fontSize: 14).html
         XCTAssertTrue(page.contains("window.editMDFind = function (query)"), page)
         XCTAssertTrue(page.contains("window.editMDFindStep = function (delta)"), page)
         XCTAssertTrue(page.contains("window.editMDFindClear = function ()"), page)
@@ -245,7 +245,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// hydrate (pre-layout, therefore wrong anyway) *and* from the settle pass
     /// meant two forced full-document layouts per fragment, every ~90 ms.
     func testHydrateReadsNoGeometryAndSettleOwnsTheGutter() {
-        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# Title\n\ntext", fontSize: 14).html
         let hydrate = page.range(of: "window.editMDHydratePreviewContent = function () {")!
         let hydrateBody = String(page[hydrate.upperBound...].prefix(
             while: { $0 != "}" }))
@@ -265,7 +265,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// Ordinary typing keeps the exact pixel immediately, while resources that
     /// land later restore the semantic point captured from the old DOM.
     func testFragmentSettleSeparatesImmediatePixelFromLateSemanticReplay() {
-        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# Title\n\ntext", fontSize: 14).html
         XCTAssertTrue(page.contains("pixelY = window.scrollY;"), page)
         XCTAssertTrue(page.contains(
             "replayPosition = window.editMDCurrentScrollPosition();"), page)
@@ -281,7 +281,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// The fragment swap itself is programmatic: WebKit may clamp scrollY while
     /// innerHTML is changing, before the explicit settle has a chance to run.
     func testFragmentSwapSuppressesClampFeedbackForWholeDOMTransaction() {
-        let page = previewHTMLPage(markdown: "# Title\n\ntext", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# Title\n\ntext", fontSize: 14).html
         let begin = page.range(of: "beginScrollReportSuppression();", options: [],
                                range: page.range(of: "window.editMDReplacePreview")!.lowerBound..<page.endIndex)!
         let swap = page.range(of: "root.innerHTML = payload.html;")!
@@ -297,7 +297,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// both directions. Anchoring to a rendered line instead makes the follow
     /// stall or run backwards, because the two panes wrap at different widths.
     func testPreviewPageIncludesImmediateSplitScrollBridge() {
-        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# One\n\nTwo", fontSize: 14).html
         XCTAssertTrue(page.contains("window.syncScrollToMdPosition = function (position)"), page)
         XCTAssertTrue(page.contains("function mdYForPosition(position)"), page)
         XCTAssertTrue(page.contains("function mdPositionForY(y)"), page)
@@ -311,7 +311,7 @@ final class MarkdownHTMLTests: XCTestCase {
     /// (with highlighting that walk covers every token span). Scrolling must not
     /// stale it — hence document-space coords — but layout changes must.
     func testSplitScrollBridgeCachesAnchorsAndInvalidatesOnLayoutChange() {
-        let page = previewHTMLPage(markdown: "# One\n\nTwo", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# One\n\nTwo", fontSize: 14).html
         XCTAssertTrue(page.contains("if (mdAnchorTable) return mdAnchorTable"), page)
         XCTAssertTrue(page.contains("top: rect.top + scrollY"), page)
         XCTAssertTrue(page.contains("window.addEventListener('resize', invalidateMdAnchors)"), page)
@@ -321,25 +321,25 @@ final class MarkdownHTMLTests: XCTestCase {
     /// `pre` is tagged for scroll sync only: washing it would paint a whole
     /// code block for a mark that touches one line.
     func testReviewWashSkipsCodeBlockWrapper() {
-        let page = previewHTMLPage(markdown: "```swift\nlet a = 1\n```", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "```swift\nlet a = 1\n```", fontSize: 14).html
         XCTAssertTrue(page.contains("querySelectorAll('[data-md-lo]:not(pre)')"), page)
     }
 
     func testPreviewPageUsesVerticalInsetForTopPadding() {
-        let page = previewHTMLPage(markdown: "# Title", fontSize: 14, insetH: 40, insetV: 8)
+        let page = previewHTMLPageRender(markdown: "# Title", fontSize: 14, insetH: 40, insetV: 8).html
         // Top padding must track Settings ▸ Vertical, not a hardcoded value.
         XCTAssertTrue(page.contains("padding: 8px 40px "), page)
         XCTAssertTrue(page.contains("#preview-content > :first-child { margin-top: 0; }"), page)
     }
 
     func testPreviewPageZeroVerticalInset() {
-        let page = previewHTMLPage(markdown: "hi", fontSize: 14, insetH: 12, insetV: 0)
+        let page = previewHTMLPageRender(markdown: "hi", fontSize: 14, insetH: 12, insetV: 0).html
         XCTAssertTrue(page.contains("padding: 0px 12px "), page)
     }
 
     func testPreviewPageEmbedsFontWeightAndFamily() {
-        let page = previewHTMLPage(markdown: "text", fontSize: 16,
-                                   fontFamily: "\"Menlo\", monospace", fontWeight: 500)
+        let page = previewHTMLPageRender(markdown: "text", fontSize: 16,
+                                         fontFamily: "\"Menlo\", monospace", fontWeight: 500).html
         XCTAssertTrue(page.contains("font: 500 16px/"), page)
         XCTAssertTrue(page.contains("\"Menlo\", monospace"), page)
     }
@@ -347,20 +347,20 @@ final class MarkdownHTMLTests: XCTestCase {
     func testPreviewPageEmitsHeadingElementCSS() {
         var elements = ElementStyles()
         elements.h1 = ElementStyle(colorHex: "#FF0000", weight: .black, sizeScale: 2.5)
-        let page = previewHTMLPage(markdown: "# H", fontSize: 14, elements: elements)
+        let page = previewHTMLPageRender(markdown: "# H", fontSize: 14, elements: elements).html
         XCTAssertTrue(page.contains("h1 { font-size: 2.5em; font-weight: 900; color: #FF0000; }"), page)
     }
 
     func testPreviewPageAppliesColorOverrides() {
-        let page = previewHTMLPage(markdown: "[l](u)", fontSize: 14,
-                                   textColorHex: "#112233", accentColorHex: "#445566")
+        let page = previewHTMLPageRender(markdown: "[l](u)", fontSize: 14,
+                                         textColorHex: "#112233", accentColorHex: "#445566").html
         XCTAssertTrue(page.contains("color: #112233"), page)   // body text
         XCTAssertTrue(page.contains("a { color: #445566; }"), page)
     }
 
     func testPreviewPageStylesQuoteAndCodeWithCopyButtons() {
-        let page = previewHTMLPage(markdown: "> quote\n\n```swift\nlet x = 1\n```",
-                                   fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "> quote\n\n```swift\nlet x = 1\n```",
+                                         fontSize: 14).html
         XCTAssertTrue(page.contains("border-left: 4px solid rgba(0,122,255"), page)
         XCTAssertTrue(page.contains("border: 1px solid rgba(175,82,222"), page)
         XCTAssertTrue(page.contains("document.querySelectorAll('pre, blockquote')"), page)
@@ -374,7 +374,7 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testNestedQuoteRendersAsOneCopyableTree() {
         let md = "> This is a blockquote.\n>\n> > It can span multiple lines."
-        let page = previewHTMLPage(markdown: md, fontSize: 14)
+        let page = previewHTMLPageRender(markdown: md, fontSize: 14).html
         XCTAssertTrue(page.contains("<blockquote>"), page)
         // Runtime attachment deliberately skips nested blockquotes, while the
         // outer clone retains their text for one whole-tree copy operation.
@@ -395,8 +395,8 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testPreviewLineNumbersUseOneGlobalColumnAndLargerGap() {
         let gutter = PreviewGutterOptions(showLineNumbers: true)
-        let page = previewHTMLPage(markdown: "# H\n\n- item\n\n> quote",
-                                   fontSize: 14, insetH: 32, gutter: gutter)
+        let page = previewHTMLPageRender(markdown: "# H\n\n- item\n\n> quote",
+                                         fontSize: 14, insetH: 32, gutter: gutter).html
         XCTAssertTrue(page.contains("--ln-gap: 18px"), page)
         XCTAssertTrue(page.contains("function alignLineNumberGutter()"), page)
         XCTAssertTrue(page.contains("desiredLeft - el.getBoundingClientRect().left"), page)
@@ -564,8 +564,8 @@ final class MarkdownHTMLTests: XCTestCase {
     /// of tag-escaping reaches. Host-side JS (WKUserScript, evaluateJavaScript)
     /// bypasses CSP, so the selection bridge and the fragment bridge keep working.
     func testPreviewPageLocksDownScriptExecutionWithNoncedCSP() throws {
-        let page = previewHTMLPage(markdown: "$x$\n\n<img src=x onerror=\"alert(1)\">",
-                                   fontSize: 15)
+        let page = previewHTMLPageRender(markdown: "$x$\n\n<img src=x onerror=\"alert(1)\">",
+                                         fontSize: 15).html
         let meta = try XCTUnwrap(page.range(of: "<meta http-equiv=\"Content-Security-Policy\""))
         let header = String(page[meta.lowerBound...].prefix(400))
         XCTAssertTrue(header.contains("default-src 'none'"), header)
@@ -622,7 +622,7 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
 
         Body with $x^2$ math.
         """
-        let page = previewHTMLPage(markdown: markdown, fontSize: 14)
+        let page = previewHTMLPageRender(markdown: markdown, fontSize: 14).html
 
         let loaded = expectation(description: "page loaded")
         let delegate = LoadWaiter { loaded.fulfill() }
@@ -670,7 +670,7 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         let loaded = expectation(description: "page loaded")
         let delegate = LoadWaiter { loaded.fulfill() }
         webView.navigationDelegate = delegate
-        webView.loadHTMLString(previewHTMLPage(markdown: "# Before", fontSize: 14),
+        webView.loadHTMLString(previewHTMLPageRender(markdown: "# Before", fontSize: 14).html,
                                baseURL: nil)
         await fulfillment(of: [loaded], timeout: 20)
 
@@ -707,7 +707,7 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
         webView.navigationDelegate = delegate
         let markdown = (0..<120).map { "Paragraph \($0) with enough text to scroll." }
             .joined(separator: "\n\n")
-        webView.loadHTMLString(previewHTMLPage(markdown: markdown, fontSize: 14),
+        webView.loadHTMLString(previewHTMLPageRender(markdown: markdown, fontSize: 14).html,
                                baseURL: nil)
         await fulfillment(of: [loaded], timeout: 20)
         _ = try await webView.evaluateJavaScript("window.editMDPreviewRevision = 1")
@@ -746,7 +746,7 @@ final class PreviewPageCSPWebKitTests: XCTestCase {
             finished.fulfill()
         })
         webView.navigationDelegate = delegate
-        let started = webView.loadHTMLString(previewHTMLPage(markdown: "# Title", fontSize: 14),
+        let started = webView.loadHTMLString(previewHTMLPageRender(markdown: "# Title", fontSize: 14).html,
                                              baseURL: nil)
         await fulfillment(of: [finished], timeout: 20)
 

@@ -40,9 +40,9 @@ final class PreviewThemeTests: XCTestCase {
     func testThemeCSSIsInjectedBetweenBaseAndUserElementCSS() {
         var elements = ElementStyles()
         elements.h1 = ElementStyle(sizeScale: 2.5)
-        let page = previewHTMLPage(markdown: "# H", fontSize: 14,
-                                   elements: elements,
-                                   themeCSS: "h1 { font-size: 1.4em; } /* theme-marker */")
+        let page = previewHTMLPageRender(markdown: "# H", fontSize: 14,
+                                         elements: elements,
+                                         themeCSS: "h1 { font-size: 1.4em; } /* theme-marker */").html
         let themeIndex = page.range(of: "/* theme-marker */")
         let userIndex = page.range(of: "h1 { font-size: 2.5em; }")
         let baseIndex = page.range(of: "h1 { font-size: 1.8em;")
@@ -55,7 +55,7 @@ final class PreviewThemeTests: XCTestCase {
     }
 
     func testDefaultElementStylesEmitNoOverrideCSS() {
-        let page = previewHTMLPage(markdown: "# H\n\n**b**", fontSize: 14)
+        let page = previewHTMLPageRender(markdown: "# H\n\n**b**", fontSize: 14).html
         // Base rules carry the defaults; a silent element layer is what lets a
         // theme restyle elements the user never touched.
         XCTAssertFalse(page.contains("strong, b {"), page)
@@ -67,25 +67,25 @@ final class PreviewThemeTests: XCTestCase {
         var elements = ElementStyles()
         elements.h1 = ElementStyle(colorHex: "#FF0000", weight: .black, sizeScale: 2.5)
         elements.bold = ElementStyle(colorHex: "#00FF00", weight: .heavy)
-        let page = previewHTMLPage(markdown: "# H", fontSize: 14, elements: elements)
+        let page = previewHTMLPageRender(markdown: "# H", fontSize: 14, elements: elements).html
         XCTAssertTrue(page.contains("h1 { font-size: 2.5em; font-weight: 900; color: #FF0000; }"), page)
         XCTAssertTrue(page.contains("strong, b { font-weight: 800; color: #00FF00; }"), page)
     }
 
     func testLiteraryThemePageUsesSerifAndItalicQuotes() {
         let theme = PreviewTheme.preset(named: "literary")
-        let page = previewHTMLPage(markdown: "> q", fontSize: 14,
-                                   fontFamily: theme.cssFontFamily(userFamily: ""),
-                                   themeCSS: theme.css)
+        let page = previewHTMLPageRender(markdown: "> q", fontSize: 14,
+                                         fontFamily: theme.cssFontFamily(userFamily: ""),
+                                         themeCSS: theme.css).html
         XCTAssertTrue(page.contains("New York"), page)
         XCTAssertTrue(page.contains("font-style: italic"), page)
     }
 
     func testTyporaThemePageUsesOpenSansStackAndGithubTokens() {
         let theme = PreviewTheme.preset(named: "typora")
-        let page = previewHTMLPage(markdown: "[l](https://e)", fontSize: 14,
-                                   fontFamily: theme.cssFontFamily(userFamily: ""),
-                                   themeCSS: theme.pageCSS(userFamily: ""))
+        let page = previewHTMLPageRender(markdown: "[l](https://e)", fontSize: 14,
+                                         fontFamily: theme.cssFontFamily(userFamily: ""),
+                                         themeCSS: theme.pageCSS(userFamily: "")).html
         XCTAssertTrue(page.contains("Open Sans"), page)
         // Typora's Github-theme link blue and quote gray survive into the page.
         XCTAssertTrue(page.contains("#4183C4"))

@@ -514,7 +514,7 @@ final class BuiltInPluginsTests: XCTestCase {
         XCTAssertTrue(html.contains(">[X]</code>"), html)
         XCTAssertTrue(html.contains("data-plugin-offset="), html)
 
-        let page = previewHTMLPage(markdown: markdown, fontSize: 14)
+        let page = previewHTMLPageRender(markdown: markdown, fontSize: 14).html
         XCTAssertTrue(page.contains("hydrateBuiltInPluginTokens()"), page)
         XCTAssertTrue(page.contains("handlers.builtInPluginToggle.postMessage"), page)
     }
@@ -576,7 +576,7 @@ struct BuiltInPluginPreviewConfigurationTests {
 
     @Test func previewPageCarriesNoPluginCardMachinery() {
         let html = markdownHTMLBody(frontmatter + "\n[-] Item")
-        let page = previewHTMLPage(markdown: frontmatter, fontSize: 14)
+        let page = previewHTMLPageRender(markdown: frontmatter, fontSize: 14).html
 
         // The plugin settings card moved to the Properties inspector; the page
         // keeps only the interactive checkbox tokens themselves.

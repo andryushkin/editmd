@@ -142,7 +142,7 @@ struct FrontmatterHiddenTests {
 
     @Test func previewShellCarriesNoFrontmatterMachinery() {
         let body = markdownHTMLBody(markdown)
-        let page = previewHTMLPage(markdown: markdown, fontSize: 14)
+        let page = previewHTMLPageRender(markdown: markdown, fontSize: 14).html
 
         #expect(!body.contains("class=\"frontmatter\""))
         #expect(!page.contains("hydrateFrontmatterDisclosure"))
