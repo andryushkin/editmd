@@ -88,6 +88,23 @@ extension PrintReport {
     /// head of a list item print as their own text.
     static let checkboxMarkers: Set<String> = ["[ ]", "[x]", "[X]"]
 
+    /// Whether the renderer will read this token as a task rather than as text.
+    ///
+    /// Being at the head of a list item is not enough, and the difference is
+    /// measured rather than read off the grammar: `- [x]glued` prints as its own
+    /// text, `- [x] spaced` and a `- [x]` alone on its line print as a box. The
+    /// editor calls all three list markers, because for its own purposes they
+    /// are — so this is the one place where counting the editor's tokens would
+    /// tell the reader about a box that is not on the page.
+    static func printsAsCheckbox(_ token: BuiltInPluginToken, in markdown: NSString) -> Bool {
+        guard token.isListMarker, checkboxMarkers.contains(token.payload.state.source)
+        else { return false }
+        let after = NSMaxRange(token.range)
+        guard after < markdown.length else { return true }
+        return CharacterSet.whitespacesAndNewlines
+            .contains(UnicodeScalar(markdown.character(at: after)) ?? " ")
+    }
+
     /// The notes for a document, taken from the plugin tokens it carries.
     ///
     /// Pure, and it re-scans the markdown rather than accepting the editor's
@@ -98,9 +115,8 @@ extension PrintReport {
         let tokens = BuiltInPluginRegistry.snapshot(for: markdown).tokens
         guard !tokens.isEmpty else { return [] }
 
-        let boxes = tokens.filter {
-            $0.isListMarker && checkboxMarkers.contains($0.payload.state.source)
-        }
+        let ns = markdown as NSString
+        let boxes = tokens.filter { printsAsCheckbox($0, in: ns) }
         let struck = tokens.filter(\.payload.state.strikethrough)
 
         var notes: [PrintTokenNote] = []

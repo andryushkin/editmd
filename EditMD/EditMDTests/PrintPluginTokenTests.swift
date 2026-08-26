@@ -223,6 +223,34 @@ final class PrintPluginTokenTests: XCTestCase {
         XCTAssertFalse(notes.contains { $0.title.isEmpty || $0.detail.isEmpty })
     }
 
+    /// A marker glued to the text of its item is not a task to the renderer,
+    /// and the note must not count it as one.
+    ///
+    /// Measured against the renderer: `- [x]glued` prints as its own text and
+    /// `- [x] spaced` prints as a box. The editor calls both list markers,
+    /// because to the editor they are — this is the one place the two readings
+    /// differ, and a note that counted both would be telling the reader about a
+    /// box that is not on the page.
+    func testAMarkerGluedToItsTextIsNotCountedAsACheckbox() throws {
+        let markdown = """
+            ---
+            editmd:
+              plugins:
+                multi-checkbox:
+                  states:
+                    - marker: "x"
+                      label: Done
+                      icon: "sf:checkmark.square"
+            ---
+
+            - [x]glued item
+            - [x] spaced item
+            """
+        let notes = PrintReport.tokenNotes(in: markdown)
+        let boxes = try XCTUnwrap(notes.first { $0.kind == .printedAsCheckbox }, "\(notes)")
+        XCTAssertEqual(boxes.count, 1, "only the spaced one becomes a box on paper")
+    }
+
     /// A document that declares no plugin has nothing to say.
     func testADocumentWithoutThePluginHasNoNotes() {
         XCTAssertEqual(PrintReport.tokenNotes(in: "# Heading\n\n- [x] a task\n"), [])
