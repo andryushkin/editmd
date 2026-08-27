@@ -68,7 +68,10 @@ struct PrintWarning: Equatable, Sendable {
 /// The digest is what lets a second producer of the same document be compared
 /// without shipping the pictures around.
 struct PrintAssetRecord: Equatable, Sendable {
-    /// The name as the renderer asked for it — already percent-decoded.
+    /// The name the renderer asked for, percent-decoded by it and brought to
+    /// one Unicode form by `PrintAssetLoader.canonicalName` on the way in.
+    /// Canonical rather than verbatim because this name is compared and
+    /// written out: two spellings of one file must not read as two files.
     var name: String
     var supplied: Bool
     /// Bytes handed over. 0 when nothing was.
@@ -181,21 +184,6 @@ actor PrintRenderService {
 
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
-    /// Checked once, on the first print, not on every one.
-    ///
-    /// The gate that reads the vendored files runs before the build; this is the
-    /// half that asks the library itself, and it belongs on the path that calls
-    /// it. Without it a core built against another contract is logged at launch
-    /// and then called anyway — the assertion at startup compiles to nothing in
-    /// a shipping build, and every other link in the vendoring chain exists to
-    /// make exactly this refusal possible.
-    private lazy var abi: Result<Void, PDMCore.CoreError> = {
-        do { try PDMCore.checkABI(); return .success(()) }
-        catch let error as PDMCore.CoreError { return .failure(error) }
-        catch { return .failure(.abiMismatch(found: PDMCore.abiVersion(),
-                                             expected: PDMCore.expectedABIVersion)) }
-    }()
-
     /// The job for a request. No boundary call, so no contract check: this is
     /// the value the app would send, and it is answerable whatever the linked
     /// library turns out to speak.
@@ -225,7 +213,20 @@ actor PrintRenderService {
         // need a stand-in for the renderer, which does not exist here. Claiming
         // otherwise in a test name would be worse than saying this.
         try Task.checkCancellation()
-        if case .failure(let mismatch) = abi { throw PrintRenderError.core(mismatch) }
+        // The gate that reads the vendored files runs before the build; this is
+        // the half that asks the library itself, and it belongs on the path
+        // that calls it. Without it a core built against another contract is
+        // logged at launch and then called anyway — the assertion at startup
+        // compiles to nothing in a shipping build, and every other link in the
+        // vendoring chain exists to make exactly this refusal possible.
+        //
+        // `PDMCore.contract` and not a check of this actor's own: one verdict,
+        // reached once per process, is what makes the refusal the same fact
+        // here and at launch. Two evaluations of one contract are two things
+        // that can be changed apart.
+        if case .failure(let mismatch) = PDMCore.contract {
+            throw PrintRenderError.core(mismatch)
+        }
         let job = try job(for: request, options: options)
         try Task.checkCancellation()
         let assets = PrintAssetLoader(baseDir: request.baseDir)

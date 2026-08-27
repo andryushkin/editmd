@@ -17,6 +17,30 @@ import UniformTypeIdentifiers
 /// could see.
 struct PrintAssetLoader: Sendable {
 
+    /// The one form an asset name has once it is inside this app.
+    ///
+    /// NFC, the form the boundary was declared in. Applied once, where a name
+    /// crosses in — `PDMCore.setAssets` — and before anything looks at the
+    /// disk, so that every later statement about that name is a statement
+    /// about one spelling. It lives here because the rules about what a name
+    /// means belong here, and it is applied there because there is the single
+    /// door.
+    ///
+    /// What this does **not** buy, measured on this machine 28 Aug 2026 rather
+    /// than assumed: opening the file. `é.png` written as U+00E9 and as
+    /// U+0065 U+0301 are seven bytes and six, and APFS finds the same file for
+    /// either — it stores the form a file was created with and compares
+    /// without regard to form, and Swift's `==` on `String` compares by
+    /// canonical equivalence too. So "the picture printed" was never the
+    /// question. The question is whether the *name* is one name: it is written
+    /// into the print report, it is the key an asset is filed under, and it is
+    /// compared byte for byte against the same name produced elsewhere. Two
+    /// spellings there are two assets, and no amount of the file system being
+    /// helpful makes them one.
+    static func canonicalName(_ name: String) -> String {
+        name.precomposedStringWithCanonicalMapping
+    }
+
     /// The document's folder (the package itself for a textbundle), exactly as
     /// Preview resolves against it. nil for an unsaved document: nothing
     /// resolves, and the renderer reports each missing file as a warning.
@@ -28,7 +52,9 @@ struct PrintAssetLoader: Sendable {
     /// `name` is already percent-decoded by the renderer — a document writing
     /// `network%20map.png` asks for the file with a space in it — so decoding it
     /// again here would turn a literal `%20` in a real file name into a space
-    /// and open the wrong file.
+    /// and open the wrong file. It has also been through `canonicalName`
+    /// already: normalising again here would be harmless and would put the
+    /// rule in two places, which is how two places start to disagree.
     func bytes(forAssetNamed name: String) -> Data? {
         guard let baseDir, !name.isEmpty else { return nil }
         // A name with a scheme is not a path, and one that starts at the root or

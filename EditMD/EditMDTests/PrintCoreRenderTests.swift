@@ -850,6 +850,54 @@ final class PrintCoreRenderTests: XCTestCase {
         XCTAssertNil(absent.digest)
     }
 
+    /// One picture, two spellings: the name that crosses in has one form.
+    ///
+    /// The composite character is the whole point. `é` is U+00E9 as one scalar
+    /// and U+0065 U+0301 as two — nine bytes against ten in this file name —
+    /// and a document legitimately carries either: a name typed here and a name
+    /// pasted out of a file listing are not the same bytes.
+    ///
+    /// **What is asserted is the name, not that the picture printed**, and the
+    /// difference is measured rather than assumed. On this machine, 28 Aug 2026:
+    /// APFS stores the form a file was created with and finds it under either,
+    /// and Swift compares `String` by canonical equivalence — so "it printed"
+    /// and "the names are equal" are different statements, and the first is
+    /// green with no normalisation at all. The bytes of the recorded name are
+    /// where two spellings are still two, and that name is what goes into the
+    /// print report and into the manifest a second producer is compared against.
+    func testTwoSpellingsOfOnePictureCrossTheBoundaryAsOneName() async throws {
+        let root = try temporaryVault()
+        let folder = root.appendingPathComponent("doc")
+        let decomposed = "cafe\u{0301}.png"
+        let composed = "caf\u{00E9}.png"
+
+        // The probe measures nothing at all unless these are two byte strings,
+        // so that is asserted before anything else happens.
+        XCTAssertNotEqual(Array(decomposed.utf8), Array(composed.utf8))
+        XCTAssertEqual(Array(decomposed.utf8).count, 10)
+        XCTAssertEqual(Array(composed.utf8).count, 9)
+
+        let png = try Data(contentsOf: folder.appendingPathComponent("pic.png"))
+        // Created in the decomposed form: the file system keeps the form it was
+        // given, so the disk now genuinely disagrees with the canonical name.
+        try png.write(to: folder.appendingPathComponent(decomposed))
+
+        let asked = try await PrintPDFRenderer.render(
+            Self.request("![x](\(decomposed))\n", baseDir: folder))
+        let record = try XCTUnwrap(asked.assets.first)
+        XCTAssertTrue(record.supplied, "the file is there under either spelling")
+        XCTAssertEqual(Array(record.name.utf8), Array(composed.utf8),
+                       "the name that crossed in is NFC, whatever the document spelled")
+
+        let otherWay = try await PrintPDFRenderer.render(
+            Self.request("![x](\(composed))\n", baseDir: folder))
+        let otherRecord = try XCTUnwrap(otherWay.assets.first)
+        XCTAssertEqual(Array(otherRecord.name.utf8), Array(record.name.utf8),
+                       "one file, one name — asked for either way")
+        XCTAssertEqual(otherRecord.digest, record.digest)
+        XCTAssertEqual(otherRecord.byteCount, record.byteCount)
+    }
+
     /// A document with no pictures asks for nothing, and says so.
     func testADocumentWithNoPicturesRecordsNoAssets() async throws {
         let result = try await PrintPDFRenderer.render(Self.request("Body.\n"))

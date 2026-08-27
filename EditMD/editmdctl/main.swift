@@ -23,6 +23,10 @@ if args.isEmpty || args.contains("-h") || args.contains("--help") {
     EditMDCtl.printHelp()
     exit(args.isEmpty ? 1 : 0)
 }
+if args.contains("--version") {
+    EditMDCtl.printVersion(json: args.contains("--json"))
+    exit(0)
+}
 
 var jsonOut = false
 var rootOverride: String?
@@ -557,6 +561,40 @@ enum EditMDCtl {
         }
     }
 
+    /// What this build calls itself.
+    ///
+    /// Named fields rather than a bare number, and one line rather than
+    /// several: the answer is read by scripts as often as by people, and a
+    /// positional format cannot gain a field without breaking whoever parses
+    /// it. `--json` gives the same three facts as an object.
+    ///
+    /// **Only what this target can answer.** editmdctl is a build target of
+    /// its own and links no core: measured 28 Aug 2026, `nm -u` finds zero
+    /// `pdm_` symbols in the product. A field naming the page renderer's
+    /// contract would be a claim about a library this binary never loads —
+    /// an identity that is wrong about the very thing it exists to identify,
+    /// which is worse than a shorter one. The app links the core and answers
+    /// that question itself, through `status`.
+    ///
+    /// The values come from the embedded `Info.plist`
+    /// (`CREATE_INFOPLIST_SECTION_IN_BINARY`), which carries the same
+    /// project-level `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` as the
+    /// app. `unknown` rather than a plausible `0` when the section is absent:
+    /// a version that quietly reads zero is the one case this command exists
+    /// to prevent.
+    static func printVersion(json: Bool) {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = info?["CFBundleVersion"] as? String ?? "unknown"
+        if json {
+            print("""
+            {"build":"\(build)","tool":"editmdctl","version":"\(version)"}
+            """)
+        } else {
+            print("editmdctl version=\(version) build=\(build)")
+        }
+    }
+
     static func printHelp() {
         let sock = ControlSocket.defaultPath().path
         print("""
@@ -564,6 +602,7 @@ enum EditMDCtl {
 
         Usage:
           editmdctl [--json] [--socket PATH] <command> [args]
+          editmdctl [--json] --version
 
         Commands:
           status

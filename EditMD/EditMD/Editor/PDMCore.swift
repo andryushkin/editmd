@@ -33,6 +33,29 @@ enum PDMCore {
         pdm_abi_version()
     }
 
+    /// The verdict on the linked library, reached once and kept.
+    ///
+    /// A stored value rather than a check each caller repeats, and that is the
+    /// whole of what changed here. The launch report and the print path used
+    /// to decide the same question separately, and the launch one threw its
+    /// answer away: `assertionFailure` was all of it, which is a trap in a
+    /// development build and *nothing at all* in a shipping one. So an app
+    /// linked against a core it does not speak used to start in silence and
+    /// keep the news until somebody printed. The refusal now rests on a value
+    /// that exists in every configuration, and the assertion is only how loud
+    /// it is.
+    ///
+    /// `static let` is also when: once per process, at first use, off whatever
+    /// thread got there first — which is what the print path wanted from its
+    /// own `lazy` and now no longer has to arrange.
+    static let contract: Result<UInt32, CoreError> = {
+        let found = abiVersion()
+        guard found == expectedABIVersion else {
+            return .failure(.abiMismatch(found: found, expected: expectedABIVersion))
+        }
+        return .success(found)
+    }()
+
     /// Why the core cannot be used. Distinguishable by case, not by a string,
     /// so a caller can tell "wrong core" from a document it refused.
     ///
@@ -89,10 +112,7 @@ enum PDMCore {
     /// starts, from the vendored header. This is the runtime half of the pair:
     /// the gate reads a file next to the library, this reads the library.
     static func checkABI() throws {
-        let found = abiVersion()
-        guard found == expectedABIVersion else {
-            throw CoreError.abiMismatch(found: found, expected: expectedABIVersion)
-        }
+        if case .failure(let mismatch) = contract { throw mismatch }
     }
 
     private static let log = Logger(subsystem: "andryushkin.EditMD", category: "core")
@@ -103,15 +123,16 @@ enum PDMCore {
     /// Release binary at all — the linker drops archive members nothing
     /// reaches.
     static func reportABI() {
-        do {
-            try checkABI()
-            log.info("PrintDotMD ABI \(abiVersion(), privacy: .public)")
-        } catch {
+        switch contract {
+        case .success(let version):
+            log.info("PrintDotMD ABI \(version, privacy: .public)")
+        case .failure(let error):
             log.error("PrintDotMD core refused: \(String(describing: error), privacy: .public)")
             // A build mistake, not a user's problem: the vendored library and
             // this app were built against different contracts. Loud in debug,
             // logged in release — the app itself still runs, it just has no
-            // core to call.
+            // core to call, and everything that would call one reads
+            // `contract` and refuses by name.
             assertionFailure("\(error)")
         }
     }
@@ -247,17 +268,26 @@ extension PDMCore {
             let nameLength = pdm_document_required_asset_len(doc, index)
             let nameBytes = [UInt8](UnsafeRawBufferPointer(start: namePointer,
                                                            count: nameLength))
-            guard let name = String(bytes: nameBytes, encoding: .utf8) else {
+            guard let decoded = String(bytes: nameBytes, encoding: .utf8) else {
                 // A name the core cannot have produced. Still recorded, so the
                 // list accounts for every request rather than for the ones that
                 // went well.
                 records.append(.notSupplied(String(decoding: nameBytes, as: UTF8.self)))
                 continue
             }
+            // The single door a name comes through, so the single place its
+            // form is settled — before the loader is asked, and therefore
+            // before anything reaches the disk. Everything downstream of here
+            // says `name` and means one spelling.
+            let name = PrintAssetLoader.canonicalName(decoded)
             guard let data = asset(name) else {
                 records.append(.notSupplied(name))
                 continue
             }
+            // The key goes back in the bytes the core asked with, not in the
+            // canonical form: it is the core's own key into its own map, and
+            // matching it is not ours to reinterpret. Ours is `name`, and it
+            // is what the record carries.
             let status = nameBytes.withUnsafeBytes { rawName in
                 data.withUnsafeBytes { rawData in
                     pdm_document_set_asset(

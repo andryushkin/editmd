@@ -13,6 +13,12 @@ options:
 # instead of Xcode re-flagging them. Cascades to all targets.
 settings:
   base:
+    # The product version, project-wide rather than on the app target: three
+    # products carry it now — the app, the control CLI, and the MCP proxy —
+    # and a version that is written down once cannot disagree with itself.
+    # `scripts/dist.sh` and the release skill both read this line by name.
+    MARKETING_VERSION: "0.47.16"
+    CURRENT_PROJECT_VERSION: "431"
     DEAD_CODE_STRIPPING: YES
     ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
     CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
@@ -98,8 +104,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: andryushkin.EditMD
         PRODUCT_NAME: EditMD
-        MARKETING_VERSION: "0.47.16"
-        CURRENT_PROJECT_VERSION: "431"
         SWIFT_VERSION: "6.2"
         INFOPLIST_FILE: EditMD/App/Info.plist
         # App icon: EditMD/Resources/AppIcon.icns
@@ -171,6 +175,13 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         # Protocol files only need Foundation; MCPProtocol is pure JSON codec.
         GENERATE_INFOPLIST_FILE: YES
+        # A command-line tool is not a bundle, so the generated Info.plist has
+        # nowhere to live unless it is embedded in the binary itself. Without
+        # this, `Bundle.main.infoDictionary` is empty here — measured, and it
+        # is why `editmdctl --version` had nothing to read. The app gets the
+        # same values from the same project-level setting, so the two products
+        # of one build cannot name different versions.
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
 
   # MCP stdio proxy → control socket (plan 09 stage 6). Optional rich layer.
   editmd-mcp:
