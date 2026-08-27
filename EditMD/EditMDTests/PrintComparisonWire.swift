@@ -10,9 +10,15 @@ import Foundation
 /// One is "same job, two producers": both sides are handed the same manifest
 /// and the SHA-256 of the two PDFs has to match. The other is "same input, two
 /// jobs": both sides build a job from the same document and settings, and the
-/// manifests are compared field by field. The second is the one that says
-/// *which* field went wrong when the first fails, so the wire format has to
-/// spell out every field rather than hash the job as a whole.
+/// manifests are compared field by field.
+///
+/// Only the second names a field, and only about jobs built independently. When
+/// the first fails there is no field to name — both sides were handed the same
+/// manifest, so what differs is the producer or the boundary between them, not
+/// a decision. Saying otherwise here would send a reader looking through the
+/// fields of a job that both sides agreed on. The wire format spells out every
+/// field rather than hashing the job as a whole so that the second half can
+/// name one.
 ///
 /// The format is a contract with a producer that does not read Swift, so the
 /// key names and the shape below are fixed and cannot be changed on one side.
