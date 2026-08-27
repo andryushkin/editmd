@@ -68,6 +68,63 @@ Static checks, a few seconds, exit code 1 on any failure:
     the way it is — the space before the parenthesis, the Objective-C selector,
     the async form — is recorded on check 10 in `scripts/audit.sh`.
 
+11. **Render paths match the code** — the table "Four modes, four code paths"
+    in `docs/architecture.md` and the matching invariant in `CLAUDE.md` are
+    checked against the Swift sources, never against each other: an oracle
+    copied from the line it checks proves the two copies agree, not that either
+    is true. Of the `Print` row: every file it names exists, the row carries no
+    WebKit token, none of those files carries one either, and the renderer it
+    names really reaches the core (`PDMCore.` occurs in it). Of the `Preview`
+    row, the reverse — `WKWebView` must be there and in
+    `MarkdownPreviewView.swift`; that half is the control, and without it a
+    misspelled pattern would look exactly like a clean tree. In `CLAUDE.md` the
+    same claim is located by its own words rather than by a line number, and
+    the unit of "next to the word Print" is a comma- or semicolon-separated
+    fragment of that bullet. Every joint is fail-closed: no heading, no row, no
+    bullet, no file are each a FAIL with a reason.
+    What is **not** checked: that the described path is the one that runs. A
+    second, undescribed producer is check 13's sentence, not this one; the
+    `Source` and `Visual` rows are not read at all, since they name globs
+    rather than files; and a description of Print split across two fragments
+    could keep the WebKit token in the half that omits the word.
+
+12. **Nothing private rides out** — `scripts/check-publicity.sh` reads a
+    dictionary of forbidden spellings and looks for them in the commit messages
+    of the outgoing range, in the lines each of its commits adds, and in the
+    staged and unstaged diffs. The dictionary is deliberately not in this
+    repository, so the script has three outcomes and the audit lays out all
+    three: clean, found (each finding printed with its place and its line), and
+    *did not run* — a guard that could not read its dictionary must never look
+    like a clean tree, so that third outcome is a FAIL with the reason.
+    What is **not** checked: anything already in the base — only added lines are
+    read, because scanning removals would make a leak impossible to delete. The
+    range is read one commit at a time, since a push publishes commits and not
+    their sum, and a word that went into an older commit of the range keeps the
+    check red until the history is rewritten. It is a list of spellings, so a
+    paraphrase passes, as does anything git shows as binary. Untracked files
+    are in no diff and are not read. The full ceiling, and the price of the
+    fail-closed choice in a clone that has no dictionary, are in the script's
+    own header.
+
+13. **PDF bytes come from one place** — the whitelist check 10 names in its
+    ceiling and does not implement. Every occurrence of a producer token
+    (`PDMCore.render`, `NSPrintOperation`, `CGPDFContext`, `beginPDFPage`,
+    `dataRepresentation()`, `createPDF`, `WKPDFConfiguration`,
+    `pdf(configuration:`) in the shipped targets — the app, `editmdctl`,
+    `editmd-mcp`, tracked and untracked — must sit in a listed file:
+    `Editor/PrintPDFRenderer.swift`, the producer, or `Editor/PDMCore.swift`,
+    the declaration of the door it goes through. `EditMDTests/` is out of scope
+    by decision, not by oversight: tests produce PDF bytes on purpose and none
+    of it ships. `PDFDocument(url:)` and `PDFDocument(data:)` are not tokens —
+    they consume bytes, and a check that reddened on the image viewer would be
+    switched off within a week. The whitelist must also be non-empty: no
+    producer token in `PrintPDFRenderer.swift` is a FAIL ("vacuous"), because a
+    whitelist over a tree with no printing is green for the wrong reason.
+    What is **not** checked: this is still a list of names, so it bounds *where*
+    and not *how* — a producer spelled in a way no token lists passes, as does
+    one reached through a `Process` rather than a Swift call. Nothing here says
+    anything about what the bytes contain.
+
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).
 

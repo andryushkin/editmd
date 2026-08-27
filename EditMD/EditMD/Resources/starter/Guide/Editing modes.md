@@ -11,7 +11,7 @@ Markdown never changes behind your back.
 | --- | --- | --- |
 | **Source** | ⌘1 | The raw Markdown, with syntax colouring and linting. Where you fix a stubborn table or a link by hand. |
 | **Visual** | ⌘2 | Formatted text you type into directly: headings look like headings, `**bold**` looks bold. Writing mode. |
-| **Preview** | ⌘3 | The finished page — the same HTML the PDF export uses. Reading mode. |
+| **Preview** | ⌘3 | The finished page: formatted text, images and maths, read-only. Reading mode. |
 | **Split** | ⌘4 | Source on the left, Preview on the right, scrolling together. |
 
 ## Writing in Visual

@@ -8,7 +8,7 @@ import CoreText
 /// 0.705, SF Pro Text 0.705, Helvetica Neue 0.714), so a document that lost its
 /// font still gets leading within a few thousandths of an em of right instead of
 /// a line height that is off by the whole cap height.
-let printTypstCapHeightFallbackEm: Double = 0.71
+let printCoreCapHeightFallbackEm: Double = 0.71
 
 /// What the host answered for one print: the font files, in fallback order, and
 /// the two families the renderer is told to prefer.
@@ -92,7 +92,7 @@ enum PrintFontLoader {
             // that was asked for: naming a family the host does not have and
             // then measuring it would put the leading of a substitute on the
             // page.
-            bodyCapHeightEm: bodyFont.flatMap(capHeightEm(of:)) ?? printTypstCapHeightFallbackEm)
+            bodyCapHeightEm: bodyFont.flatMap(capHeightEm(of:)) ?? printCoreCapHeightFallbackEm)
     }
 
     /// First family the host answered for. A family it did not answer for is

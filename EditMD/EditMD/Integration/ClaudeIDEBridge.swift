@@ -82,9 +82,16 @@ final class ClaudeIDEBridge: ObservableObject {
         }
     }
 
-#if DEBUG
     /// Full singleton cleanup for order-independent tests: cancels debounce
     /// work and erases every remembered selection regardless of file guards.
+    /// Called only from `ReviewMarksTests`.
+    ///
+    /// Not behind `#if DEBUG`: it was, and that one conditional made the test
+    /// bundle unbuildable in Release without redefining `DEBUG` for it, which
+    /// would have compiled the tests against a different app than the one that
+    /// ships. The helper is `internal`, touches nothing but this singleton's
+    /// own cache, and is unreachable from the app's own code — carrying it in
+    /// the Release binary costs a few bytes and buys a Release test run.
     func resetForTesting() {
         selectionNotifyTask?.cancel()
         selectionNotifyTask = nil
@@ -96,7 +103,6 @@ final class ClaudeIDEBridge: ObservableObject {
         activeURL = nil
         hasSelection = false
     }
-#endif
 
     // MARK: Selection
 

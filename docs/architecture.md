@@ -362,8 +362,10 @@ image until the new bytes arrive. The check is opportunistic — on
   are never computed from a SwiftUI `body`. Folder stats, git status, review
   anchors, and highlighting use cache + background refresh
   (stale-while-revalidate).
-- Highlight.js never blocks a keystroke; blocking use is acceptable only for
-  one-off HTML/PDF export.
+- Highlight.js never blocks a keystroke; blocking use is acceptable only in a
+  one-shot render with no second chance to repaint — the Preview HTML string
+  and the view-less Source rendering (`makeSourceHighlightedString`). Code on a
+  printed page is highlighted by the core, not here.
 - Heavy payloads must not be hashed inside NSTextStorage attribute values —
   `MDBlock.hash(into:)` is O(1) by contract.
 - `maxNativeTableCells` (layout survival) and `markdownIsHeavy` (feature

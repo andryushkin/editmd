@@ -523,9 +523,9 @@ final class PrintCoreRenderTests: XCTestCase {
     /// gets. Nothing in the default themes reaches it, so it is asserted here
     /// rather than left to be discovered wrong.
     func testTheCapHeightFallbackIsUsedWhenNoFaceCanBeMeasured() {
-        XCTAssertEqual(PrintJob.leadingEm(for: 1.45, capHeightEm: printTypstCapHeightFallbackEm),
-                       1.45 - printTypstCapHeightFallbackEm, accuracy: 0.0001)
-        XCTAssertEqual(printTypstCapHeightFallbackEm, 0.71)
+        XCTAssertEqual(PrintJob.leadingEm(for: 1.45, capHeightEm: printCoreCapHeightFallbackEm),
+                       1.45 - printCoreCapHeightFallbackEm, accuracy: 0.0001)
+        XCTAssertEqual(printCoreCapHeightFallbackEm, 0.71)
     }
 
     /// Every field the boundary is asked about is filled in, including the ones

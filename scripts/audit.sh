@@ -245,6 +245,238 @@ raw=$(git -c core.quotepath=false grep -n --untracked -I -E \
 st=$?
 absent_or_fail one-pdf-producer "$st" $(printf '%s\n' "$raw" | cut -d: -f1,2)
 
+# 11. The prose about render paths says what the code does.
+#
+#     THE TRAP THIS IS BUILT AGAINST: an oracle copied from the line it checks
+#     proves the two copies agree, not that either is true. So nothing here
+#     compares text with text. Each claim is lifted out of the prose and asked
+#     of the SWIFT SOURCES: does the file exist, does it call the core, does it
+#     mention a web view. The prose is the question; the code is the answer.
+#
+#     Fail-closed at every joint: a table that is not found, a row that is not
+#     found, a file that is not found are each a FAIL with a reason. There is no
+#     branch here that reports PASS because it could not look.
+#
+#     THE CONTROL HALF is the Preview row, and it is not decoration. A check
+#     that only ever asserts "no WebKit token here" is indistinguishable from a
+#     check blind to the token altogether — it would stay green if the pattern
+#     were misspelled. Preview must CARRY `WKWebView` in its row and in
+#     `MarkdownPreviewView.swift`, so a blind pattern turns this check red.
+#
+#     WHAT IT DOES NOT PROVE: that the described path is the one that runs. It
+#     proves the named files exist, that the one named as the renderer reaches
+#     the core by name, and that no file of that path mentions a web view. A
+#     second, undescribed path through some other file is invisible to it —
+#     that sentence belongs to check 13. It also does not read the Source or
+#     Visual rows at all: they name globs, not files, and no claim about them
+#     was made worth checking.
+#
+#     THE UNIT OF "NEAR THE WORD Print" in CLAUDE.md is a comma- or
+#     semicolon-separated fragment of the bullet, which is exactly how that
+#     bullet lists its four paths. A WebKit token in a fragment that does not
+#     say `Print` is legal — the same bullet describes Preview, and Preview is
+#     a web view. That is the ceiling: a description of Print spread across two
+#     fragments could put the token in the half that omits the word.
+webkit_tokens='WKWebView|WebKit|createPDF|WKPDFConfiguration'
+arch=docs/architecture.md
+r11=""
+# Absolute line number of the first line in [start,end] of FILE matching RE.
+line_in_range() { # line_in_range <file> <start> <end> <ere>
+    local n
+    n=$(sed -n "$2,$3p" "$1" | grep -n -E "$4" | head -1 | cut -d: -f1)
+    [ -n "$n" ] && echo $(( $2 + n - 1 ))
+}
+# Every file the tree holds under that basename, tracked or not.
+find_named() { find EditMD -type f -name "$1" 2>/dev/null; }
+
+if [ ! -f "$arch" ]; then
+    r11="$r11 missing:$arch"
+elif [ ! -f CLAUDE.md ]; then
+    r11="$r11 missing:CLAUDE.md"
+else
+    t_start=$(grep -n '^## Four modes, four code paths$' "$arch" | head -1 | cut -d: -f1)
+    if [ -z "$t_start" ]; then
+        r11="$r11 $arch:no-heading:'Four-modes,-four-code-paths'"
+    else
+        t_end=$(awk -v s="$t_start" 'NR>s && /^## / {print NR-1; f=1; exit} END {if (!f) print NR}' "$arch")
+        table=$(sed -n "$t_start,$t_end p" "$arch" | grep '^|')
+        [ -n "$table" ] || r11="$r11 $arch:no-table-under-heading"
+        print_row=$(printf '%s\n' "$table" | grep -E '^\|[[:space:]]*Print[[:space:]]*\|' | head -1)
+        prev_row=$(printf '%s\n' "$table" | grep -E '^\|[[:space:]]*Preview[[:space:]]*\|' | head -1)
+        [ -n "$print_row" ] || r11="$r11 $arch:no-Print-row"
+        [ -n "$prev_row" ] || r11="$r11 $arch:no-Preview-row"
+
+        if [ -n "$print_row" ]; then
+            # (b) the row itself must not describe Print through a web view.
+            if printf '%s\n' "$print_row" | grep -q -E "$webkit_tokens"; then
+                n=$(line_in_range "$arch" "$t_start" "$t_end" '^\|[[:space:]]*Print[[:space:]]*\|')
+                r11="$r11 $arch:${n:-?}:Print-row-names-WebKit"
+            fi
+            # (a) every file named in the Files column exists, and (g) none of
+            #     them mentions a web view.
+            files=$(printf '%s\n' "$print_row" | cut -d'|' -f4 | tr -d '`' | tr ',' '\n' \
+                        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')
+            [ -n "$files" ] || r11="$r11 $arch:Print-row-names-no-files"
+            # read, not `for … in $files`: a name from the prose is untrusted
+            # text, and an unquoted expansion of it would glob against the cwd.
+            while IFS= read -r f; do
+                [ -z "$f" ] && continue
+                found=$(find_named "$f")
+                if [ -z "$found" ]; then
+                    r11="$r11 $arch:Print-row-file-missing:$f"
+                    continue
+                fi
+                while IFS= read -r path; do
+                    [ -z "$path" ] && continue
+                    hit=$(grep -n -E "$webkit_tokens" "$path" | head -1 | cut -d: -f1)
+                    [ -n "$hit" ] && r11="$r11 $path:$hit:WebKit-in-Print-path"
+                done <<< "$found"
+            done <<< "$files"
+            # (c) the renderer the prose names must actually reach the core.
+            printf '%s\n' "$print_row" | grep -q 'PrintPDFRenderer\.swift' \
+                || r11="$r11 $arch:Print-row-does-not-name-PrintPDFRenderer.swift"
+            renderer=$(find_named PrintPDFRenderer.swift | head -1)
+            if [ -z "$renderer" ]; then
+                r11="$r11 PrintPDFRenderer.swift:not-in-tree"
+            else
+                calls=$(grep -c 'PDMCore\.' "$renderer")
+                [ "$calls" -gt 0 ] || r11="$r11 $renderer:0-occurrences-of-PDMCore."
+            fi
+        fi
+
+        if [ -n "$prev_row" ]; then
+            # The control half: the same pattern must find something here.
+            printf '%s\n' "$prev_row" | grep -q -E 'WKWebView' \
+                || r11="$r11 $arch:Preview-row-does-not-name-WKWebView(control-half-blind)"
+            pv=$(find_named MarkdownPreviewView.swift | head -1)
+            if [ -z "$pv" ]; then
+                r11="$r11 MarkdownPreviewView.swift:not-in-tree"
+            else
+                pvhits=$(grep -c 'WKWebView' "$pv")
+                [ "$pvhits" -gt 0 ] || r11="$r11 $pv:0-occurrences-of-WKWebView(control-half-blind)"
+            fi
+        fi
+    fi
+
+    # The same claim in CLAUDE.md, located by its own words rather than by a
+    # line number: the guide is edited constantly and line numbers move.
+    b_start=$(grep -n '^- A markdown feature spans four independent render paths' CLAUDE.md \
+                | head -1 | cut -d: -f1)
+    if [ -z "$b_start" ]; then
+        r11="$r11 CLAUDE.md:no-bullet:'A-markdown-feature-spans-four-independent-render-paths'"
+    else
+        b_end=$(awk -v s="$b_start" 'NR>s && /^-[[:space:]]/ {print NR-1; f=1; exit} END {if (!f) print NR}' CLAUDE.md)
+        bullet=$(sed -n "$b_start,$b_end p" CLAUDE.md)
+        printf '%s\n' "$bullet" | grep -q 'PrintPDFRenderer' \
+            || r11="$r11 CLAUDE.md:$b_start:bullet-does-not-name-PrintPDFRenderer"
+        one=$(printf '%s' "$bullet" | tr '\n' ' ')
+        while IFS= read -r frag; do
+            printf '%s\n' "$frag" | grep -q -E '(^|[^A-Za-z0-9_])Print([^A-Za-z0-9_]|$)' || continue
+            printf '%s\n' "$frag" | grep -q -E "$webkit_tokens" || continue
+            n=$(line_in_range CLAUDE.md "$b_start" "$b_end" "$webkit_tokens")
+            calls=0
+            renderer=$(find_named PrintPDFRenderer.swift | head -1)
+            [ -n "$renderer" ] && calls=$(grep -c 'PDMCore\.' "$renderer")
+            r11="$r11 CLAUDE.md:${n:-$b_start}:describes-Print-via-WebKit-but-${renderer:-PrintPDFRenderer.swift}-has-0-of-those-tokens-and-calls-PDMCore.-${calls}-times"
+        done <<< "$(printf '%s' "$one" | tr ',;' '\n\n')"
+    fi
+fi
+if [ -z "$r11" ]; then pass "render-paths-match-code"; else fail "render-paths-match-code" $r11; fi
+
+# 12. Nothing private rides out with the push. The dictionary of forbidden
+#     spellings is not in this repository — the list of what we hide is itself
+#     a thing we hide — so the work is done by scripts/check-publicity.sh,
+#     which reads it from the private notes file. Its header carries the whole
+#     rationale, including the price: a clone without that file is RED here,
+#     not skipped.
+#
+#     Three outcomes are laid out by hand rather than folded into a truthy
+#     test, because the third one is the interesting one: 2 means the guard did
+#     not run, and a guard that did not run must never look like a clean tree.
+#
+#     WHAT IT DOES NOT PROVE: it reads added lines and commit messages, so a
+#     word already in the base is invisible; and it is a list of spellings, so
+#     a paraphrase passes. Its full ceiling is written where it belongs, in the
+#     script's own header.
+pub_out=$(scripts/check-publicity.sh 2>&1)
+pub_st=$?
+case "$pub_st" in
+    0) pass "publicity-dictionary" ;;
+    1) fail "publicity-dictionary" "forbidden material in the outgoing change:"
+       printf '%s\n' "$pub_out" | sed 's/^/      /' ;;
+    *) fail "publicity-dictionary" "the check did not run (exit $pub_st):"
+       printf '%s\n' "$pub_out" | sed 's/^/      /' ;;
+esac
+
+# 13. Bytes of a PDF are produced in PrintPDFRenderer.swift and nowhere else.
+#
+#     This is the WHITELIST that check 10 names in its own ceiling and does not
+#     implement, and the two are complementary rather than redundant: check 10
+#     forbids a set of names anywhere, this one permits a set of PLACES. Adding
+#     a name to check 10 closes one more door; this closes the room. Check 10
+#     is not touched by this — its ceiling is recorded in its own header, and
+#     rewriting it into this shape would lose the four spellings it argues for.
+#
+#     SCOPE IS THE SHIPPED TARGETS, tracked and untracked: the app, editmdctl,
+#     editmd-mcp. EditMDTests/ is deliberately OUT, named here rather than left
+#     to be inferred — tests produce PDF bytes on purpose (PrintCoreRenderTests
+#     calls the core, PrintModeTests draws a page through PDFKit to have
+#     something to compare against) and none of it ships. A producer that hides
+#     in a test file and is called from the app would be caught by the call
+#     site, which is in the app and therefore in scope.
+#
+#     THE TOKENS ARE PRODUCERS ONLY. `PDFDocument(url:)` and `PDFDocument(data:)`
+#     are deliberately absent: they CONSUME bytes (PDFViewerView, PrintPaneView
+#     both do), and a check that reddened on the viewer would be turned off
+#     within a week.
+#
+#     NON-EMPTINESS IS PART OF THE CHECK. A whitelist over a tree with no
+#     printing at all is vacuously satisfied and green, which is the same
+#     report it gives for a healthy tree. So PrintPDFRenderer.swift must itself
+#     contain at least one producer token; if it does not, the check FAILs as
+#     vacuous rather than passing on nothing.
+#
+#     WHAT IT DOES NOT PROVE: this too is a list of names, and a producer
+#     spelled in a way no token here lists passes — a whitelist bounds WHERE,
+#     not HOW. It also says nothing about what the bytes contain, nor about a
+#     producer reached through a Process or a plug-in rather than a Swift call.
+pdf_places='EditMD/EditMD/Editor/PrintPDFRenderer.swift EditMD/EditMD/Editor/PDMCore.swift'
+pdf_hits=$(git -c core.quotepath=false grep -n --untracked -I -E \
+        -e 'PDMCore\.render' \
+        -e 'NSPrintOperation' \
+        -e 'CGPDFContext' \
+        -e 'beginPDFPage' \
+        -e 'dataRepresentation\(\)' \
+        -e '(^|[^A-Za-z0-9_])createPDF' \
+        -e 'WKPDFConfiguration' \
+        -e 'pdf[[:space:]]*\([[:space:]]*configuration' \
+        -- 'EditMD/EditMD/*.swift' 'EditMD/editmdctl/*.swift' 'EditMD/editmd-mcp/*.swift')
+pdf_st=$?
+if [ "$pdf_st" -gt 1 ]; then
+    fail "pdf-bytes-one-place" "git grep errored ($pdf_st)"
+else
+    stray=""
+    while IFS= read -r h; do
+        [ -z "$h" ] && continue
+        hf=${h%%:*}
+        case " $pdf_places " in
+            *" $hf "*) ;;
+            *) stray="$stray $(printf '%s' "$h" | cut -d: -f1,2)" ;;
+        esac
+    done <<< "$pdf_hits"
+    # The whitelist must not be vacuous: no producer in the one place that is
+    # supposed to have one means this check is measuring nothing.
+    vac=""
+    renderer=EditMD/EditMD/Editor/PrintPDFRenderer.swift
+    if [ ! -f "$renderer" ]; then
+        vac="whitelist is vacuous: $renderer is missing"
+    elif ! printf '%s\n' "$pdf_hits" | grep -q "^$renderer:"; then
+        vac="whitelist is vacuous: no producer token in $renderer"
+    fi
+    if [ -z "$stray" ] && [ -z "$vac" ]; then pass "pdf-bytes-one-place"
+    else fail "pdf-bytes-one-place" ${vac:+"$vac"} $stray; fi
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
     echo "AUDIT: all mechanical checks passed."

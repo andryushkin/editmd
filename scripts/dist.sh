@@ -81,6 +81,33 @@ xcodebuild -project "$PROJECT" -scheme EditMD -configuration Debug \
     -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
     -only-testing:EditMDTests/PDMCoreTests test | tail -3
 
+# The same tests again, in the configuration that ships. Debug above and
+# Release here answer different questions and neither replaces the other:
+# Debug checks the vendored bytes with every assertion live, Release checks
+# them with the assertions gone. `assertionFailure` compiles to nothing in
+# Release, so a wrapper whose only report of a mismatch is an assertion says
+# nothing at all in the build users install — which is exactly the build this
+# script packages.
+#
+# ENABLE_TESTABILITY=YES because `@testable import` does not compile without
+# it, and it is safe here for two separate reasons. It changes neither
+# `#if DEBUG` (that follows SWIFT_ACTIVE_COMPILATION_CONDITIONS, untouched) nor
+# `assertionFailure` (that follows the optimization level, untouched), so the
+# Release semantics this run exists to exercise are the real ones. And it does
+# not reach the packaged product: this is the test action of the scheme with
+# an override on its own invocation, while the `build` below runs separately
+# and without it, and it is that build whose EditMD.app is copied into the DMG.
+# That last clause is an ORDERING dependency, not a property of the setting:
+# this run and the packaging build share one DerivedData and therefore one
+# Build/Products/Release, and what keeps testability out of the DMG is that the
+# packaging build comes after, with the setting absent, and rebuilds the app
+# target because a changed build setting invalidates it. Move the packaging
+# build above this line and the DMG gets the testable binary.
+xcodebuild -project "$PROJECT" -scheme EditMD -configuration Release \
+    ENABLE_TESTABILITY=YES \
+    -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
+    -only-testing:EditMDTests/PDMCoreTests test | tail -3
+
 for scheme in EditMD editmdctl; do
     xcodebuild -project "$PROJECT" -scheme "$scheme" -configuration Release \
         -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
