@@ -62,7 +62,10 @@ Static checks, a few seconds, exit code 1 on any failure:
     whatever file or type it lives in. Preview's own `previewHTMLPageRender(`
     is deliberately not matched. The name is matched rather than the call:
     Swift accepts a space before the parenthesis, and the first version of this
-    check passed a file that built and printed pages that way. The check counts
+    check passed a file that built and printed pages that way. Anything that
+    merely begins with `createPDF` counts too — WebKit's Objective-C name is
+    `createPDFWithConfiguration:completionHandler:`, and a selector built from
+    that string reaches the same method. The check counts
     occurrences of those two names, not calls — at a threshold of zero the distinction costs nothing,
     and it is stated so that nobody later reads more into a PASS than a grep
     can give. It does not see a producer that is not a web view

@@ -193,6 +193,13 @@ fi
 #     bare identifier also covers the call whose parenthesis sits on the next
 #     line, which no line-oriented grep could ever see.
 #
+#     `createPDF` has no right-hand boundary for the same reason. WebKit's
+#     Objective-C name is `createPDFWithConfiguration:completionHandler:`, and a
+#     selector built from that string is a way to reach the same method that a
+#     bounded pattern would let through — a second review found that one. Any
+#     identifier that merely begins with `createPDF` is a second producer as
+#     far as this is concerned, and there are none in the tree that are not.
+#
 #     `previewHTMLPage` was the wrapper that fed the old exporter its HTML.
 #     Preview itself calls `previewHTMLPageRender`, which this pattern does not
 #     match: the character after the name must not be one that could continue
@@ -210,7 +217,7 @@ fi
 #     into a PDF"; the rest of that sentence is held by the probes that compare
 #     what the export writes with what the pane prints.
 raw=$(git -c core.quotepath=false grep -n --untracked -I -E \
-        -e '(^|[^A-Za-z0-9_])createPDF([^A-Za-z0-9_]|$)' \
+        -e '(^|[^A-Za-z0-9_])createPDF' \
         -e '(^|[^A-Za-z0-9_])previewHTMLPage([^A-Za-z0-9_]|$)' -- '*.swift')
 st=$?
 if [ $st -eq 1 ]; then pass "one-pdf-producer"
