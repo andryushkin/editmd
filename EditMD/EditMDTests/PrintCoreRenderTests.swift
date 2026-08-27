@@ -1166,6 +1166,21 @@ final class PrintCoreRenderTests: XCTestCase {
         let note = named("EDITMD_PRINT_COMPARE_NOTE")
         let settingsFile = named("EDITMD_PRINT_COMPARE_SETTINGS")
 
+        // All four together or none at all, and the destination is one of the
+        // four. It was not, and that was a hole in the very defence this test
+        // exists for: named alone, it sent the built-in fixture to the place a
+        // caller had asked for a named document, wrote every file the gate
+        // looks for, and reported success. A gate that checks the files are
+        // there — because a return code cannot be trusted here — would read
+        // that as agreement about a document nobody printed.
+        let named = [destination?.path, vault, note, settingsFile].compactMap { $0 }
+        guard named.isEmpty || named.count == 4 else {
+            return XCTFail("the destination, the vault, the note and the settings are "
+                           + "named together or not at all — \(named.count) of 4 arrived, "
+                           + "and half a configuration lays a fixture out under the name "
+                           + "of the document that was asked for")
+        }
+
         let markdown: String
         let baseDir: URL
         let settings: PrintSettings
@@ -1183,10 +1198,6 @@ final class PrintCoreRenderTests: XCTestCase {
             settings = try JSONDecoder().decode(
                 PrintSettings.self, from: try Data(contentsOf: URL(fileURLWithPath: settingsFile)))
         } else {
-            // Half a configuration is worse than none: it would print a fixture
-            // and lay it out under the name of the document that was asked for.
-            XCTAssertNil(vault ?? note ?? settingsFile,
-                         "the vault, the note and the settings are named together or not at all")
             let root = try temporaryVault()
             baseDir = root.appendingPathComponent("doc")
             markdown = "# Heading\n\nBody with a picture.\n\n![alt](pic.png)\n"
