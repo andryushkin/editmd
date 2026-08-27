@@ -281,13 +281,18 @@ final class PrintPluginTokenTests: XCTestCase {
         XCTAssertEqual(counted, onPage,
                        "the note says \(counted) box(es), the page carries \(onPage):\n\(page)")
 
-        // Each form named separately, so a disagreement says which one moved.
-        XCTAssertEqual(printedForm(before: "glued item", in: page), .marker("[x]"),
-                       "\(printedForm(before: "glued item", in: page))")
-        XCTAssertEqual(printedForm(before: "😀emoji item", in: page), .marker("[x]"),
-                       "\(printedForm(before: "😀emoji item", in: page))")
-        XCTAssertEqual(printedForm(before: "spaced item", in: page), .checkbox("☑"),
-                       "\(printedForm(before: "spaced item", in: page))")
+        // Each form named separately, so a disagreement says which one moved —
+        // in the same table shape the probe above uses, so a form added later
+        // is a line in a list and not a fourth hand-written pair.
+        let expected: [(tail: String, form: PrintedForm)] = [
+            ("glued item",    .marker("[x]")),
+            ("😀emoji item",  .marker("[x]")),
+            ("spaced item",   .checkbox("☑")),
+        ]
+        for (tail, form) in expected {
+            XCTAssertEqual(printedForm(before: tail, in: page), form,
+                           "\(tail): \(printedForm(before: tail, in: page))")
+        }
         XCTAssertEqual(onPage, 2, "the spaced marker and the lone one:\n\(page)")
     }
 

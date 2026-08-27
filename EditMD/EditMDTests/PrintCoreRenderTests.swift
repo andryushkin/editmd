@@ -1173,10 +1173,13 @@ final class PrintCoreRenderTests: XCTestCase {
         // looks for, and reported success. A gate that checks the files are
         // there — because a return code cannot be trusted here — would read
         // that as agreement about a document nobody printed.
-        let named = [destination?.path, vault, note, settingsFile].compactMap { $0 }
-        guard named.isEmpty || named.count == 4 else {
+        // `arrived`, not `named`: a local function of that name is what read the
+        // environment eight lines up, and the block whose whole point is not
+        // being misread should not spend one word on two meanings.
+        let arrived = [destination?.path, vault, note, settingsFile].compactMap { $0 }
+        guard arrived.isEmpty || arrived.count == 4 else {
             return XCTFail("the destination, the vault, the note and the settings are "
-                           + "named together or not at all — \(named.count) of 4 arrived, "
+                           + "named together or not at all — \(arrived.count) of 4 arrived, "
                            + "and half a configuration lays a fixture out under the name "
                            + "of the document that was asked for")
         }
