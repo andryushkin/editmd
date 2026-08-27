@@ -55,24 +55,18 @@ Static checks, a few seconds, exit code 1 on any failure:
    base can be determined the check FAILs rather than silently shrinking its
    scope.
 
-10. **One producer of PDF pages** — no occurrence of the names `createPDF` or
-    `previewHTMLPage` in any Swift source, tracked or not. The app prints
-    through the prebuilt core; a second producer means a web view rendering
-    pages of its own, and WebKit's `createPDF(` is the call it cannot avoid
-    whatever file or type it lives in. Preview's own `previewHTMLPageRender(`
-    is deliberately not matched. The name is matched rather than the call:
-    Swift accepts a space before the parenthesis, and the first version of this
-    check passed a file that built and printed pages that way. Anything that
-    merely begins with `createPDF` counts too — WebKit's Objective-C name is
-    `createPDFWithConfiguration:completionHandler:`, and a selector built from
-    that string reaches the same method. The check counts
-    occurrences of those two names, not calls — at a threshold of zero the distinction costs nothing,
-    and it is stated so that nobody later reads more into a PASS than a grep
-    can give. It does not see a producer that is not a web view
-    (`NSPrintOperation`, pages written through PDFKit): what passes here is
-    "no second producer on WebKit", not the whole of "one path into a PDF".
-    The rest of that sentence is held by the tests that compare the file an
-    export writes with the pages the Print pane shows.
+10. **One producer of PDF pages** — no occurrence of the names `createPDF`,
+    `pdf(configuration:`, `WKPDFConfiguration` or `previewHTMLPage` in any Swift
+    source, tracked or not; Preview's own `previewHTMLPageRender(` is
+    deliberately not matched. Names are matched rather than calls, and at a
+    threshold of zero the distinction costs nothing. What a PASS means is the
+    narrow "no second producer on WebKit by any spelling seen so far": this is a
+    list of names, three reviews have each added one to it, and a producer that
+    is not a web view (`NSPrintOperation`, PDFKit) passes untouched. The whole of
+    "one path into a PDF" is held instead by the tests that compare the file an
+    export writes with the pages the Print pane shows. Why each name is shaped
+    the way it is — the space before the parenthesis, the Objective-C selector,
+    the async form — is recorded on check 10 in `scripts/audit.sh`.
 
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).
