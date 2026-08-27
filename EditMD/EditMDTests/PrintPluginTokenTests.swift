@@ -223,7 +223,7 @@ final class PrintPluginTokenTests: XCTestCase {
         XCTAssertFalse(notes.contains { $0.title.isEmpty || $0.detail.isEmpty })
     }
 
-    /// The three forms a list marker comes in, in one document.
+    /// The four forms a list marker comes in, in one document.
     ///
     /// Two of them are separated by a space that is not there: `- [x]glued`
     /// prints as its own text and `- [x] spaced` prints as a box. The third is
@@ -234,7 +234,12 @@ final class PrintPluginTokenTests: XCTestCase {
     /// are; this is the one place the two readings differ, and a note that
     /// counted a form the renderer prints as text would be telling the reader
     /// about a box that is not on the page.
-    static let threeMarkerForms = """
+    ///
+    /// The fourth form is what the marker is followed by rather than where it
+    /// sits: a character outside the BMP arrives as two UTF-16 units, and the
+    /// first of them is not a character at all. It is here because two readers
+    /// of this step's diff found the same defect behind it, independently.
+    static let markerForms = """
         ---
         editmd:
           plugins:
@@ -247,14 +252,15 @@ final class PrintPluginTokenTests: XCTestCase {
 
         - [x]glued item
         - [x] spaced item
+        - [x]😀emoji item
         - [x]
         """
 
     func testAMarkerGluedToItsTextIsNotCountedAsACheckbox() throws {
-        let notes = PrintReport.tokenNotes(in: Self.threeMarkerForms)
+        let notes = PrintReport.tokenNotes(in: Self.markerForms)
         let boxes = try XCTUnwrap(notes.first { $0.kind == .printedAsCheckbox }, "\(notes)")
         XCTAssertEqual(boxes.count, 2,
-                       "the spaced marker and the lone one; not the glued one")
+                       "the spaced marker and the lone one; neither glued form")
     }
 
     /// The count is the number of boxes on the page, asked of the page.
@@ -266,11 +272,11 @@ final class PrintPluginTokenTests: XCTestCase {
     /// *renderer's* rule for what a task item is, and nothing in this app
     /// enforces that except reading the printed page.
     func testTheNoteCountsExactlyTheBoxesThePagePrints() async throws {
-        let result = try await PrintPDFRenderer.render(Self.request(Self.threeMarkerForms))
+        let result = try await PrintPDFRenderer.render(Self.request(Self.markerForms))
         let page = try text(of: result.pdf)
 
         let onPage = page.filter { $0 == "☑" }.count
-        let counted = PrintReport.tokenNotes(in: Self.threeMarkerForms)
+        let counted = PrintReport.tokenNotes(in: Self.markerForms)
             .first { $0.kind == .printedAsCheckbox }?.count ?? 0
         XCTAssertEqual(counted, onPage,
                        "the note says \(counted) box(es), the page carries \(onPage):\n\(page)")
@@ -278,6 +284,8 @@ final class PrintPluginTokenTests: XCTestCase {
         // Each form named separately, so a disagreement says which one moved.
         XCTAssertEqual(printedForm(before: "glued item", in: page), .marker("[x]"),
                        "\(printedForm(before: "glued item", in: page))")
+        XCTAssertEqual(printedForm(before: "😀emoji item", in: page), .marker("[x]"),
+                       "\(printedForm(before: "😀emoji item", in: page))")
         XCTAssertEqual(printedForm(before: "spaced item", in: page), .checkbox("☑"),
                        "\(printedForm(before: "spaced item", in: page))")
         XCTAssertEqual(onPage, 2, "the spaced marker and the lone one:\n\(page)")

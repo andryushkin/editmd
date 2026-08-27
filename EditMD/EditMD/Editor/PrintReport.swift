@@ -96,13 +96,20 @@ extension PrintReport {
     /// editor calls all three list markers, because for its own purposes they
     /// are — so this is the one place where counting the editor's tokens would
     /// tell the reader about a box that is not on the page.
+    ///
+    /// The unit after the marker is read as UTF-16, and a unit that is not a
+    /// scalar is half of a character outside the BMP — `- [x]😀item` is the
+    /// case. Half a surrogate pair is not whitespace and the renderer prints
+    /// that marker as text, so it is answered `false`: reading it as a space
+    /// because no scalar could be made is how this told the reader about a box
+    /// that is not on the page.
     static func printsAsCheckbox(_ token: BuiltInPluginToken, in markdown: NSString) -> Bool {
         guard token.isListMarker, checkboxMarkers.contains(token.payload.state.source)
         else { return false }
         let after = NSMaxRange(token.range)
         guard after < markdown.length else { return true }
-        return CharacterSet.whitespacesAndNewlines
-            .contains(UnicodeScalar(markdown.character(at: after)) ?? " ")
+        guard let next = UnicodeScalar(markdown.character(at: after)) else { return false }
+        return CharacterSet.whitespacesAndNewlines.contains(next)
     }
 
     /// The notes for a document, taken from the plugin tokens it carries.
