@@ -580,14 +580,9 @@ struct MarkdownPreviewView: NSViewRepresentable {
         }
     }
 
-    /// Directory that relative image paths resolve against: the .textbundle
-    /// package root (sources reference "assets/…"), or the .md file's folder.
-    private var assetBaseDir: URL? {
-        guard let fileURL else { return nil }
-        return fileURL.pathExtension == "textbundle"
-            ? fileURL
-            : fileURL.deletingLastPathComponent()
-    }
+    /// Directory that relative image paths resolve against — the one answer
+    /// every render path uses (`documentAssetBaseDir`).
+    private var assetBaseDir: URL? { documentAssetBaseDir(for: fileURL) }
 
     /// data: URI for a relative local image path, or nil to keep the original
     /// source (remote URLs, anchors, unknown types, oversized/missing files).

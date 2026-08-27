@@ -64,6 +64,11 @@ final class PrintExportTests: XCTestCase {
                         markdownContent: { Self.markdown }, fileURL: file)
     }
 
+    /// A flag two closures can share on the main actor.
+    @MainActor private final class Flag {
+        var raised = false
+    }
+
     private func digest(_ bytes: Data) -> String {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
@@ -256,6 +261,15 @@ final class PrintExportTests: XCTestCase {
         XCTAssertNil(PrintRenderRequest.forDocument(markdown: "x", fileURL: nil).baseDir,
                      "a document with no path has no folder to resolve against")
 
+        // Spelled in capitals, the package is still a package. The file reader
+        // has always thought so; three copies of this rule, this one among
+        // them, did not — a review found them, and the answer now comes from
+        // one function that every render path calls.
+        let shouted = URL(fileURLWithPath: "/vault/notes/PACK.TEXTBUNDLE")
+        XCTAssertEqual(PrintRenderRequest.forDocument(markdown: "x", fileURL: shouted).baseDir?.path,
+                       "/vault/notes/PACK.TEXTBUNDLE",
+                       "the package itself, whatever case its name is written in")
+
         // The print settings and not Preview's. The two have fields of the same
         // names and different values, and a page laid out from the wrong one
         // looks almost right.
@@ -263,6 +277,51 @@ final class PrintExportTests: XCTestCase {
         XCTAssertEqual(plain.syntaxHighlighting,
                        EditorSettings.shared.general.syntaxHighlighting)
         XCTAssertEqual(plain.markdown, "x")
+    }
+
+    /// Two exports at once are one export.
+    ///
+    /// Laying out pages takes seconds during which nothing on screen says so,
+    /// so a second ⇧⌘E is what a person does when they think the first did
+    /// nothing. Before this, the answer was a second panel and a second print
+    /// of the same document.
+    func testASecondExportWhileOneIsRunningIsRefused() async throws {
+        let root = try documentFolder()
+        let file = root.appendingPathComponent("note.md")
+        let target = root.appendingPathComponent("out.pdf")
+
+        let firstAsked = Flag()
+        let first = Task { @MainActor in
+            await PDFExport.command(self.actions(at: file),
+                                    destination: { _ in firstAsked.raised = true; return target },
+                                    reveal: { _ in })
+        }
+        var spins = 0
+        while !firstAsked.raised, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+        XCTAssertTrue(firstAsked.raised, "the first export never got as far as asking")
+
+        let secondAsked = Flag()
+        let second = await PDFExport.command(actions(at: file),
+                                             destination: { _ in
+                                                 secondAsked.raised = true
+                                                 return target
+                                             },
+                                             reveal: { _ in })
+        guard case .alreadyRunning = second else {
+            _ = await first.value
+            return XCTFail("the second export was not refused: \(second)")
+        }
+        XCTAssertFalse(secondAsked.raised,
+                       "the second export asked where to put a file it was never going to write")
+
+        // And the first one still finishes, unaffected by having been asked twice.
+        guard case .wrote(let written) = await first.value else {
+            return XCTFail("the first export did not write its file")
+        }
+        XCTAssertEqual(written, target)
     }
 
     /// The control the others are read against: one document exported twice is

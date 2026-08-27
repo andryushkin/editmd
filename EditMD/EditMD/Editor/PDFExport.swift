@@ -39,8 +39,21 @@ enum PDFExport {
         case wrote(URL)
         case cancelled
         case noDocument
+        /// One export is already between the panel and the written file.
+        case alreadyRunning
         case failed(Error)
     }
+
+    /// True from the moment a command asks where the file goes until it has
+    /// written it.
+    ///
+    /// Laying out pages takes seconds, and while they pass the menu is live and
+    /// nothing on screen says a print is happening — so the honest reading of a
+    /// second ⇧⌘E is "the first one did nothing", and the app would answer it
+    /// with a second panel and a second print of the same document. One print
+    /// at a time is already true further down (the renderer is a single actor);
+    /// this is the same statement at the level where the person is.
+    private static var isRunning = false
 
     /// The pages for a document, as the pane would print them.
     ///
@@ -72,6 +85,10 @@ enum PDFExport {
                         destination: @MainActor (String) -> URL? = askForDestination,
                         reveal: @MainActor (URL) -> Void = revealInFinder) async -> CommandOutcome {
         guard let actions else { return .noDocument }
+        guard !isRunning else { return .alreadyRunning }
+        isRunning = true
+        defer { isRunning = false }
+
         // Coalesced typing lands in the buffer first; without it the export is
         // of the document as it was a keystroke ago.
         actions.prepareForExport?()

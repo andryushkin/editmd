@@ -31,12 +31,10 @@ extension PrintRenderRequest {
                             settings: EditorSettings = .shared) -> PrintRenderRequest {
         PrintRenderRequest(
             markdown: markdown,
-            // The document's folder — the package itself for a textbundle —
-            // exactly as Preview resolves relative images. nil for a document
-            // with no path yet, and then local pictures do not appear.
-            baseDir: fileURL.map {
-                $0.pathExtension == "textbundle" ? $0 : $0.deletingLastPathComponent()
-            },
+            // The same folder Preview and Visual resolve pictures against, and
+            // by the same function: a print that looked somewhere else would
+            // differ from the screen with nothing to explain it.
+            baseDir: documentAssetBaseDir(for: fileURL),
             settings: settings.print,
             syntaxHighlighting: settings.general.syntaxHighlighting)
     }

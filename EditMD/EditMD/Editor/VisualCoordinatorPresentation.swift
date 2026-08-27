@@ -792,10 +792,8 @@ extension VisualMarkdownView.Coordinator {
     }
 
     private func resolveImageURL(_ src: String) -> URL? {
-        guard URL(string: src)?.scheme == nil, let fileURL = parent.fileURL else { return nil }
-        let baseDir = fileURL.pathExtension == "textbundle"
-            ? fileURL
-            : fileURL.deletingLastPathComponent()
+        guard URL(string: src)?.scheme == nil,
+              let baseDir = documentAssetBaseDir(for: parent.fileURL) else { return nil }
         let path = src.removingPercentEncoding ?? src
         return baseDir.appendingPathComponent(path).standardizedFileURL
     }

@@ -55,6 +55,10 @@ struct EditMDApp: App {
         Task {
             switch await PDFExport.command(documentActions) {
             case .noDocument:        NSSound.beep()
+            // The same answer as "nothing is focused", and for the same
+            // reason: the command cannot be done now, and silence would read
+            // as the keystroke having been lost.
+            case .alreadyRunning:    NSSound.beep()
             case .failed(let error): NSAlert(error: error).runModal()
             case .wrote, .cancelled: break
             }
