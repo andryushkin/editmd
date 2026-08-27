@@ -17,6 +17,20 @@ fail() { # fail <name> <detail…>
 
 grep_tracked() { git -c core.quotepath=false grep -I -l "$@" 2>/dev/null; }
 
+# The verdict of a search for something that must NOT be there. Absence is code 1
+# from git grep and only that: 0 means found, anything else means git grep did not
+# run, which is a FAIL and never a PASS. The header's promise — "a check that
+# cannot run reports FAIL" — lives here, in one place, instead of in the third
+# branch of an `if` copied per check, where the copy that forgets it reports PASS
+# on an error.
+absent_or_fail() {
+    name=$1 st=$2
+    shift 2
+    if [ "$st" -eq 1 ]; then pass "$name"
+    elif [ "$st" -eq 0 ]; then fail "$name" "$@"
+    else fail "$name" "git grep errored ($st)"; fi
+}
+
 # 1. Cyrillic outside the allowlist (language policy, CLAUDE.md).
 #    \p{Cyrillic} keeps this script free of Cyrillic itself. Allowed:
 #    the localization catalogs (both the app strings and the Info.plist
@@ -33,10 +47,7 @@ cyr=$(grep_tracked -P '\p{Cyrillic}' -- \
     ':!EditMD/EditMDTests/' \
     ':!test-all-elements.md' \
     ':!test-all-elements.md.review.json')
-st=$?
-if [ $st -eq 1 ]; then pass "cyrillic-outside-allowlist"
-elif [ $st -eq 0 ]; then fail "cyrillic-outside-allowlist" $cyr
-else fail "cyrillic-outside-allowlist" "git grep errored ($st)"; fi
+absent_or_fail cyrillic-outside-allowlist $? $cyr
 
 # 2. Relative markdown links inside docs/ and README resolve.
 badlinks=""
@@ -108,10 +119,7 @@ fi
 # 5. Secret patterns in tracked files.
 secrets=$(grep_tracked -E \
     'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(ant|proj|live)-[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[bp]-[0-9A-Za-z-]{10,}|BEGIN [A-Z ]*PRIVATE KEY')
-st=$?
-if [ $st -eq 1 ]; then pass "no-secret-patterns"
-elif [ $st -eq 0 ]; then fail "no-secret-patterns" $secrets
-else fail "no-secret-patterns" "git grep errored ($st)"; fi
+absent_or_fail no-secret-patterns $? $secrets
 
 # 6. Third-party notices cover every SwiftPM pin; vendored licenses present.
 resolved=EditMD/EditMD.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
@@ -196,9 +204,20 @@ fi
 #     `createPDF` has no right-hand boundary for the same reason. WebKit's
 #     Objective-C name is `createPDFWithConfiguration:completionHandler:`, and a
 #     selector built from that string is a way to reach the same method that a
-#     bounded pattern would let through — a second review found that one. Any
-#     identifier that merely begins with `createPDF` is a second producer as
-#     far as this is concerned, and there are none in the tree that are not.
+#     bounded pattern would let through — a second review found that one.
+#
+#     `pdf(configuration:` and `WKPDFConfiguration` are the async form of the
+#     same export (`WKWebView.pdf(configuration:) async throws -> Data`), which
+#     a third review found passing a pattern built out of `createPDF` alone:
+#     the modern call shares no identifier with the old one. Neither name occurs
+#     in this tree today.
+#
+#     THIS IS A LIST OF NAMES, and that is its ceiling: three reviews have each
+#     added one, because a blacklist closes doors and not the room. `webView.pdf()`
+#     — the same method with its default configuration — names neither pattern
+#     and passes. Closing the class means the opposite shape: a WHITELIST of
+#     places, "bytes of a PDF are produced in PrintPDFRenderer.swift and nowhere
+#     else", which is a different check and is not written.
 #
 #     `previewHTMLPage` was the wrapper that fed the old exporter its HTML.
 #     Preview itself calls `previewHTMLPageRender`, which this pattern does not
@@ -212,17 +231,19 @@ fi
 #     WHAT IT DOES NOT SEE, stated here because a PASS will be read years from
 #     now by someone the reason has left: a producer of PDFs that is not a web
 #     view — `NSPrintOperation`, pages written through PDFKit — needs none of
-#     these two names and passes this check untouched. What is proved here is
-#     the narrower "no second producer on WebKit", not the whole of "one path
-#     into a PDF"; the rest of that sentence is held by the probes that compare
-#     what the export writes with what the pane prints.
+#     these names and passes this check untouched, and so does a web-view export
+#     spelled in a way no name here lists. What is proved is the narrow "no
+#     occurrence of the four names below", read as "no second producer on WebKit
+#     by any spelling seen so far" — not the whole of "one path into a PDF"; the
+#     rest of that sentence is held by the probes that compare what the export
+#     writes with what the pane prints.
 raw=$(git -c core.quotepath=false grep -n --untracked -I -E \
         -e '(^|[^A-Za-z0-9_])createPDF' \
+        -e '(^|[^A-Za-z0-9_])pdf[[:space:]]*\([[:space:]]*configuration' \
+        -e 'WKPDFConfiguration' \
         -e '(^|[^A-Za-z0-9_])previewHTMLPage([^A-Za-z0-9_]|$)' -- '*.swift')
 st=$?
-if [ $st -eq 1 ]; then pass "one-pdf-producer"
-elif [ $st -eq 0 ]; then fail "one-pdf-producer" $(printf '%s\n' "$raw" | cut -d: -f1,2)
-else fail "one-pdf-producer" "git grep errored ($st)"; fi
+absent_or_fail one-pdf-producer "$st" $(printf '%s\n' "$raw" | cut -d: -f1,2)
 
 echo
 if [ "$fails" -eq 0 ]; then
