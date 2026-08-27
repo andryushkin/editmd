@@ -55,13 +55,15 @@ Static checks, a few seconds, exit code 1 on any failure:
    base can be determined the check FAILs rather than silently shrinking its
    scope.
 
-10. **One producer of PDF pages** — no occurrence of `createPDF(` or
-    `previewHTMLPage(` in any Swift source, tracked or not. The app prints
+10. **One producer of PDF pages** — no occurrence of the names `createPDF` or
+    `previewHTMLPage` in any Swift source, tracked or not. The app prints
     through the prebuilt core; a second producer means a web view rendering
     pages of its own, and WebKit's `createPDF(` is the call it cannot avoid
     whatever file or type it lives in. Preview's own `previewHTMLPageRender(`
-    is deliberately not matched. The check counts occurrences of those two
-    names, not calls — at a threshold of zero the distinction costs nothing,
+    is deliberately not matched. The name is matched rather than the call:
+    Swift accepts a space before the parenthesis, and the first version of this
+    check passed a file that built and printed pages that way. The check counts
+    occurrences of those two names, not calls — at a threshold of zero the distinction costs nothing,
     and it is stated so that nobody later reads more into a PASS than a grep
     can give. It does not see a producer that is not a web view
     (`NSPrintOperation`, pages written through PDFKit): what passes here is

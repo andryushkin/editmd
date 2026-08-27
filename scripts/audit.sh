@@ -185,9 +185,18 @@ fi
 #     `createPDF` would count too. At a threshold of zero the difference costs
 #     nothing, and the check is written to claim only what it can see.
 #
-#     `previewHTMLPage(` was the wrapper that fed the old exporter its HTML.
-#     Preview itself calls `previewHTMLPageRender(`, which this pattern does
-#     not match — the trailing `(` is the whole of the distinction.
+#     It matches the NAME and not the call, and that is a correction rather than
+#     a simplification. The first version looked for the literal `createPDF(`,
+#     and a review found the hole: Swift accepts a space before the parenthesis,
+#     `webView.createPDF (configuration: cfg)` compiles and builds, and the
+#     literal pattern reported PASS on it — measured, not argued. Matching the
+#     bare identifier also covers the call whose parenthesis sits on the next
+#     line, which no line-oriented grep could ever see.
+#
+#     `previewHTMLPage` was the wrapper that fed the old exporter its HTML.
+#     Preview itself calls `previewHTMLPageRender`, which this pattern does not
+#     match: the character after the name must not be one that could continue
+#     an identifier, and `R` is.
 #
 #     `--untracked` on purpose: a new file that has not been `git add`ed yet is
 #     exactly where a second producer appears first, and a check that reports
@@ -200,8 +209,9 @@ fi
 #     the narrower "no second producer on WebKit", not the whole of "one path
 #     into a PDF"; the rest of that sentence is held by the probes that compare
 #     what the export writes with what the pane prints.
-raw=$(git -c core.quotepath=false grep -n --untracked -I -F \
-        -e 'createPDF(' -e 'previewHTMLPage(' -- '*.swift')
+raw=$(git -c core.quotepath=false grep -n --untracked -I -E \
+        -e '(^|[^A-Za-z0-9_])createPDF([^A-Za-z0-9_]|$)' \
+        -e '(^|[^A-Za-z0-9_])previewHTMLPage([^A-Za-z0-9_]|$)' -- '*.swift')
 st=$?
 if [ $st -eq 1 ]; then pass "one-pdf-producer"
 elif [ $st -eq 0 ]; then fail "one-pdf-producer" $(printf '%s\n' "$raw" | cut -d: -f1,2)
