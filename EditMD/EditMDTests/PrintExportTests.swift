@@ -1,4 +1,3 @@
-import CryptoKit
 import XCTest
 @testable import EditMD
 
@@ -99,10 +98,6 @@ final class PrintExportTests: XCTestCase {
         }
     }
 
-    private func digest(_ bytes: Data) -> String {
-        SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-    }
-
     /// A print, with the third outcome named apart from the second.
     ///
     /// "The two files differ" and "nothing printed at all" are different
@@ -130,65 +125,56 @@ final class PrintExportTests: XCTestCase {
         }
     }
 
-    /// The first field two manifests disagree on, spelled as a path, or nil.
+    /// One document printed by both producers.
     ///
-    /// The manifest is the comparison format the command line is read against,
-    /// so this asks the same question of the same values: not "are the files
-    /// equal" but "which decision moved". Keys are walked in sorted order so
-    /// two runs name the same field first.
-    private func firstDifference(_ mine: Any, _ theirs: Any, at path: String = "") -> String? {
-        switch (mine, theirs) {
-        case let (a as [String: Any], b as [String: Any]):
-            for key in Set(a.keys).union(b.keys).sorted() {
-                let here = path.isEmpty ? key : "\(path).\(key)"
-                switch (a[key], b[key]) {
-                case (nil, nil): continue
-                case (let x?, let y?):
-                    if let found = firstDifference(x, y, at: here) { return found }
-                case (nil, _): return "\(here): missing on the pane's side"
-                case (_, nil): return "\(here): missing on the export's side"
-                }
-            }
-            return nil
-        case let (a as [Any], b as [Any]):
-            if a.count != b.count { return "\(path): \(a.count) vs \(b.count) entries" }
-            for (index, pair) in zip(a, b).enumerated() {
-                if let found = firstDifference(pair.0, pair.1, at: "\(path)[\(index)]") {
-                    return found
-                }
-            }
-            return nil
-        default:
-            let a = mine as? NSObject
-            let b = theirs as? NSObject
-            if let a, let b, a.isEqual(b) { return nil }
-            return "\(path): \(mine) (pane) vs \(theirs) (export)"
-        }
+    /// The two probes below ask different questions of the same pair of prints,
+    /// and each used to build that pair itself — the copy had already drifted
+    /// once, one of them building the pane twice where the other built it once.
+    private struct Run {
+        let paneRequest: PrintRenderRequest
+        let pane: PrintRenderResult
+        let export: PDFExportRun
+    }
+
+    private func paneAndExport() async throws -> Run {
+        let root = try documentFolder()
+        let file = root.appendingPathComponent("note.md")
+        let paneRequest = pane(at: file).request
+        return Run(paneRequest: paneRequest,
+                   pane: try await printed(paneRequest, "the pane"),
+                   export: try await exported(at: file))
+    }
+
+    /// The first field the two jobs disagree on, or nil.
+    ///
+    /// Asked of the manifest — the comparison format the command line is read
+    /// against — so the question is "which decision moved", not "are the files
+    /// equal". Building the jobs costs two font selections, so the probe below
+    /// that only needs a message asks this once the bytes have already differed.
+    private func firstJobDifference(_ run: Run) async throws -> String? {
+        PrintComparisonWire.firstDifference(
+            PrintComparisonWire.jobManifest(
+                try await PrintPDFRenderer.job(for: run.paneRequest), assets: run.pane.assets),
+            PrintComparisonWire.jobManifest(
+                try await PrintPDFRenderer.job(for: run.export.request),
+                assets: run.export.assets),
+            left: "pane", right: "export")
     }
 
     // MARK: - One producer
 
     /// The export writes the bytes the pane prints, for the same document.
     func testTheExportWritesTheBytesThePanePrints() async throws {
-        let root = try documentFolder()
-        let file = root.appendingPathComponent("note.md")
+        let run = try await paneAndExport()
 
-        let fromPane = try await printed(pane(at: file).request, "the pane")
-        let fromExport = try await exported(at: file)
+        let exportedDigest = PrintComparisonWire.digest(run.export.pdf)
+        let paneDigest = PrintComparisonWire.digest(run.pane.pdf)
+        guard exportedDigest != paneDigest else { return }
 
-        let difference = firstDifference(
-            PrintComparisonWire.jobManifest(
-                try await PrintPDFRenderer.job(for: pane(at: file).request),
-                assets: fromPane.assets),
-            PrintComparisonWire.jobManifest(
-                try await PrintPDFRenderer.job(for: fromExport.request),
-                assets: fromExport.assets))
-
-        let field = difference ?? "none — the difference is not in the job"
-        XCTAssertEqual(digest(fromExport.pdf), digest(fromPane.pdf),
-                       "the export and the pane produced different files "
-                       + "(\(fromExport.pdf.count) vs \(fromPane.pdf.count) bytes); "
-                       + "first field they disagree on: \(field)")
+        let field = try await firstJobDifference(run) ?? "none — the difference is not in the job"
+        XCTFail("the export and the pane produced different files "
+                + "(\(run.export.pdf.count) vs \(run.pane.pdf.count) bytes); "
+                + "first field they disagree on: \(field)")
     }
 
     /// And they decide every field of the job the same way.
@@ -198,19 +184,7 @@ final class PrintExportTests: XCTestCase {
     /// files — that is a defect in the renderer, not here — and a field can
     /// move without moving a byte, which is a defect nothing else sees.
     func testTheExportAndThePaneDecideEveryFieldTheSameWay() async throws {
-        let root = try documentFolder()
-        let file = root.appendingPathComponent("note.md")
-
-        let paneRequest = pane(at: file).request
-        let fromPane = try await printed(paneRequest, "the pane")
-        let fromExport = try await exported(at: file)
-
-        let difference = firstDifference(
-            PrintComparisonWire.jobManifest(
-                try await PrintPDFRenderer.job(for: paneRequest), assets: fromPane.assets),
-            PrintComparisonWire.jobManifest(
-                try await PrintPDFRenderer.job(for: fromExport.request),
-                assets: fromExport.assets))
+        let difference = try await firstJobDifference(paneAndExport())
         XCTAssertNil(difference, "the export and the pane disagree at \(difference ?? "")")
     }
 
@@ -240,7 +214,7 @@ final class PrintExportTests: XCTestCase {
 
         let onDisk = try Data(contentsOf: target)
         let fromPane = try await printed(pane(at: file).request, "the pane")
-        XCTAssertEqual(digest(onDisk), digest(fromPane.pdf),
+        XCTAssertEqual(PrintComparisonWire.digest(onDisk), PrintComparisonWire.digest(fromPane.pdf),
                        "the file the command wrote is not the page the pane shows")
     }
 
@@ -362,7 +336,7 @@ final class PrintExportTests: XCTestCase {
         let file = root.appendingPathComponent("note.md")
         let first = try await exported(at: file)
         let second = try await exported(at: file)
-        XCTAssertEqual(digest(first.pdf), digest(second.pdf),
+        XCTAssertEqual(PrintComparisonWire.digest(first.pdf), PrintComparisonWire.digest(second.pdf),
                        "exporting is not reproducible; nothing below compares anything")
     }
 }

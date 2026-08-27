@@ -68,6 +68,53 @@ enum PrintComparisonWire {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 
+    // MARK: - The first field two manifests disagree on
+
+    /// The first field two manifests disagree on, spelled as a path, or nil.
+    ///
+    /// It lives with the format rather than in whichever probe needed a field
+    /// name first: this file spells the manifest, so it also owns the walk over
+    /// it, and a second probe asking the same question gets the same spelling
+    /// of the answer instead of inventing one.
+    ///
+    /// Keys are walked in sorted order so two runs name the same field first.
+    /// The sides are named by the caller because the two halves of the
+    /// comparison put different producers on them.
+    static func firstDifference(_ mine: Any, _ theirs: Any,
+                                left: String, right: String,
+                                at path: String = "") -> String? {
+        switch (mine, theirs) {
+        case let (a as [String: Any], b as [String: Any]):
+            for key in Set(a.keys).union(b.keys).sorted() {
+                let here = path.isEmpty ? key : "\(path).\(key)"
+                switch (a[key], b[key]) {
+                case (nil, nil): continue
+                case (let x?, let y?):
+                    if let found = firstDifference(x, y, left: left, right: right, at: here) {
+                        return found
+                    }
+                case (nil, _): return "\(here): missing on the \(left)'s side"
+                case (_, nil): return "\(here): missing on the \(right)'s side"
+                }
+            }
+            return nil
+        case let (a as [Any], b as [Any]):
+            if a.count != b.count { return "\(path): \(a.count) vs \(b.count) entries" }
+            for (index, pair) in zip(a, b).enumerated() {
+                if let found = firstDifference(pair.0, pair.1, left: left, right: right,
+                                               at: "\(path)[\(index)]") {
+                    return found
+                }
+            }
+            return nil
+        default:
+            let a = mine as? NSObject
+            let b = theirs as? NSObject
+            if let a, let b, a.isEqual(b) { return nil }
+            return "\(path): \(mine) (\(left)) vs \(theirs) (\(right))"
+        }
+    }
+
     // MARK: - The job as a value
 
     /// The manifest for one job and the files that were actually handed over.
