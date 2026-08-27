@@ -69,6 +69,36 @@ final class PrintExportTests: XCTestCase {
         var raised = false
     }
 
+    /// One-shot: `wait()` returns once `resume()` has been called, whether it
+    /// was called before or after the wait began.
+    ///
+    /// What remains undeterministic after this, said out loud: nothing stops
+    /// the first export from finishing its whole print between the moment it
+    /// resumes this gate and the moment the second call reads the flag. It
+    /// takes a real layout to finish in the width of two statements on one
+    /// actor, so it does not happen — but if it ever did, the probe says "the
+    /// second export was not refused", which is a legible red and not a
+    /// mystery. Making it impossible would mean handing the command a stand-in
+    /// renderer, and this project's rule is the opposite one: the probe calls
+    /// the same function the product calls, with no separate path for tests.
+    @MainActor private final class Gate {
+        private var resumed = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func resume() {
+            guard !resumed else { return }
+            resumed = true
+            let pending = waiters
+            waiters = []
+            for waiter in pending { waiter.resume() }
+        }
+
+        func wait() async {
+            guard !resumed else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+    }
+
     private func digest(_ bytes: Data) -> String {
         SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
@@ -289,19 +319,19 @@ final class PrintExportTests: XCTestCase {
         let root = try documentFolder()
         let file = root.appendingPathComponent("note.md")
         let target = root.appendingPathComponent("out.pdf")
+        let asked = Gate()
 
-        let firstAsked = Flag()
+        // The first export is awaited to the point where it has asked where the
+        // file goes — a continuation resumed from inside its own destination
+        // closure, not a spin on `Task.yield()`. Yielding a fixed number of
+        // times is a bet on the scheduler, and losing it is a red that says
+        // nothing about the guard under test.
         let first = Task { @MainActor in
             await PDFExport.command(self.actions(at: file),
-                                    destination: { _ in firstAsked.raised = true; return target },
+                                    destination: { _ in asked.resume(); return target },
                                     reveal: { _ in })
         }
-        var spins = 0
-        while !firstAsked.raised, spins < 10_000 {
-            await Task.yield()
-            spins += 1
-        }
-        XCTAssertTrue(firstAsked.raised, "the first export never got as far as asking")
+        await asked.wait()
 
         let secondAsked = Flag()
         let second = await PDFExport.command(actions(at: file),
