@@ -23,9 +23,62 @@ jobs:
           fetch-depth: 0
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Run audit
+      # The base decides what the audit can see, so it is computed in a step of
+      # its own rather than in an expression: the two awkward cases below need
+      # sentences, and an expression has nowhere to put them.
+      #
+      # `HEAD~1` used to be the base for every push, and that audited ONE COMMIT
+      # of a push that publishes many. Measured on a planted branch of two
+      # commits with a forbidden word in the first: `HEAD~1` PASSED, the push
+      # base FAILED naming the file and the pattern. A push is the moment the
+      # commits become public, so the range that has to be clean is the range
+      # the push publishes — `github.event.before..HEAD`.
+      #
+      # Two pushes have no such range: the first push of a branch and a
+      # force-push both set `before` to forty zeros, and after a force-push that
+      # commit can be gone from the repository. Falling back to `HEAD~1` there
+      # would restore the very defect this replaces, silently and exactly on the
+      # pushes that need looking at most. So the job REFUSES and says why.
+      #
+      # The other option — auditing the whole history — was measured and
+      # rejected: from the root commit `check-publicity.sh` exits 1 with hits in
+      # 8 commits, because most of them predate the dictionary. A base that is
+      # red on every honest run is a base people learn to ignore.
+      - name: Resolve the audit base
         env:
-          AUDIT_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD~1' }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+              echo "AUDIT_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
+              echo "audit base: origin/$BASE_REF (pull request)"
+              exit 0
+          fi
+          # Forty zeros, or empty when the event carries no such field at all.
+          case "${BEFORE:-}" in
+              *[!0]*) ;;
+              *) echo "::error::This push has no previous tip to audit against" \
+                      "(github.event.before is all zeros — a first push or a" \
+                      "force-push). The audit refuses rather than fall back to" \
+                      "HEAD~1, which would check one commit of a push that" \
+                      "publishes many. Re-run this audit from a pull request," \
+                      "or run scripts/audit.sh locally with AUDIT_BASE set to" \
+                      "the commit this branch actually grew from."
+                 exit 1 ;;
+          esac
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              echo "::error::github.event.before ($BEFORE) is not in this" \
+                   "repository — the branch was force-pushed and the previous" \
+                   "tip is gone. The audit refuses rather than quietly narrow" \
+                   "its range. Re-run from a pull request, or run" \
+                   "scripts/audit.sh locally with AUDIT_BASE set by hand."
+              exit 1
+          fi
+          echo "AUDIT_BASE=$BEFORE" >> "$GITHUB_ENV"
+          echo "audit base: $BEFORE (the tip this push replaces)"
+      - name: Run audit
         run: ./scripts/audit.sh
 
   build:
