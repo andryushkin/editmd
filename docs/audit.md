@@ -54,10 +54,14 @@ About ten seconds, exit code 1 on any failure:
    domain doc.
 8. **No junk tracked** — `.DS_Store`, `xcuserdata/`, logs, smotr artifacts.
 9. **`git diff --check`** — no whitespace errors in the worktree, the staged
-   diff, or the outgoing commit range. The audit base resolves as: explicit
-   `AUDIT_BASE` env var → the branch upstream → `origin/<branch>`; when no
-   base can be determined the check FAILs rather than silently shrinking its
-   scope.
+   diff, or the outgoing commit range. The base comes from
+   `scripts/audit-base.sh`, the one resolver every guard that needs a base
+   calls: explicit `AUDIT_BASE` env var → the branch upstream →
+   `origin/<branch>`. Three outcomes, and the third is the one worth naming:
+   no base at all, a base with commits behind it, and a base whose range is
+   **empty**. An empty range means no commit was read, which is not the same
+   fact as commits read and found clean — so it FAILs, as does no base at all.
+   Neither ever shrinks the scope silently.
 
 10. **One producer of PDF pages** — no occurrence of the names `createPDF`,
     `pdf(configuration:`, `WKPDFConfiguration` or `previewHTMLPage` in any Swift
@@ -107,7 +111,10 @@ About ten seconds, exit code 1 on any failure:
     repository, so the script has three outcomes and the audit lays out all
     three: clean, found (each finding printed with its place and its line), and
     *did not run* — a guard that could not read its dictionary must never look
-    like a clean tree, so that third outcome is a FAIL with the reason.
+    like a clean tree, so that third outcome is a FAIL with the reason. **An
+    empty range counts as "did not run"** and always has to: it used to be read
+    as a clean tree, which made the guard pass over every commit a push had
+    just published, at exactly the moment the range collapses to nothing.
     What is **not** checked: anything already in the base — only added lines are
     read, because scanning removals would make a leak impossible to delete. The
     range is read one commit at a time, since a push publishes commits and not

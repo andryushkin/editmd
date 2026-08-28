@@ -156,30 +156,29 @@ else
 fi
 
 # 9. Whitespace errors: unstaged, staged, and the outgoing commit range.
-#    The audit base resolves as: explicit $AUDIT_BASE → the branch upstream →
-#    origin/<branch>. A pre-push audit without any determinable base is a
-#    FAIL, not a silent skip.
-base=""
-if [ -n "${AUDIT_BASE:-}" ]; then
-    if git rev-parse --verify --quiet "$AUDIT_BASE" > /dev/null; then base=$AUDIT_BASE
-    else base="__invalid__"; fi
-elif git rev-parse --verify --quiet '@{upstream}' > /dev/null; then
-    base='@{upstream}'
-else
-    branch=$(git rev-parse --abbrev-ref HEAD)
-    if git rev-parse --verify --quiet "origin/$branch" > /dev/null; then base="origin/$branch"; fi
-fi
-if [ "$base" = "__invalid__" ]; then
-    fail "git-diff-check" "AUDIT_BASE='$AUDIT_BASE' does not resolve"
-elif [ -z "$base" ]; then
-    fail "git-diff-check" "no audit base: set an upstream or AUDIT_BASE"
-else
-    ws=""
-    git diff --check > /dev/null 2>&1 || ws="worktree"
-    git diff --check --cached > /dev/null 2>&1 || ws="$ws staged"
-    git diff --check "$base" HEAD > /dev/null 2>&1 || ws="$ws outgoing($base)"
-    if [ -z "$ws" ]; then pass "git-diff-check (base: $base)"; else fail "git-diff-check" $ws; fi
-fi
+#    The base comes from scripts/audit-base.sh — one resolver for every guard
+#    that needs one, because this chain used to be written here and again in
+#    check-publicity.sh with nothing but a comment holding the two together.
+#    A pre-push audit without any determinable base is a FAIL, not a silent
+#    skip; and an EMPTY range is its own outcome, because a range with no
+#    commits in it means this check read no commits — which is not the same
+#    fact as "the commits were read and were clean".
+base_err=$(mktemp) || { fail "git-diff-check" "cannot make a temporary file"; base_err=/dev/null; }
+base=$(scripts/audit-base.sh 2>"$base_err"); base_st=$?
+base_why=$(cat "$base_err"); rm -f "$base_err"
+case "$base_st" in
+    0)  ws=""
+        git diff --check > /dev/null 2>&1 || ws="worktree"
+        git diff --check --cached > /dev/null 2>&1 || ws="$ws staged"
+        git diff --check "$base" HEAD > /dev/null 2>&1 || ws="$ws outgoing($base)"
+        if [ -z "$ws" ]; then pass "git-diff-check (base: $base)"
+        else fail "git-diff-check" $ws; fi ;;
+    3)  fail "git-diff-check" "$base_why" \
+             "The worktree and the index were still read; the published range" \
+             "was not. Name the commit the range starts at:" \
+             "AUDIT_BASE=<sha> scripts/audit.sh" ;;
+    *)  fail "git-diff-check" "$base_why" ;;
+esac
 
 # 10. One producer of PDF pages. The app prints through the core and nowhere
 #     else; a second producer is what this looks for, and what it looks for is

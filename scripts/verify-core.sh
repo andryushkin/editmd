@@ -76,7 +76,9 @@ fail() {
     exit 1
 }
 
-# Is macOS version $1 no newer than version $2?
+# Which of two macOS versions is newer — the rule itself, written once and
+# shared by both users below rather than spelled twice. Two spellings of it is
+# what this repair removed from check 4 in the first place.
 #
 # All three components, and that is the repair rather than a tidy-up: the
 # previous comparison read the first two and stopped, so an object built
@@ -84,9 +86,6 @@ fail() {
 # A missing component is zero — `14` and `14.0.0` are the same version — which
 # is why the loop reads past the end of the shorter list rather than refusing
 # to compare lists of different lengths.
-# The rule itself, written once and shared by both users below rather than
-# spelled twice. Two spellings of "which version is newer" is what this repair
-# removed from check 4 in the first place.
 VERSION_CMP_AWK='
 function newer(a, b,   n, m, i, p, q, x, y) {
     n = split(a, x, "."); m = split(b, y, ".")
@@ -98,6 +97,20 @@ function newer(a, b,   n, m, i, p, q, x, y) {
     }
     return 0
 }'
+
+# A version this comparison is willing to reason about. `awk`'s `+0` reads
+# `foo` as 0 and `14.x` as 14.0, so a garbled deployment target would compare
+# equal to a real one instead of being refused: numbers, dots, at most three
+# components. Everything reaching the comparison goes through here first.
+version_or_fail() {
+    case "$1" in
+        *[!0-9.]* | "" | *..* | .* | *.) fail "$2: '$1' is not a version." ;;
+    esac
+    case "$1" in
+        *.*.*.*) fail "$2: '$1' has more than three components." ;;
+    esac
+    printf '%s' "$1"
+}
 
 version_le() {
     awk -v a="$1" -v b="$2" "$VERSION_CMP_AWK"'BEGIN { exit newer(a, b) > 0 }'
@@ -127,9 +140,13 @@ version_max() {
 # is the case that was live, and `14.10` against `14.9` is the case a string
 # comparison gets wrong in the other direction.
 if [ "${1:-}" = --selftest ]; then
+    [ $# -eq 1 ] || fail "--selftest takes no other arguments." \
+        "Usage: verify-core.sh [--selftest | path-to-repo-root]"
     bad=0
+    rows=0
     while read -r a b want; do
         [ -n "$a" ] || continue
+        rows=$((rows + 1))
         if version_le "$a" "$b"; then got=le; else got=gt; fi
         if [ "$got" = "$want" ]; then
             printf '  ok    %-8s vs %-8s -> %s\n' "$a" "$b" "$got"
@@ -151,6 +168,7 @@ TABLE
     # rule gets wrong.
     while read -r want values; do
         [ -n "$want" ] || continue
+        rows=$((rows + 1))
         got=$(printf '%s\n' $values | version_max)
         if [ "$got" = "$want" ]; then
             printf '  ok    max(%-22s) -> %s\n' "$values" "$got"
@@ -165,13 +183,26 @@ TABLE
 14.0.1   14.0 14.0.1 13.9
 MAXTABLE
     [ "$bad" -eq 0 ] || fail "the version rule is wrong on $bad row(s)."
+    # A green self-test has to mean the table ran. Both heredocs live in a
+    # temporary file the shell makes for them, and when it cannot be made the
+    # loops read nothing at all: `bad` stays 0 and the summary line claims a
+    # pass over zero rows. The count is the difference between "eight rows
+    # agreed" and "no row disagreed".
+    [ "$rows" -eq 8 ] || fail "the self-test read $rows rows of the expected 8." \
+        "The table did not reach the loop, so nothing was compared."
     echo "verify-core --selftest: version rule ok on 4 comparisons and 4 maxima"
     exit 0
 fi
 
+# Exactly one optional argument, and it is the repository root. Anything else
+# is refused rather than partly honoured: `verify-core.sh . --selftest` used to
+# verify the package and exit 0 without ever running the self-test, which reads
+# as a passing self-test to anyone who asked for one.
+[ $# -le 1 ] || fail "too many arguments." \
+    "Usage: verify-core.sh [--selftest | path-to-repo-root]"
 case "${1:-}" in
     -*) fail "unknown argument: $1" \
-             "Usage: verify-core.sh [--selftest] [path-to-repo-root]" ;;
+             "Usage: verify-core.sh [--selftest | path-to-repo-root]" ;;
 esac
 
 ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -245,6 +276,22 @@ HEADERS_NAME=$(plist_string HeadersPath) \
 LIB="$XCF/$SLICE_ID/$LIB_NAME"
 HEADER="$XCF/$SLICE_ID/$HEADERS_NAME/printdotmd.h"
 
+# The architectures the package CLAIMS. Checked against the ones the library
+# actually carries in check 4 below — the producer reads this field and the
+# app used not to, so a build made for one architecture, dropped into a
+# directory still named after two, walked through this gate and failed on
+# somebody else's machine. The directory name is not evidence: it is a name.
+DECLARED_ARCHES=""
+index=0
+while arch_name=$(plutil -extract "AvailableLibraries.0.SupportedArchitectures.$index" \
+                      raw -o - "$PLIST" 2>/dev/null); do
+    DECLARED_ARCHES="$DECLARED_ARCHES $arch_name"
+    index=$((index + 1))
+done
+[ -n "$DECLARED_ARCHES" ] || fail "$PLIST declares no SupportedArchitectures." \
+    "Every XCFramework names the architectures of each library. A package" \
+    "that names none is not one Xcode would pick a slice from."
+
 [ -f "$LIB" ] || fail "the core library is damaged: $LIB is missing" \
     "Info.plist names this file as the one the build links, and it is not" \
     "there. Re-copy the whole PrintDotMD.xcframework directory; a partial" \
@@ -252,6 +299,25 @@ HEADER="$XCF/$SLICE_ID/$HEADERS_NAME/printdotmd.h"
 [ -f "$HEADER" ] || fail "the core library is damaged: $HEADER is missing" \
     "Info.plist points HeadersPath at $HEADERS_NAME, and printdotmd.h is not" \
     "in it. Re-copy the whole PrintDotMD.xcframework directory."
+
+# Claimed against carried. This belongs here, with the rest of the questions
+# about the package's shape, and not down with the deployment target: a package
+# that does not carry what it advertises is malformed however impeccably it is
+# signed, and asking here means the answer is not queued behind the seal. Both
+# sides are sorted, so the comparison does not depend on the order either
+# happens to list them in.
+sorted_words() { printf '%s\n' $1 | sort | tr '\n' ' ' | sed 's/ $//'; }
+ARCHS=$(lipo -archs "$LIB") || fail "cannot read the architectures of $LIB"
+[ -n "$ARCHS" ] || fail "$LIB carries no architecture slices at all."
+WANT_ARCHES=$(sorted_words "$DECLARED_ARCHES")
+GOT_ARCHES=$(sorted_words "$ARCHS")
+[ "$WANT_ARCHES" = "$GOT_ARCHES" ] || fail \
+    "the core library does not carry the architectures the package declares." \
+    "Info.plist says: $WANT_ARCHES" \
+    "the library has: $GOT_ARCHES" \
+    "$LIB" \
+    "A slice built for one architecture and left in a directory still named" \
+    "after two links here and fails on the machine that needs the missing one."
 
 # Values are all JSON strings, one per line in the file as written.
 expect() {
@@ -267,7 +333,7 @@ expect() {
 WANT_SHA=$(expect library_sha256)
 WANT_TEAM=$(expect team_identifier)
 WANT_ABI=$(expect abi_version)
-WANT_MIN=$(expect min_macos)
+WANT_MIN=$(version_or_fail "$(expect min_macos)" "min_macos in $EXPECTED")
 
 # -- 1. The bytes that get linked -------------------------------------------
 GOT_SHA=$(shasum -a 256 "$LIB" | awk '{print $1}')
@@ -343,8 +409,6 @@ GOT_TEAM=$(codesign --display --verbose=2 "$XCF" 2>&1 \
 # newer", it had the same two-component bug, and the self-test could not see
 # it — reverting the sort keys left `--selftest` green. One rule, one function,
 # one table that covers it.
-ARCHS=$(lipo -archs "$LIB") || fail "cannot read the architectures of $LIB"
-[ -n "$ARCHS" ] || fail "$LIB carries no architecture slices at all."
 HIGHEST=""
 for arch in $ARCHS; do
     found=$(otool -arch "$arch" -l "$LIB" \
@@ -355,6 +419,7 @@ for arch in $ARCHS; do
             c == "build"   && $1 == "minos"   { print $2; c = "" }
             c == "version" && $1 == "version" { print $2; c = "" }
         ' | version_max)
+    found=$(version_or_fail "$found" "the deployment target of the $arch slice")
     [ -n "$found" ] || fail \
         "cannot read the deployment target of the $arch slice of $LIB" \
         "otool reported no LC_BUILD_VERSION and no LC_VERSION_MIN_MACOSX."

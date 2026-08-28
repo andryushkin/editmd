@@ -317,21 +317,19 @@ if [ -n "$MESSAGE_FILE" ]; then
 else
     git rev-parse --git-dir > /dev/null 2>&1 || die2 "not a git repository"
 
-    # The same base order as audit.sh check 9: explicit AUDIT_BASE → the branch
-    # upstream → origin/<branch>. No base is outcome 2, never a pass over a
-    # scope that quietly shrank to the worktree.
-    base=""
-    if [ -n "${AUDIT_BASE:-}" ]; then
-        git rev-parse --verify --quiet "$AUDIT_BASE" > /dev/null \
-            || die2 "AUDIT_BASE='$AUDIT_BASE' does not resolve"
-        base=$AUDIT_BASE
-    elif git rev-parse --verify --quiet '@{upstream}' > /dev/null; then
-        base='@{upstream}'
-    else
-        branch=$(git rev-parse --abbrev-ref HEAD)
-        git rev-parse --verify --quiet "origin/$branch" > /dev/null && base="origin/$branch"
-    fi
-    [ -n "$base" ] || die2 "no audit base: set an upstream or AUDIT_BASE"
+    # The base comes from scripts/audit-base.sh, which is where the chain
+    # lives now. It used to be written out here as well, kept in step with
+    # audit.sh by a comment — and the two had already drifted on the case that
+    # matters: an empty range. Outcome 2 covers both ways of having read
+    # nothing, no base and no commits, because both are "this did not run".
+    resolver="$(dirname "$0")/audit-base.sh"
+    base_err="$work/base-err"
+    base=$("$resolver" 2>"$base_err"); base_st=$?
+    case "$base_st" in
+        0) : ;;
+        3) die2 "$(cat "$base_err") — nothing was published for this run to read" ;;
+        *) die2 "$(cat "$base_err")" ;;
+    esac
 
     revs=$(git rev-list "$base..HEAD") || die2 "git rev-list $base..HEAD failed"
     # ONE COMMIT AT A TIME, and this is the correction that matters: a push
@@ -359,10 +357,14 @@ else
     collect_diff "unstaged" < "$work/d"
 fi
 
-# Nothing to look at is a clean run, not a broken one: an empty range over a
-# clean tree is the normal state right after a push.
+# Commits were read and added no lines, and the tree is clean: examined and
+# clean, which is a pass. An EMPTY RANGE never reaches here — the resolver
+# reports that as outcome 2 above, because reading zero commits is not the
+# same fact as reading commits that said nothing. This comment used to claim
+# the opposite ("the normal state right after a push"), and right after a push
+# is precisely when the claim let a whole published range through unread.
 if [ ! -s "$work/stream" ]; then
-    echo "check-publicity: nothing to check (empty range, clean tree)."
+    echo "check-publicity: nothing to check (commits added no lines, clean tree)."
     exit 0
 fi
 

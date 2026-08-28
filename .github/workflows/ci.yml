@@ -4,6 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The way out of the refusal below. A force-push leaves the previous tip
+  # unreachable and there is then no range the workflow can work out for
+  # itself; without this the job stays red for good, because a pull request
+  # cannot be opened for a commit already on `main` and a re-run replays the
+  # same payload. Naming the base by hand is the only thing that can answer it,
+  # so the workflow accepts one.
+  #
+  # Handing the audit its own range is not a way to make it lenient: a base
+  # that publishes nothing — the tip itself, say — is refused by
+  # `scripts/audit-base.sh` as an empty range, in both guards. That refusal is
+  # why this input could be added at all.
+  workflow_dispatch:
+    inputs:
+      base:
+        description: The commit the audit range starts at, exclusive
+        required: true
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -57,19 +73,30 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
+          MANUAL_BASE: ${{ inputs.base }}
         run: |
           set -euo pipefail
           refuse() {
               echo "::error::$1"
               cat >&2 <<'EOF'
           The audit refuses rather than narrow its range silently: a base of
-          HEAD~1 would check one commit of a push that publishes many. Run the
-          audit at a terminal instead, naming the commit this push grew from:
+          HEAD~1 would check one commit of a push that publishes many.
+
+          Re-run this workflow from the Actions tab with "Run workflow" and give
+          it the commit the range starts at, or run the audit at a terminal:
 
               AUDIT_BASE=<sha> ./scripts/audit.sh
           EOF
               exit 1
           }
+
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+              git cat-file -e "${MANUAL_BASE}^{commit}" 2>/dev/null \
+                  || refuse "The base given by hand ($MANUAL_BASE) is not a commit in this repository."
+              echo "AUDIT_BASE=$MANUAL_BASE" >> "$GITHUB_ENV"
+              echo "audit base: $MANUAL_BASE (given by hand)"
+              exit 0
+          fi
 
           if [ "$EVENT_NAME" = pull_request ]; then
               echo "AUDIT_BASE=origin/$BASE_REF" >> "$GITHUB_ENV"
