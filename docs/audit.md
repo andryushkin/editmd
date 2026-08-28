@@ -108,18 +108,39 @@ About ten seconds, exit code 1 on any failure:
     dictionary of forbidden spellings and looks for them in the commit messages
     of the outgoing range, in the lines each of its commits adds, and in the
     staged and unstaged diffs. The dictionary is deliberately not in this
-    repository, so the script has three outcomes and the audit lays out all
-    three: clean, found (each finding printed with its place and its line), and
+    repository, so the script has four outcomes and the audit lays out all
+    four: clean, found (each finding printed with its place and its line),
     *did not run* — a guard that could not read its dictionary must never look
-    like a clean tree, so that third outcome is a FAIL with the reason. **An
+    like a clean tree, so that outcome is a FAIL with the reason — and *a
+    standing exception outlived its reason*, described below. **An
     empty range counts as "did not run"** and always has to: it used to be read
     as a clean tree, which made the guard pass over every commit a push had
     just published, at exactly the moment the range collapses to nothing.
+    An **accepted leak** is a forbidden spelling the owner decided to keep
+    rather than rewrite history for, and it is forgiven by a third section of
+    the private file, `publicity-accepted`, which differs from the allow list
+    on every axis that decides whether an exception can be trusted. It is
+    addressed **by commit**, by full 40-hex sha, because a short sha, a path
+    and a branch name all name a moving thing. It is **narrow**: one entry
+    forgives one expression in one commit, so any other forbidden expression
+    in that same commit is still red — including on the same line — and the
+    same expression in any other commit is still red. It **expires by itself**:
+    an entry whose commit has left the outgoing range, or that stopped no
+    finding, forgives nothing and is the fourth outcome, with the line to
+    delete printed. And it is **spoken aloud**: a green run prints how many
+    lines it forgave, in which commit, under which dated decision, and the
+    audit prints that text under the PASS instead of swallowing it. Silent
+    green would be indistinguishable from having quietly deleted the word from
+    the dictionary, which is the one thing this list exists not to be. Each
+    entry carries its date and its reason beside the sha, because an exception
+    whose justification lives elsewhere is one nobody can re-judge.
     What is **not** checked: anything already in the base — only added lines are
     read, because scanning removals would make a leak impossible to delete. The
     range is read one commit at a time, since a push publishes commits and not
     their sum, and a word that went into an older commit of the range keeps the
-    check red until the history is rewritten. It is a list of spellings, so a
+    check red until the history is rewritten or that one word in that one
+    commit is accepted by name. `--message-file` has no range, so it applies
+    no exception and judges none. It is a list of spellings, so a
     paraphrase passes, as does anything git shows as binary. Untracked files
     are in no diff and are not read. The full ceiling, and the price of the
     fail-closed choice in a clone that has no dictionary, are in the script's

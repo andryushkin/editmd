@@ -464,11 +464,24 @@ if [ -z "$r11" ]; then pass "render-paths-match-code"; else fail "render-paths-m
 #     word already in the base is invisible; and it is a list of spellings, so
 #     a paraphrase passes. Its full ceiling is written where it belongs, in the
 #     script's own header.
+#
+#     FOUR OUTCOMES NOW, AND THE PASS IS NO LONGER SILENT. A leak the owner
+#     decided to accept rather than rewrite history for is forgiven by name,
+#     one expression in one named commit, and the guard prints what it forgave.
+#     That text is the only thing separating "accepted" from "quietly deleted
+#     from the dictionary", so the audit prints it under the PASS instead of
+#     swallowing it — a whitelist nobody ever reads is a whitelist nobody ever
+#     retires. Exit 3 is the guard asking for one of its own exceptions to be
+#     deleted, which is neither a leak nor a guard that failed to start, and it
+#     gets its own branch for that reason.
 pub_out=$(scripts/check-publicity.sh 2>&1)
 pub_st=$?
 case "$pub_st" in
-    0) pass "publicity-dictionary" ;;
+    0) pass "publicity-dictionary"
+       if [ -n "$pub_out" ]; then printf '%s\n' "$pub_out" | sed 's/^/      /'; fi ;;
     1) fail "publicity-dictionary" "forbidden material in the outgoing change:"
+       printf '%s\n' "$pub_out" | sed 's/^/      /' ;;
+    3) fail "publicity-dictionary" "a standing exception outlived its reason and must be deleted:"
        printf '%s\n' "$pub_out" | sed 's/^/      /' ;;
     *) fail "publicity-dictionary" "the check did not run (exit $pub_st):"
        printf '%s\n' "$pub_out" | sed 's/^/      /' ;;
