@@ -125,9 +125,18 @@ About ten seconds, exit code 1 on any failure:
     forgives one expression in one commit, so any other forbidden expression
     in that same commit is still red — including on the same line — and the
     same expression in any other commit is still red. It **expires by itself**:
-    an entry whose commit has left the outgoing range, or that stopped no
-    finding, forgives nothing and is the fourth outcome, with the line to
-    delete printed. And it is **spoken aloud**: a green run prints how many
+    an entry whose commit is already carried by the published tip — the
+    upstream, or `origin/<branch>`, and deliberately **not** this run's audit
+    base — or that stopped no finding in a commit this run actually read,
+    forgives nothing and is the fourth outcome, with the line to delete
+    printed. Measuring that against the audit base instead was a real defect
+    and a probe caught it: on the narrow `HEAD~1` base the accepted commits
+    are outside the range while being every bit as unpublished, and the guard
+    told the author to delete a line that was still buying something. A run
+    whose base does not reach an accepted commit says so instead, under the
+    PASS, rather than quietly not looking. With an accepted list in hand and
+    neither an upstream nor `origin/<branch>` to ask, nothing can say whether
+    the leak is already out, and that is *did not run*. And it is **spoken aloud**: a green run prints how many
     lines it forgave, in which commit, under which dated decision, and the
     audit prints that text under the PASS instead of swallowing it. Silent
     green would be indistinguishable from having quietly deleted the word from

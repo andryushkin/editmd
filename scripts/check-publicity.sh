@@ -156,6 +156,7 @@ USAGE
 
 DICT_FILE="${PUBLICITY_DICTIONARY:-DOTMD.md}"
 MESSAGE_FILE=""
+published=""   # the tip the world can already see; resolved once a range exists
 while [ $# -gt 0 ]; do
     case "$1" in
         --message-file)
@@ -481,23 +482,49 @@ else
 
     revs=$(git rev-list "$base..HEAD") || die2 "git rev-list $base..HEAD failed"
 
-    # THE FIRST HALF OF SELF-EXPIRY, and it is judged before a single line is
-    # collected. An exception forgives a word in a patch this push would carry;
-    # once that patch is behind the base it carries nothing, and the entry is a
-    # permission with no subject left. Two ways to lose the subject, told apart
-    # because the fix differs: the commit is still here but out of the range
-    # (published — delete the entry, that leak is history someone else owns
-    # now), or the commit is not in the repository at all (delete the entry,
-    # and go look at what rewrote it).
+    # THE FIRST HALF OF SELF-EXPIRY, judged before a single line is collected.
+    #
+    # AGAINST THE PUBLISHED TIP, AND NOT AGAINST THIS RUN'S BASE. The first
+    # version of this asked "is the commit still in $base..HEAD", and it was
+    # wrong in a way a probe caught rather than an argument: the audit is run
+    # on a NARROW base too (HEAD~1, to read one commit), and under that base
+    # the accepted commits are outside the range while being every bit as
+    # unpublished as before. The guard called a live exception expired, went
+    # red, and told the author to delete a line that was still buying
+    # something. An exception dies when the leak goes OUT — when the commit
+    # becomes an ancestor of what has actually been pushed — and that fact has
+    # nothing to do with how much of the range someone asked to look at today.
+    #
+    # Three ways to be dead, told apart because the fix differs; and a fourth
+    # state that is not death at all and must not be reported as one.
     if [ -s "$work/accepted" ]; then
+        # The published tip: the upstream if there is one, else origin/<branch>.
+        # Deliberately NOT AUDIT_BASE — that is the question being asked, not
+        # the answer to what the world can already see.
+        if git rev-parse --verify --quiet '@{upstream}' > /dev/null; then
+            published='@{upstream}'
+        else
+            pub_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null) || pub_branch=""
+            if [ -n "$pub_branch" ] && git rev-parse --verify --quiet "origin/$pub_branch" > /dev/null; then
+                published="origin/$pub_branch"
+            fi
+        fi
+        # No upstream and no origin/<branch>: nothing here can say whether an
+        # accepted leak is still unpublished, and a permission nobody can check
+        # is not a permission. Outcome 2, like every other thing this script
+        # cannot verify.
+        [ -n "$published" ] \
+            || die2 "there is a publicity-accepted list, but no upstream and no origin/<branch> to say whether those commits are already published"
+
         expired=""
         while IFS=$'\t' read -r a_sha a_pat a_date a_reason; do
             [ -n "$a_sha" ] || continue
-            printf '%s\n' "$revs" | grep -q -x -- "$a_sha" && continue
-            if git cat-file -e "$a_sha^{commit}" 2> /dev/null; then
-                why="it is no longer in $base..HEAD (published, or no longer an ancestor of HEAD)"
-            else
+            if ! git cat-file -e "$a_sha^{commit}" 2> /dev/null; then
                 why="it is not a commit in this repository at all (rewritten away?)"
+            elif git merge-base --is-ancestor "$a_sha" "$published" 2> /dev/null; then
+                why="it is already published ($published carries it), so the leak is out and the pardon is spent"
+            else
+                continue
             fi
             expired="${expired}$a_sha: $why
   the exception for /$a_pat/ forgives nothing now — delete its line from publicity-accepted
@@ -558,12 +585,19 @@ decide "$work/deny" "$work/accepted" "$work/stream" "$work/scrubbed" > "$work/ve
 hits=$(awk -F'\t' '$1 == "HIT" { print $2 "\t" $3 }' "$work/verdict") \
     || die2 "reading the verdict failed"
 
-# THE SECOND HALF OF SELF-EXPIRY, and the sharper half: the commit is still in
-# the range, and the exception STOPPED NOTHING. The word was renamed away, or
-# the entry never named the spelling that actually fires. Either way it is a
-# permission that buys nobody anything and would sit there being trusted, so
-# it is red on its own — the whole difference between an accepted leak and a
-# silenced one is that the accepted one has to keep earning its line.
+# THE SECOND HALF OF SELF-EXPIRY, and the sharper half: the commit IS in the
+# range this run read, and the exception STOPPED NOTHING. The word was renamed
+# away, or the entry never named the spelling that actually fires. Either way
+# it is a permission that buys nobody anything and would sit there being
+# trusted, so it is red on its own — the whole difference between an accepted
+# leak and a silenced one is that the accepted one has to keep earning its
+# line.
+#
+# ONLY FOR A COMMIT THIS RUN ACTUALLY READ. On a narrow base (HEAD~1) the
+# accepted commits are outside the range and were never offered a line; "it
+# stopped nothing" would be a statement about the base, not about the entry.
+# Such a run says what it did not look at instead, because a green that quietly
+# skipped the exception is the same silence this list exists to break.
 #
 # The same walk builds what a GREEN run prints. A run that forgave six lines
 # and said nothing is indistinguishable from a run whose dictionary lost a
@@ -571,6 +605,7 @@ hits=$(awk -F'\t' '$1 == "HIT" { print $2 "\t" $3 }' "$work/verdict") \
 # come out, every time, on the pass.
 forgiven=""
 idle=""
+unread=""
 total=0
 i=0
 while IFS=$'\t' read -r a_sha a_pat a_date a_reason; do
@@ -578,7 +613,12 @@ while IFS=$'\t' read -r a_sha a_pat a_date a_reason; do
     n=$(awk -F'\t' -v i="$i" '$1 == "FORGAVE" && $2 == i { print $3 }' "$work/verdict")
     i=$((i + 1))
     [ -n "$n" ] || n=0
-    if [ "$n" -eq 0 ]; then
+    if ! printf '%s\n' "$revs" | grep -q -x -- "$a_sha"; then
+        unread="${unread}$a_sha is unpublished and still needs its exception, but it is outside
+  $base..HEAD, so this run neither used /$a_pat/ nor judged it
+  (accepted $a_date: $a_reason)
+"
+    elif [ "$n" -eq 0 ]; then
         idle="${idle}$a_sha is in the outgoing range, but its exception for /$a_pat/ stopped
   no finding there — delete the line from publicity-accepted
   (accepted $a_date: $a_reason)
@@ -614,8 +654,13 @@ if [ -n "$forgiven" ]; then
     printf 'check-publicity: %d line(s) forgiven by a named, dated decision — not silenced:\n' "$total"
     printf '%s' "$forgiven" | sed 's/^/      /'
     printf '      The permission is narrow: only that expression, only in that commit.\n'
-    printf '      It is temporary: it goes RED (exit 3) as soon as the commit leaves\n'
-    printf '      %s..HEAD, so it cannot outlive the leak it accepts.\n' "$base"
+    printf '      It is temporary: it goes RED (exit 3) the moment %s carries that\n' "$published"
+    printf '      commit, so it cannot outlive the leak it accepts.\n'
+fi
+
+if [ -n "$unread" ]; then
+    printf 'check-publicity: this run read %s..HEAD, which does not contain every accepted commit:\n' "$base"
+    printf '%s' "$unread" | sed 's/^/      /'
 fi
 
 # A leak outranks a stale permission: both are red, and the author fixes the
