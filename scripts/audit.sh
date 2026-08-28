@@ -257,11 +257,30 @@ absent_or_fail one-pdf-producer "$st" $(printf '%s\n' "$raw" | cut -d: -f1,2)
 #     found, a file that is not found are each a FAIL with a reason. There is no
 #     branch here that reports PASS because it could not look.
 #
-#     THE CONTROL HALF is the Preview row, and it is not decoration. A check
-#     that only ever asserts "no WebKit token here" is indistinguishable from a
-#     check blind to the token altogether — it would stay green if the pattern
-#     were misspelled. Preview must CARRY `WKWebView` in its row and in
-#     `MarkdownPreviewView.swift`, so a blind pattern turns this check red.
+#     THE CONTROL HALF is Preview, and it is not decoration. A check that only
+#     ever asserts "no WebKit token here" is indistinguishable from a check
+#     blind to the token altogether — it would stay green if the pattern were
+#     misspelled. Preview must CARRY the pattern in its row of the table, in
+#     `MarkdownPreviewView.swift`, and in a fragment of CLAUDE.md, so a blind
+#     pattern turns this check red on three separate joints.
+#
+#     THE CONTROL IS RUN WITH THE SEARCHING EXPRESSION and never with a literal
+#     copy of one of its alternatives. Both control branches used to grep
+#     `WKWebView` while the search grepped `$webkit_tokens`; that is the shape
+#     of the hole, and it was measured, not argued: a deliberately misspelled
+#     pattern kept this check green over a tree that carried the defect. A
+#     control answering a different question from the one under test is a
+#     witness to something else.
+#
+#     THE ALTERNATIVES ARE PROBED ONE BY ONE, split out of the variable itself
+#     rather than written down a second time — a second list is a copy of the
+#     truth and drifts in silence. What the probe proves is narrow: every branch
+#     of the alternation compiles and matches its own spelling, so a branch that
+#     can never fire (an unbalanced bracket, a stray quote) is loud. It does NOT
+#     prove the spellings are the right ones — that is the Preview control's
+#     job — and an alternative deliberately written to match something other
+#     than itself (`createPDF\(` would be one) would be a false alarm here.
+#     There is none today, and adding one means teaching this probe.
 #
 #     WHAT IT DOES NOT PROVE: that the described path is the one that runs. It
 #     proves the named files exist, that the one named as the renderer reaches
@@ -272,14 +291,33 @@ absent_or_fail one-pdf-producer "$st" $(printf '%s\n' "$raw" | cut -d: -f1,2)
 #     was made worth checking.
 #
 #     THE UNIT OF "NEAR THE WORD Print" in CLAUDE.md is a comma- or
-#     semicolon-separated fragment of the bullet, which is exactly how that
-#     bullet lists its four paths. A WebKit token in a fragment that does not
-#     say `Print` is legal — the same bullet describes Preview, and Preview is
-#     a web view. That is the ceiling: a description of Print spread across two
+#     semicolon-separated fragment, which is exactly how the guide lists the
+#     four paths. A WebKit token in a fragment that does not say `Print` is
+#     legal — the opening paragraph describes Preview, and Preview is a web
+#     view. That is the ceiling: a description of Print spread across two
 #     fragments could put the token in the half that omits the word.
+#
+#     THE SCAN READS THE WHOLE GUIDE, not one bullet. The four modes are
+#     INTRODUCED in the opening paragraph and only recapitulated in the
+#     invariant bullet, so a scan anchored on the bullet could not see the
+#     sentence that names them first: a planted `Print (PDF via WKWebView and
+#     createPDF, in` on that line passed — measured. Fragments are cut out of
+#     paragraphs rather than out of physical lines, because the guide is
+#     hard-wrapped and the sentence about Print already spans a line break.
+#     A paragraph is what a blank line separates; a fenced code block is a
+#     paragraph like any other, and no claim is made about its contents beyond
+#     the same fragment rule.
 webkit_tokens='WKWebView|WebKit|createPDF|WKPDFConfiguration'
 arch=docs/architecture.md
 r11=""
+# Every alternative of the searching expression must match its own spelling.
+# The alternatives come from splitting the expression, never from a second list.
+IFS='|' read -r -a wk_alts <<< "$webkit_tokens"
+for wk_alt in "${wk_alts[@]}"; do
+    [ -n "$wk_alt" ] || { r11="$r11 audit.sh:webkit-tokens-has-an-empty-alternative"; continue; }
+    printf '%s\n' "$wk_alt" | grep -q -E "$webkit_tokens" \
+        || r11="$r11 audit.sh:webkit-token-does-not-match-its-own-spelling:$wk_alt"
+done
 # Absolute line number of the first line in [start,end] of FILE matching RE.
 line_in_range() { # line_in_range <file> <start> <end> <ere>
     local n
@@ -345,15 +383,17 @@ else
         fi
 
         if [ -n "$prev_row" ]; then
-            # The control half: the same pattern must find something here.
-            printf '%s\n' "$prev_row" | grep -q -E 'WKWebView' \
-                || r11="$r11 $arch:Preview-row-does-not-name-WKWebView(control-half-blind)"
+            # The control half: THE SEARCHING EXPRESSION, not a literal copy of
+            # one of its alternatives, must find something here.
+            printf '%s\n' "$prev_row" | grep -q -E "$webkit_tokens" \
+                || r11="$r11 $arch:Preview-row-matches-no-WebKit-token(control-half-blind)"
             pv=$(find_named MarkdownPreviewView.swift | head -1)
             if [ -z "$pv" ]; then
                 r11="$r11 MarkdownPreviewView.swift:not-in-tree"
             else
-                pvhits=$(grep -c 'WKWebView' "$pv")
-                [ "$pvhits" -gt 0 ] || r11="$r11 $pv:0-occurrences-of-WKWebView(control-half-blind)"
+                pvhits=$(grep -c -E "$webkit_tokens" "$pv")
+                [ "$pvhits" -gt 0 ] \
+                    || r11="$r11 $pv:0-WebKit-tokens(control-half-blind)"
             fi
         fi
     fi
@@ -369,17 +409,44 @@ else
         bullet=$(sed -n "$b_start,$b_end p" CLAUDE.md)
         printf '%s\n' "$bullet" | grep -q 'PrintPDFRenderer' \
             || r11="$r11 CLAUDE.md:$b_start:bullet-does-not-name-PrintPDFRenderer"
-        one=$(printf '%s' "$bullet" | tr '\n' ' ')
+    fi
+
+    # The fragment scan, over the WHOLE guide rather than that one bullet.
+    # Paragraphs are folded into a single line each — the guide is hard-wrapped
+    # and the sentence introducing the four modes already spans a break — and
+    # each carries the line it starts on, so a finding names a place to open.
+    paras=$(awk '
+        /^[[:space:]]*$/ { if (buf != "") { print start "\t" buf; buf = "" } next }
+        { t = $0; sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
+          if (buf == "") { start = FNR; buf = t } else { buf = buf " " t } }
+        END { if (buf != "") print start "\t" buf }' CLAUDE.md)
+    if [ -z "$paras" ]; then
+        r11="$r11 CLAUDE.md:no-paragraphs-parsed"
+    fi
+    # The control half of THIS file, which until now had none at all: the whole
+    # control of check 11 lived in the architecture.md branch, so a blind
+    # pattern was silent here. Preview is legally a web view, and the guide says
+    # so; a fragment naming Preview with a WebKit token must exist.
+    preview_control=""
+    while IFS= read -r para; do
+        [ -z "$para" ] && continue
+        p_line=${para%%$'\t'*}
+        p_text=${para#*$'\t'}
         while IFS= read -r frag; do
-            printf '%s\n' "$frag" | grep -q -E '(^|[^A-Za-z0-9_])Print([^A-Za-z0-9_]|$)' || continue
             printf '%s\n' "$frag" | grep -q -E "$webkit_tokens" || continue
-            n=$(line_in_range CLAUDE.md "$b_start" "$b_end" "$webkit_tokens")
+            printf '%s\n' "$frag" \
+                | grep -q -E '(^|[^A-Za-z0-9_])Preview([^A-Za-z0-9_]|$)' \
+                && preview_control=yes
+            printf '%s\n' "$frag" \
+                | grep -q -E '(^|[^A-Za-z0-9_])Print([^A-Za-z0-9_]|$)' || continue
             calls=0
             renderer=$(find_named PrintPDFRenderer.swift | head -1)
             [ -n "$renderer" ] && calls=$(grep -c 'PDMCore\.' "$renderer")
-            r11="$r11 CLAUDE.md:${n:-$b_start}:describes-Print-via-WebKit-but-${renderer:-PrintPDFRenderer.swift}-has-0-of-those-tokens-and-calls-PDMCore.-${calls}-times"
-        done <<< "$(printf '%s' "$one" | tr ',;' '\n\n')"
-    fi
+            r11="$r11 CLAUDE.md:$p_line:describes-Print-via-WebKit-but-${renderer:-PrintPDFRenderer.swift}-has-0-of-those-tokens-and-calls-PDMCore.-${calls}-times"
+        done <<< "$(printf '%s' "$p_text" | tr ',;' '\n\n')"
+    done <<< "$paras"
+    [ -n "$preview_control" ] \
+        || r11="$r11 CLAUDE.md:no-fragment-names-Preview-with-a-WebKit-token(control-half-blind)"
 fi
 if [ -z "$r11" ]; then pass "render-paths-match-code"; else fail "render-paths-match-code" $r11; fi
 
@@ -430,26 +497,50 @@ esac
 #     both do), and a check that reddened on the viewer would be turned off
 #     within a week.
 #
-#     NON-EMPTINESS IS PART OF THE CHECK. A whitelist over a tree with no
-#     printing at all is vacuously satisfied and green, which is the same
-#     report it gives for a healthy tree. So PrintPDFRenderer.swift must itself
-#     contain at least one producer token; if it does not, the check FAILs as
-#     vacuous rather than passing on nothing.
+#     NON-EMPTINESS IS PART OF THE CHECK, AND IT IS NOT THE SAME AS COMPLETENESS.
+#     A whitelist over a tree with no printing at all is vacuously satisfied and
+#     green, which is the same report it gives for a healthy tree — so
+#     PrintPDFRenderer.swift must itself contain at least one producer token.
+#     That answers "is anything being matched", and for a long time it was all
+#     that was answered: the scope holds exactly ONE hit (`PDMCore.render`), so
+#     misspelling any of the other seven tokens left this check green over a
+#     tree that carried the defect — measured, not argued. Non-emptiness is
+#     satisfied by one live token; completeness is a claim about all eight.
+#
+#     SO EVERY TOKEN CARRIES THE LINE IT MUST CATCH, and each is run against it
+#     before the search. The list is written ONCE, below, and both the search
+#     and the probe are built from it; a second list would be a copy of the
+#     truth and would drift in silence. What the probe proves is narrow: each
+#     token, as spelled, still matches an example of the thing it is named for.
+#     It does not prove the example resembles real code, nor that the token is
+#     the right token — a whitelist bounds WHERE, and its ceiling is below.
 #
 #     WHAT IT DOES NOT PROVE: this too is a list of names, and a producer
 #     spelled in a way no token here lists passes — a whitelist bounds WHERE,
 #     not HOW. It also says nothing about what the bytes contain, nor about a
 #     producer reached through a Process or a plug-in rather than a Swift call.
 pdf_places='EditMD/EditMD/Editor/PrintPDFRenderer.swift EditMD/EditMD/Editor/PDMCore.swift'
-pdf_hits=$(git -c core.quotepath=false grep -n --untracked -I -E \
-        -e 'PDMCore\.render' \
-        -e 'NSPrintOperation' \
-        -e 'CGPDFContext' \
-        -e 'beginPDFPage' \
-        -e 'dataRepresentation\(\)' \
-        -e '(^|[^A-Za-z0-9_])createPDF' \
-        -e 'WKPDFConfiguration' \
-        -e 'pdf[[:space:]]*\([[:space:]]*configuration' \
+# token<TAB>a line the token is required to match. One list, two readers.
+pdf_tokens=(
+    $'PDMCore\\.render\tlet bytes = try PDMCore.render(job)'
+    $'NSPrintOperation\tlet op = NSPrintOperation(view: v, printInfo: info)'
+    $'CGPDFContext\tlet ctx = CGPDFContext(consumer: c, mediaBox: &box, nil)'
+    $'beginPDFPage\tctx.beginPDFPage(nil)'
+    $'dataRepresentation\\(\\)\tlet bytes = document.dataRepresentation()'
+    $'(^|[^A-Za-z0-9_])createPDF\twebView.createPDF(configuration: cfg) { _ in }'
+    $'WKPDFConfiguration\tlet cfg = WKPDFConfiguration()'
+    $'pdf[[:space:]]*\\([[:space:]]*configuration\tlet bytes = try await webView.pdf(configuration: cfg)'
+)
+pdf_probe=""
+pdf_args=()
+for pdf_pair in "${pdf_tokens[@]}"; do
+    pdf_pat=${pdf_pair%%$'\t'*}
+    pdf_fixture=${pdf_pair#*$'\t'}
+    pdf_args+=(-e "$pdf_pat")
+    printf '%s\n' "$pdf_fixture" | grep -q -E -e "$pdf_pat" \
+        || pdf_probe="$pdf_probe token-does-not-match-its-own-example:/$pdf_pat/"
+done
+pdf_hits=$(git -c core.quotepath=false grep -n --untracked -I -E "${pdf_args[@]}" \
         -- 'EditMD/EditMD/*.swift' 'EditMD/editmdctl/*.swift' 'EditMD/editmd-mcp/*.swift')
 pdf_st=$?
 if [ "$pdf_st" -gt 1 ]; then
@@ -473,9 +564,138 @@ else
     elif ! printf '%s\n' "$pdf_hits" | grep -q "^$renderer:"; then
         vac="whitelist is vacuous: no producer token in $renderer"
     fi
-    if [ -z "$stray" ] && [ -z "$vac" ]; then pass "pdf-bytes-one-place"
-    else fail "pdf-bytes-one-place" ${vac:+"$vac"} $stray; fi
+    if [ -z "$stray" ] && [ -z "$vac" ] && [ -z "$pdf_probe" ]; then pass "pdf-bytes-one-place"
+    else fail "pdf-bytes-one-place" ${vac:+"$vac"} $pdf_probe $stray; fi
 fi
+
+# 14. The release gate runs the tests it says it runs.
+#
+#     `scripts/dist.sh` runs PDMCoreTests twice, in Debug and in Release, and
+#     the two answer different questions — its own header says why, and check
+#     15 below is the reason the Release half is not redundant. Until this
+#     check existed, nothing held that line up: deleting it left every
+#     automatic check in this repository green.
+#
+#     THE WORK IS NOT DONE HERE. scripts/check-dist-gate.sh EXECUTES dist.sh in
+#     a throwaway root with a directory of recording stubs first on PATH and
+#     asks its claims of the log of xcodebuild invocations, not of the text of
+#     the script. Its header carries the rationale and the ceiling; this check
+#     is the wiring, and it forwards the three outcomes unchanged.
+#
+#     Three outcomes by hand, as in check 12: 2 means the gate did not run, and
+#     a gate that did not run must never look like a gate that passed — "no
+#     Release run in the log" is exactly what an early failure looks like too.
+#
+#     WHAT IT DOES NOT PROVE: nothing that the gate itself does not prove. In
+#     particular the stubs are not xcodebuild, so a test that is invoked and
+#     does not exist is invisible here; and it costs the audit some eight
+#     seconds, which is the price of executing rather than reading.
+dist_out=$(scripts/check-dist-gate.sh 2>&1)
+dist_st=$?
+case "$dist_st" in
+    0) pass "dist-gate-runs-what-it-claims" ;;
+    1) fail "dist-gate-runs-what-it-claims" "the release gate does not run what it claims:"
+       printf '%s\n' "$dist_out" | sed 's/^/      /' ;;
+    *) fail "dist-gate-runs-what-it-claims" "the check did not run (exit $dist_st):"
+       printf '%s\n' "$dist_out" | sed 's/^/      /' ;;
+esac
+
+# 15. The narrow Release run still covers the whole Debug/Release difference.
+#
+#     THIS IS AN INVARIANT STANDING IN FOR A MEASUREMENT. dist.sh runs exactly
+#     one test class in Release (`-only-testing:EditMDTests/PDMCoreTests`), and
+#     that is enough only while the SHIPPED sources hold one single place where
+#     the two configurations mean different things. Measured across the six
+#     constructs that produce such a place: `#if DEBUG` 0 outside a doc
+#     comment, `assert(` 0, `precondition(` 0, `preconditionFailure(` 0,
+#     `fatalError(` 0, `assertionFailure(` 1 — the wrapper's report of a core
+#     contract mismatch in PDMCore.swift, which compiles to nothing in Release.
+#     A measurement decays; this check turns it into something that reddens the
+#     day a second such place appears, because on that day the one-class
+#     Release run stops covering the difference and somebody must widen it.
+#
+#     THE ONE PERMITTED PLACE IS NAMED, as in check 13, rather than left to be
+#     inferred from a count. Zero places is a FAIL too: it means either that
+#     the wrapper stopped reporting or that this check went blind, and both are
+#     news.
+#
+#     COMMENTS ARE STRIPPED, FILES ARE NOT EXCLUDED. The only `#if DEBUG` in
+#     the tree sits inside a doc comment in ClaudeIDEBridge.swift explaining
+#     why the conditional is NOT there — a true sentence that a naive grep
+#     reads as the thing it denies. Excluding that file would have been a hole
+#     the size of a file, and a moving one: the prose could move, or real code
+#     could arrive under it. So the sources are read with line and block
+#     comments removed and the line numbers kept, and every file stays in scope.
+#
+#     WHAT IT DOES NOT PROVE: it is a list of six constructs, and a difference
+#     spelled some other way — a `#if` on a different flag, behaviour that
+#     depends on the optimizer alone, a `Bundle`-inspected build configuration
+#     — is not one of them. The comment stripper knows nothing of string
+#     literals: a `//` or `/*` inside a string truncates or swallows what
+#     follows, which can only LOSE a hit, and a construct written inside a
+#     multi-line string literal would be counted as if it were code. Neither
+#     shape occurs today. And it says nothing about the tests: EditMDTests is
+#     out of scope here exactly as it is in check 13, because it does not ship.
+debug_only_place=EditMD/EditMD/Editor/PDMCore.swift
+# construct<TAB>a line it is required to match. One list, two readers.
+debug_only_tokens=(
+    $'#if[[:space:]]+DEBUG\t#if DEBUG'
+    $'(^|[^A-Za-z0-9_])assert\\(\tassert(index >= 0)'
+    $'(^|[^A-Za-z0-9_])assertionFailure\\(\tassertionFailure("\\(error)")'
+    $'(^|[^A-Za-z0-9_])precondition\\(\tprecondition(index >= 0)'
+    $'(^|[^A-Za-z0-9_])preconditionFailure\\(\tpreconditionFailure("unreachable")'
+    $'(^|[^A-Za-z0-9_])fatalError\\(\tfatalError("unreachable")'
+)
+r15=""
+dbg_args=()
+for dbg_pair in "${debug_only_tokens[@]}"; do
+    dbg_pat=${dbg_pair%%$'\t'*}
+    dbg_fixture=${dbg_pair#*$'\t'}
+    dbg_args+=(-e "$dbg_pat")
+    printf '%s\n' "$dbg_fixture" | grep -q -E -e "$dbg_pat" \
+        || r15="$r15 construct-does-not-match-its-own-example:/$dbg_pat/"
+done
+dbg_files=()
+while IFS= read -r dbg_f; do
+    [ -n "$dbg_f" ] && dbg_files+=("$dbg_f")
+done < <(git ls-files -c -o --exclude-standard -- \
+            'EditMD/EditMD/*.swift' 'EditMD/editmdctl/*.swift' 'EditMD/editmd-mcp/*.swift' 2>/dev/null)
+if [ ${#dbg_files[@]} -eq 0 ]; then
+    r15="$r15 no-swift-sources-found-in-the-shipped-targets"
+else
+    # Comments out, line numbers kept: `file:line:code-without-comments`.
+    dbg_hits=$(awk '
+        FNR == 1 { inblock = 0 }
+        {
+            line = $0; out = ""; i = 1; n = length(line)
+            while (i <= n) {
+                two = substr(line, i, 2)
+                if (inblock) {
+                    if (two == "*/") { inblock = 0; i += 2 } else { i++ }
+                    continue
+                }
+                if (two == "//") break
+                if (two == "/*") { inblock = 1; i += 2; continue }
+                out = out substr(line, i, 1); i++
+            }
+            print FILENAME ":" FNR ":" out
+        }' "${dbg_files[@]}" | grep -E "${dbg_args[@]}")
+    dbg_count=$(printf '%s\n' "$dbg_hits" | grep -c '.')
+    if [ "$dbg_count" -eq 0 ]; then
+        r15="$r15 no-configuration-difference-left:$debug_only_place-no-longer-carries-one"
+    else
+        while IFS= read -r dbg_h; do
+            [ -z "$dbg_h" ] && continue
+            dbg_hf=${dbg_h%%:*}
+            [ "$dbg_hf" = "$debug_only_place" ] \
+                || r15="$r15 $(printf '%s' "$dbg_h" | cut -d: -f1,2):outside-the-one-declared-place"
+        done <<< "$dbg_hits"
+        [ "$dbg_count" -le 1 ] \
+            || r15="$r15 $dbg_count-places-differ-between-Debug-and-Release-but-the-Release-run-is-one-class"
+    fi
+fi
+if [ -z "$r15" ]; then pass "one-debug-release-difference"
+else fail "one-debug-release-difference" $r15; fi
 
 echo
 if [ "$fails" -eq 0 ]; then

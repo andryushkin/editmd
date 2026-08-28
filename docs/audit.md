@@ -7,8 +7,12 @@ before pushing and at the end of any multi-commit sprint.
 
 ## Layers
 
-- `scripts/audit.sh` — the deterministic core: side-effect free, fail-closed,
-  stable exit code. Runnable by a human, CI, a git hook, or any agent.
+- `scripts/audit.sh` — the deterministic core: fail-closed, stable exit code,
+  and it never writes to the working tree. Runnable by a human, CI, a git
+  hook, or any agent. Two checks do run something — check 4 generates the
+  Xcode project inside a temporary clone, check 14 executes `scripts/dist.sh`
+  inside a throwaway root — and both keep every byte they write in a
+  `mktemp -d` they delete.
 - `docs/audit.md` (this file) — the public specification of the criteria.
 - `.agents/skills/editmd-audit/SKILL.md` — the agent orchestrator: runs the
   script, walks the judgment list against the actual diff, verifies test
@@ -22,7 +26,7 @@ before pushing and at the end of any multi-commit sprint.
 ./scripts/audit.sh
 ```
 
-Static checks, a few seconds, exit code 1 on any failure:
+About ten seconds, exit code 1 on any failure:
 
 1. **Language policy** — no Cyrillic outside the explicit allowlist
    (localization catalog, the language-name endonym, skill trigger phrases,
@@ -75,13 +79,21 @@ Static checks, a few seconds, exit code 1 on any failure:
     is true. Of the `Print` row: every file it names exists, the row carries no
     WebKit token, none of those files carries one either, and the renderer it
     names really reaches the core (`PDMCore.` occurs in it). Of the `Preview`
-    row, the reverse — `WKWebView` must be there and in
-    `MarkdownPreviewView.swift`; that half is the control, and without it a
-    misspelled pattern would look exactly like a clean tree. In `CLAUDE.md` the
-    same claim is located by its own words rather than by a line number, and
-    the unit of "next to the word Print" is a comma- or semicolon-separated
-    fragment of that bullet. Every joint is fail-closed: no heading, no row, no
-    bullet, no file are each a FAIL with a reason.
+    row, the reverse — a WebKit token must be there, in
+    `MarkdownPreviewView.swift`, and in a fragment of `CLAUDE.md`; that is the
+    control, and without it a misspelled pattern would look exactly like a
+    clean tree. Every control branch is run with the *searching expression*
+    and never with a literal copy of one of its alternatives: a control that
+    greps `WKWebView` while the search greps the pattern answers a different
+    question, and a deliberately misspelled pattern stayed green through it.
+    Each alternative of the pattern is additionally probed against its own
+    spelling, so an alternative that can never fire is loud.
+    In `CLAUDE.md` the bullet is located by its own words rather than by a line
+    number, and the fragment scan reads the **whole guide**, not that bullet:
+    the four modes are introduced in the opening paragraph and only recapped in
+    the bullet. The unit of "next to the word Print" is a comma- or
+    semicolon-separated fragment of a paragraph. Every joint is fail-closed: no
+    heading, no row, no bullet, no file are each a FAIL with a reason.
     What is **not** checked: that the described path is the one that runs. A
     second, undescribed producer is check 13's sentence, not this one; the
     `Source` and `Visual` rows are not read at all, since they name globs
@@ -105,6 +117,20 @@ Static checks, a few seconds, exit code 1 on any failure:
     are in no diff and are not read. The full ceiling, and the price of the
     fail-closed choice in a clone that has no dictionary, are in the script's
     own header.
+    One regex engine does all three jobs — compiling an entry, blanking the
+    permitted spellings, searching for the forbidden ones — and it is perl.
+    Two engines are how an allow entry dies quietly: `\b` is a word boundary
+    to `grep -E` and a plain `b` to BSD `sed -E`, so `\bpdm_[a-z0-9_]+`
+    validated, blanked nothing, and turned a permitted spelling into a
+    reported leak. Every allow entry is now run through the real scrubber
+    before any text is collected — a witness string is built from the entry,
+    the engine confirms the witness matches it, and the scrubber must blank it;
+    an entry that cannot be witnessed or survives its own scrubber is *did not
+    run*, not a pass.
+    All three diffs are read with `--no-renames`. A pure rename prints no `+`
+    line at all, so a file moved onto a forbidden name — or moved with
+    forbidden content inside it — used to exit 0. The price is that a large
+    file which is merely moved is collected and scanned in full.
 
 13. **PDF bytes come from one place** — the whitelist check 10 names in its
     ceiling and does not implement. Every occurrence of a producer token
@@ -120,10 +146,54 @@ Static checks, a few seconds, exit code 1 on any failure:
     switched off within a week. The whitelist must also be non-empty: no
     producer token in `PrintPDFRenderer.swift` is a FAIL ("vacuous"), because a
     whitelist over a tree with no printing is green for the wrong reason.
+    Non-emptiness is **not** completeness, and for a while only the first was
+    held: the scope contains exactly one hit, so misspelling any of the other
+    seven tokens left the check green. Each token now carries the line it must
+    catch, and is run against it before the search; the list is written once
+    and both the search and the probe are built from it.
     What is **not** checked: this is still a list of names, so it bounds *where*
     and not *how* — a producer spelled in a way no token lists passes, as does
     one reached through a `Process` rather than a Swift call. Nothing here says
     anything about what the bytes contain.
+
+14. **The release gate runs what it claims** — `scripts/dist.sh` runs
+    `PDMCoreTests` twice, in Debug and in Release, and until this check existed
+    nothing held the second run up: deleting it left every automatic check
+    green. `scripts/check-dist-gate.sh` **executes** `dist.sh` in a throwaway
+    root with a directory of recording stubs first on `PATH`, in both signing
+    modes, and asks its claims of the log of `xcodebuild` invocations rather
+    than of the text of the script: both runs exist, neither narrows away from
+    `PDMCoreTests`, the Release run carries `ENABLE_TESTABILITY=YES`, the
+    packaging build comes last and without that override. Two claims a stub
+    cannot answer are answered statically against `project.yml` and the test
+    sources: the `-only-testing` identifier names a target the scheme's test
+    action actually runs, and a class that exists. Three outcomes, laid out as
+    in check 12 — clean, failed with the list, and *did not run*.
+    `--selftest` plants eight regressions it must name and eight legal rewrites
+    it must sit through; a grep over the same script text catches three of the
+    eight and cries wolf on three of the others.
+    What is **not** checked: the stubs are not `xcodebuild`, so nothing here
+    says a test was compiled, resolved or executed; nothing about signing,
+    notarization or the DMG; and nothing about Debug and Release differing in
+    what they check — that last one is check 15.
+
+15. **One Debug/Release difference** — the Release run of check 14 is a single
+    test class, and that is enough only while the shipped sources hold one
+    single place where the two configurations mean different things. Six
+    constructs make such a place (`#if DEBUG`, `assert(`, `assertionFailure(`,
+    `precondition(`, `preconditionFailure(`, `fatalError(`); across the app,
+    `editmdctl` and `editmd-mcp` there is exactly one, the core-contract
+    `assertionFailure` in `Editor/PDMCore.swift`, and it is named here the way
+    check 13 names its places. Zero is a FAIL as well as two: it means either
+    that the report disappeared or that the check went blind. The sources are
+    read with line and block comments stripped, because the only `#if DEBUG`
+    in the tree sits inside a doc comment explaining why the conditional is not
+    there — excluding that file would have been a hole the size of a file.
+    Each construct carries a line it must catch and is run against it first.
+    What is **not** checked: a difference spelled some other way — a `#if` on
+    another flag, behaviour that depends on the optimizer alone — is not one of
+    the six; and the comment stripper knows nothing of string literals, so a
+    `//` inside a string can only lose a hit.
 
 The build and the full test suite are deliberately *not* here — they are the
 other, heavier gate and run through `xcodebuild` (see `docs/testing.md`).
