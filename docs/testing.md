@@ -40,6 +40,14 @@ Xcode 26; XcodeGen is installed by the workflow):
   pushes have no such range, and the step refuses rather than audit less than it
   says — why, and why not a wider base instead, is recorded on the step itself
   in `ci.yml`.
+
+  A superseded push does not cancel this job. `cancel-in-progress` used to sit
+  at workflow level and reach the audit too, and an audit reads only the range
+  of the push that started it: measured on a planted branch, push A publishes a
+  commit with a forbidden word and fails on its own range, push B's range holds
+  one commit — its own — and passes, so cancelling A leaves the word inside
+  nobody's range and the surviving run green. A cancelled build costs a rebuild;
+  a cancelled audit costs the only reading a commit ever gets.
 - **Build and test** — generate, build, then the full suite with
   `-retry-tests-on-failure -test-iterations 2`. The retry is there for the two
   known warm-up/timing flakes only; remove it once they are fixed, because it

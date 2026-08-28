@@ -21,10 +21,18 @@ on:
         description: The commit the audit range starts at, exclusive
         required: true
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
+# No workflow-level concurrency, and that is a decision rather than an
+# omission: `cancel-in-progress` here used to cancel the AUDIT too, and an
+# audit reads only the range of the push that started it.
+#
+# Two pushes in quick succession, measured on a planted branch rather than
+# argued: push A publishes C1 with a forbidden word, push B publishes C2.
+# A's range is P..C1 and fails, naming the file and the pattern. B's range is
+# C1..C2, contains one commit — C2 — and passes. So cancelling A leaves C1
+# inside nobody's range, and the surviving run is green. A cancelled build
+# costs a rebuild; a cancelled audit costs the only reading a commit ever gets.
+#
+# The build job keeps cancelling its predecessors below, where it is free.
 jobs:
   audit:
     name: Audit
@@ -119,6 +127,13 @@ jobs:
   build:
     name: Build and test
     runs-on: macos-26
+    # Superseding a build is free: the next push builds the same tree plus one
+    # commit, so the answer the cancelled run was working towards is contained
+    # in the answer the new one will give. That is exactly what is NOT true of
+    # the audit above, which reads a range nobody else will read.
+    concurrency:
+      group: ci-build-${{ github.ref }}
+      cancel-in-progress: true
     env:
       # `project.yml` signs with a development identity so the Files-and-Folders
       # grant survives a local rebuild — a certificate no runner has. Ad-hoc
