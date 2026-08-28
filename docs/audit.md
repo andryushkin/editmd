@@ -219,6 +219,17 @@ push until fixed or consciously waived by the maintainer.
 7. **No chronology** — do docs still describe the present tense of the
    system, with history left to the maintainer's decision log?
 
+## Self-tests
+
+Two gates in `scripts/` carry a `--selftest` flag: they plant the defect they
+exist to catch and require themselves to name it. Neither is run by
+`audit.sh` — they guard the guards, and are run when a guard is changed.
+
+| Command | What it plants |
+|---|---|
+| `scripts/check-dist-gate.sh --selftest` | eight regressions the gate must name, eight legal rewrites it must sit through |
+| `scripts/verify-core.sh --selftest` | the version rule of check 4 against a table of comparisons and maxima, expectations written by hand — the two-component bug this replaced left the table green while the gate was wrong |
+
 ## Maintenance
 
 The auditor itself is subject to the doc-sync rule: when a new class of

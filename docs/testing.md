@@ -36,12 +36,10 @@ Xcode 26; XcodeGen is installed by the workflow):
 - **Audit** — `scripts/audit.sh` with `AUDIT_BASE` set explicitly by a step of
   its own. The script fails closed without a base, and a default shallow
   checkout has none, so the job clones with full history. On a pull request the
-  base is the target branch; on a push it is `github.event.before` — the tip the
-  push replaces, so the audit sees every commit the push publishes rather than
-  the last one. A first push and a force-push have no such tip
-  (`github.event.before` is all zeros, and after a force-push it may be gone):
-  the job refuses and says so, because falling back to `HEAD~1` would narrow the
-  range silently on exactly the pushes worth reading.
+  base is the target branch; on a push it is the range the push publishes. Two
+  pushes have no such range, and the step refuses rather than audit less than it
+  says — why, and why not a wider base instead, is recorded on the step itself
+  in `ci.yml`.
 - **Build and test** — generate, build, then the full suite with
   `-retry-tests-on-failure -test-iterations 2`. The retry is there for the two
   known warm-up/timing flakes only; remove it once they are fixed, because it

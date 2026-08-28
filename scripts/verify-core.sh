@@ -69,21 +69,6 @@
 # Usage: scripts/verify-core.sh [path-to-repo-root]
 set -euo pipefail
 
-SELF_TEST=""
-case "${1:-}" in
-    --self-test) SELF_TEST=yes; shift ;;
-esac
-
-ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
-XCF="$ROOT/Vendor/PrintDotMD.xcframework"
-EXPECTED="$ROOT/Vendor/core.expected.json"
-PLIST="$XCF/Info.plist"
-# Filled in by step 0 from Info.plist. Not defaulted to the conventional path:
-# a default is exactly the assumption this gate used to make.
-SLICE=""
-LIB=""
-HEADER=""
-
 fail() {
     echo "error: $1" >&2
     shift
@@ -99,28 +84,49 @@ fail() {
 # A missing component is zero — `14` and `14.0.0` are the same version — which
 # is why the loop reads past the end of the shorter list rather than refusing
 # to compare lists of different lengths.
+# The rule itself, written once and shared by both users below rather than
+# spelled twice. Two spellings of "which version is newer" is what this repair
+# removed from check 4 in the first place.
+VERSION_CMP_AWK='
+function newer(a, b,   n, m, i, p, q, x, y) {
+    n = split(a, x, "."); m = split(b, y, ".")
+    for (i = 1; i <= 3; i++) {
+        p = (i <= n) ? x[i] + 0 : 0
+        q = (i <= m) ? y[i] + 0 : 0
+        if (p < q) return -1
+        if (p > q) return 1
+    }
+    return 0
+}'
+
 version_le() {
-    awk -v a="$1" -v b="$2" 'BEGIN {
-        n = split(a, x, "."); m = split(b, y, ".")
-        for (i = 1; i <= 3; i++) {
-            p = (i <= n) ? x[i] + 0 : 0
-            q = (i <= m) ? y[i] + 0 : 0
-            if (p < q) exit 0
-            if (p > q) exit 1
-        }
-        exit 0
-    }'
+    awk -v a="$1" -v b="$2" "$VERSION_CMP_AWK"'BEGIN { exit newer(a, b) > 0 }'
 }
 
-# `verify-core.sh --self-test` — the comparison above, on a table, with no
-# package anywhere near it.
+# The newest of the versions on stdin, one per line — in one process, not one
+# per value. Measured: the archive carries 1 557 build records in the arm64
+# slice and 1 479 in x86_64, so a shell loop calling `version_le` on each
+# forked `awk` three thousand times and took the gate from 1.9 s to 7.4 s.
+version_max() {
+    awk "$VERSION_CMP_AWK"'
+        { if (best == "" || newer($1, best) > 0) best = $1 }
+        END { print best }'
+}
+
+# `verify-core.sh --selftest` — the comparison above, on a table, with no
+# package anywhere near it. Spelled as the other gates in this repository spell
+# it (`check-dist-gate.sh --selftest`, `docs/audit.md`), because a flag that
+# differs by a hyphen from the four its reader already knows is a flag that
+# gets typed wrong; and an argument this script does not recognise is refused
+# rather than taken for a repository root, which used to answer a mistyped flag
+# with "the core library is missing: --selftest/Vendor/PrintDotMD.xcframework".
 #
 # Every expectation is written out by hand. Computing them from `version_le`
 # would be the same function agreeing with itself, and the four rows are chosen
 # to be the ones a two-component comparison gets wrong: `14.0.1` against `14.0`
 # is the case that was live, and `14.10` against `14.9` is the case a string
 # comparison gets wrong in the other direction.
-if [ -n "$SELF_TEST" ]; then
+if [ "${1:-}" = --selftest ]; then
     bad=0
     while read -r a b want; do
         [ -n "$a" ] || continue
@@ -137,10 +143,41 @@ if [ -n "$SELF_TEST" ]; then
 14.10    14.9     gt
 13.9     14.0     le
 TABLE
-    [ "$bad" -eq 0 ] || fail "version_le is wrong on $bad row(s) of the table."
-    echo "verify-core --self-test: version comparison ok on 4 rows"
+    # And the other user of the same rule. Check 4 does not compare two
+    # versions, it picks the newest of some fifteen hundred — and while that
+    # was a `sort -t. -kN,Nn` pipeline it had the very bug this table was
+    # written for, invisibly: reverting the sort keys left the table green.
+    # Expectations by hand again, and the last row is the one a two-component
+    # rule gets wrong.
+    while read -r want values; do
+        [ -n "$want" ] || continue
+        got=$(printf '%s\n' $values | version_max)
+        if [ "$got" = "$want" ]; then
+            printf '  ok    max(%-22s) -> %s\n' "$values" "$got"
+        else
+            printf '  WRONG max(%-22s) -> %s, expected %s\n' "$values" "$got" "$want"
+            bad=$((bad + 1))
+        fi
+    done <<'MAXTABLE'
+14.0     14.0
+14.9     13.9 14.9 14.0
+14.10    14.9 14.10 14.2
+14.0.1   14.0 14.0.1 13.9
+MAXTABLE
+    [ "$bad" -eq 0 ] || fail "the version rule is wrong on $bad row(s)."
+    echo "verify-core --selftest: version rule ok on 4 comparisons and 4 maxima"
     exit 0
 fi
+
+case "${1:-}" in
+    -*) fail "unknown argument: $1" \
+             "Usage: verify-core.sh [--selftest] [path-to-repo-root]" ;;
+esac
+
+ROOT="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+XCF="$ROOT/Vendor/PrintDotMD.xcframework"
+EXPECTED="$ROOT/Vendor/core.expected.json"
+PLIST="$XCF/Info.plist"
 
 # -- 0. Is the artifact here at all? ----------------------------------------
 # Its own failure, deliberately: "no such file" from shasum or `ld: library
@@ -162,6 +199,11 @@ fi
 # sits at the conventional path would be verified in the second and linked from
 # the first. Naming the same file twice, once here and once in the package, is
 # the same two-copies-of-one-fact this gate exists to refuse.
+#
+# Two of the three names come from the package; the third, `printdotmd.h`, is
+# still spelled here, because `Info.plist` names the headers *directory* and
+# not the umbrella header inside it. That is the honest limit of the move
+# rather than an oversight, and the producer's own check has the same limit.
 [ -f "$PLIST" ] || fail "the core library is damaged: $PLIST is missing" \
     "An XCFramework without an Info.plist is not one; Xcode would refuse it" \
     "too. Re-copy the whole PrintDotMD.xcframework directory."
@@ -169,18 +211,23 @@ fi
 # Exactly one library in the package. More than one is a shape this gate has
 # never been asked to reason about — which slice the app would get then depends
 # on the destination — and saying so is better than checking the first and
-# implying the rest were looked at.
-plutil -extract AvailableLibraries.0 raw -o /dev/null "$PLIST" 2>/dev/null \
+# implying the rest were looked at. `plutil` prints the count of an array, so
+# the refusal can name it, the way the producer's own check does.
+LIB_COUNT=$(plutil -extract AvailableLibraries raw -o - "$PLIST" 2>/dev/null) \
     || fail "$PLIST declares no libraries at all." \
-            "AvailableLibraries is missing or empty. Re-copy the package."
-if plutil -extract AvailableLibraries.1 raw -o /dev/null "$PLIST" 2>/dev/null; then
-    fail "$PLIST declares more than one library." \
-         "This gate verifies one, and which one the build picks would then" \
-         "depend on the destination. Vendor a single-library package."
-fi
+            "AvailableLibraries is missing. Re-copy the package."
+[ "$LIB_COUNT" = 1 ] || fail "$PLIST declares $LIB_COUNT libraries, expected one." \
+    "This gate verifies one, and which one the build picks would then" \
+    "depend on the destination. Vendor a single-library package."
 
+# Absent and empty are one answer here — a key that names nothing names no
+# file — so the extractor refuses both and every caller gets to say what was
+# missing in its own words.
 plist_string() {
-    plutil -extract "AvailableLibraries.0.$1" raw -o - "$PLIST" 2>/dev/null
+    local value
+    value=$(plutil -extract "AvailableLibraries.0.$1" raw -o - "$PLIST" 2>/dev/null) \
+        && [ -n "$value" ] || return 1
+    printf '%s' "$value"
 }
 SLICE_ID=$(plist_string LibraryIdentifier) \
     || fail "$PLIST names no LibraryIdentifier."
@@ -194,14 +241,9 @@ HEADERS_NAME=$(plist_string HeadersPath) \
             "The package offers no headers, so nothing that imports" \
             "PrintDotMD would compile against it. Re-build the core with" \
             "headers and vendor that package."
-[ -n "$SLICE_ID" ] && [ -n "$LIB_NAME" ] && [ -n "$HEADERS_NAME" ] \
-    || fail "$PLIST names an empty path." \
-            "LibraryIdentifier='$SLICE_ID' LibraryPath='$LIB_NAME'" \
-            "HeadersPath='$HEADERS_NAME'"
 
-SLICE="$XCF/$SLICE_ID"
-LIB="$SLICE/$LIB_NAME"
-HEADER="$SLICE/$HEADERS_NAME/printdotmd.h"
+LIB="$XCF/$SLICE_ID/$LIB_NAME"
+HEADER="$XCF/$SLICE_ID/$HEADERS_NAME/printdotmd.h"
 
 [ -f "$LIB" ] || fail "the core library is damaged: $LIB is missing" \
     "Info.plist names this file as the one the build links, and it is not" \
@@ -237,12 +279,13 @@ GOT_SHA=$(shasum -a 256 "$LIB" | awk '{print $1}')
     "If the core was rebuilt on purpose, update library_sha256 in" \
     "Vendor/core.expected.json in the same commit."
 
-# -- 2. The seal over every other file of the package -----------------------
+# -- 2. The seal over every file of the package -----------------------------
 if ! codesign --verify --strict "$XCF" 2>/dev/null; then
     fail "the core library signature does not verify (codesign --strict)." \
-         "Something in $XCF changed after signing — a header, the module map," \
-         "Info.plist, or an added or removed file. The checksum above covers" \
-         "only the static library; the signature covers the rest." \
+         "Something in $XCF changed after signing — the static library, a" \
+         "header, the module map, Info.plist, or an added or removed file." \
+         "The seal covers all of them; the checksum above covers the library" \
+         "alone, and names the cause when it is the library that moved." \
          "Diagnose with: codesign --verify --strict --verbose=4 \"$XCF\""
 fi
 
@@ -286,22 +329,38 @@ GOT_TEAM=$(codesign --display --verbose=2 "$XCF" 2>&1 \
 # deployment target found" lives inside the loop, so a body that never runs
 # left HIGHEST empty, and the comparison below read that as 0 — pass. errexit
 # does not help, a failed substitution in a `for` list does not raise it.
+#
+# `grep` ahead of `awk` because this is a pre-build phase and the archive is
+# large: `otool -l` on this artifact prints 479 411 lines, of which fewer than
+# a hundred matter. Measured on the vendored library — 0.93 s through `awk`
+# alone, 0.069 s with the filter first, same output on both slices, which is
+# 45 % of the whole gate's ~1.9 s. The `^ +cmd ` line is kept in the filter on
+# purpose: it is what resets the state machine, and dropping it would let an
+# unrelated `version` line inside a later load command be read as a target.
+#
+# The maximum is taken with `version_le` rather than `sort -t. -kN,Nn`, and
+# that is not tidiness: `sort` was a second implementation of "which version is
+# newer", it had the same two-component bug, and the self-test could not see
+# it — reverting the sort keys left `--selftest` green. One rule, one function,
+# one table that covers it.
 ARCHS=$(lipo -archs "$LIB") || fail "cannot read the architectures of $LIB"
 [ -n "$ARCHS" ] || fail "$LIB carries no architecture slices at all."
 HIGHEST=""
 for arch in $ARCHS; do
-    found=$(otool -arch "$arch" -l "$LIB" | awk '
-        /^ +cmd LC_BUILD_VERSION/       { c = "build";   next }
-        /^ +cmd LC_VERSION_MIN_MACOSX/  { c = "version"; next }
-        /^ +cmd /                       { c = "";        next }
-        c == "build"   && $1 == "minos"   { print $2; c = "" }
-        c == "version" && $1 == "version" { print $2; c = "" }
-    ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+    found=$(otool -arch "$arch" -l "$LIB" \
+        | grep -E '^ +(cmd |minos |version )' | awk '
+            /^ +cmd LC_BUILD_VERSION/       { c = "build";   next }
+            /^ +cmd LC_VERSION_MIN_MACOSX/  { c = "version"; next }
+            /^ +cmd /                       { c = "";        next }
+            c == "build"   && $1 == "minos"   { print $2; c = "" }
+            c == "version" && $1 == "version" { print $2; c = "" }
+        ' | version_max)
     [ -n "$found" ] || fail \
         "cannot read the deployment target of the $arch slice of $LIB" \
         "otool reported no LC_BUILD_VERSION and no LC_VERSION_MIN_MACOSX."
-    HIGHEST=$(printf '%s\n%s\n' "$HIGHEST" "$found" | grep . \
-        | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+    if [ -z "$HIGHEST" ] || version_le "$HIGHEST" "$found"; then
+        HIGHEST=$found
+    fi
 done
 if ! version_le "$HIGHEST" "$WANT_MIN"; then
     fail "the core library requires macOS $HIGHEST, the app promises $WANT_MIN." \
