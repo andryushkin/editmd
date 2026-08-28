@@ -63,39 +63,69 @@ struct PrintAssetLoader: Sendable {
         guard URL(string: name)?.scheme == nil,
               !name.hasPrefix("/"), !name.hasPrefix("~") else { return nil }
 
-        let candidate = baseDir.appendingPathComponent(name)
-        // Symlinks are resolved on **both** sides before the two are compared.
-        // Standardizing alone only folds `..` away textually: a link inside the
-        // document's own folder pointing anywhere on the disk would survive it
-        // and read as an ordinary child.
+        // OPEN FIRST, then ask every question of the thing that was opened.
         //
-        // The comparison itself is `pathIsContained`, the same one the control
-        // socket and the offline vault use. It canonicalizes the firmlink
-        // prefix, which this needs and a component walk of its own would not
-        // have: resolution leaves `/private/tmp` on some paths and `/tmp` on
-        // others, and a folder under either would then read as outside itself.
+        // This used to touch the file system three times — resolve the path and
+        // compare it, stat the path, read the path — and a name can be pointed
+        // somewhere else between any two of them. Measured, not feared: a
+        // probe that flipped `pic.png` between a real picture and a link out of
+        // the folder read the outside bytes after **36 attempts**. Checking a
+        // path and reading a path are two separate questions to the file
+        // system, and nothing carries the answer of the first into the second.
+        //
+        // A descriptor does. `O_NOFOLLOW` refuses outright when the last
+        // component is a link; `F_GETPATH` says where the opened object really
+        // lives, so a link somewhere in the middle cannot smuggle it out
+        // either; `fstat` and the read both speak to that same open object.
+        // Whatever the name points at afterwards is somebody else's file.
+        //
+        // `O_NONBLOCK` so a FIFO named as a picture cannot hang the open — it
+        // is refused a moment later for not being a regular file, but only if
+        // the open returns at all.
+        let candidate = baseDir.appendingPathComponent(name).standardizedFileURL
         let base = baseDir.resolvingSymlinksInPath().standardizedFileURL
-        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+
+        let descriptor = candidate.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        }
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        // Where the opened object actually is. The comparison is
+        // `pathIsContained`, the same one the control socket and the offline
+        // vault use: it canonicalizes the firmlink prefix, which this needs and
+        // a component walk of its own would not have — resolution leaves
+        // `/private/tmp` on some paths and `/tmp` on others, and a folder under
+        // either would then read as outside itself.
+        //
         // `pathIsContained` is true for the folder itself, which is right for a
         // workspace scope and wrong here: a folder is not one of its own
-        // pictures. Said outright rather than left to the file-type and
-        // regular-file checks below to reject by accident.
-        guard resolved != base, pathIsContained(resolved.path, in: base.path) else { return nil }
+        // pictures. Said outright rather than left to the regular-file check
+        // below to reject by accident.
+        var pathBuffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard fcntl(descriptor, F_GETPATH, &pathBuffer) != -1 else { return nil }
+        let realPath = String(cString: pathBuffer)
+        guard realPath != base.path, pathIsContained(realPath, in: base.path) else { return nil }
 
-        let format = resolved.pathExtension.lowercased()
-        guard supportedImageFileExtensions.contains(format) else { return nil }
-
-        // Stat before read, and the size comes from the same stat: an oversized
-        // file is refused without its bytes ever entering the process, and a
-        // directory or a device named as a picture is refused before something
-        // tries to read one.
-        guard let values = try? resolved.resourceValues(forKeys: [.isRegularFileKey,
-                                                                 .fileSizeKey]),
-              values.isRegularFile == true,
-              let size = values.fileSize, size <= maxInlineImageBytes
+        // Stat the descriptor, not the name, and take the size from the same
+        // stat: an oversized file is refused without its bytes ever entering
+        // the process, and a directory or a device named as a picture is
+        // refused before anything tries to read one.
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_size >= 0, info.st_size <= maxInlineImageBytes
         else { return nil }
 
-        guard let data = try? Data(contentsOf: resolved), data.count <= maxInlineImageBytes
+        // The extension is taken from where the file really is, so it describes
+        // the bytes that are about to be read rather than the name that asked
+        // for them.
+        let format = (realPath as NSString).pathExtension.lowercased()
+        guard supportedImageFileExtensions.contains(format) else { return nil }
+
+        guard let data = Self.readAll(descriptor, upTo: Int(info.st_size)),
+              data.count <= maxInlineImageBytes
         else { return nil }
 
         guard !PDMCore.readableImageFormats.contains(format) else { return data }
@@ -115,6 +145,31 @@ struct PrintAssetLoader: Sendable {
         guard let converted = Self.pngEncoded(data), converted.count <= maxInlineImageBytes
         else { return nil }
         return converted
+    }
+
+    /// Every byte of an already-open file, or nil if the read is short or errs.
+    ///
+    /// `read` rather than `Data(contentsOf:)` because the whole point of the
+    /// descriptor is not to name the file a second time. A short read is a
+    /// refusal, not a truncated picture: the size came from `fstat` on this
+    /// same descriptor a moment ago, so anything less means the file changed
+    /// under the reader and what is in hand is half of two different files.
+    private static func readAll(_ descriptor: Int32, upTo size: Int) -> Data? {
+        guard size > 0 else { return Data() }
+        var data = Data(count: size)
+        var filled = 0
+        while filled < size {
+            let got = data.withUnsafeMutableBytes { raw -> Int in
+                guard let base = raw.baseAddress else { return -1 }
+                return read(descriptor, base + filled, size - filled)
+            }
+            if got > 0 { filled += got; continue }
+            // 0 is end of file before the promised size; -1 with EINTR is worth
+            // another turn, and any other errno is not.
+            if got == 0 { return nil }
+            guard errno == EINTR else { return nil }
+        }
+        return data
     }
 
     /// One picture re-encoded as PNG, or nil when the system cannot read it —
