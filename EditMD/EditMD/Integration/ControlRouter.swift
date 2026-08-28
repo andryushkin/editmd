@@ -184,6 +184,60 @@ enum ControlRouter {
 
     // MARK: status
 
+    /// What the app can say about the page renderer it links.
+    ///
+    /// `editmdctl` deliberately says nothing about the core — it does not link
+    /// one, and a claim about a library a binary never loads is an identity
+    /// that is wrong about the very thing it identifies. The app does link it,
+    /// so the app is where the question is answerable, and this is the answer.
+    ///
+    /// **One object, not three fields.** `abi` alone would make the asker
+    /// reconstruct what it was supposed to be from the app's version; the
+    /// expected number travels beside it.
+    ///
+    /// **`verdict` is a machine token and is not localized.** The sentence a
+    /// person reads is already written and shown on the Print pane; the
+    /// sentence with the numbers in it is already written and goes to the log.
+    /// What is missing is the third form — one a script can compare — and a
+    /// translated string would be exactly the wrong thing to hand it.
+    ///
+    /// A value rather than a second opinion: it reads `PDMCore.contract`, the
+    /// same verdict the print path refuses on, so `status` and a refused print
+    /// cannot disagree.
+    ///
+    /// What this does **not** do, said here because the gap is easy to assume
+    /// away: it does not make a Release build say anything at launch. An app
+    /// with a foreign core still starts in silence and stays silent until
+    /// somebody prints. This gives a way to *ask* from outside, which is a
+    /// different thing from being told.
+    /// `nonisolated` because it is a function of its arguments and nothing
+    /// else: the verdict is handed in rather than read from shared state,
+    /// which is what lets a probe hand it one the installed library can never
+    /// produce.
+    nonisolated static func coreField(_ contract: Result<UInt32, PDMCore.CoreError>,
+                                      expected: UInt32) -> JSONValue {
+        let found: UInt32
+        let verdict: String
+        switch contract {
+        case .success(let version):
+            found = version
+            verdict = "ok"
+        case .failure(.abiMismatch(let mismatch, _)):
+            found = mismatch
+            verdict = "abi-mismatch"
+        case .failure:
+            // No other case can reach `contract` today. Answered rather than
+            // asserted: a verdict this side cannot name must not read as `ok`.
+            found = 0
+            verdict = "unusable"
+        }
+        return .object([
+            "abi": .int(Int(found)),
+            "expected": .int(Int(expected)),
+            "verdict": .string(verdict),
+        ])
+    }
+
     private static func status(_ request: ControlRequest) -> Dispatched {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
             ?? "0"
@@ -201,6 +255,7 @@ enum ControlRouter {
             "mode": .string(mode),
             "dirty": .bool(dirty),
             "socket": .string(ControlService.shared.socketPath.path),
+            "core": coreField(PDMCore.contract, expected: PDMCore.expectedABIVersion),
         ]
         if let url {
             obj["path"] = .string(url.path)

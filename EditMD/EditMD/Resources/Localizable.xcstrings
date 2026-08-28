@@ -8563,6 +8563,16 @@
         }
       }
     },
+    "The page renderer returned no pages." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обработчик страниц не вернул ни одной страницы."
+          }
+        }
+      }
+    },
     "The pages could not be produced (error %lld)." : {
       "localizations" : {
         "ru" : {

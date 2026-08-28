@@ -30,7 +30,7 @@ Response:
 | CLI | Wire `cmd` | Notes |
 |-----|------------|-------|
 | `ping` | `ping` | `{pong:true}` |
-| `status` | `status` | version, path, mode, dirty, ide, open marks |
+| `status` | `status` | version, path, mode, dirty, ide, open marks, `core` (`abi`/`expected`/`verdict`) |
 | `open <path> [--line N \| --heading H]` | `open` | path must be absolute (ctl absolutizes) |
 | `reveal [--path P] [--line N]` | `reveal` | jump caret / scroll |
 | `mode source\|visual\|preview\|split` | `mode` | |

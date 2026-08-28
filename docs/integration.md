@@ -51,6 +51,15 @@ socket. Commands: `ping`, `status`, `open`, `reveal`, `mode`, `marks`,
 `diff`, `workspace`, `links` (`outgoing`/`backlinks`/`resolve`), `outline`,
 `lint`, `index`, `tags`, `frontmatter`, `search`, `agent-status`.
 
+`status` is also where the app answers for the page renderer it links, in a
+`core` object of three fields: `abi` — read from the library itself, not from
+a literal — `expected`, and `verdict`, a machine token (`ok`, `abi-mismatch`,
+`unusable`) deliberately left untranslated. `editmdctl` says nothing about the
+core on its own and must not start: it links no core, so any claim it made
+would be about a library it never loads. Asking is not the same as being told —
+a Release build with a foreign core still starts silently and refuses only at
+the first print.
+
 **Offline engine**: when the app is not running, the same binary answers
 vault-graph queries directly from `<workspace>/.editmd/link-index.json`
 (`editmdctl/OfflineVault.swift`). That is why the link-graph core files must

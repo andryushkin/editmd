@@ -76,6 +76,18 @@ enum PDMCore {
         /// unlisted one means the library is newer than this app, so mapping it
         /// onto a Swift enum here would lose exactly the case worth reporting.
         case call(name: String, status: Int32, message: String?)
+        /// The render said `PDM_OK` and produced nothing to print.
+        ///
+        /// Its own case because it is not a refusal the core made — it is a
+        /// success this side declines to believe. The reading functions of the
+        /// C ABI answer a caught panic with their *absent* value, NULL or 0,
+        /// because a function returning a pointer has nowhere to put a status
+        /// code; the header says so outright. So "no bytes" and "the library
+        /// panicked while handing them over" arrive here as the same thing,
+        /// and the only safe reading of the pair is that there is nothing to
+        /// print. Turning it into an empty `Data` — which is what this used to
+        /// do — hands a zero-byte file to whoever asked and calls it done.
+        case emptyResult(pages: Int)
 
         var description: String {
             switch self {
@@ -85,6 +97,8 @@ enum PDMCore {
                 return "PrintDotMD refused the document"
             case let .call(name, status, message):
                 return "PrintDotMD \(name) failed with \(status): \(message ?? "no message")"
+            case let .emptyResult(pages):
+                return "PrintDotMD reported success with no pages (\(pages) claimed)"
             }
         }
 
@@ -102,6 +116,8 @@ enum PDMCore {
                 // or the glyph that stopped the print — far more use than
                 // anything this side could say instead.
                 return String(localized: "The pages could not be produced: \(message)")
+            case .emptyResult:
+                return String(localized: "The page renderer returned no pages.")
             }
         }
     }
@@ -247,7 +263,7 @@ extension PDMCore {
                                  message: "no result for a successful render")
         }
         defer { pdm_result_free(result) }
-        return copyOut(result, assets: assets)
+        return try copyOut(result, assets: assets)
     }
 
     /// Hands over the bytes of every file the parsed document turned out to
@@ -325,9 +341,14 @@ extension PDMCore {
     /// Everything worth keeping out of a result, copied into Swift before the
     /// result is freed. Every pointer in there belongs to the library.
     private static func copyOut(_ result: OpaquePointer,
-                                assets: [PrintAssetRecord]) -> PrintRenderResult {
+                                assets: [PrintAssetRecord]) throws -> PrintRenderResult {
         let length = pdm_result_pdf_len(result)
-        let pdf = pdm_result_pdf(result).map { Data(bytes: $0, count: length) } ?? Data()
+        // No `?? Data()`. A NULL here is the absent value of a reading
+        // function, which is also what a caught panic answers with — see
+        // `CoreError.emptyResult`. Kept as nil so the rule below can tell it
+        // from bytes that arrived and were empty; both are refused, and both
+        // are refused by a rule a probe can reach without a result handle.
+        let pdf = pdm_result_pdf(result).map { Data(bytes: $0, count: length) }
         let warnings = (0..<pdm_result_warning_count(result)).map { index in
             let line = pdm_result_warning_line(result, index)
             return PrintWarning(
@@ -340,9 +361,33 @@ extension PDMCore {
                     .map { String(cString: $0) } ?? "",
                 line: line >= 0 ? line : nil)
         }
-        return PrintRenderResult(pdf: pdf,
+        return try checkedResult(pdf: pdf,
                                  pageCount: Int(pdm_result_page_count(result)),
                                  warnings: warnings,
                                  assets: assets)
+    }
+
+    /// What a successful render has to have produced to count as one.
+    ///
+    /// Separate from `copyOut` and taking values rather than a handle, because
+    /// this is the rule and the rule is what a probe needs to reach: a result
+    /// handle cannot be fabricated on this side of the boundary, and a rule
+    /// that can only be exercised by making the real library misbehave is a
+    /// rule nothing tests. `pdf` is nil when the library answered NULL and
+    /// empty when it answered a zero length; neither is a document.
+    ///
+    /// The page count is checked too, and not as a formality: the boundary
+    /// hands it over as a plain number with no way to say "absent", so zero is
+    /// what both an empty document and a panicked counter look like. A file
+    /// with bytes and no pages is not something to write out and call done.
+    static func checkedResult(pdf: Data?,
+                              pageCount: Int,
+                              warnings: [PrintWarning],
+                              assets: [PrintAssetRecord]) throws -> PrintRenderResult {
+        guard let pdf, !pdf.isEmpty, pageCount > 0 else {
+            throw CoreError.emptyResult(pages: pageCount)
+        }
+        return PrintRenderResult(pdf: pdf, pageCount: pageCount,
+                                 warnings: warnings, assets: assets)
     }
 }
