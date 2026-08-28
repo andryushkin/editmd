@@ -226,6 +226,17 @@ push until fixed or consciously waived by the maintainer.
 7. **No chronology** — do docs still describe the present tense of the
    system, with history left to the maintainer's decision log?
 
+16. **The two minimums agree** — `min_macos` in `Vendor/core.expected.json`
+    against `MACOSX_DEPLOYMENT_TARGET` of the `EditMD` target in
+    `EditMD/project.yml`. The first is what the vendored core may demand, the
+    second is what the app promises the person installing it; raise one without
+    the other and the build gate measures the library against a number no
+    longer connected to anybody. It is here rather than in `verify-core.sh`
+    because that runs as a pre-build phase under user script sandboxing, which
+    denies reading SRCROOT — measured, the sandbox refused `awk` on
+    `project.yml` and every build stopped. A disagreement between two tracked
+    files is this auditor's question anyway.
+
 ## Self-tests
 
 Two gates in `scripts/` carry a `--selftest` flag: they plant the defect they

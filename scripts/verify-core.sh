@@ -356,44 +356,6 @@ WANT_TEAM=$(expect team_identifier)
 WANT_ABI=$(expect abi_version)
 WANT_MIN=$(version_or_fail "$(expect min_macos)" "min_macos in $EXPECTED")
 
-# The promise the artifact is measured against has to be the promise the app
-# makes. `min_macos` lives here, beside the checksums; the deployment target
-# the users are actually given lives in `EditMD/project.yml`, and nothing tied
-# the two together. Raise this one alongside a new core and the package passes
-# for an app still shipping the old promise — the gate would be comparing the
-# library against a number no longer connected to anything.
-#
-# The two records are COMPARED rather than collapsed into one. Reading the
-# promise straight out of `project.yml` and using it here would be one source
-# of truth and is the tidier-looking answer, but it makes this gate's verdict
-# depend on parsing somebody else's file correctly, and a parse that silently
-# comes back with the wrong number is a gate comparing against nonsense. Held
-# apart, the divergence itself is the finding, both numbers get named, and a
-# reader that stops working is a refusal rather than a wrong answer.
-SPEC="$ROOT/EditMD/project.yml"
-if [ -f "$SPEC" ]; then
-    # The app target only. The other three targets in the file link no core,
-    # and one of them promising something else is not this gate's business.
-    APP_MIN=$(awk '
-        /^  EditMD:$/            { inapp = 1; next }
-        inapp && /^  [A-Za-z]/   { inapp = 0 }
-        inapp && $1 == "MACOSX_DEPLOYMENT_TARGET:" {
-            gsub(/"/, "", $2); print $2; exit
-        }
-    ' "$SPEC")
-    [ -n "$APP_MIN" ] || fail \
-        "cannot read MACOSX_DEPLOYMENT_TARGET of the EditMD target from $SPEC" \
-        "The frozen min_macos is only meaningful next to the promise the app" \
-        "makes, and that promise could not be found."
-    APP_MIN=$(version_or_fail "$APP_MIN" "MACOSX_DEPLOYMENT_TARGET in $SPEC")
-    [ "$APP_MIN" = "$WANT_MIN" ] || fail \
-        "the frozen minimum and the app's own promise disagree." \
-        "Vendor/core.expected.json says min_macos = $WANT_MIN" \
-        "EditMD/project.yml says MACOSX_DEPLOYMENT_TARGET = $APP_MIN" \
-        "The library is checked against the first; users are given the second." \
-        "Move them together or say which one is wrong."
-fi
-
 # -- 1. The bytes that get linked -------------------------------------------
 GOT_SHA=$(shasum -a 256 "$LIB" | awk '{print $1}')
 [ "$GOT_SHA" = "$WANT_SHA" ] || fail \

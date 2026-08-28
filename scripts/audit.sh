@@ -696,6 +696,45 @@ fi
 if [ -z "$r15" ]; then pass "one-debug-release-difference"
 else fail "one-debug-release-difference" $r15; fi
 
+# 16. The two records of the minimum macOS agree.
+#
+#     `Vendor/core.expected.json` says what the vendored core may demand;
+#     `EditMD/project.yml` says what the app promises the person installing it.
+#     Nothing tied them together, so raising the first alongside a new core let
+#     the package pass for an app still shipping the old promise — the gate
+#     would be measuring the library against a number no longer connected to
+#     anybody.
+#
+#     IT LIVES HERE AND NOT IN THE GATE, and the reason is measured rather than
+#     preferred. `verify-core.sh` runs as a pre-build phase under
+#     ENABLE_USER_SCRIPT_SANDBOXING, which denies reading SRCROOT — the sandbox
+#     said so in as many words: `Sandbox: awk(68283) deny(1) file-read-data
+#     .../EditMD/project.yml`, and every build stopped there. The gate is about
+#     the artifact; a disagreement between two tracked files of this repository
+#     is a question for the repository's own auditor, which is this.
+r16=""
+spec=EditMD/project.yml
+frozen=Vendor/core.expected.json
+if [ ! -f "$spec" ]; then r16="missing:$spec"
+elif [ ! -f "$frozen" ]; then r16="missing:$frozen (untracked pair member; restore from git)"
+else
+    # The app target only: the other three link no core, and one of them
+    # promising something else is not this check's business.
+    app_min=$(awk '
+        /^  EditMD:$/            { inapp = 1; next }
+        inapp && /^  [A-Za-z]/   { inapp = 0 }
+        inapp && $1 == "MACOSX_DEPLOYMENT_TARGET:" { gsub(/"/, "", $2); print $2; exit }
+    ' "$spec")
+    core_min=$(sed -n 's/.*"min_macos"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$frozen" | head -1)
+    if [ -z "$app_min" ]; then r16="cannot-read-MACOSX_DEPLOYMENT_TARGET-of-the-EditMD-target"
+    elif [ -z "$core_min" ]; then r16="cannot-read-min_macos"
+    elif [ "$app_min" != "$core_min" ]; then
+        r16="core.expected.json:min_macos=$core_min project.yml:MACOSX_DEPLOYMENT_TARGET=$app_min"
+    fi
+fi
+if [ -z "$r16" ]; then pass "min-macos-promises-agree"
+else fail "min-macos-promises-agree" $r16; fi
+
 echo
 if [ "$fails" -eq 0 ]; then
     echo "AUDIT: all mechanical checks passed."
