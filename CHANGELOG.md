@@ -3,6 +3,14 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.48.1 - 2026-08-29
+
+### Bug Fixes
+
+- Asking a file for its folder no longer offers a document as the folder. A
+  `.textbundle` is a directory on disk, so a file inside one opened the chooser
+  at the bundle itself; it opens at the folder holding the bundle instead.
+
 ## v0.48.0 - 2026-08-29
 
 ### New Features
