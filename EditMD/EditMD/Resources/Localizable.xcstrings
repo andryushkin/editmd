@@ -948,6 +948,16 @@
         }
       }
     },
+    "Add the Folder Containing This File…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить папку, где лежит этот файл…"
+          }
+        }
+      }
+    },
     "Add to Favorites" : {
       "localizations" : {
         "ru" : {

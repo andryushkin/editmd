@@ -497,8 +497,12 @@ final class WorkspaceModel: ObservableObject {
         trackingEffectiveRoot {
             workspaces.append(Workspace(folderPath: path))
         }
-        // A loose file now inside an adopted folder is no longer loose.
-        looseFiles.removeAll { $0.deletingLastPathComponent().path == path }
+        // A loose file now inside an adopted folder is no longer loose — at
+        // any depth, since the chosen root is often an ancestor of the file's
+        // own folder rather than that folder itself. A pin only keeps a file
+        // in Open Files; under a root the tree shows it.
+        pinnedLoosePaths.removeAll { Self.path($0, isInside: path) }
+        looseFiles.removeAll { Self.path($0.standardizedFileURL.path, isInside: path) }
     }
 
     func removeWorkspace(_ ws: Workspace) {
@@ -967,15 +971,45 @@ final class WorkspaceModel: ObservableObject {
         expandedFolders.remove(folder.standardizedFileURL.path)
     }
 
-    /// Shared by the sidebar and File ▸ Open Folder.
-    func promptAddFolder() {
+    /// Shared by the sidebar and File ▸ Open Folder. `startingAt` seeds the
+    /// panel's directory; nil leaves it wherever the system last opened it.
+    func promptAddFolder(startingAt directory: URL? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
+        if let directory { panel.directoryURL = directory }
         if panel.runModal() == .OK, let url = panel.url {
             addWorkspace(url)
+        }
+    }
+
+    /// Loose-row variant: the same panel and the same adoption, opened at the
+    /// file's own folder. The panel stays instead of adopting that folder
+    /// outright because the parent of a loose file is often a leaf, while the
+    /// folder worth opening is a level or two above it.
+    func promptAddFolder(containing file: URL) {
+        promptAddFolder(startingAt: Self.folderPickerStart(containing: file))
+    }
+
+    /// Nearest existing ancestor directory of `file` — normally the folder its
+    /// row shows, but pinned loose rows outlive the disk, so walk up. Nil when
+    /// nothing above the file exists any more.
+    nonisolated static func folderPickerStart(
+        containing file: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        var candidate = file.standardizedFileURL.deletingLastPathComponent()
+        while true {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
         }
     }
 

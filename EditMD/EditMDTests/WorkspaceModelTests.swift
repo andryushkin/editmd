@@ -272,6 +272,68 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(names(model.looseFilesToShow), ["outside.md"])
     }
 
+    /// "Add the Folder Containing This File…" seeds the picker with the folder
+    /// the loose row already shows.
+    func testFolderPickerStartsAtTheFilesOwnFolder() throws {
+        let leaf = dir.appendingPathComponent("topics/steps")
+        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
+        let file = leaf.appendingPathComponent("note.md")
+        try "n".write(to: file, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(WorkspaceModel.folderPickerStart(containing: file),
+                       leaf.standardizedFileURL)
+    }
+
+    /// A pinned loose row outlives the folder it names; the panel then opens at
+    /// the nearest ancestor that is still there instead of nowhere.
+    func testFolderPickerWalksUpPastAMissingFolder() {
+        let file = dir.appendingPathComponent("gone/deeper/note.md")
+        XCTAssertEqual(WorkspaceModel.folderPickerStart(containing: file),
+                       dir.standardizedFileURL)
+    }
+
+    /// The point of the panel: the adopted root is usually an ancestor of the
+    /// file's own folder, and the row must still leave Open Files.
+    func testAdoptingAnAncestorEndsLooseStatusAtAnyDepth() throws {
+        let leaf = dir.appendingPathComponent("topics/steps")
+        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
+        let file = leaf.appendingPathComponent("note.md")
+        try "n".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: defaults)
+        model.noteOpened(file)
+        model.noteActive(file)
+        XCTAssertEqual(names(model.looseFilesToShow), ["note.md"])
+
+        model.addWorkspace(dir)   // two levels above the file
+
+        XCTAssertTrue(model.looseFilesToShow.isEmpty)
+        XCTAssertNotNil(model.workspaceOwning(file))
+        // Adoption is sidebar bookkeeping only — the open document stays put.
+        XCTAssertEqual(model.lastActivePath, file.standardizedFileURL.path)
+    }
+
+    /// A pin only holds a file in Open Files; under a root the tree shows it,
+    /// so adoption must drop the pin as well as the session entry.
+    func testAdoptingAnAncestorClearsAPinnedLooseRow() throws {
+        let leaf = dir.appendingPathComponent("topics")
+        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
+        let file = leaf.appendingPathComponent("spec.md")
+        try "s".write(to: file, atomically: true, encoding: .utf8)
+
+        let model = WorkspaceModel(defaults: defaults)
+        model.pin(file)
+        XCTAssertEqual(names(model.looseFilesToShow), ["spec.md"])
+
+        model.addWorkspace(dir)
+
+        XCTAssertFalse(model.isPinned(file))
+        XCTAssertTrue(model.looseFilesToShow.isEmpty)
+        // And the pin does not come back on the next launch.
+        let relaunched = WorkspaceModel(defaults: defaults)
+        XCTAssertTrue(relaunched.looseFilesToShow.isEmpty)
+    }
+
     // MARK: - Frontmatter tags
 
     func testFrontmatterTagsFlowList() {

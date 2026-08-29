@@ -988,6 +988,9 @@ struct WorkspaceSidebar: View {
                        onTrailing: { pinned ? workspace.unpin(url) : workspace.pin(url) })
         .contextMenu {
             Button("Open in Separate Window") { AppState.shared.openInSeparateWindow(url) }
+            Button("Add the Folder Containing This File…") {
+                workspace.promptAddFolder(containing: url)
+            }
             Divider()
             Button("Rename…") { promptForFileRename(url, workspace: workspace) }
             Button(moveMenuTitle(for: url)) { promptToMoveSelection(anchoredAt: url) }
