@@ -3,6 +3,16 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.48.2 - 2026-08-29
+
+### Bug Fixes
+
+- A folder opened at the very top of a disk now holds the files inside it.
+  Adopting `/` as a workspace left every file in it listed as if it belonged
+  to no folder at all; the same went for a folder named with a trailing
+  slash. The rule that answers "is this file inside this folder" is written
+  down once now, so the places that ask it cannot drift apart.
+
 ## v0.48.1 - 2026-08-29
 
 ### Bug Fixes
