@@ -3,36 +3,7 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
-## v0.49.0 - 2026-08-29
-
-### Improvements
-
-- A pin you set on a file in Open Files now outlives the folder being opened.
-  Adding a folder that contains the file — or moving the file into one —
-  takes the row out of Open Files, because the tree shows it there instead;
-  it no longer throws the pin away. Remove that folder again and the pinned
-  row comes back where you left it. Renaming the file while the folder is
-  open keeps it too.
-
-## v0.48.2 - 2026-08-29
-
-### Bug Fixes
-
-- A folder opened at the very top of a disk now holds the files inside it.
-  Adopting `/` as a workspace left every file in it listed as if it belonged
-  to no folder at all; the same went for a folder named with a trailing
-  slash. The rule that answers "is this file inside this folder" is written
-  down once now, so the places that ask it cannot drift apart.
-
-## v0.48.1 - 2026-08-29
-
-### Bug Fixes
-
-- Asking a file for its folder no longer offers a document as the folder. A
-  `.textbundle` is a directory on disk, so a file inside one opened the chooser
-  at the bundle itself; it opens at the folder holding the bundle instead.
-
-## v0.48.0 - 2026-08-29
+## v0.49.1 - 2026-08-29
 
 ### New Features
 
@@ -43,12 +14,33 @@ described in [docs/releasing.md](docs/releasing.md).
   opening is a level or two above it — now you start at the path you were
   already looking at instead of walking back to it.
 
+### Improvements
+
+- A pin you set on a file in Open Files now outlives the folder being opened.
+  Adding a folder that contains the file — or moving the file into one —
+  takes the row out of Open Files, because the tree shows it there instead;
+  it no longer throws the pin away. Remove that folder again and the pinned
+  row comes back where you left it. Renaming the file while the folder is
+  open keeps it too.
+- Settings now says correctly when gutter marks clear: when the app quits,
+  and when a commit includes the file. The old caption offered the second
+  half as something still to come, and it had already arrived.
+
 ### Bug Fixes
 
 - Adopting a folder above the file finally takes the file out of Open Files.
   The row only left when the chosen folder was the file's own, so the case
   the chooser exists for left the file listed twice — once loose, once in the
   tree. A pinned row never left at all, and came back after a relaunch.
+- Asking a file for its folder no longer offers a document as the folder. A
+  `.textbundle` is a directory on disk, so a file inside one opened the
+  chooser at the bundle itself; it opens at the folder holding the bundle
+  instead.
+- A folder opened at the very top of a disk now holds the files inside it.
+  Adopting `/` as a workspace left every file in it listed as if it belonged
+  to no folder at all; the same went for a folder named with a trailing
+  slash. The rule that answers "is this file inside this folder" is written
+  down once now, so the places that ask it cannot drift apart.
 
 ## v0.47.16 - 2026-08-02
 
