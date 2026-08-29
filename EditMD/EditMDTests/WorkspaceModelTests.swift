@@ -321,9 +321,10 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.lastActivePath, file.standardizedFileURL.path)
     }
 
-    /// A pin only holds a file in Open Files; under a root the tree shows it,
-    /// so adoption must drop the pin as well as the session entry.
-    func testAdoptingAnAncestorClearsAPinnedLooseRow() throws {
+    /// Under a root the tree shows the file, so the Open Files row goes — but
+    /// the pin is hidden, not destroyed: the user set it, and adopting a folder
+    /// two levels up is not them unsetting it.
+    func testAdoptingAnAncestorHidesAPinnedLooseRowWithoutDestroyingIt() throws {
         let file = try makeFilePath("topics/spec.md")
         let model = WorkspaceModel(defaults: defaults)
         model.pin(file)
@@ -331,11 +332,44 @@ final class WorkspaceModelTests: XCTestCase {
 
         model.addWorkspace(dir)
 
-        XCTAssertFalse(model.isPinned(file))
         XCTAssertTrue(model.looseFilesToShow.isEmpty)
-        // And the pin does not come back on the next launch.
+        XCTAssertTrue(model.isPinned(file))       // kept, just not shown
+        // And it stays hidden across a relaunch, because the root does too.
         let relaunched = WorkspaceModel(defaults: defaults)
         XCTAssertTrue(relaunched.looseFilesToShow.isEmpty)
+    }
+
+    /// The other half of hiding rather than destroying: give the root back and
+    /// the row returns. Nothing re-adds it — `looseFilesToShow` simply asks
+    /// again.
+    func testRemovingTheRootBringsThePinnedRowBack() throws {
+        let file = try makeFilePath("topics/spec.md")
+        let model = WorkspaceModel(defaults: defaults)
+        model.pin(file)
+        model.addWorkspace(dir)
+        XCTAssertTrue(model.looseFilesToShow.isEmpty)
+
+        model.removeWorkspace(model.workspaces[0])
+
+        XCTAssertEqual(names(model.looseFilesToShow), ["spec.md"])
+    }
+
+    /// A rename inside the adopted root must not be what deletes the hidden
+    /// pin — otherwise "hidden, not destroyed" is false the moment the user
+    /// renames the file.
+    func testRenamingInsideTheRootKeepsTheHiddenPin() async throws {
+        let file = try makeFilePath("topics/spec.md")
+        try "s".write(to: file, atomically: true, encoding: .utf8)
+        let model = WorkspaceModel(defaults: defaults)
+        model.pin(file)
+        model.addWorkspace(dir)
+
+        let moved = try await model.renameFileOnDisk(file, to: "renamed.md")
+
+        XCTAssertTrue(model.looseFilesToShow.isEmpty)   // still under the root
+        XCTAssertTrue(model.isPinned(moved))
+        model.removeWorkspace(model.workspaces[0])
+        XCTAssertEqual(names(model.looseFilesToShow), ["renamed.md"])
     }
 
     /// `/` has no extra separator before descendants. The shared containment

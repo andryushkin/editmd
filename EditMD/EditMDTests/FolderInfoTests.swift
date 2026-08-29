@@ -613,7 +613,7 @@ struct FileMoveTests {
         registry.release(destination)
     }
 
-    @Test("Moving a pinned loose file into a workspace clears loose state")
+    @Test("Moving a pinned loose file into a workspace hides the row, keeps the pin")
     func looseFileBecomesWorkspaceFile() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
@@ -628,8 +628,13 @@ struct FileMoveTests {
             source, to: fixture.second)
 
         #expect(FileManager.default.fileExists(atPath: destination.path))
-        #expect(!model.isPinned(destination))
         #expect(!model.looseFilesToShow.contains(destination))
+        // The pin survives: gaining an owner hides an Open Files row, it does
+        // not withdraw what the user pinned — the same rule as adopting a root
+        // over a loose file, and the same as `favoriteFollowsMove` below.
+        #expect(model.isPinned(destination))
+        model.removeWorkspace(model.workspaces[0])
+        #expect(model.looseFilesToShow.contains(destination))
     }
 
     @Test("Moving a favorite preserves it at the destination workspace")

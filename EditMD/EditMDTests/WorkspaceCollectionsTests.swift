@@ -500,6 +500,9 @@ final class WorkspaceCollectionsTests: XCTestCase {
             .standardizedFileURL])
         let wiki = try XCTUnwrap(indexLinks.first { $0.kind == .wiki })
         XCTAssertEqual(wiki.resolved, a.appendingPathComponent("note.md").standardizedFileURL)
+        // Spelled out rather than via PathScope on purpose: a test that checks
+        // behaviour by calling the code under test proves only that it agrees
+        // with itself.
         XCTAssertTrue(wiki.candidates.allSatisfy {
             $0.path.hasPrefix(a.standardizedFileURL.path + "/")
         }, "grouping must not pull the other root's note.md into resolution")

@@ -497,14 +497,11 @@ final class WorkspaceModel: ObservableObject {
         trackingEffectiveRoot {
             workspaces.append(Workspace(folderPath: path))
         }
-        // At any depth: the chosen root is often an ancestor of the file's own
-        // folder rather than that folder itself.
-        dropLooseState(under: path)
     }
 
-    /// A file under an adopted or a vanished root is not loose: either the
-    /// tree shows it or it is gone. A pin only holds a row in Open Files, so
-    /// it goes with the row.
+    /// Forget loose state for a folder that has left the disk. Adoption does
+    /// NOT come here: gaining an owner hides a row, losing the folder deletes
+    /// it, and only the second is a real deletion.
     private func dropLooseState(under root: String) {
         pinnedLoosePaths.removeAll { PathScope.contains($0, under: root) }
         looseFiles.removeAll { PathScope.contains($0.standardizedFileURL.path, under: root) }
@@ -865,10 +862,15 @@ final class WorkspaceModel: ObservableObject {
             hiddenFiles[newWorkspace.folderPath] = newSet.isEmpty ? nil : newSet
         }
 
+        // Both follow the file even when the destination has an owner. Under
+        // a root the row is only hidden, so a rename must not be the thing
+        // that deletes it — the pin has to survive to come back when the root
+        // does. A file that lands outside every root becomes loose either way.
+        let wasLoose = looseFiles.contains { $0.standardizedFileURL == source }
         pinnedLoosePaths.removeAll { $0 == source.path }
         looseFiles.removeAll { $0.standardizedFileURL == source }
-        if workspaceOwning(destination) == nil {
-            if wasPinned { pinnedLoosePaths.append(destination.path) }
+        if wasPinned { pinnedLoosePaths.append(destination.path) }
+        if wasLoose || workspaceOwning(destination) == nil {
             looseFiles.append(destination)
         }
         if lastActivePath == source.path { lastActivePath = destination.path }
@@ -1265,15 +1267,29 @@ final class WorkspaceModel: ObservableObject {
     }
 
     /// Loose files to show: pinned (persisted) first, then session ones, deduped.
+    ///
+    /// Ownership is asked here instead of pruned when a root is adopted, so no
+    /// mutation of `workspaces` has to remember to prune — forgetting to was
+    /// the whole of issue #11. A file that gains an owner is hidden, not
+    /// destroyed, and the row returns if the root is removed.
+    ///
+    /// That is how workspace-keyed state already behaves: `removeWorkspace`
+    /// leaves `favoritePathsByWorkspace` in place untouched while
+    /// `favoriteFiles` iterates only the current roots. It is NOT the
+    /// `keptFolders` case, which intersects with a folder's existence —
+    /// existence is monotone, a vanished folder does not come back, whereas an
+    /// owner does the moment its root is removed.
     var looseFilesToShow: [URL] {
         var seen = Set<String>()
         var result: [URL] = []
         for path in pinnedLoosePaths {
             let url = URL(fileURLWithPath: path).standardizedFileURL
+            guard workspaceOwning(url) == nil else { continue }
             if seen.insert(url.path).inserted { result.append(url) }
         }
         for url in looseFiles {
             let std = url.standardizedFileURL
+            guard workspaceOwning(std) == nil else { continue }
             if seen.insert(std.path).inserted { result.append(std) }
         }
         return result
