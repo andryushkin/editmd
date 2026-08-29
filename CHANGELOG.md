@@ -3,6 +3,17 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.49.0 - 2026-08-29
+
+### Improvements
+
+- A pin you set on a file in Open Files now outlives the folder being opened.
+  Adding a folder that contains the file — or moving the file into one —
+  takes the row out of Open Files, because the tree shows it there instead;
+  it no longer throws the pin away. Remove that folder again and the pinned
+  row comes back where you left it. Renaming the file while the folder is
+  open keeps it too.
+
 ## v0.48.2 - 2026-08-29
 
 ### Bug Fixes
