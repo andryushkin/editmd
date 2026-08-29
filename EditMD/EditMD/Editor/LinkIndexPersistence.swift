@@ -59,8 +59,9 @@ enum LinkIndexPersistence {
         let rootPath = root.standardizedFileURL.path
         var entries: [Entry] = []
         for (url, entry) in cache {
-            guard url.path.hasPrefix(rootPath + "/") else { continue }
-            let rel = String(url.path.dropFirst(rootPath.count + 1))
+            guard let rest = PathScope.relative(url.path, under: rootPath),
+                  !rest.isEmpty else { continue }
+            let rel = String(rest)
             var links: [Link] = []
             var fingerprint = entry.resolveFingerprint
             let source = entry.resolvedLinks ?? entry.links
@@ -69,8 +70,9 @@ enum LinkIndexPersistence {
                 var resolvedPath: String?
                 var candidatePaths: [String]?
                 if resolveInsideRoot, let resolved = link.resolved {
-                    if resolved.path.hasPrefix(rootPath + "/") {
-                        resolvedPath = String(resolved.path.dropFirst(rootPath.count + 1))
+                    if let rest = PathScope.relative(resolved.path, under: rootPath),
+                       !rest.isEmpty {
+                        resolvedPath = String(rest)
                     } else {
                         resolveInsideRoot = false
                     }
@@ -78,11 +80,12 @@ enum LinkIndexPersistence {
                 if resolveInsideRoot, !link.candidates.isEmpty {
                     var rels: [String] = []
                     for candidate in link.candidates {
-                        guard candidate.path.hasPrefix(rootPath + "/") else {
+                        guard let rest = PathScope.relative(candidate.path, under: rootPath),
+                              !rest.isEmpty else {
                             resolveInsideRoot = false
                             break
                         }
-                        rels.append(String(candidate.path.dropFirst(rootPath.count + 1)))
+                        rels.append(String(rest))
                     }
                     if resolveInsideRoot { candidatePaths = rels }
                 }

@@ -599,17 +599,14 @@ final class ReviewModel: ObservableObject {
         let url = rawURL.standardizedFileURL
         let oldRoot = rawOldRoot.standardizedFileURL
         let newRoot = rawNewRoot.standardizedFileURL
-        let path = url.path
-        let rootPath = oldRoot.path
-        guard path == rootPath || path.hasPrefix(rootPath + "/") else { return nil }
-        let suffix = String(path.dropFirst(rootPath.count))
-        return URL(fileURLWithPath: newRoot.path + suffix).standardizedFileURL
+        guard let rest = PathScope.relative(url.path, under: oldRoot.path) else { return nil }
+        let moved = rest.isEmpty ? newRoot.path : newRoot.path + "/" + rest
+        return URL(fileURLWithPath: moved).standardizedFileURL
     }
 
     nonisolated private static func isURL(_ rawURL: URL, inside rawRoot: URL) -> Bool {
-        let url = rawURL.standardizedFileURL
-        let root = rawRoot.standardizedFileURL
-        return url.path == root.path || url.path.hasPrefix(root.path + "/")
+        PathScope.contains(rawURL.standardizedFileURL.path,
+                           under: rawRoot.standardizedFileURL.path)
     }
 
     nonisolated private static func loadOffMain(_ url: URL) async -> ReviewDocument {

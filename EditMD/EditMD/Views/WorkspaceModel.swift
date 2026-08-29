@@ -189,7 +189,7 @@ final class WorkspaceModel: ObservableObject {
             url = url.deletingLastPathComponent()
         }
         let rootPath = URL(fileURLWithPath: root).standardizedFileURL.path
-        while url.path != rootPath, url.path.hasPrefix(rootPath + "/") {
+        while PathScope.containsStrictly(url.path, under: rootPath) {
             result.insert(url.path)
             url = url.deletingLastPathComponent()
         }
@@ -506,8 +506,8 @@ final class WorkspaceModel: ObservableObject {
     /// tree shows it or it is gone. A pin only holds a row in Open Files, so
     /// it goes with the row.
     private func dropLooseState(under root: String) {
-        pinnedLoosePaths.removeAll { Self.path($0, isInside: root) }
-        looseFiles.removeAll { Self.path($0.standardizedFileURL.path, isInside: root) }
+        pinnedLoosePaths.removeAll { PathScope.contains($0, under: root) }
+        looseFiles.removeAll { PathScope.contains($0.standardizedFileURL.path, under: root) }
     }
 
     func removeWorkspace(_ ws: Workspace) {
@@ -547,7 +547,7 @@ final class WorkspaceModel: ObservableObject {
         if newName == oldURL.lastPathComponent { return oldURL }
 
         let openCount = openDocumentURLs.reduce(into: 0) { count, url in
-            if Self.path(url.standardizedFileURL.path, isInside: oldURL.path) {
+            if PathScope.contains(url.standardizedFileURL.path, under: oldURL.path) {
                 count += 1
             }
         }
@@ -592,11 +592,6 @@ final class WorkspaceModel: ObservableObject {
                                            from: oldRoot.standardizedFileURL.path,
                                            to: newRoot.standardizedFileURL.path))
             .standardizedFileURL
-    }
-
-    nonisolated private static func path(_ path: String, isInside root: String) -> Bool {
-        let prefix = root.hasSuffix("/") ? root : root + "/"
-        return path == root || path.hasPrefix(prefix)
     }
 
     private struct FileMoveState {
@@ -814,7 +809,7 @@ final class WorkspaceModel: ObservableObject {
     func openDocumentCount(inside folder: URL, among openURLs: [URL]) -> Int {
         let root = folder.standardizedFileURL.path
         return openURLs.reduce(into: 0) { count, url in
-            if Self.path(url.standardizedFileURL.path, isInside: root) { count += 1 }
+            if PathScope.contains(url.standardizedFileURL.path, under: root) { count += 1 }
         }
     }
 
@@ -825,22 +820,22 @@ final class WorkspaceModel: ObservableObject {
         let folder = rawFolder.standardizedFileURL
         let root = folder.path
 
-        workspaces.removeAll { Self.path($0.folderPath, isInside: root) }
+        workspaces.removeAll { PathScope.contains($0.folderPath, under: root) }
         rearrange()
         dropLooseState(under: root)
-        expandedFolders = expandedFolders.filter { !Self.path($0, isInside: root) }
-        if let lastActivePath, Self.path(lastActivePath, isInside: root) {
+        expandedFolders = expandedFolders.filter { !PathScope.contains($0, under: root) }
+        if let lastActivePath, PathScope.contains(lastActivePath, under: root) {
             self.lastActivePath = nil
         }
 
         var relocatedFavorites: [String: [String]] = [:]
         for (wsRoot, favoritePaths) in favoritePathsByWorkspace {
-            let kept = favoritePaths.filter { !Self.path($0, isInside: root) }
+            let kept = favoritePaths.filter { !PathScope.contains($0, under: root) }
             if !kept.isEmpty { relocatedFavorites[wsRoot] = kept }
         }
         favoritePathsByWorkspace = relocatedFavorites
         missingFavoritePaths = missingFavoritePaths.filter {
-            !Self.path($0, isInside: root)
+            !PathScope.contains($0, under: root)
         }
         // Folder is off disk, so this drops kept entries inside it — else a
         // trashed kept folder would hold its ancestors visible.
@@ -1132,18 +1127,17 @@ final class WorkspaceModel: ObservableObject {
     func workspaceOwning(_ url: URL) -> Workspace? {
         let path = url.standardizedFileURL.path
         return workspaces
-            .filter { Self.path(path, isInside: $0.folderPath) }
+            .filter { PathScope.contains(path, under: $0.folderPath) }
             .max(by: { $0.folderPath.count < $1.folderPath.count })
     }
 
     /// Path of `url` relative to `ws` root (`note.md`, `sub/a.md`), or nil.
     func relativePath(of url: URL, in ws: Workspace) -> String? {
-        let base = ws.folderPath
-        let path = url.standardizedFileURL.path
-        if path == base { return nil }
-        let prefix = base.hasSuffix("/") ? base : base + "/"
-        guard path.hasPrefix(prefix) else { return nil }
-        return String(path.dropFirst(prefix.count))
+        // nil for the root itself, not "": hide/keepVisible key their sets on
+        // this, and an empty key would name the workspace folder.
+        guard let rest = PathScope.relative(url.standardizedFileURL.path, under: ws.folderPath),
+              !rest.isEmpty else { return nil }
+        return String(rest)
     }
 
     func isHidden(_ url: URL) -> Bool {

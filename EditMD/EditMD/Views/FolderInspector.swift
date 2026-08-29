@@ -513,8 +513,7 @@ struct FolderInspectorPanel: View {
 func folderGraphStats(snapshot: LinkIndexSnapshot,
                       folderPathPrefix: String) -> FolderGraphStats {
     func inFolder(_ url: URL) -> Bool {
-        let p = url.standardizedFileURL.path
-        return p == folderPathPrefix || p.hasPrefix(folderPathPrefix + "/")
+        PathScope.contains(url.standardizedFileURL.path, under: folderPathPrefix)
     }
     var outgoing = 0
     var mdInFolder: [URL] = []

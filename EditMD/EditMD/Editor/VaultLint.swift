@@ -406,11 +406,7 @@ func suggestWikiTarget(raw: String, catalog: WikiRankCatalog) -> URL? {
 
 func urlIsUnderRoots(_ url: URL, roots: [URL]) -> Bool {
     let p = url.standardizedFileURL.path
-    for root in roots {
-        let r = root.standardizedFileURL.path
-        if p == r || p.hasPrefix(r + "/") { return true }
-    }
-    return false
+    return roots.contains { PathScope.contains(p, under: $0.standardizedFileURL.path) }
 }
 
 

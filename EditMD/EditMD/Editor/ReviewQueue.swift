@@ -76,13 +76,8 @@ enum ReviewQueue {
             let parent = url.deletingLastPathComponent()
             let artifactURL = parent.appendingPathComponent(artifactName)
             let full = artifactURL.standardizedFileURL.path
-            guard full.hasPrefix(rootPath + "/") || full == rootPath else { continue }
-            let rel: String
-            if full == rootPath {
-                rel = artifactName
-            } else {
-                rel = String(full.dropFirst(rootPath.count + 1))
-            }
+            guard let rest = PathScope.relative(full, under: rootPath) else { continue }
+            let rel = rest.isEmpty ? artifactName : String(rest)
 
             let kind = kindForArtifact(artifactName)
             let doc = ReviewSidecar.loadOrEmpty(for: artifactURL)

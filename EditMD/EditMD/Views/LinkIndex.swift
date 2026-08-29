@@ -213,8 +213,9 @@ final class LinkIndex: ObservableObject {
             // win over the disk seed.
             var runCache = capturedCache
             if let root = capturedRoots.first {
-                let prefix = root.path + "/"
-                if !runCache.keys.contains(where: { $0.path.hasPrefix(prefix) }) {
+                if !runCache.keys.contains(where: {
+                    PathScope.containsStrictly($0.path, under: root.path)
+                }) {
                     runCache = LinkIndexPersistence.load(root: root)
                         .merging(runCache) { _, live in live }
                 }
@@ -303,9 +304,7 @@ final class LinkIndex: ObservableObject {
                     // (absent = deleted file).
                     let rootPaths = capturedRoots.map(\.path)
                     self.scanCache = self.scanCache.filter { url, _ in
-                        !rootPaths.contains {
-                            url.path == $0 || url.path.hasPrefix($0 + "/")
-                        }
+                        !rootPaths.contains { PathScope.contains(url.path, under: $0) }
                     }.merging(resolvedCache) { _, new in new }
                     self.freshResolveCount += freshResolveTotal
                     // Persist off-main; loose/lite (no roots) never writes,
@@ -380,10 +379,8 @@ final class LinkIndex: ObservableObject {
             }
             let wikiIndex = await WikiLinkResolver.shared.indexedMatches()
 
-            let hasRootMatch = roots.contains { root in
-                let p = url.path
-                let r = root.standardizedFileURL.path
-                return p == r || p.hasPrefix(r + "/")
+            let hasRootMatch = roots.contains {
+                PathScope.contains(url.path, under: $0.standardizedFileURL.path)
             }
             let fallback = hasRootMatch
                 ? nil

@@ -194,9 +194,8 @@ func canonicalFirmlinkPath(_ path: String) -> String {
 
 /// True when `path` lies at or under `root` (both firmlink-canonicalized).
 func pathIsContained(_ path: String, in root: String) -> Bool {
-    let p = canonicalFirmlinkPath(path)
-    let r = canonicalFirmlinkPath(root)
-    return p == r || p.hasPrefix(r + "/")
+    PathScope.contains(canonicalFirmlinkPath(path),
+                       under: canonicalFirmlinkPath(root))
 }
 
 // MARK: - Socket path

@@ -351,6 +351,24 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.workspaceOwning(file)?.folderPath, "/")
     }
 
+    /// A root does not own a sibling whose name merely starts with its own.
+    /// This case already worked; repairing the `/` and trailing-slash corners
+    /// must not lose it. (A trailing-slash root is unreachable from here —
+    /// `Workspace` stores `standardizedFileURL.path` — so `PathScopeTests`
+    /// covers that corner.)
+    func testARootDoesNotOwnASiblingWithASharedPrefix() throws {
+        let vault = try makeFilePath("vault/note.md")
+        let sibling = try makeFilePath("vaultx/note.md")
+        let model = WorkspaceModel(defaults: defaults)
+        model.noteOpened(sibling)
+
+        model.addWorkspace(vault.deletingLastPathComponent())
+
+        XCTAssertNotNil(model.workspaceOwning(vault))
+        XCTAssertNil(model.workspaceOwning(sibling))
+        XCTAssertEqual(names(model.looseFilesToShow), ["note.md"])
+    }
+
     /// The ancestor walk reaches `/` once and terminates there for an absolute
     /// stale path whose other ancestors do not exist.
     func testFolderPickerFallsBackToFilesystemRoot() {

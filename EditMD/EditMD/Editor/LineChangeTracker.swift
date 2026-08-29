@@ -115,9 +115,7 @@ final class LineChangeTracker: ObservableObject {
     /// Trash) — a restored file must re-anchor, not inherit stale marks.
     func forget(under root: URL) {
         let rootPath = root.standardizedFileURL.path
-        let keys = baseline.keys.filter {
-            $0.path == rootPath || $0.path.hasPrefix(rootPath + "/")
-        }
+        let keys = baseline.keys.filter { PathScope.contains($0.path, under: rootPath) }
         guard !keys.isEmpty else { return }
         for key in keys {
             cancelRecompute(key)

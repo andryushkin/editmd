@@ -942,7 +942,7 @@ enum GitWorkspaceStatus {
     nonisolated private static func owningWorkspace(_ url: URL, among workspaces: [URL]) -> URL? {
         let path = url.standardizedFileURL.path
         return workspaces
-            .filter { path == $0.path || path.hasPrefix($0.path + "/") }
+            .filter { PathScope.contains(path, under: $0.path) }
             .max(by: { $0.path.count < $1.path.count })
     }
 

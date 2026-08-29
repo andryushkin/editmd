@@ -148,6 +148,7 @@ targets:
       - path: EditMD/Integration/ControlProtocol.swift
       - path: EditMD/Integration/MCPProtocol.swift
       - path: EditMD/Integration/ControlGraphPayload.swift
+      - path: EditMD/Editor/PathScope.swift
       - path: EditMD/Editor/LinkGraphEngine.swift
       - path: EditMD/Editor/WikiLinkCore.swift
       - path: EditMD/Editor/LinkIndexPersistence.swift
@@ -190,6 +191,7 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - editmd-mcp
+      - path: EditMD/Editor/PathScope.swift
       - path: EditMD/Integration/ControlProtocol.swift
       - path: EditMD/Integration/MCPProtocol.swift
     settings:

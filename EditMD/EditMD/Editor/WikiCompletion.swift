@@ -423,7 +423,7 @@ func wikiRelativePath(for url: URL, roots: [URL]) -> String {
     let path = std.path
     let match = roots
         .map(\.standardizedFileURL)
-        .filter { path == $0.path || path.hasPrefix($0.path + "/") }
+        .filter { PathScope.contains(path, under: $0.path) }
         .max(by: { $0.path.count < $1.path.count })
     if let root = match {
         let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"

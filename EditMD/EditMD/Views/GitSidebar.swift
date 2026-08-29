@@ -718,7 +718,7 @@ struct GitSidebar: View {
                     bufferDirty: bufferDirty
                 ))
             } else if let ws = roots.first(where: {
-                key.path == $0.path || key.path.hasPrefix($0.path + "/")
+                PathScope.contains(key.path, under: $0.path)
             }) {
                 let rel = GitCLI.relativePath(of: key, to: ws)
                 openDirty.append(GitChangedFile(

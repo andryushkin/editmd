@@ -230,9 +230,8 @@ struct PathMutationRouteQueue {
     }
 
     static func isPath(_ url: URL, inside root: URL) -> Bool {
-        let path = url.standardizedFileURL.path
-        let rootPath = root.standardizedFileURL.path
-        return path == rootPath || path.hasPrefix(rootPath + "/")
+        PathScope.contains(url.standardizedFileURL.path,
+                           under: root.standardizedFileURL.path)
     }
 }
 

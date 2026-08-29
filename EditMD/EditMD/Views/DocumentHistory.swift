@@ -75,9 +75,8 @@ final class DocumentHistory: ObservableObject {
         var kept: [Visit] = []
         var keptIndex = -1
         for (position, visit) in entries.enumerated() {
-            let shouldDrop = roots.contains { root in
-                let path = visit.url.standardizedFileURL.path
-                return path == root.path || path.hasPrefix(root.path + "/")
+            let shouldDrop = roots.contains {
+                PathScope.contains(visit.url.standardizedFileURL.path, under: $0.path)
             }
             guard !shouldDrop else { continue }
             kept.append(visit)

@@ -189,8 +189,7 @@ final class SidebarSnapshotStore {
 
     private nonisolated static func relocatedPath(_ path: String, from oldRoot: String,
                                                    to newRoot: String) -> String {
-        if path == oldRoot { return newRoot }
-        guard path.hasPrefix(oldRoot + "/") else { return path }
-        return newRoot + path.dropFirst(oldRoot.count)
+        guard let rest = PathScope.relative(path, under: oldRoot) else { return path }
+        return rest.isEmpty ? newRoot : newRoot + "/" + rest
     }
 }

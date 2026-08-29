@@ -1109,9 +1109,8 @@ final class DocumentRegistry {
     }
 
     nonisolated private static func isPath(_ rawURL: URL, inside rawRoot: URL) -> Bool {
-        let path = rawURL.standardizedFileURL.path
-        let root = rawRoot.standardizedFileURL.path
-        return path == root || path.hasPrefix(root + "/")
+        PathScope.contains(rawURL.standardizedFileURL.path,
+                           under: rawRoot.standardizedFileURL.path)
     }
 
     private func startWatching(_ entry: Entry) {

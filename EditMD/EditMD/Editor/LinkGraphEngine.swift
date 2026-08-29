@@ -133,6 +133,14 @@ enum LinkGraphEngine {
     /// `path` relative to the first root containing it; unchanged otherwise.
     /// Keeps the fingerprint (and the persisted index) portable: moving or
     /// renaming the vault folder must not invalidate per-file entries.
+    ///
+    /// **Deliberately not `PathScope`.** This answer is recorded, so its
+    /// spelling is a contract, not a preference: `dotmd-vault` reproduces it as
+    /// `swift_relative_path` and pins both of its corners — a root spelled with
+    /// a trailing slash and a root of `/` both return the whole path — in
+    /// `the_editors_relativization_is_by_text`. Repairing those corners here
+    /// would move the fingerprint and split the two sides. Change only in
+    /// pairs, with that test.
     static func relativePath(_ path: String, roots: [URL]) -> String {
         for root in roots {
             let r = root.path
@@ -310,10 +318,8 @@ enum LinkGraphEngine {
         wikiIndex: [String: [URL]],
         environment: ResolveEnvironment? = nil
     ) -> (links: [OutgoingLink], cacheable: Bool) {
-        let vault = roots.first { root in
-            let p = source.path
-            let r = root.standardizedFileURL.path
-            return p == r || p.hasPrefix(r + "/")
+        let vault = roots.first {
+            PathScope.contains(source.path, under: $0.standardizedFileURL.path)
         } ?? vaultFallback
         var resolvedLinks: [OutgoingLink] = []
         resolvedLinks.reserveCapacity(links.count)

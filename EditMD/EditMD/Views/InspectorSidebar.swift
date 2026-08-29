@@ -227,11 +227,8 @@ private struct OutgoingLinksPanel: View {
             let roots = WorkspaceModel.shared.workspaces.map(\.url)
             let vault: URL? = {
                 guard let url else { return roots.first }
-                return roots.first {
-                    let p = url.path
-                    let r = $0.path
-                    return p == r || p.hasPrefix(r + "/")
-                } ?? nearestVaultRoot(startingAt: url.deletingLastPathComponent())
+                return roots.first { PathScope.contains(url.path, under: $0.path) }
+                    ?? nearestVaultRoot(startingAt: url.deletingLastPathComponent())
             }()
             if !roots.isEmpty {
                 await WikiLinkResolver.shared.setRoots(roots)
