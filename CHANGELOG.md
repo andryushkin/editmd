@@ -3,6 +3,24 @@
 User-facing changes, newest first. The version scheme and release process are
 described in [docs/releasing.md](docs/releasing.md).
 
+## v0.48.0 - 2026-08-29
+
+### New Features
+
+- A file opened from outside any folder can hand you its own folder: the
+  Open Files row offers to adopt it as a workspace, and the usual folder
+  chooser opens there. It opens there rather than adopting it outright
+  because the folder a file sits in is often a leaf, and the one worth
+  opening is a level or two above it — now you start at the path you were
+  already looking at instead of walking back to it.
+
+### Bug Fixes
+
+- Adopting a folder above the file finally takes the file out of Open Files.
+  The row only left when the chosen folder was the file's own, so the case
+  the chooser exists for left the file listed twice — once loose, once in the
+  tree. A pinned row never left at all, and came back after a relaunch.
+
 ## v0.47.16 - 2026-08-02
 
 ### Improvements

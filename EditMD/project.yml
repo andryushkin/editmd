@@ -17,8 +17,8 @@ settings:
     # products carry it now — the app, the control CLI, and the MCP proxy —
     # and a version that is written down once cannot disagree with itself.
     # `scripts/dist.sh` and the release skill both read this line by name.
-    MARKETING_VERSION: "0.47.16"
-    CURRENT_PROJECT_VERSION: "431"
+    MARKETING_VERSION: "0.48.0"
+    CURRENT_PROJECT_VERSION: "432"
     DEAD_CODE_STRIPPING: YES
     ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
     CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
