@@ -1,0 +1,11 @@
+# Which identities may appear in a push.
+#
+# Read by scripts/check-authorship.sh, whose header carries the rationale
+# and the ceiling — including why this is a list and not a comparison
+# against git config, and why it has no exception mechanism.
+#
+# TAB-separated; '#' and blank lines are ignored.
+#
+#     allow<TAB>address
+
+allow	andryushkin@gmail.com

@@ -748,6 +748,34 @@ fi
 if [ -z "$r16" ]; then pass "min-macos-promises-agree"
 else fail "min-macos-promises-agree" $r16; fi
 
+# 17. Every commit the push would publish is authored by an address we meant
+#     to publish under.
+#
+#     THE GAP THIS CLOSES IS SHAPED LIKE THE OTHER SIXTEEN CHECKS. All of them
+#     read what a commit CONTAINS — its patch, its message, the files it
+#     leaves behind. A commit's author is a header: published with the commit,
+#     and invisible to every diff-shaped guard here. Measured, not supposed —
+#     a local identity set by hand signed twelve commits on 28–29 Aug 2026 and
+#     this audit printed 16/16 the whole time. A person caught it.
+#
+#     WHY THE WORK IS IN A SCRIPT and not inline: the same reason as check 12.
+#     It needs the outgoing range, a list it can refuse to run without, and
+#     exit codes that separate "clean" from "did not run" — and a guard that
+#     did not run must never look like a clean tree.
+#
+#     WHAT IT DOES NOT PROVE is in the script's own header, where it belongs:
+#     author and not committer, addresses and not names, and only the range
+#     that has not been published yet.
+auth_out=$(scripts/check-authorship.sh 2>&1)
+auth_st=$?
+case "$auth_st" in
+    0) pass "commit-authors-allowed" ;;
+    1) fail "commit-authors-allowed" "an identity we did not mean to publish under:"
+       printf '%s\n' "$auth_out" | sed 's/^/      /' ;;
+    *) fail "commit-authors-allowed" "the check did not run (exit $auth_st):"
+       printf '%s\n' "$auth_out" | sed 's/^/      /' ;;
+esac
+
 echo
 if [ "$fails" -eq 0 ]; then
     echo "AUDIT: all mechanical checks passed."
