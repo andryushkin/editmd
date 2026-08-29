@@ -34,6 +34,14 @@ final class WorkspaceModelTests: XCTestCase {
 
     private func names(_ urls: [URL]) -> [String] { urls.map(\.lastPathComponent) }
 
+    /// Parent folders on disk, no file written — nothing below reads content.
+    private func makeFilePath(_ relativePath: String) throws -> URL {
+        let file = dir.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return file.standardizedFileURL
+    }
+
     func testScanFiltersToMarkdownAndSorts() {
         let model = WorkspaceModel(defaults: defaults)
         model.addWorkspace(dir)
@@ -275,13 +283,17 @@ final class WorkspaceModelTests: XCTestCase {
     /// "Add the Folder Containing This File…" seeds the picker with the folder
     /// the loose row already shows.
     func testFolderPickerStartsAtTheFilesOwnFolder() throws {
-        let leaf = dir.appendingPathComponent("topics/steps")
-        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
-        let file = leaf.appendingPathComponent("note.md")
-        try "n".write(to: file, atomically: true, encoding: .utf8)
-
+        let file = try makeFilePath("topics/steps/note.md")
         XCTAssertEqual(WorkspaceModel.folderPickerStart(containing: file),
-                       leaf.standardizedFileURL)
+                       file.deletingLastPathComponent())
+    }
+
+    /// A package is a document, not a folder to open a workspace at, so the
+    /// walk steps over it to the folder that holds it.
+    func testFolderPickerSkipsAPackage() throws {
+        let file = dir.appendingPathComponent("sub.textbundle/text.md")
+        XCTAssertEqual(WorkspaceModel.folderPickerStart(containing: file),
+                       dir.standardizedFileURL)
     }
 
     /// A pinned loose row outlives the folder it names; the panel then opens at
@@ -295,11 +307,7 @@ final class WorkspaceModelTests: XCTestCase {
     /// The point of the panel: the adopted root is usually an ancestor of the
     /// file's own folder, and the row must still leave Open Files.
     func testAdoptingAnAncestorEndsLooseStatusAtAnyDepth() throws {
-        let leaf = dir.appendingPathComponent("topics/steps")
-        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
-        let file = leaf.appendingPathComponent("note.md")
-        try "n".write(to: file, atomically: true, encoding: .utf8)
-
+        let file = try makeFilePath("topics/steps/note.md")
         let model = WorkspaceModel(defaults: defaults)
         model.noteOpened(file)
         model.noteActive(file)
@@ -316,11 +324,7 @@ final class WorkspaceModelTests: XCTestCase {
     /// A pin only holds a file in Open Files; under a root the tree shows it,
     /// so adoption must drop the pin as well as the session entry.
     func testAdoptingAnAncestorClearsAPinnedLooseRow() throws {
-        let leaf = dir.appendingPathComponent("topics")
-        try FileManager.default.createDirectory(at: leaf, withIntermediateDirectories: true)
-        let file = leaf.appendingPathComponent("spec.md")
-        try "s".write(to: file, atomically: true, encoding: .utf8)
-
+        let file = try makeFilePath("topics/spec.md")
         let model = WorkspaceModel(defaults: defaults)
         model.pin(file)
         XCTAssertEqual(names(model.looseFilesToShow), ["spec.md"])
