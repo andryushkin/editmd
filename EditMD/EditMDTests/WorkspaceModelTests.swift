@@ -334,6 +334,26 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertTrue(relaunched.looseFilesToShow.isEmpty)
     }
 
+    /// `/` has no extra separator before descendants. The shared containment
+    /// predicate must still make a root workspace own and hide every loose row.
+    func testAdoptingFilesystemRootHidesDescendantLooseRows() {
+        let file = dir.appendingPathComponent("a.md").standardizedFileURL
+        let model = WorkspaceModel(defaults: defaults)
+        model.noteOpened(file)
+
+        model.addWorkspace(URL(fileURLWithPath: "/", isDirectory: true))
+
+        XCTAssertTrue(model.looseFilesToShow.isEmpty)
+        XCTAssertEqual(model.workspaceOwning(file)?.folderPath, "/")
+    }
+
+    /// The ancestor walk reaches `/` once and terminates there for an absolute
+    /// stale path whose other ancestors do not exist.
+    func testFolderPickerFallsBackToFilesystemRoot() {
+        let missing = URL(fileURLWithPath: "/editmd-missing-\(UUID().uuidString)/note.md")
+        XCTAssertEqual(WorkspaceModel.folderPickerStart(containing: missing)?.path, "/")
+    }
+
     // MARK: - Frontmatter tags
 
     func testFrontmatterTagsFlowList() {

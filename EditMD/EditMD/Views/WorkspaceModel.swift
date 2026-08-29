@@ -590,7 +590,8 @@ final class WorkspaceModel: ObservableObject {
     }
 
     nonisolated private static func path(_ path: String, isInside root: String) -> Bool {
-        path == root || path.hasPrefix(root + "/")
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        return path == root || path.hasPrefix(prefix)
     }
 
     private struct FileMoveState {
@@ -990,7 +991,15 @@ final class WorkspaceModel: ObservableObject {
     /// outright because the parent of a loose file is often a leaf, while the
     /// folder worth opening is a level or two above it.
     func promptAddFolder(containing file: URL) {
-        promptAddFolder(startingAt: Self.folderPickerStart(containing: file))
+        Task {
+            // A stale pin may live on a slow or disconnected volume. Find its
+            // surviving ancestor without blocking the main actor, then present
+            // the normal AppKit panel back on the main actor.
+            let directory = await Task.detached(priority: .userInitiated) {
+                Self.folderPickerStart(containing: file)
+            }.value
+            promptAddFolder(startingAt: directory)
+        }
     }
 
     /// Nearest existing ancestor directory of `file` — normally the folder its
@@ -1133,7 +1142,7 @@ final class WorkspaceModel: ObservableObject {
     func workspaceOwning(_ url: URL) -> Workspace? {
         let path = url.standardizedFileURL.path
         return workspaces
-            .filter { path == $0.folderPath || path.hasPrefix($0.folderPath + "/") }
+            .filter { Self.path(path, isInside: $0.folderPath) }
             .max(by: { $0.folderPath.count < $1.folderPath.count })
     }
 
